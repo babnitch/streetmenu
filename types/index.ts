@@ -3,12 +3,14 @@ export interface Restaurant {
   name: string
   description: string
   address: string
+  city: string
   lat: number
   lng: number
   phone: string
   whatsapp: string
   logo_url: string
   is_open: boolean
+  is_active: boolean
   created_at: string
 }
 
@@ -34,6 +36,8 @@ export interface Order {
   total_price: number
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed'
   created_at: string
+  // joined field from foreign key
+  restaurants?: { name: string; city: string }
 }
 
 export interface CartItem {

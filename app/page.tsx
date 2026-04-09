@@ -20,7 +20,7 @@ export default function HomePage() {
 
   useEffect(() => {
     async function fetchRestaurants() {
-      const { data } = await supabase.from('restaurants').select('*')
+      const { data } = await supabase.from('restaurants').select('*').eq('is_active', true)
       if (data) setRestaurants(data)
       setLoading(false)
     }
