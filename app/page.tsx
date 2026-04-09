@@ -1,14 +1,16 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useState, useEffect, useCallback } from 'react'
-import dynamic from 'next/dynamic'
+import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { Restaurant } from '@/types'
 import RestaurantSidebar from '@/components/RestaurantSidebar'
 import { useCart } from '@/lib/cartContext'
 
-const Map = dynamic(() => import('@/components/Map'), { ssr: false })
+const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
 export default function HomePage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
