@@ -7,28 +7,37 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem, Order } from '@/types'
+import { useLanguage } from '@/lib/languageContext'
+import LanguageToggle from '@/components/LanguageToggle'
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-700',
+  pending:   'bg-yellow-100 text-yellow-700',
   confirmed: 'bg-blue-100 text-blue-700',
   preparing: 'bg-orange-100 text-orange-700',
-  ready: 'bg-green-100 text-green-700',
+  ready:     'bg-green-100 text-green-700',
   completed: 'bg-gray-100 text-gray-600',
 }
 
 const STATUS_NEXT: Record<string, string> = {
-  pending: 'confirmed',
+  pending:   'confirmed',
   confirmed: 'preparing',
   preparing: 'ready',
-  ready: 'completed',
+  ready:     'completed',
 }
 
 export default function DashboardPage() {
+  const { t } = useLanguage()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [tab, setTab] = useState<'orders' | 'menu'>('orders')
+  const [tab, setTab] = useState<'orders' | 'menu' | 'validate'>('orders')
+  const [validateInput, setValidateInput] = useState('')
+  const [validating, setValidating] = useState(false)
+  const [validateResult, setValidateResult] = useState<null | 'ok' | 'used' | 'invalid'>(null)
+  const [validateDetails, setValidateDetails] = useState<{ code: string; discount: string; cvId: string } | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [validateDone, setValidateDone] = useState(false)
   const [showItemForm, setShowItemForm] = useState(false)
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -100,7 +109,7 @@ export default function DashboardPage() {
   }
 
   async function deleteItem(id: string) {
-    if (!confirm('Delete this item?')) return
+    if (!confirm(t('dash.deleteConfirm'))) return
     await supabase.from('menu_items').delete().eq('id', id)
     setMenuItems(prev => prev.filter(m => m.id !== id))
   }
@@ -110,9 +119,9 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-orange-50 flex items-center justify-center px-4">
         <div className="text-center">
           <div className="text-5xl mb-4">🏪</div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">No restaurants yet</h2>
-          <p className="text-gray-500 mb-4">Add restaurants through Supabase to get started</p>
-          <Link href="/" className="text-orange-500 underline">Back to map</Link>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">{t('dash.noRest')}</h2>
+          <p className="text-gray-500 mb-4">{t('dash.noRestSub')}</p>
+          <Link href="/" className="text-orange-500 underline">{t('dash.backToMap')}</Link>
         </div>
       </div>
     )
@@ -123,21 +132,25 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="bg-white shadow-sm px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/" className="text-gray-500 hover:text-orange-500 transition-colors text-sm">← Map</Link>
-          <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+          <Link href="/" className="text-gray-500 hover:text-orange-500 transition-colors text-sm">
+            {t('dash.mapLink')}
+          </Link>
+          <h1 className="text-lg font-bold text-gray-900">{t('dash.title')}</h1>
         </div>
-        {/* Restaurant selector */}
-        {restaurants.length > 1 && (
-          <select
-            value={selectedRestaurant?.id}
-            onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-1.5 outline-none focus:border-orange-400"
-          >
-            {restaurants.map(r => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-        )}
+        <div className="flex items-center gap-3">
+          {restaurants.length > 1 && (
+            <select
+              value={selectedRestaurant?.id}
+              onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-1.5 outline-none focus:border-orange-400"
+            >
+              {restaurants.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          )}
+          <LanguageToggle />
+        </div>
       </div>
 
       {selectedRestaurant && (
@@ -156,19 +169,20 @@ export default function DashboardPage() {
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              {selectedRestaurant.is_open ? '🟢 Open' : '🔴 Closed'}
+              {selectedRestaurant.is_open ? t('dash.openBtn') : t('dash.closedBtn')}
             </button>
           </div>
 
           {/* Tabs */}
-          <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-4">
+          <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-4 gap-0.5">
             <button
               onClick={() => setTab('orders')}
               className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 tab === 'orders' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Orders {orders.filter(o => o.status !== 'completed').length > 0 && (
+              {t('dash.ordersTab')}{' '}
+              {orders.filter(o => o.status !== 'completed').length > 0 && (
                 <span className="ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
                   {orders.filter(o => o.status !== 'completed').length}
                 </span>
@@ -180,7 +194,15 @@ export default function DashboardPage() {
                 tab === 'menu' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Menu
+              {t('dash.menuTab')}
+            </button>
+            <button
+              onClick={() => { setTab('validate'); setValidateResult(null); setValidateDetails(null); setValidateDone(false); setValidateInput('') }}
+              className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                tab === 'validate' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              🏷️
             </button>
           </div>
 
@@ -190,7 +212,7 @@ export default function DashboardPage() {
               {orders.length === 0 && (
                 <div className="text-center py-12 text-gray-400">
                   <div className="text-4xl mb-3">📋</div>
-                  <p>No orders yet</p>
+                  <p>{t('dash.noOrders')}</p>
                 </div>
               )}
               {orders.map(order => (
@@ -201,7 +223,7 @@ export default function DashboardPage() {
                       <p className="text-sm text-gray-500">{order.customer_phone}</p>
                     </div>
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLORS[order.status]}`}>
-                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                      {t(`status.${order.status}` as Parameters<typeof t>[0])}
                     </span>
                   </div>
                   <div className="text-sm text-gray-600 mb-3">
@@ -212,19 +234,132 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-orange-500">CHF {Number(order.total_price).toFixed(2)}</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="text-xs text-gray-400">
+                        {new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                       {STATUS_NEXT[order.status] && (
                         <button
                           onClick={() => updateOrderStatus(order.id, STATUS_NEXT[order.status])}
                           className="bg-orange-500 text-white text-xs px-3 py-1.5 rounded-full font-semibold hover:bg-orange-600 transition-colors"
                         >
-                          → {STATUS_NEXT[order.status].charAt(0).toUpperCase() + STATUS_NEXT[order.status].slice(1)}
+                          → {t(`status.${STATUS_NEXT[order.status]}` as Parameters<typeof t>[0])}
                         </button>
                       )}
                     </div>
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Validate Tab */}
+          {tab === 'validate' && (
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h3 className="font-bold text-gray-900 mb-4">{t('dash.validateTitle')}</h3>
+              <div className="flex gap-2 mb-4">
+                <input
+                  type="text"
+                  value={validateInput}
+                  onChange={e => { setValidateInput(e.target.value); setValidateResult(null); setValidateDetails(null); setValidateDone(false) }}
+                  placeholder={t('dash.validateInputPh')}
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                />
+                <button
+                  onClick={async () => {
+                    const input = validateInput.trim()
+                    if (!input) return
+                    setValidating(true)
+                    setValidateResult(null)
+                    setValidateDetails(null)
+                    setValidateDone(false)
+
+                    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)
+                    if (isUuid) {
+                      const { data } = await supabase
+                        .from('customer_vouchers')
+                        .select('*, vouchers(*)')
+                        .eq('id', input)
+                        .maybeSingle()
+                      if (!data) { setValidateResult('invalid') }
+                      else if (data.used_at) { setValidateResult('used') }
+                      else {
+                        const v = data.vouchers
+                        setValidateResult('ok')
+                        setValidateDetails({
+                          code: v?.code ?? '',
+                          discount: v?.discount_type === 'percent' ? `-${v.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
+                          cvId: data.id,
+                        })
+                      }
+                    } else {
+                      const { data } = await supabase
+                        .from('customer_vouchers')
+                        .select('*, vouchers(*)')
+                        .eq('vouchers.code', input.toUpperCase())
+                        .is('used_at', null)
+                        .order('claimed_at', { ascending: false })
+                        .limit(1)
+                        .maybeSingle()
+                      if (!data || !data.vouchers) { setValidateResult('invalid') }
+                      else {
+                        const v = data.vouchers
+                        setValidateResult('ok')
+                        setValidateDetails({
+                          code: v?.code ?? '',
+                          discount: v?.discount_type === 'percent' ? `-${v.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
+                          cvId: data.id,
+                        })
+                      }
+                    }
+                    setValidating(false)
+                  }}
+                  disabled={validating || !validateInput.trim()}
+                  className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+                >
+                  {validating ? t('dash.validating') : t('dash.validateBtn')}
+                </button>
+              </div>
+
+              {validateResult === 'invalid' && (
+                <div className="bg-red-50 rounded-xl p-4 text-center">
+                  <p className="text-red-600 font-semibold">❌ {t('dash.validateInvalid')}</p>
+                </div>
+              )}
+              {validateResult === 'used' && (
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <p className="text-gray-500 font-semibold">⚠️ {t('dash.validateUsed')}</p>
+                </div>
+              )}
+              {validateResult === 'ok' && validateDetails && !validateDone && (
+                <div className="bg-green-50 rounded-xl p-4">
+                  <p className="text-green-700 font-bold text-lg mb-1">✓ {t('dash.validateOk')}</p>
+                  <p className="text-sm text-green-600 mb-1">Code: <strong>{validateDetails.code}</strong></p>
+                  <p className="text-sm text-green-600 mb-4">{t('dash.validateDiscount')}: <strong>{validateDetails.discount}</strong></p>
+                  <button
+                    onClick={async () => {
+                      setConfirming(true)
+                      await supabase.from('customer_vouchers').update({ used_at: new Date().toISOString() }).eq('id', validateDetails.cvId)
+                      const { data: cv } = await supabase.from('customer_vouchers').select('voucher_id').eq('id', validateDetails.cvId).single()
+                      if (cv) {
+                        const { data: vData } = await supabase.from('vouchers').select('uses_count').eq('id', cv.voucher_id).single()
+                        if (vData) await supabase.from('vouchers').update({ uses_count: (vData.uses_count ?? 0) + 1 }).eq('id', cv.voucher_id)
+                      }
+                      setConfirming(false)
+                      setValidateDone(true)
+                      setValidateResult(null)
+                    }}
+                    disabled={confirming}
+                    className="w-full bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                  >
+                    {confirming ? t('dash.validateConfirming') : t('dash.validateConfirm')}
+                  </button>
+                </div>
+              )}
+              {validateDone && (
+                <div className="bg-green-50 rounded-xl p-4 text-center">
+                  <p className="text-green-600 font-bold">✅ {t('dash.validateDone')}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -235,7 +370,7 @@ export default function DashboardPage() {
                 onClick={() => { setEditingItem(null); setShowItemForm(true) }}
                 className="w-full bg-orange-500 text-white py-3 rounded-2xl font-semibold mb-4 hover:bg-orange-600 transition-colors"
               >
-                + Add Menu Item
+                {t('dash.addItem')}
               </button>
 
               {showItemForm && (
@@ -253,7 +388,7 @@ export default function DashboardPage() {
                 {menuItems.length === 0 && !showItemForm && (
                   <div className="text-center py-12 text-gray-400">
                     <div className="text-4xl mb-3">🍽️</div>
-                    <p>No menu items yet</p>
+                    <p>{t('dash.noItems')}</p>
                   </div>
                 )}
                 {menuItems.map(item => (
@@ -268,7 +403,11 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-gray-900 text-sm truncate">{item.name}</p>
-                        {item.is_daily_special && <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">Special</span>}
+                        {item.is_daily_special && (
+                          <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">
+                            {t('dash.itemSpecial')}
+                          </span>
+                        )}
                       </div>
                       <p className="text-orange-500 text-sm font-semibold">CHF {item.price.toFixed(2)}</p>
                       <p className="text-xs text-gray-400">{item.category}</p>
@@ -280,21 +419,21 @@ export default function DashboardPage() {
                           item.is_available ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'
                         }`}
                       >
-                        {item.is_available ? 'Available' : 'Hidden'}
+                        {item.is_available ? t('dash.available') : t('dash.hidden')}
                       </button>
                       <div className="flex gap-1">
                         <button
                           onClick={() => { setEditingItem(item); setShowItemForm(true) }}
                           className="text-xs text-blue-500 hover:text-blue-700"
                         >
-                          Edit
+                          {t('dash.edit')}
                         </button>
                         <span className="text-gray-300">·</span>
                         <button
                           onClick={() => deleteItem(item.id)}
                           className="text-xs text-red-400 hover:text-red-600"
                         >
-                          Delete
+                          {t('dash.delete')}
                         </button>
                       </div>
                     </div>
@@ -324,6 +463,7 @@ function MenuItemForm({
   uploading: boolean
   setUploading: (v: boolean) => void
 }) {
+  const { t } = useLanguage()
   const [name, setName] = useState(item?.name ?? '')
   const [description, setDescription] = useState(item?.description ?? '')
   const [price, setPrice] = useState(item?.price?.toString() ?? '')
@@ -371,19 +511,19 @@ function MenuItemForm({
   return (
     <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-bold text-gray-900">{item ? 'Edit Item' : 'New Item'}</h3>
+        <h3 className="font-bold text-gray-900">{item ? t('dash.editItem') : t('dash.newItem')}</h3>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
       </div>
 
       <div className="space-y-3">
         <input
-          placeholder="Item name *"
+          placeholder={t('dash.itemNamePh')}
           value={name}
           onChange={e => setName(e.target.value)}
           className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
         />
         <textarea
-          placeholder="Description"
+          placeholder={t('dash.itemDescPh')}
           value={description}
           onChange={e => setDescription(e.target.value)}
           rows={2}
@@ -391,7 +531,7 @@ function MenuItemForm({
         />
         <div className="flex gap-2">
           <input
-            placeholder="Price (CHF) *"
+            placeholder={t('dash.itemPricePh')}
             type="number"
             step="0.50"
             value={price}
@@ -399,18 +539,17 @@ function MenuItemForm({
             className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
           />
           <input
-            placeholder="Category"
+            placeholder={t('dash.itemCatPh')}
             value={category}
             onChange={e => setCategory(e.target.value)}
             className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
           />
         </div>
 
-        {/* Photo upload */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Photo</label>
+          <label className="block text-xs text-gray-500 mb-1">{t('dash.photoLbl')}</label>
           <input type="file" accept="image/*" onChange={handlePhotoUpload} className="text-xs text-gray-600" />
-          {uploading && <p className="text-xs text-orange-500 mt-1">Uploading...</p>}
+          {uploading && <p className="text-xs text-orange-500 mt-1">{t('dash.uploading')}</p>}
           {photoUrl && !uploading && (
             <div className="relative w-20 h-20 rounded-xl overflow-hidden mt-2">
               <Image src={photoUrl} alt="preview" fill className="object-cover" />
@@ -421,11 +560,11 @@ function MenuItemForm({
         <div className="flex gap-4">
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={isAvailable} onChange={e => setIsAvailable(e.target.checked)} className="accent-orange-500" />
-            Available
+            {t('dash.itemAvail')}
           </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={isSpecial} onChange={e => setIsSpecial(e.target.checked)} className="accent-orange-500" />
-            Daily Special
+            {t('dash.itemSpecial')}
           </label>
         </div>
 
@@ -434,7 +573,7 @@ function MenuItemForm({
           disabled={saving || !name || !price || uploading}
           className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
-          {saving ? 'Saving...' : item ? 'Save Changes' : 'Add Item'}
+          {saving ? t('dash.saving') : item ? t('dash.save') : t('dash.addItemBtn')}
         </button>
       </div>
     </div>

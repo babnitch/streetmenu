@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Order, Restaurant } from '@/types'
+import { useLanguage } from '@/lib/languageContext'
 
 const STATUS_STYLES: Record<string, string> = {
   pending:   'bg-yellow-100 text-yellow-700',
@@ -17,11 +18,11 @@ const STATUS_STYLES: Record<string, string> = {
 type OrderWithRestaurant = Order & { restaurants: { name: string; city: string } | null }
 
 export default function AdminOrdersPage() {
+  const { t } = useLanguage()
   const [orders, setOrders] = useState<OrderWithRestaurant[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Filters
   const [restaurantFilter, setRestaurantFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
@@ -54,32 +55,23 @@ export default function AdminOrdersPage() {
     fetchOrders()
   }, [fetchOrders])
 
-  const totalRevenue = orders
-    .filter(o => o.status !== 'completed' || true) // all orders
-    .reduce((sum, o) => sum + Number(o.total_price), 0)
-
+  const totalRevenue = orders.reduce((sum, o) => sum + Number(o.total_price), 0)
   const pendingCount = orders.filter(o => o.status === 'pending').length
 
   return (
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
-        <p className="text-sm text-gray-500 mt-0.5">All orders across all restaurants</p>
+        <h1 className="text-2xl font-bold text-gray-900">{t('admin.ordTitle')}</h1>
+        <p className="text-sm text-gray-500 mt-0.5">{t('admin.ordSub')}</p>
       </div>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <StatCard label="Total Orders" value={orders.length.toString()} />
-        <StatCard label="Pending" value={pendingCount.toString()} highlight={pendingCount > 0} />
-        <StatCard
-          label="Revenue"
-          value={`CHF ${totalRevenue.toFixed(2)}`}
-        />
-        <StatCard
-          label="Restaurants"
-          value={new Set(orders.map(o => o.restaurant_id)).size.toString()}
-        />
+        <StatCard label={t('admin.ordTotal')} value={orders.length.toString()} />
+        <StatCard label={t('admin.ordPending')} value={pendingCount.toString()} highlight={pendingCount > 0} />
+        <StatCard label={t('admin.ordRevenue')} value={`CHF ${totalRevenue.toFixed(2)}`} />
+        <StatCard label={t('admin.ordRests')} value={new Set(orders.map(o => o.restaurant_id)).size.toString()} />
       </div>
 
       {/* Filters */}
@@ -91,7 +83,7 @@ export default function AdminOrdersPage() {
             onChange={e => setRestaurantFilter(e.target.value)}
             className={SELECT}
           >
-            <option value="all">All restaurants</option>
+            <option value="all">{t('admin.ordAllRests')}</option>
             {restaurants.map(r => (
               <option key={r.id} value={r.id}>{r.name} {r.city ? `(${r.city})` : ''}</option>
             ))}
@@ -100,18 +92,18 @@ export default function AdminOrdersPage() {
         <div>
           <label className="block text-xs text-gray-500 mb-1">Status</label>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={SELECT}>
-            <option value="all">All statuses</option>
-            {['pending','confirmed','preparing','ready','completed'].map(s => (
-              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+            <option value="all">{t('admin.ordAllStatus')}</option>
+            {(['pending','confirmed','preparing','ready','completed'] as const).map(s => (
+              <option key={s} value={s}>{t(`status.${s}`)}</option>
             ))}
           </select>
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">From date</label>
+          <label className="block text-xs text-gray-500 mb-1">{t('admin.ordFromDate')}</label>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={SELECT} />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">To date</label>
+          <label className="block text-xs text-gray-500 mb-1">{t('admin.ordToDate')}</label>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={SELECT} />
         </div>
       </div>
@@ -120,23 +112,22 @@ export default function AdminOrdersPage() {
       {loading ? (
         <div className="text-center py-16 text-gray-400">
           <div className="text-4xl mb-3 animate-bounce">🍜</div>
-          <p>Loading orders…</p>
+          <p>{t('admin.ordLoading')}</p>
         </div>
       ) : orders.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <div className="text-4xl mb-3">📋</div>
-          <p>No orders found</p>
+          <p>{t('admin.ordNone')}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-          {/* Desktop header */}
           <div className="hidden lg:grid grid-cols-[1.5fr_1.2fr_1fr_2fr_0.8fr_1fr] gap-4 px-5 py-3 border-b border-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            <span>Restaurant</span>
-            <span>Customer</span>
-            <span>Phone</span>
-            <span>Items</span>
-            <span>Total</span>
-            <span>Status / Time</span>
+            <span>{t('admin.ordColRest')}</span>
+            <span>{t('admin.ordColCustomer')}</span>
+            <span>{t('admin.ordColPhone')}</span>
+            <span>{t('admin.ordColItems')}</span>
+            <span>{t('admin.ordColTotal')}</span>
+            <span>{t('admin.ordColStatus')}</span>
           </div>
 
           {orders.map((order, idx) => (
@@ -152,7 +143,7 @@ export default function AdminOrdersPage() {
                     <p className="text-xs text-gray-400">{order.restaurants?.city}</p>
                   </div>
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[order.status]}`}>
-                    {order.status}
+                    {t(`status.${order.status}` as Parameters<typeof t>[0])}
                   </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
@@ -180,7 +171,7 @@ export default function AdminOrdersPage() {
                 <p className="font-bold text-orange-500 text-sm">CHF {Number(order.total_price).toFixed(2)}</p>
                 <div>
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[order.status]}`}>
-                    {order.status}
+                    {t(`status.${order.status}` as Parameters<typeof t>[0])}
                   </span>
                   <p className="text-xs text-gray-400 mt-1">{formatDate(order.created_at)}</p>
                 </div>
@@ -200,8 +191,8 @@ function formatItems(items: Order['items']): string {
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
-    ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 const SELECT = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white'

@@ -13,6 +13,7 @@
     "@types/mapbox-gl": "^3.4.1",
     "mapbox-gl": "^3.21.0",
     "next": "14.2.35",
+    "qrcode.react": "^4.2.0",
     "react": "^18",
     "react-dom": "^18",
     "react-map-gl": "^8.1.0"

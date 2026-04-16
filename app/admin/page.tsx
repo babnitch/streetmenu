@@ -4,12 +4,15 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useLanguage } from '@/lib/languageContext'
+import LanguageToggle from '@/components/LanguageToggle'
 
 export default function AdminLoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const { t } = useLanguage()
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken')
@@ -41,11 +44,18 @@ export default function AdminLoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-100 flex items-center justify-center px-4">
+      {/* Language toggle top-right */}
+      <div className="absolute top-4 right-4">
+        <LanguageToggle />
+      </div>
+
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="text-5xl mb-3">🍜</div>
-          <h1 className="text-2xl font-bold text-gray-900">StreetMenu</h1>
-          <p className="text-sm text-gray-500 mt-1">Admin Panel</p>
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <span className="bg-orange-500 text-white font-black text-xl px-2.5 py-1.5 rounded-xl tracking-tight leading-none">NT</span>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">Ndjoka &amp; Tchop</h1>
+          <p className="text-sm text-gray-500 mt-1">{t('admin.panel')}</p>
         </div>
 
         <form
@@ -53,13 +63,13 @@ export default function AdminLoginPage() {
           className="bg-white rounded-3xl shadow-xl shadow-orange-100 p-8"
         >
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Admin Password
+            {t('admin.passwordLbl')}
           </label>
           <input
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            placeholder="Enter password"
+            placeholder={t('admin.passwordPh')}
             required
             autoFocus
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition mb-4"
@@ -74,7 +84,7 @@ export default function AdminLoginPage() {
             disabled={loading || !password}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3 rounded-xl font-semibold transition-colors"
           >
-            {loading ? 'Checking…' : 'Enter Admin'}
+            {loading ? t('admin.checking') : t('admin.enterBtn')}
           </button>
         </form>
       </div>

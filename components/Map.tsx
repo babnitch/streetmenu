@@ -9,12 +9,24 @@ interface MapProps {
   restaurants: Restaurant[]
   onSelectRestaurant: (restaurant: Restaurant) => void
   selectedId: string | null
+  center?: [number, number] // [lng, lat] — Mapbox order
+  zoom?: number
 }
 
-export default function Map({ restaurants, onSelectRestaurant, selectedId }: MapProps) {
+export default function Map({ restaurants, onSelectRestaurant, selectedId, center, zoom = 13 }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<{ [key: string]: mapboxgl.Marker }>({})
+  const initialCenter = center ?? [8.5417, 47.3769]
+
+  useEffect(() => {
+    if (center && mapRef.current) {
+      const fly = () => mapRef.current?.flyTo({ center, zoom, duration: 800 })
+      if (mapRef.current.isStyleLoaded()) fly()
+      else mapRef.current.once('load', fly)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [center?.[0], center?.[1]])
 
   useEffect(() => {
     if (!mapContainer.current) return
@@ -24,8 +36,8 @@ export default function Map({ restaurants, onSelectRestaurant, selectedId }: Map
     const map = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center: [8.5417, 47.3769], // Zurich
-      zoom: 13,
+      center: initialCenter as [number, number],
+      zoom,
     })
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right')
@@ -37,6 +49,7 @@ export default function Map({ restaurants, onSelectRestaurant, selectedId }: Map
       Object.values(markersRef.current).forEach(m => m.remove())
       map.remove()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

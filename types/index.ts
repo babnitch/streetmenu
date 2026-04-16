@@ -12,6 +12,10 @@ export interface Restaurant {
   is_open: boolean
   is_active: boolean
   created_at: string
+  // Vendor signup fields (added via supabase-vendor-signup.sql)
+  owner_name?: string
+  neighborhood?: string
+  cuisine_type?: string
 }
 
 export interface MenuItem {
@@ -36,8 +40,34 @@ export interface Order {
   total_price: number
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed'
   created_at: string
-  // joined field from foreign key
+  // optional extended fields
+  customer_id?: string
+  voucher_code?: string
+  discount_amount?: number
   restaurants?: { name: string; city: string }
+}
+
+export interface Voucher {
+  id: string
+  code: string
+  discount_type: 'percent' | 'fixed'
+  discount_value: number
+  min_order: number
+  max_uses: number | null
+  uses_count: number
+  expires_at: string | null
+  is_active: boolean
+  city: string | null
+  created_at: string
+}
+
+export interface CustomerVoucher {
+  id: string
+  customer_id: string
+  voucher_id: string
+  claimed_at: string
+  used_at: string | null
+  vouchers?: Voucher
 }
 
 export interface CartItem {
@@ -46,4 +76,22 @@ export interface CartItem {
   price: number
   quantity: number
   photo_url?: string
+}
+
+export interface Event {
+  id: string
+  title: string
+  description: string
+  date: string
+  time: string
+  venue: string
+  city: string
+  neighborhood: string
+  category: string
+  price: number | null
+  cover_photo: string
+  whatsapp: string
+  organizer_name: string
+  is_active: boolean
+  created_at: string
 }

@@ -1,19 +1,25 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { CartProvider } from '@/lib/cartContext'
+import { LanguageProvider } from '@/lib/languageContext'
+import { AuthProvider } from '@/lib/authContext'
 
 export const metadata: Metadata = {
-  title: 'StreetMenu — Discover Local Food',
-  description: 'Find the best street food and local restaurants near you',
+  title: 'Ndjoka & Tchop',
+  description: 'Découvrez les meilleurs restaurants et événements food près de chez vous',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="fr">
       <body className="antialiased">
-        <CartProvider>
-          {children}
-        </CartProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <CartProvider>
+              {children}
+            </CartProvider>
+          </AuthProvider>
+        </LanguageProvider>
       </body>
     </html>
   )

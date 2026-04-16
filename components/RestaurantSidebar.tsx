@@ -3,6 +3,7 @@
 import { Restaurant } from '@/types'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useLanguage } from '@/lib/languageContext'
 
 interface Props {
   restaurant: Restaurant
@@ -10,6 +11,8 @@ interface Props {
 }
 
 export default function RestaurantSidebar({ restaurant, onClose }: Props) {
+  const { t } = useLanguage()
+
   return (
     <div className="flex flex-col h-full">
       {/* Header image / logo */}
@@ -38,7 +41,7 @@ export default function RestaurantSidebar({ restaurant, onClose }: Props) {
               ? 'bg-green-500 text-white'
               : 'bg-gray-500 text-white'
           }`}>
-            {restaurant.is_open ? 'Open Now' : 'Closed'}
+            {restaurant.is_open ? t('sidebar.openNow') : t('sidebar.closed')}
           </span>
         </div>
       </div>
@@ -69,7 +72,7 @@ export default function RestaurantSidebar({ restaurant, onClose }: Props) {
             rel="noopener noreferrer"
             className="flex items-center gap-2 text-sm text-green-600 mb-4 hover:text-green-700 transition-colors"
           >
-            <span>💬</span> WhatsApp
+            <span>💬</span> {t('sidebar.whatsapp')}
           </a>
         )}
       </div>
@@ -80,7 +83,7 @@ export default function RestaurantSidebar({ restaurant, onClose }: Props) {
           href={`/restaurant/${restaurant.id}`}
           className="block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-3 rounded-xl font-semibold shadow-md shadow-orange-200 transition-colors"
         >
-          View Menu
+          {t('sidebar.viewMenu')}
         </Link>
       </div>
     </div>

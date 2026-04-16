@@ -9,11 +9,14 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem } from '@/types'
 import { useCart } from '@/lib/cartContext'
+import { useLanguage } from '@/lib/languageContext'
+import TopNav from '@/components/TopNav'
 
 export default function MenuPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const { addItem, items, totalItems, totalPrice } = useCart()
+  const { t } = useLanguage()
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
@@ -46,7 +49,7 @@ export default function MenuPage() {
       <div className="min-h-screen bg-orange-50 flex items-center justify-center">
         <div className="text-center">
           <div className="text-5xl mb-4 animate-bounce">🍜</div>
-          <p className="text-orange-500 font-semibold">Loading menu...</p>
+          <p className="text-orange-500 font-semibold">{t('menu.loading')}</p>
         </div>
       </div>
     )
@@ -56,8 +59,8 @@ export default function MenuPage() {
     return (
       <div className="min-h-screen bg-orange-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Restaurant not found</p>
-          <Link href="/" className="text-orange-500 underline">Go back</Link>
+          <p className="text-gray-500 mb-4">{t('menu.notFound')}</p>
+          <Link href="/" className="text-orange-500 underline">{t('menu.goBack')}</Link>
         </div>
       </div>
     )
@@ -65,8 +68,9 @@ export default function MenuPage() {
 
   return (
     <div className="min-h-screen bg-orange-50">
+      <TopNav />
       {/* Hero */}
-      <div className="relative h-48 bg-gradient-to-br from-orange-400 to-orange-600">
+      <div className="relative h-40 bg-gradient-to-br from-orange-400 to-orange-600">
         {restaurant.logo_url && (
           <Image src={restaurant.logo_url} alt={restaurant.name} fill className="object-cover opacity-60" />
         )}
@@ -86,7 +90,7 @@ export default function MenuPage() {
             <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
               restaurant.is_open ? 'bg-green-500 text-white' : 'bg-gray-400 text-white'
             }`}>
-              {restaurant.is_open ? 'Open' : 'Closed'}
+              {restaurant.is_open ? t('menu.open') : t('menu.closed')}
             </span>
           </div>
         </div>
@@ -105,7 +109,7 @@ export default function MenuPage() {
                   : 'bg-orange-50 text-gray-600 hover:bg-orange-100'
               }`}
             >
-              {cat.charAt(0).toUpperCase() + cat.slice(1)}
+              {cat === 'all' ? t('menu.all') : cat.charAt(0).toUpperCase() + cat.slice(1)}
             </button>
           ))}
         </div>
@@ -113,11 +117,11 @@ export default function MenuPage() {
 
       <div className="px-4 pb-32 max-w-2xl mx-auto">
         {/* Daily Specials */}
-        {specials.length > 0 && (activeCategory === 'all') && (
+        {specials.length > 0 && activeCategory === 'all' && (
           <div className="mt-5">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-lg">⭐</span>
-              <h2 className="text-lg font-bold text-gray-900">Today&apos;s Specials</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('menu.specials')}</h2>
             </div>
             <div className="space-y-3">
               {specials.map(item => (
@@ -127,6 +131,9 @@ export default function MenuPage() {
                   qty={getItemQty(item.id)}
                   onAdd={() => addItem({ id: item.id, name: item.name, price: item.price, quantity: 1, photo_url: item.photo_url }, id)}
                   isSpecial
+                  dailyBadge={t('menu.dailyBadge')}
+                  addLabel={t('menu.add')}
+                  addedLabel={t('menu.added')}
                 />
               ))}
             </div>
@@ -137,7 +144,7 @@ export default function MenuPage() {
         {filtered.length > 0 && (
           <div className="mt-5">
             {activeCategory === 'all' && specials.length > 0 && (
-              <h2 className="text-lg font-bold text-gray-900 mb-3">Menu</h2>
+              <h2 className="text-lg font-bold text-gray-900 mb-3">{t('menu.menu')}</h2>
             )}
             <div className="space-y-3">
               {filtered.map(item => (
@@ -146,6 +153,9 @@ export default function MenuPage() {
                   item={item}
                   qty={getItemQty(item.id)}
                   onAdd={() => addItem({ id: item.id, name: item.name, price: item.price, quantity: 1, photo_url: item.photo_url }, id)}
+                  dailyBadge={t('menu.dailyBadge')}
+                  addLabel={t('menu.add')}
+                  addedLabel={t('menu.added')}
                 />
               ))}
             </div>
@@ -155,7 +165,7 @@ export default function MenuPage() {
         {menuItems.length === 0 && (
           <div className="text-center py-16 text-gray-400">
             <div className="text-4xl mb-3">🍽️</div>
-            <p>No menu items yet</p>
+            <p>{t('menu.noItems')}</p>
           </div>
         )}
       </div>
@@ -168,7 +178,7 @@ export default function MenuPage() {
             className="flex items-center justify-between bg-orange-500 hover:bg-orange-600 text-white px-5 py-4 rounded-2xl shadow-xl shadow-orange-300 transition-colors"
           >
             <span className="bg-white/25 rounded-lg px-2 py-0.5 text-sm font-bold">{totalItems}</span>
-            <span className="font-semibold">View Cart</span>
+            <span className="font-semibold">{t('menu.viewCart')}</span>
             <span className="font-semibold">CHF {totalPrice.toFixed(2)}</span>
           </Link>
         </div>
@@ -182,17 +192,23 @@ function MenuItemCard({
   qty,
   onAdd,
   isSpecial = false,
+  dailyBadge,
+  addLabel,
+  addedLabel,
 }: {
   item: MenuItem
   qty: number
   onAdd: () => void
   isSpecial?: boolean
+  dailyBadge: string
+  addLabel: string
+  addedLabel: string
 }) {
   return (
     <div className={`bg-white rounded-2xl overflow-hidden shadow-sm ${isSpecial ? 'ring-2 ring-orange-400' : ''}`}>
       {isSpecial && (
         <div className="bg-gradient-to-r from-orange-400 to-orange-500 text-white text-xs font-semibold px-3 py-1">
-          ⭐ Daily Special
+          {dailyBadge}
         </div>
       )}
       <div className="flex gap-3 p-3">
@@ -209,7 +225,6 @@ function MenuItemCard({
           <h3 className="font-semibold text-gray-900 text-sm leading-tight">{item.name}</h3>
           {item.description && (
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.description}</p>
-
           )}
           <div className="flex items-center justify-between mt-2">
             <span className="font-bold text-orange-500">CHF {item.price.toFixed(2)}</span>
@@ -221,7 +236,7 @@ function MenuItemCard({
                   : 'bg-orange-100 text-orange-600 hover:bg-orange-200'
               }`}
             >
-              {qty > 0 ? `+  ${qty} added` : '+ Add'}
+              {qty > 0 ? `${qty} ${addedLabel}` : addLabel}
             </button>
           </div>
         </div>
