@@ -47,11 +47,11 @@ function normalisePhone(raw: string): string {
 
 async function downloadTwilioMedia(mediaUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
   try {
-    const sid   = process.env.TWILIO_ACCOUNT_SID!
-    const token = process.env.TWILIO_AUTH_TOKEN!
+    const apiKeySid    = process.env.TWILIO_API_KEY_SID!
+    const apiKeySecret = process.env.TWILIO_API_KEY_SECRET!
     const res = await fetch(mediaUrl, {
       headers: {
-        Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(`${apiKeySid}:${apiKeySecret}`).toString('base64')}`,
       },
     })
     if (!res.ok) return null
@@ -88,11 +88,13 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const params  = Object.fromEntries(new URLSearchParams(rawBody))
 
-  // Validate Twilio signature in production
-  if (process.env.NODE_ENV === 'production') {
+  // Validate Twilio signature in production (requires TWILIO_AUTH_TOKEN env var).
+  // Twilio always signs webhooks with the Auth Token — API keys cannot be used here.
+  const authToken = process.env.TWILIO_AUTH_TOKEN
+  if (process.env.NODE_ENV === 'production' && authToken) {
     const sig = req.headers.get('x-twilio-signature') ?? ''
     const url = `${req.nextUrl.protocol}//${req.nextUrl.host}${req.nextUrl.pathname}`
-    if (!validateTwilioSignature(process.env.TWILIO_AUTH_TOKEN!, sig, url, params)) {
+    if (!validateTwilioSignature(authToken, sig, url, params)) {
       return new NextResponse('Forbidden', { status: 403 })
     }
   }

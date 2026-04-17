@@ -1,8 +1,9 @@
 // Twilio WhatsApp notification service — server-only
 
-const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID!
-const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN!
-const FROM        = process.env.TWILIO_WHATSAPP_NUMBER ?? 'whatsapp:+14155238886'
+const ACCOUNT_SID   = process.env.TWILIO_ACCOUNT_SID!
+const API_KEY_SID   = process.env.TWILIO_API_KEY_SID!
+const API_KEY_SECRET = process.env.TWILIO_API_KEY_SECRET!
+const FROM           = process.env.TWILIO_WHATSAPP_NUMBER ?? 'whatsapp:+14155238886'
 
 // ── Core send ─────────────────────────────────────────────────────────────────
 
@@ -17,7 +18,7 @@ export async function sendWhatsApp(to: string, message: string): Promise<void> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')}`,
+      Authorization: `Basic ${Buffer.from(`${API_KEY_SID}:${API_KEY_SECRET}`).toString('base64')}`,
     },
     body: body.toString(),
   })
