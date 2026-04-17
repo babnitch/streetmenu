@@ -65,10 +65,29 @@
 - [x] Vendor lookup by phone number
 - [x] Parse menu items from messages ("Ndolé - 2500")
 - [x] Download and store photos to Supabase Storage
-- [x] Commands: aide/help, menu, commandes/orders
+- [x] Commands: aide/help, menu, commandes/orders, restaurant
 - [x] Bilingual FR/EN replies
-- [ ] **TESTING**: Webhook returning 12200 error — needs debugging
-- [ ] **TESTING**: Confirm replies are received on WhatsApp
+- [ ] **TESTING**: Confirm API credentials (TWILIO_API_KEY_SID must start with SK)
+- [ ] **TESTING**: Confirm WhatsApp replies received end-to-end
+
+### WhatsApp Onboarding (NEW)
+- [x] Customer signup via WhatsApp (name + city, 2 steps)
+- [x] signup_sessions table for multi-step state machine
+- [x] Vendor signup via WhatsApp (4 steps: name, neighborhood, cuisine, city)
+- [x] Commands for customers without restaurant: aide, restaurant
+- [x] Commands for pending vendors: pending approval message
+- [x] Cancel command at any step ("annuler" / "cancel")
+- [x] 1-hour session expiry with auto-cleanup
+- [x] Unified accounts: same phone works on WhatsApp and web
+
+### Web Auth: WhatsApp OTP (NEW — replaces Supabase SMS)
+- [x] POST /api/auth/send-code — generates 4-digit code, stores in verification_codes, sends WhatsApp
+- [x] POST /api/auth/verify-code — verifies code, upserts customer, assigns welcome voucher
+- [x] /account page uses WhatsApp codes instead of Supabase SMS OTP
+- [x] New customer flow: phone → name + city fields → WhatsApp code → dashboard
+- [x] Existing customer flow: phone → WhatsApp code → dashboard
+- [x] customers table as single source of truth (unified with WhatsApp signups)
+- [x] verification_codes table (4-digit, 5-min TTL)
 
 ### Outbound: Order Notifications
 - [x] Notification service (lib/whatsapp.ts)
