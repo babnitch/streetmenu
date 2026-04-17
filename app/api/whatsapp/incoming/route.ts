@@ -2,21 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { sendWhatsApp } from '@/lib/whatsapp'
 
-// ── TwiML helper ─────────────────────────────────────────────────────────────
+// ── Empty TwiML ack (replies are sent via REST API to avoid XML-escaping issues) ──
 
-function twiml(message: string): NextResponse {
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${message}</Message></Response>`
-  return new NextResponse(xml, {
-    status: 200,
-    headers: { 'Content-Type': 'text/xml' },
-  })
+const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+const TWIML_HEADERS = { 'Content-Type': 'text/xml' }
+
+function ok(): NextResponse {
+  return new NextResponse(EMPTY_TWIML, { status: 200, headers: TWIML_HEADERS })
 }
 
 // ── Normalise phone number ────────────────────────────────────────────────────
 
 function normalisePhone(raw: string): string {
-  // Strip whatsapp: prefix, keep + and digits only
   return raw.replace(/^whatsapp:/i, '').replace(/[^\d+]/g, '')
 }
 
@@ -65,7 +64,6 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const params  = Object.fromEntries(new URLSearchParams(rawBody))
 
-
   const from      = params['From'] ?? ''          // 'whatsapp:+237XXXXXXXXX'
   const body      = (params['Body'] ?? '').trim()
   const numMedia  = parseInt(params['NumMedia'] ?? '0', 10)
@@ -74,7 +72,10 @@ export async function POST(req: NextRequest) {
 
   const phone = normalisePhone(from)
 
-  if (!phone) return twiml('Numéro non reconnu. / Unrecognised number.')
+  if (!phone) {
+    await sendWhatsApp(from, 'Numéro non reconnu. / Unrecognised number.')
+    return ok()
+  }
 
   // ── Look up vendor ──────────────────────────────────────────────────────────
   const { data: restaurant } = await supabaseAdmin
@@ -85,39 +86,45 @@ export async function POST(req: NextRequest) {
 
   // Unregistered vendor
   if (!restaurant) {
-    return twiml(
-      `👋 Bienvenue sur Ndjoka & Tchop !\n` +
-      `Votre numéro n'est pas encore enregistré.\n` +
-      `Inscrivez votre restaurant ici / Register your restaurant here:\n` +
-      `https://ndjoka-tchop.vercel.app/join`
+    await sendWhatsApp(
+      from,
+      '👋 Bienvenue sur Ndjoka & Tchop !\n' +
+      'Votre numéro n\'est pas encore enregistré.\n' +
+      'Inscrivez votre restaurant ici / Register your restaurant here:\n' +
+      'https://ndjoka-tchop.vercel.app/join'
     )
+    return ok()
   }
 
   // Pending approval (exists but not active)
   if (!restaurant.is_active) {
-    return twiml(
-      `⏳ Votre restaurant est en attente de validation.\n` +
-      `Your restaurant is pending approval.\n` +
-      `Notre équipe vous contactera sous 24h. / Our team will contact you within 24h.`
+    await sendWhatsApp(
+      from,
+      '⏳ Votre restaurant est en attente de validation.\n' +
+      'Your restaurant is pending approval.\n' +
+      'Notre équipe vous contactera sous 24h. / Our team will contact you within 24h.'
     )
+    return ok()
   }
 
   const cmd = body.toLowerCase().trim()
 
   // ── AIDE / HELP ─────────────────────────────────────────────────────────────
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
-    return twiml(
+    await sendWhatsApp(
+      from,
       `🍽️ *Ndjoka & Tchop — ${restaurant.name}*\n\n` +
-      `Commandes disponibles / Available commands:\n\n` +
-      `📋 *menu* — Voir vos plats / View your menu items\n` +
-      `🛒 *commandes* (ou *orders*) — Voir les commandes en attente / View pending orders\n\n` +
-      `➕ *Ajouter un plat / Add a dish:*\n` +
-      `Envoyez: Nom du plat - Prix\n` +
-      `Send: Dish Name - Price\n` +
-      `Exemple / Example: Ndolé - 2500\n\n` +
-      `📸 Joignez une photo pour ajouter l'image du plat.\n` +
-      `Attach a photo to add the dish image.`
+      'Commandes disponibles / Available commands:\n\n' +
+      '📋 *menu* — Voir vos plats / View your menu items\n' +
+      '🛒 *commandes* (ou *orders*) — Voir les commandes en attente / View pending orders\n\n' +
+      '➕ *Ajouter un plat / Add a dish:*\n' +
+      'Envoyez: Nom du plat - Prix\n' +
+      'Send: Dish Name - Price\n' +
+      'Exemple / Example: Ndolé - 2500\n\n' +
+      '📸 Joignez une photo pour ajouter l\'image du plat.\n' +
+      'Attach a photo to add the dish image.'
     )
+    return ok()
   }
 
   // ── MENU ────────────────────────────────────────────────────────────────────
@@ -130,21 +137,25 @@ export async function POST(req: NextRequest) {
       .order('name')
 
     if (!items || items.length === 0) {
-      return twiml(
-        `Votre menu est vide. / Your menu is empty.\n\n` +
-        `Ajoutez un plat en envoyant: Nom - Prix\n` +
-        `Add a dish by sending: Name - Price`
+      await sendWhatsApp(
+        from,
+        'Votre menu est vide. / Your menu is empty.\n\n' +
+        'Ajoutez un plat en envoyant: Nom - Prix\n' +
+        'Add a dish by sending: Name - Price'
       )
+      return ok()
     }
 
     const lines = items.map(i =>
       `${i.is_available ? '✅' : '❌'} ${i.name} — ${Number(i.price).toLocaleString()} FCFA`
     )
-    return twiml(
+    await sendWhatsApp(
+      from,
       `🍽️ *Menu — ${restaurant.name}*\n` +
       `(${items.length} plat${items.length > 1 ? 's' : ''})\n\n` +
       lines.join('\n')
     )
+    return ok()
   }
 
   // ── COMMANDES / ORDERS ──────────────────────────────────────────────────────
@@ -158,10 +169,8 @@ export async function POST(req: NextRequest) {
       .limit(10)
 
     if (!orders || orders.length === 0) {
-      return twiml(
-        `Aucune commande en attente. ✅\n` +
-        `No pending orders. ✅`
-      )
+      await sendWhatsApp(from, 'Aucune commande en attente. ✅\nNo pending orders. ✅')
+      return ok()
     }
 
     const lines = orders.map(o => {
@@ -172,11 +181,13 @@ export async function POST(req: NextRequest) {
       return `[${time}] ${o.customer_name} — ${Number(o.total_price).toLocaleString()} FCFA\n  ${itemSummary}`
     })
 
-    return twiml(
+    await sendWhatsApp(
+      from,
       `🛒 *Commandes en cours / Active orders — ${restaurant.name}*\n` +
       `(${orders.length} commande${orders.length > 1 ? 's' : ''})\n\n` +
       lines.join('\n\n')
     )
+    return ok()
   }
 
   // ── MENU ITEM: "Dish Name - Price" ──────────────────────────────────────────
@@ -188,10 +199,12 @@ export async function POST(req: NextRequest) {
     const price     = parseInt(priceStr, 10)
 
     if (!dishName || isNaN(price) || price <= 0) {
-      return twiml(
-        `Format invalide. Envoyez: Nom du plat - Prix (ex: Ndolé - 2500)\n` +
-        `Invalid format. Send: Dish Name - Price (e.g. Ndolé - 2500)`
+      await sendWhatsApp(
+        from,
+        'Format invalide. Envoyez: Nom du plat - Prix (ex: Ndolé - 2500)\n' +
+        'Invalid format. Send: Dish Name - Price (e.g. Ndolé - 2500)'
       )
+      return ok()
     }
 
     // Handle optional photo
@@ -204,35 +217,41 @@ export async function POST(req: NextRequest) {
     }
 
     const { error } = await supabaseAdmin.from('menu_items').insert({
-      restaurant_id:   restaurant.id,
-      name:            dishName,
+      restaurant_id:    restaurant.id,
+      name:             dishName,
       price,
-      photo_url:       photoUrl,
-      category:        'Plats principaux',
-      is_available:    true,
+      photo_url:        photoUrl,
+      category:         'Plats principaux',
+      is_available:     true,
       is_daily_special: false,
-      description:     '',
+      description:      '',
     })
 
     if (error) {
       console.error('[whatsapp] menu insert error:', error.message)
-      return twiml(
-        `❌ Erreur lors de l'ajout. Réessayez. / Error adding dish. Please retry.`
+      await sendWhatsApp(
+        from,
+        '❌ Erreur lors de l\'ajout. Réessayez. / Error adding dish. Please retry.'
       )
+      return ok()
     }
 
     const photoConfirm = photoUrl ? ' 📸' : ''
-    return twiml(
+    await sendWhatsApp(
+      from,
       `✅ *${dishName}* ajouté au menu${photoConfirm}\n` +
       `Prix / Price: ${price.toLocaleString()} FCFA\n\n` +
-      `Envoyez "menu" pour voir tous vos plats.\n` +
-      `Send "menu" to see all your dishes.`
+      'Envoyez "menu" pour voir tous vos plats.\n' +
+      'Send "menu" to see all your dishes.'
     )
+    return ok()
   }
 
   // ── Unknown message ─────────────────────────────────────────────────────────
-  return twiml(
-    `Je n'ai pas compris. Envoyez "aide" pour la liste des commandes.\n` +
-    `I didn't understand that. Send "help" for the list of commands.`
+  await sendWhatsApp(
+    from,
+    'Je n\'ai pas compris. Envoyez "aide" pour la liste des commandes.\n' +
+    'I didn\'t understand that. Send "help" for the list of commands.'
   )
+  return ok()
 }
