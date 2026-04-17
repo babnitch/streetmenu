@@ -1,30 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
-import crypto from 'crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-
-// ── Twilio signature validation ───────────────────────────────────────────────
-
-function validateTwilioSignature(
-  authToken: string,
-  signature: string,
-  url: string,
-  params: Record<string, string>
-): boolean {
-  try {
-    const sorted = Object.keys(params)
-      .sort()
-      .reduce((s, k) => s + k + params[k], url)
-    const expected = crypto
-      .createHmac('sha1', authToken)
-      .update(sorted, 'utf8')
-      .digest('base64')
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-  } catch {
-    return false
-  }
-}
 
 // ── TwiML helper ─────────────────────────────────────────────────────────────
 
@@ -88,16 +65,6 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const params  = Object.fromEntries(new URLSearchParams(rawBody))
 
-  // Validate Twilio signature in production (requires TWILIO_AUTH_TOKEN env var).
-  // Twilio always signs webhooks with the Auth Token — API keys cannot be used here.
-  const authToken = process.env.TWILIO_AUTH_TOKEN
-  if (process.env.NODE_ENV === 'production' && authToken) {
-    const sig = req.headers.get('x-twilio-signature') ?? ''
-    const url = `${req.nextUrl.protocol}//${req.nextUrl.host}${req.nextUrl.pathname}`
-    if (!validateTwilioSignature(authToken, sig, url, params)) {
-      return new NextResponse('Forbidden', { status: 403 })
-    }
-  }
 
   const from      = params['From'] ?? ''          // 'whatsapp:+237XXXXXXXXX'
   const body      = (params['Body'] ?? '').trim()
