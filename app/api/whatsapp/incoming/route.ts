@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       '👋 Bienvenue sur Ndjoka & Tchop !\n' +
       'Votre numéro n\'est pas encore enregistré.\n' +
       'Inscrivez votre restaurant ici / Register your restaurant here:\n' +
-      'https://ndjoka-tchop.vercel.app/join'
+      'https://streetmenu.vercel.app/join'
     )
     return ok()
   }
