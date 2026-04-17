@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (restaurant?.is_active) {
-    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, mediaType, restaurant)
+    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurant)
   }
   if (restaurant && !restaurant.is_active) {
     return handlePendingVendor(from, restaurant.name)
@@ -413,7 +413,6 @@ async function handleVendor(
   cmd:        string,
   hasPhoto:   boolean,
   mediaUrl:   string,
-  mediaType:  string,
   restaurant: { id: string; name: string; whatsapp: string; is_active: boolean; customer_id: string | null },
 ): Promise<NextResponse> {
 
