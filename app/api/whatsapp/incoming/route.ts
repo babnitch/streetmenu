@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (session) {
-    return handleSession(from, phone, body, cmd, session, hasPhoto, mediaUrl, mediaType)
+    return handleSession(from, phone, body, cmd, session, hasPhoto, mediaUrl)
   }
 
   // Look up vendor (active or pending)
@@ -171,7 +171,6 @@ async function handleSession(
   session:   { user_type: string; step: number; data: Record<string, string> },
   hasPhoto:  boolean,
   mediaUrl:  string,
-  mediaType: string,
 ): Promise<NextResponse> {
   const { user_type, step, data } = session
 
