@@ -62,10 +62,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Auto-link: { autoLink: true }
+  // Links orphaned restaurants to existing customers by phone, OR creates a
+  // customer from the restaurant's own details when no phone match exists.
   if (body.autoLink) {
     const [{ data: orphaned }, { data: customers }] = await Promise.all([
-      supabaseAdmin.from('restaurants').select('id, whatsapp').is('customer_id', null),
-      supabaseAdmin.from('customers').select('id, phone').eq('status', 'active'),
+      supabaseAdmin.from('restaurants').select('id, name, whatsapp, city').is('customer_id', null),
+      supabaseAdmin.from('customers').select('id, phone'),
     ])
 
     const phoneToCustomer: Record<string, string> = {}
@@ -74,9 +76,26 @@ export async function POST(req: NextRequest) {
     }
 
     let linked = 0
+    let created = 0
+    const errors: string[] = []
+
     for (const r of orphaned ?? []) {
-      const customerId = phoneToCustomer[r.whatsapp]
-      if (!customerId) continue
+      let customerId = phoneToCustomer[r.whatsapp]
+
+      if (!customerId) {
+        const { data: newCustomer, error } = await supabaseAdmin
+          .from('customers')
+          .insert({ name: r.name, phone: r.whatsapp, city: r.city ?? 'Yaoundé', status: 'active' })
+          .select('id').single()
+
+        if (error || !newCustomer) {
+          errors.push(`${r.name}: ${error?.message ?? 'unknown'}`)
+          continue
+        }
+        customerId = newCustomer.id
+        phoneToCustomer[r.whatsapp] = customerId
+        created++
+      }
 
       await supabaseAdmin.from('restaurants')
         .update({ customer_id: customerId })
@@ -87,12 +106,13 @@ export async function POST(req: NextRequest) {
         customer_id:   customerId,
         role:          'owner',
         status:        'active',
+        added_by:      'admin',
       }, { onConflict: 'restaurant_id,customer_id' })
 
       linked++
     }
 
-    return NextResponse.json({ ok: true, linked })
+    return NextResponse.json({ ok: true, linked, created, errors })
   }
 
   return NextResponse.json({ error: 'Paramètres manquants / Missing parameters' }, { status: 400 })

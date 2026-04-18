@@ -228,7 +228,8 @@ export default function AdminAccountsPage() {
     })
     const data = await res.json()
     if (res.ok) {
-      showToast(`🔗 ${data.linked} restaurant(s) liés / linked`)
+      const suffix = data.created ? ` (+${data.created} compte(s) créé(s) / created)` : ''
+      showToast(`🔗 ${data.linked} restaurant(s) liés / linked${suffix}`)
       await Promise.all([fetchOrphaned(), fetchAccounts()])
     } else {
       showToast(data.error ?? 'Erreur', false)
