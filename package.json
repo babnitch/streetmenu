@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/mapbox-gl": "^3.4.1",
+    "bcryptjs": "^3.0.3",
+    "jsonwebtoken": "^9.0.3",
     "mapbox-gl": "^3.21.0",
     "next": "14.2.35",
     "qrcode.react": "^4.2.0",

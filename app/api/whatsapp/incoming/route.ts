@@ -125,24 +125,97 @@ export async function POST(req: NextRequest) {
     return handleSession(from, phone, body, cmd, session, hasPhoto, mediaUrl)
   }
 
-  // Look up vendor (active or pending)
-  const { data: restaurant } = await supabaseAdmin
+  // Look up registered customer (or check suspension)
+  const { data: customer } = await supabaseAdmin
+    .from('customers').select('id, name, city, status, deleted_at')
+    .eq('phone', phone).maybeSingle()
+
+  if (customer?.deleted_at || customer?.status === 'deleted') {
+    await sendWhatsApp(from,
+      'Votre compte a été supprimé. / Your account has been deleted.\n' +
+      'Contactez le support si vous pensez que c\'est une erreur. / Contact support if you think this is an error.')
+    return ok()
+  }
+  if (customer?.status === 'suspended') {
+    await sendWhatsApp(from,
+      'Votre compte est suspendu. Contactez le support. / Your account is suspended. Contact support.')
+    return ok()
+  }
+
+  // Look up all restaurants this phone number belongs to (owner or team member)
+  const { data: teamEntries } = await supabaseAdmin
+    .from('restaurant_team')
+    .select('role, restaurants(id, name, whatsapp, is_active, status, deleted_at, suspended_by, customer_id)')
+    .eq('customer_id', customer?.id ?? '')
+    .eq('status', 'active')
+
+  type TeamRestaurant = {
+    id: string; name: string; whatsapp: string; is_active: boolean; status: string;
+    deleted_at: string | null; suspended_by: string | null; customer_id: string | null;
+    teamRole: string;
+  }
+  const activeRestaurants = ((teamEntries ?? [])
+    .map(e => ({ ...(e.restaurants as unknown as TeamRestaurant), teamRole: e.role })) as TeamRestaurant[])
+    .filter(r => r.is_active && !r.deleted_at && r.status !== 'deleted')
+
+  // Also check direct whatsapp match (for pending vendors without customer account)
+  const { data: directRestaurant } = await supabaseAdmin
     .from('restaurants')
-    .select('id, name, whatsapp, is_active, customer_id')
+    .select('id, name, whatsapp, is_active, customer_id, status, deleted_at, suspended_by')
     .or(`whatsapp.eq.${phone},whatsapp.eq.${from}`)
     .maybeSingle()
 
-  if (restaurant?.is_active) {
-    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurant)
+  // Handle suspended/deleted restaurants on direct match
+  if (directRestaurant?.deleted_at || directRestaurant?.status === 'deleted') {
+    await sendWhatsApp(from,
+      'Ce restaurant a été supprimé. / This restaurant has been deleted.')
+    return ok()
   }
-  if (restaurant && !restaurant.is_active) {
-    return handlePendingVendor(from, restaurant.name)
+  if (directRestaurant?.status === 'suspended') {
+    if (directRestaurant.suspended_by === 'vendor') {
+      await sendWhatsApp(from,
+        `⏸️ *${directRestaurant.name}* est suspendu par vous-même.\n` +
+        `Envoyez "reactiver" pour le réactiver.\n\n` +
+        `Send "reactiver" to reactivate.`)
+    } else {
+      await sendWhatsApp(from,
+        `⛔ *${directRestaurant.name}* est suspendu par l'administration.\n` +
+        `Contactez le support. / Contact support.`)
+    }
+    return ok()
   }
 
-  // Look up registered customer
-  const { data: customer } = await supabaseAdmin
-    .from('customers').select('id, name, city')
-    .eq('phone', phone).maybeSingle()
+  // Handle reactivation command
+  if (cmd === 'reactiver' || cmd === 'reactivate') {
+    const suspendedOwned = directRestaurant && directRestaurant.status === 'suspended' && directRestaurant.suspended_by === 'vendor'
+    if (suspendedOwned) {
+      await supabaseAdmin.from('restaurants').update({
+        status: 'active', suspended_at: null, suspended_by: null, suspension_reason: null,
+      }).eq('id', directRestaurant.id)
+      await sendWhatsApp(from, `✅ *${directRestaurant.name}* est maintenant actif! / is now active!`)
+      return ok()
+    }
+  }
+
+  if (directRestaurant?.is_active) {
+    // Check if we need to prompt multi-restaurant selection
+    if (activeRestaurants.length > 1 && !session) {
+      return handleMultiRestaurantSelection(from, phone, cmd, body, hasPhoto, mediaUrl, activeRestaurants)
+    }
+    const restaurant = { ...directRestaurant, teamRole: 'owner' }
+    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurant)
+  }
+  if (directRestaurant && !directRestaurant.is_active) {
+    return handlePendingVendor(from, directRestaurant.name)
+  }
+
+  // Check team-based restaurant access
+  if (activeRestaurants.length === 1) {
+    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, activeRestaurants[0])
+  }
+  if (activeRestaurants.length > 1) {
+    return handleMultiRestaurantSelection(from, phone, cmd, body, hasPhoto, mediaUrl, activeRestaurants)
+  }
 
   if (customer) {
     return handleCustomer(from, phone, cmd, customer)
@@ -157,6 +230,62 @@ export async function POST(req: NextRequest) {
     'Inscrivez-vous en 2 étapes. / Welcome! Sign up in 2 steps.\n\n' +
     'Quel est votre *nom*? / What is your *name*?\n\n' +
     '_Envoyez "annuler" pour annuler. / Send "cancel" to cancel._')
+  return ok()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-RESTAURANT SELECTION
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleMultiRestaurantSelection(
+  from: string,
+  phone: string,
+  cmd: string,
+  body: string,
+  hasPhoto: boolean,
+  mediaUrl: string,
+  restaurants: Array<{ id: string; name: string; whatsapp: string; is_active: boolean; customer_id: string | null; teamRole: string; status: string; deleted_at: string | null; suspended_by: string | null }>,
+): Promise<NextResponse> {
+  // Commands "mes restaurants" or "my restaurants"
+  if (cmd === 'mes restaurants' || cmd === 'my restaurants') {
+    const lines = restaurants.map((r, i) => `${i + 1}. ${r.name} — ${r.status}`)
+    await sendWhatsApp(from,
+      `🏪 *Vos restaurants / Your restaurants:*\n\n${lines.join('\n')}\n\n` +
+      `Envoyez le numéro pour sélectionner. / Send the number to select.`)
+    return ok()
+  }
+
+  // Check for an active selection session
+  const { data: activeSession } = await supabaseAdmin
+    .from('signup_sessions').select('*')
+    .eq('phone', phone).eq('user_type', 'restaurant_select')
+    .gt('expires_at', new Date().toISOString()).maybeSingle()
+
+  if (activeSession) {
+    const num = parseInt(cmd, 10)
+    if (!isNaN(num) && num >= 1 && num <= restaurants.length) {
+      const chosen = restaurants[num - 1]
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, chosen)
+    }
+    await sendWhatsApp(from, `Envoyez un numéro entre 1 et ${restaurants.length}. / Send a number between 1 and ${restaurants.length}.`)
+    return ok()
+  }
+
+  // If the command is a number, try to use it directly as selection
+  const directNum = parseInt(cmd, 10)
+  if (!isNaN(directNum) && directNum >= 1 && directNum <= restaurants.length) {
+    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurants[directNum - 1])
+  }
+
+  // Ask which restaurant
+  const lines = restaurants.map((r, i) => `${i + 1}. ${r.name}`)
+  await supabaseAdmin.from('signup_sessions').upsert({
+    phone, user_type: 'restaurant_select', step: 1, data: {}, expires_at: sessionExpiry(10),
+  })
+  await sendWhatsApp(from,
+    `Vous avez ${restaurants.length} restaurants. Lequel? / Which restaurant?\n\n` +
+    lines.join('\n') + '\n\n' +
+    'Envoyez le numéro. / Send the number.')
   return ok()
 }
 
@@ -412,23 +541,43 @@ async function handleVendor(
   cmd:        string,
   hasPhoto:   boolean,
   mediaUrl:   string,
-  restaurant: { id: string; name: string; whatsapp: string; is_active: boolean; customer_id: string | null },
+  restaurant: { id: string; name: string; whatsapp: string; is_active: boolean; customer_id: string | null; teamRole?: string; status?: string; deleted_at?: string | null; suspended_by?: string | null },
 ): Promise<NextResponse> {
+
+  const teamRole = restaurant.teamRole ?? 'owner'
+  const isOwner   = teamRole === 'owner'
+  const isManager = teamRole === 'manager'
+  const canEditMenu   = isOwner || isManager
+  const canViewOrders = isOwner || isManager || teamRole === 'staff'
 
   // ── AIDE / HELP ──────────────────────────────────────────────────────────
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
+    const ownerCmds = isOwner
+      ? `\n👥 Équipe / Team:\n` +
+        `📋 "equipe" → Voir l'équipe / View team\n` +
+        `➕ "ajouter +XXX manager" → Ajouter membre / Add member\n` +
+        `➖ "retirer +XXX" → Retirer membre / Remove member\n` +
+        `🏪 "mes restaurants" → Voir tous mes restaurants\n` +
+        `⏸️ "suspendre" → Suspendre le restaurant\n` +
+        `✅ "reactiver" → Réactiver le restaurant\n`
+      : ''
+
     await sendWhatsApp(from,
-      `🍽️ *Ndjoka & Tchop — ${restaurant.name}*\n\n` +
+      `🍽️ *Ndjoka & Tchop — ${restaurant.name}*\n` +
+      `Rôle / Role: ${teamRole}\n\n` +
       `📋 *Commandes disponibles / Available commands:*\n\n` +
-      `📸 Photo + "Nom - Prix" → Ajouter un plat / Add a dish\n` +
-      `💰 "prix [nom] [prix]" → Changer le prix / Update price\n` +
-      `✅ "dispo [nom]" → Marquer disponible / Mark available\n` +
-      `❌ "indispo [nom]" → Marquer indisponible / Mark unavailable\n` +
-      `🗑️ "supprimer [nom]" → Supprimer un plat / Delete a dish\n` +
-      `📷 "photo restaurant" → Changer la photo du restaurant / Update restaurant photo\n` +
-      `🍽️ "menu" → Voir votre menu / View your menu\n` +
-      `📦 "commandes" → Voir les commandes / View orders\n` +
+      (canEditMenu
+        ? `📸 Photo + "Nom - Prix" → Ajouter un plat / Add a dish\n` +
+          `💰 "prix [nom] [prix]" → Changer le prix / Update price\n` +
+          `✅ "dispo [nom]" → Marquer disponible / Mark available\n` +
+          `❌ "indispo [nom]" → Marquer indisponible / Mark unavailable\n` +
+          `🗑️ "supprimer [nom]" → Supprimer un plat / Delete a dish\n` +
+          `📷 "photo restaurant" → Changer la photo / Update restaurant photo\n` +
+          `🍽️ "menu" → Voir votre menu / View your menu\n`
+        : `🍽️ "menu" → Voir le menu / View menu\n`) +
+      (canViewOrders ? `📦 "commandes" → Voir les commandes / View orders\n` : '') +
       `🔗 "restaurant" → Voir votre page / View your page\n` +
+      ownerCmds +
       `❓ "aide" → Ce message / This message`)
     return ok()
   }
@@ -436,6 +585,109 @@ async function handleVendor(
   // ── RESTAURANT PAGE ──────────────────────────────────────────────────────
   if (cmd === 'restaurant') {
     await sendWhatsApp(from, `🔗 *${restaurant.name}*\n${BASE_URL}/restaurant/${restaurant.id}`)
+    return ok()
+  }
+
+  // ── TEAM MANAGEMENT (owner only) ─────────────────────────────────────────
+  if (cmd === 'equipe' || cmd === 'team') {
+    if (!isOwner) {
+      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission. Contactez le propriétaire / Contact the owner.')
+      return ok()
+    }
+    const { data: members } = await supabaseAdmin
+      .from('restaurant_team')
+      .select('role, customers(name, phone)')
+      .eq('restaurant_id', restaurant.id)
+      .eq('status', 'active')
+
+    if (!members || members.length === 0) {
+      await sendWhatsApp(from, `👥 *Équipe — ${restaurant.name}*\n\nAucun membre. Ajoutez avec:\n"ajouter +XXX manager"\n\nNo members. Add with:\n"ajouter +XXX manager"`)
+      return ok()
+    }
+    const lines = members.map(m => {
+      const c = m.customers as unknown as { name: string; phone: string }
+      return `• ${c.name} (${c.phone}) — ${m.role}`
+    })
+    await sendWhatsApp(from, `👥 *Équipe — ${restaurant.name}*\n\n${lines.join('\n')}`)
+    return ok()
+  }
+
+  // ── ADD TEAM MEMBER: "ajouter +237XXX manager" ────────────────────────────
+  const addMemberMatch = body.match(/^(?:ajouter|add)\s+(\+?\d[\d\s-]+)\s+(manager|staff)$/i)
+  if (addMemberMatch) {
+    if (!isOwner) {
+      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      return ok()
+    }
+    const memberPhone = addMemberMatch[1].replace(/\s|-/g, '')
+    const memberRole  = addMemberMatch[2].toLowerCase()
+
+    const { data: newMember } = await supabaseAdmin
+      .from('customers').select('id, name, phone')
+      .eq('phone', memberPhone).eq('status', 'active').maybeSingle()
+
+    if (!newMember) {
+      await sendWhatsApp(from, `❌ Ce numéro n'est pas inscrit sur Ndjoka & Tchop.\nThis number is not registered.`)
+      return ok()
+    }
+
+    // Get owner's customer id
+    const { data: ownerCustomer } = await supabaseAdmin
+      .from('customers').select('id').eq('phone', phone).maybeSingle()
+
+    await supabaseAdmin.from('restaurant_team').upsert({
+      restaurant_id: restaurant.id, customer_id: newMember.id, role: memberRole,
+      added_by: ownerCustomer?.id ?? null, status: 'active',
+    }, { onConflict: 'restaurant_id,customer_id' })
+
+    await sendWhatsApp(newMember.phone,
+      `👥 Vous avez été ajouté comme *${memberRole}* chez *${restaurant.name}*.\n` +
+      `Envoyez "aide" pour les commandes disponibles.\n\n` +
+      `You've been added as *${memberRole}* at *${restaurant.name}*.\n` +
+      `Send "help" for available commands.`)
+
+    await sendWhatsApp(from, `✅ ${newMember.name} ajouté comme *${memberRole}*. / Added as *${memberRole}*.`)
+    return ok()
+  }
+
+  // ── REMOVE TEAM MEMBER: "retirer +237XXX" ────────────────────────────────
+  const removeMemberMatch = body.match(/^(?:retirer|remove)\s+(\+?\d[\d\s-]+)$/i)
+  if (removeMemberMatch) {
+    if (!isOwner) {
+      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      return ok()
+    }
+    const memberPhone = removeMemberMatch[1].replace(/\s|-/g, '')
+    const { data: memberCustomer } = await supabaseAdmin
+      .from('customers').select('id, name, phone').eq('phone', memberPhone).maybeSingle()
+
+    if (!memberCustomer) {
+      await sendWhatsApp(from, `❌ Numéro introuvable. / Number not found.`)
+      return ok()
+    }
+
+    await supabaseAdmin.from('restaurant_team')
+      .update({ status: 'removed' })
+      .eq('restaurant_id', restaurant.id).eq('customer_id', memberCustomer.id)
+
+    await sendWhatsApp(memberCustomer.phone,
+      `👋 Vous avez été retiré de *${restaurant.name}*.\nYou have been removed from *${restaurant.name}*.`)
+    await sendWhatsApp(from, `✅ ${memberCustomer.name} retiré de l'équipe. / Removed from team.`)
+    return ok()
+  }
+
+  // ── SUSPEND (owner only) ──────────────────────────────────────────────────
+  if (cmd === 'suspendre' || cmd === 'suspend') {
+    if (!isOwner) {
+      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      return ok()
+    }
+    await supabaseAdmin.from('restaurants').update({
+      status: 'suspended', suspended_at: new Date().toISOString(), suspended_by: 'vendor',
+    }).eq('id', restaurant.id)
+    await sendWhatsApp(from,
+      `⏸️ *${restaurant.name}* suspendu. Envoyez "reactiver" pour réactiver.\n` +
+      `Suspended. Send "reactiver" to reactivate.`)
     return ok()
   }
 
@@ -472,6 +724,10 @@ async function handleVendor(
   }
 
   // ── PENDING ORDERS ───────────────────────────────────────────────────────
+  if ((cmd === 'commandes' || cmd === 'orders') && !canViewOrders) {
+    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission. Contactez le propriétaire / Contact the owner.')
+    return ok()
+  }
   if (cmd === 'commandes' || cmd === 'orders') {
     const { data: orders } = await supabaseAdmin
       .from('orders')
@@ -499,6 +755,10 @@ async function handleVendor(
 
   // ── UPDATE PRICE: "prix Ndolé 3000" or "price Ndolé 3000" ───────────────
   const priceMatch = body.match(/^(?:prix|price)\s+(.+?)\s+(\d[\d\s]*)$/i)
+  if (priceMatch && !canEditMenu) {
+    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission. Contactez le propriétaire / Contact the owner.')
+    return ok()
+  }
   if (priceMatch) {
     const itemName = priceMatch[1].trim()
     const newPrice = parseInt(priceMatch[2].replace(/\s/g, ''), 10)
@@ -519,6 +779,10 @@ async function handleVendor(
 
   // ── MARK AVAILABLE: "dispo Ndolé" or "available Ndolé" ──────────────────
   const dispoMatch = body.match(/^(?:dispo|available)\s+(.+)$/i)
+  if (dispoMatch && !canEditMenu) {
+    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+    return ok()
+  }
   if (dispoMatch) {
     const itemName = dispoMatch[1].trim()
     const item = await findMenuItem(restaurant.id, itemName)
@@ -533,6 +797,10 @@ async function handleVendor(
 
   // ── MARK UNAVAILABLE: "indispo Ndolé" or "unavailable Ndolé" ────────────
   const indispoMatch = body.match(/^(?:indispo|unavailable)\s+(.+)$/i)
+  if (indispoMatch && !canEditMenu) {
+    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+    return ok()
+  }
   if (indispoMatch) {
     const itemName = indispoMatch[1].trim()
     const item = await findMenuItem(restaurant.id, itemName)
@@ -547,6 +815,10 @@ async function handleVendor(
 
   // ── DELETE ITEM: "supprimer Ndolé" or "delete Ndolé" ────────────────────
   const deleteMatch = body.match(/^(?:supprimer|delete)\s+(.+)$/i)
+  if (deleteMatch && !canEditMenu) {
+    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+    return ok()
+  }
   if (deleteMatch) {
     const itemName = deleteMatch[1].trim()
     const item = await findMenuItem(restaurant.id, itemName)
@@ -560,6 +832,10 @@ async function handleVendor(
   }
 
   // ── PHOTO WITH CAPTION ───────────────────────────────────────────────────
+  if (hasPhoto && !canEditMenu) {
+    await sendWhatsApp(from, 'Vous n\'avez pas la permission de modifier le menu. / You don\'t have permission to edit the menu.')
+    return ok()
+  }
   if (hasPhoto) {
     const caption = body.trim()
 
@@ -616,7 +892,11 @@ async function handleVendor(
   }
 
   // ── ADD ITEM (text only, no photo): "Ndolé - 2500" ──────────────────────
-  const textItemMatch = body.match(/^(.+?)\s*[-\u2013\u2014]\s*([\d\s]+)\s*$/)
+  const textItemMatch = body.match(/^(.+?)\s*[-–—]\s*([\d\s]+)\s*$/)
+  if (textItemMatch && !canEditMenu) {
+    await sendWhatsApp(from, 'Vous n\'avez pas la permission de modifier le menu. / You don\'t have permission.')
+    return ok()
+  }
   if (textItemMatch) {
     const dishName = textItemMatch[1].trim()
     const price    = parseInt(textItemMatch[2].replace(/\s/g, ''), 10)

@@ -313,6 +313,61 @@ const t = {
     'account.adminNavOrders': 'Commandes',
     'account.adminNavEvents': 'Événements',
     'account.adminNavVouchers': 'Bons',
+    'account.adminNavAccounts': 'Comptes',
+    'account.adminNavTeam': 'Équipe plateforme',
+
+    // --- DUAL LOGIN ---
+    'account.tabCustomer':    'Client / Vendeur',
+    'account.tabTeam':        'Équipe / Team',
+    'account.emailLbl':       'Adresse e-mail',
+    'account.emailPh':        'admin@exemple.com',
+
+    // --- CUSTOMER DASHBOARD ---
+    'account.profileTab':     'Mon profil',
+    'account.restaurantTab':  'Mon restaurant',
+    'account.teamTab':        'Mon équipe',
+    'account.settingsTab':    'Paramètres',
+    'account.addRestaurant':  '+ Ajouter un restaurant',
+    'account.selectRest':     'Sélectionner un restaurant',
+    'account.noRestaurant':   'Vous n\'avez pas encore de restaurant.',
+    'account.registerRest':   'Inscrire mon restaurant',
+    'account.suspend':        'Suspendre',
+    'account.reactivate':     'Réactiver',
+    'account.delete':         'Supprimer',
+    'account.undoDelete':     'Annuler la suppression',
+    'account.reason':         'Raison (optionnel)',
+    'account.confirmDelete':  'Confirmer la suppression',
+    'account.suspendedBanner':'Restaurant suspendu',
+    'account.deletedBanner':  'Restaurant supprimé (annulable sous 30 jours)',
+
+    // --- VENDOR TEAM ---
+    'account.teamTitle':      'Mon équipe',
+    'account.addMember':      'Ajouter un membre',
+    'account.memberPhone':    'Numéro WhatsApp du membre',
+    'account.memberRole':     'Rôle',
+    'account.roleManager':    'Gérant',
+    'account.roleStaff':      'Personnel',
+    'account.removeMember':   'Retirer',
+
+    // --- ADMIN ACCOUNTS ---
+    'account.suspendAccount': 'Suspendre le compte',
+    'account.deleteAccount':  'Supprimer le compte',
+    'account.releaseNumber':  'Libérer le numéro',
+    'account.reactivateAccount': 'Réactiver',
+    'account.accountStatus':  'Statut',
+
+    // --- PLATFORM TEAM ---
+    'account.platformTeam':   'Équipe plateforme',
+    'account.addAdmin':       'Ajouter un membre',
+    'account.adminName':      'Nom',
+    'account.adminEmail':     'E-mail',
+    'account.adminPassword':  'Mot de passe',
+    'account.adminRole':      'Rôle',
+    'account.roleAdmin':      'Admin',
+    'account.roleModerator':  'Modérateur',
+    'account.suspendAdmin':   'Suspendre',
+    'account.deleteAdmin':    'Supprimer',
+    'account.saving':         'Enregistrement…',
 
     // --- VOUCHER CARD ---
     'voucher.present':        'Présenter ce bon au restaurant',
@@ -704,6 +759,61 @@ const t = {
     'account.adminNavOrders': 'Orders',
     'account.adminNavEvents': 'Events',
     'account.adminNavVouchers': 'Vouchers',
+    'account.adminNavAccounts': 'Accounts',
+    'account.adminNavTeam': 'Platform Team',
+
+    // --- DUAL LOGIN ---
+    'account.tabCustomer':    'Customer / Vendor',
+    'account.tabTeam':        'Team / Équipe',
+    'account.emailLbl':       'Email address',
+    'account.emailPh':        'admin@example.com',
+
+    // --- CUSTOMER DASHBOARD ---
+    'account.profileTab':     'My profile',
+    'account.restaurantTab':  'My restaurant',
+    'account.teamTab':        'My team',
+    'account.settingsTab':    'Settings',
+    'account.addRestaurant':  '+ Add a restaurant',
+    'account.selectRest':     'Select a restaurant',
+    'account.noRestaurant':   'You don\'t have a restaurant yet.',
+    'account.registerRest':   'Register my restaurant',
+    'account.suspend':        'Suspend',
+    'account.reactivate':     'Reactivate',
+    'account.delete':         'Delete',
+    'account.undoDelete':     'Undo deletion',
+    'account.reason':         'Reason (optional)',
+    'account.confirmDelete':  'Confirm deletion',
+    'account.suspendedBanner':'Restaurant suspended',
+    'account.deletedBanner':  'Restaurant deleted (reversible within 30 days)',
+
+    // --- VENDOR TEAM ---
+    'account.teamTitle':      'My team',
+    'account.addMember':      'Add member',
+    'account.memberPhone':    'Member WhatsApp number',
+    'account.memberRole':     'Role',
+    'account.roleManager':    'Manager',
+    'account.roleStaff':      'Staff',
+    'account.removeMember':   'Remove',
+
+    // --- ADMIN ACCOUNTS ---
+    'account.suspendAccount': 'Suspend account',
+    'account.deleteAccount':  'Delete account',
+    'account.releaseNumber':  'Release number',
+    'account.reactivateAccount': 'Reactivate',
+    'account.accountStatus':  'Status',
+
+    // --- PLATFORM TEAM ---
+    'account.platformTeam':   'Platform team',
+    'account.addAdmin':       'Add member',
+    'account.adminName':      'Name',
+    'account.adminEmail':     'Email',
+    'account.adminPassword':  'Password',
+    'account.adminRole':      'Role',
+    'account.roleAdmin':      'Admin',
+    'account.roleModerator':  'Moderator',
+    'account.suspendAdmin':   'Suspend',
+    'account.deleteAdmin':    'Delete',
+    'account.saving':         'Saving…',
 
     // --- VOUCHER CARD ---
     'voucher.present':        'Show this voucher at the restaurant',

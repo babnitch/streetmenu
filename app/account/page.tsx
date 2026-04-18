@@ -16,57 +16,56 @@ const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'
 const AdminOrders      = dynamicLoad(() => import('@/app/admin/orders/page'),      { ssr: false })
 const AdminEvents      = dynamicLoad(() => import('@/app/admin/events/page'),      { ssr: false })
 const AdminVouchers    = dynamicLoad(() => import('@/app/admin/vouchers/page'),    { ssr: false })
+const AdminAccounts    = dynamicLoad(() => import('@/app/admin/accounts/page'),    { ssr: false })
+const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/page'), { ssr: false })
 
 // ── Types ────────────────────────────────────────────────────────────────────
+type LoginTab    = 'customer' | 'team'
 type AuthStep    = 'loading' | 'login' | 'register' | 'otp' | 'dashboard'
-type DashTab     = 'vouchers' | 'orders' | 'admin'
-type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'vouchers'
+type DashView    = 'customer' | 'vendor' | 'admin'
+type CustomerTab = 'vouchers' | 'orders' | 'profile' | 'restaurant' | 'team'
+type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'vouchers' | 'accounts' | 'platformteam'
 
-interface CustomerSession {
-  id:    string
-  phone: string
-  name:  string
-  city:  string
-}
-
-// ── Admin token helpers ──────────────────────────────────────────────────────
-function getAdminToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('adminToken') || sessionStorage.getItem('adminToken')
-}
-function saveAdminToken(token: string, remember: boolean) {
-  if (remember) { localStorage.setItem('adminToken', token); sessionStorage.removeItem('adminToken') }
-  else          { sessionStorage.setItem('adminToken', token); localStorage.removeItem('adminToken') }
-}
-function clearAdminToken() {
-  localStorage.removeItem('adminToken')
-  sessionStorage.removeItem('adminToken')
+interface SessionUser {
+  id:     string
+  name:   string
+  role:   'customer' | 'super_admin' | 'admin' | 'moderator'
+  phone?: string
+  email?: string
 }
 
-// ── Customer session helpers ─────────────────────────────────────────────────
-function getStoredCustomer(): CustomerSession | null {
-  if (typeof window === 'undefined') return null
-  const raw = localStorage.getItem('customerSession') || sessionStorage.getItem('customerSession')
-  if (!raw) return null
-  try { return JSON.parse(raw) } catch { return null }
+interface VendorRestaurant {
+  id:           string
+  name:         string
+  city:         string
+  neighborhood: string
+  cuisine_type: string
+  image_url:    string | null
+  is_active:    boolean
+  status:       string
+  deleted_at:   string | null
+  suspended_at: string | null
+  suspended_by: string | null
+  whatsapp:     string
+  teamRole:     'owner' | 'manager' | 'staff'
 }
-function saveCustomerSession(session: CustomerSession, remember: boolean) {
-  const raw = JSON.stringify(session)
-  if (remember) { localStorage.setItem('customerSession', raw); sessionStorage.removeItem('customerSession') }
-  else          { sessionStorage.setItem('customerSession', raw); localStorage.removeItem('customerSession') }
-}
-function clearCustomerSession() {
-  localStorage.removeItem('customerSession')
-  sessionStorage.removeItem('customerSession')
+
+interface TeamMember {
+  id:       string
+  role:     string
+  added_at: string
+  customers: { id: string; name: string; phone: string }
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function AccountPage() {
   const { t } = useLanguage()
 
-  // Auth state
+  // Login form state
+  const [loginTab,    setLoginTab]    = useState<LoginTab>('customer')
   const [step,        setStep]        = useState<AuthStep>('loading')
   const [phone,       setPhone]       = useState('')
+  const [email,       setEmail]       = useState('')
   const [password,    setPassword]    = useState('')
   const [rememberMe,  setRememberMe]  = useState(false)
   const [name,        setName]        = useState('')
@@ -77,114 +76,107 @@ export default function AccountPage() {
   const [loggingIn,   setLoggingIn]   = useState(false)
   const [error,       setError]       = useState('')
 
-  // Session / dashboard state
-  const [isAdmin,          setIsAdmin]          = useState(false)
-  const [customer,         setCustomer]         = useState<CustomerSession | null>(null)
-  const [tab,              setTab]              = useState<DashTab>('vouchers')
+  // Session / dashboard
+  const [user,             setUser]             = useState<SessionUser | null>(null)
+  const [dashView,         setDashView]         = useState<DashView>('customer')
+  const [customerTab,      setCustomerTab]      = useState<CustomerTab>('vouchers')
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   const [orders,           setOrders]           = useState<Order[]>([])
   const [loadingData,      setLoadingData]      = useState(false)
 
-  // ── Load dashboard data ──
-  const loadDashboardData = useCallback(async (customerId: string) => {
+  // Vendor state
+  const [myRestaurants,    setMyRestaurants]    = useState<VendorRestaurant[]>([])
+  const [activeRestId,     setActiveRestId]     = useState<string>('')
+  const [teamMembers,      setTeamMembers]      = useState<TeamMember[]>([])
+  const [loadingTeam,      setLoadingTeam]      = useState(false)
+  const [teamPhone,        setTeamPhone]        = useState('')
+  const [teamRole,         setTeamRole]         = useState('staff')
+  const [addingMember,     setAddingMember]     = useState(false)
+  const [teamError,        setTeamError]        = useState('')
+  const [restActionLoading, setRestActionLoading] = useState('')
+  const [suspendReason,    setSuspendReason]    = useState('')
+  const [showSuspendForm,  setShowSuspendForm]  = useState(false)
+
+  // ── On mount: check JWT session ──
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data.user) {
+          const u: SessionUser = data.user
+          setUser(u)
+          setStep('dashboard')
+          if (['super_admin', 'admin', 'moderator'].includes(u.role)) {
+            setDashView('admin')
+          } else {
+            setDashView('customer')
+            loadCustomerData(u.id)
+            loadMyRestaurants()
+          }
+        } else {
+          setStep('login')
+        }
+      })
+      .catch(() => setStep('login'))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadCustomerData = useCallback(async (customerId: string) => {
     setLoadingData(true)
     const [{ data: cvData }, { data: ordersData }] = await Promise.all([
-      supabase
-        .from('customer_vouchers')
-        .select('*, vouchers(*)')
-        .eq('customer_id', customerId)
-        .order('claimed_at', { ascending: false }),
-      supabase
-        .from('orders')
-        .select('*, restaurants(name, city)')
-        .eq('customer_id', customerId)
-        .order('created_at', { ascending: false })
-        .limit(20),
+      supabase.from('customer_vouchers').select('*, vouchers(*)').eq('customer_id', customerId).order('claimed_at', { ascending: false }),
+      supabase.from('orders').select('*, restaurants(name, city)').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(20),
     ])
-    if (cvData)    setCustomerVouchers(cvData)
+    if (cvData) setCustomerVouchers(cvData)
     if (ordersData) setOrders(ordersData)
     setLoadingData(false)
   }, [])
 
-  // ── On mount: restore session ──
-  useEffect(() => {
-    const adminToken = getAdminToken()
-    if (adminToken) {
-      fetch('/api/admin/auth', { headers: { 'x-admin-token': adminToken } })
-        .then(r => r.json())
-        .then(data => {
-          if (data.valid) {
-            setIsAdmin(true)
-            setStep('dashboard')
-            setTab('admin')
-          } else {
-            clearAdminToken()
-            restoreCustomerSession()
-          }
-        })
-        .catch(() => { clearAdminToken(); restoreCustomerSession() })
-      return
-    }
-    restoreCustomerSession()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function restoreCustomerSession() {
-    const stored = getStoredCustomer()
-    if (stored) {
-      setCustomer(stored)
-      setStep('dashboard')
-      loadDashboardData(stored.id)
-    } else {
-      setStep('login')
+  async function loadMyRestaurants() {
+    const res = await fetch('/api/vendor/restaurants')
+    const data = await res.json()
+    if (data.restaurants?.length) {
+      setMyRestaurants(data.restaurants)
+      setActiveRestId(data.restaurants[0].id)
     }
   }
 
-  // ── Login form submit (admin password OR customer WhatsApp code) ──
-  async function handleLoginSubmit(e: React.FormEvent) {
+  async function loadTeam(restaurantId: string) {
+    setLoadingTeam(true)
+    const res = await fetch(`/api/restaurants/${restaurantId}/team`)
+    const data = await res.json()
+    setTeamMembers(data.team ?? [])
+    setLoadingTeam(false)
+  }
+
+  // Load team when switching to team tab
+  useEffect(() => {
+    if (customerTab === 'team' && activeRestId) loadTeam(activeRestId)
+  }, [customerTab, activeRestId])
+
+  // ── Customer login: send OTP ──
+  async function handleSendCode(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-
-    if (password.trim()) {
-      // Admin: validate password
-      setLoggingIn(true)
-      try {
-        const res  = await fetch('/api/admin/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: password.trim() }),
-        })
-        const data = await res.json()
-        if (!res.ok || !data.token) { setError(t('account.wrongPwd')); return }
-        saveAdminToken(data.token, rememberMe)
-        setIsAdmin(true)
-        setStep('dashboard')
-        setTab('admin')
-      } finally {
-        setLoggingIn(false)
-      }
-    } else {
-      // Customer: send WhatsApp code
-      const cleaned = phone.trim()
-      if (!cleaned) return
-      setSending(true)
-      try {
-        const res  = await fetch('/api/auth/send-code', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: cleaned }),
-        })
-        const data = await res.json()
-        if (data.needsRegistration) { setStep('register'); return }
-        if (!res.ok) { setError(data.error || 'Erreur / Error'); return }
-        setStep('otp')
-      } finally {
-        setSending(false)
-      }
+    const cleaned = phone.trim()
+    if (!cleaned) return
+    setSending(true)
+    try {
+      const res  = await fetch('/api/auth/send-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleaned }),
+      })
+      const data = await res.json()
+      if (data.needsRegistration) { setStep('register'); return }
+      if (!res.ok) { setError(data.error || 'Erreur / Error'); return }
+      setStep('otp')
+    } finally {
+      setSending(false)
     }
   }
 
-  // ── Register form: new customer enters name + city, then sends code ──
+  // ── Register (new customer) ──
   async function handleRegisterSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -204,7 +196,7 @@ export default function AccountPage() {
     }
   }
 
-  // ── Verify 4-digit WhatsApp code ──
+  // ── Verify OTP ──
   async function verifyOtp() {
     setError('')
     setVerifying(true)
@@ -215,37 +207,107 @@ export default function AccountPage() {
         body: JSON.stringify({
           phone: phone.trim(),
           code:  otp.trim(),
+          rememberMe,
           ...(name.trim() ? { name: name.trim() } : {}),
           ...(city        ? { city }               : {}),
         }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Erreur / Error'); return }
-      const session: CustomerSession = data.customer
-      saveCustomerSession(session, rememberMe)
-      setCustomer(session)
+      const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
+      setUser(u)
       setStep('dashboard')
-      setTab('vouchers')
-      loadDashboardData(session.id)
+      setDashView('customer')
+      loadCustomerData(u.id)
+      loadMyRestaurants()
     } finally {
       setVerifying(false)
     }
   }
 
+  // ── Admin / team login ──
+  async function handleAdminLogin(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setLoggingIn(true)
+    try {
+      const res  = await fetch('/api/auth/admin-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password, rememberMe }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Erreur'); return }
+      const u: SessionUser = { id: data.user.id, email: data.user.email, name: data.user.name, role: data.user.role }
+      setUser(u)
+      setStep('dashboard')
+      setDashView('admin')
+    } finally {
+      setLoggingIn(false)
+    }
+  }
+
   // ── Sign out ──
-  function handleSignOut() {
-    clearAdminToken()
-    clearCustomerSession()
-    setIsAdmin(false)
-    setCustomer(null)
-    setPhone('')
-    setPassword('')
-    setName('')
-    setCity('')
-    setOtp('')
-    setCustomerVouchers([])
-    setOrders([])
+  async function handleSignOut() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    setUser(null)
+    setPhone(''); setEmail(''); setPassword(''); setName(''); setCity(''); setOtp('')
+    setMyRestaurants([]); setCustomerVouchers([]); setOrders([])
     setStep('login')
+  }
+
+  // ── Vendor: restaurant actions ──
+  const activeRest = myRestaurants.find(r => r.id === activeRestId)
+
+  async function handleRestaurantAction(action: 'suspend' | 'reactivate' | 'delete' | 'undo-delete') {
+    if (!activeRestId) return
+    setRestActionLoading(action)
+    try {
+      await fetch(`/api/restaurants/${activeRestId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: suspendReason }),
+      })
+      setShowSuspendForm(false)
+      setSuspendReason('')
+      await loadMyRestaurants()
+    } finally {
+      setRestActionLoading('')
+    }
+  }
+
+  // ── Vendor: add team member ──
+  async function handleAddTeamMember(e: React.FormEvent) {
+    e.preventDefault()
+    setTeamError('')
+    setAddingMember(true)
+    try {
+      const res = await fetch(`/api/restaurants/${activeRestId}/team`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: teamPhone.trim(), role: teamRole }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setTeamError(data.error ?? 'Erreur'); return }
+      setTeamPhone('')
+      await loadTeam(activeRestId)
+    } finally {
+      setAddingMember(false)
+    }
+  }
+
+  async function handleRemoveTeamMember(memberId: string) {
+    await fetch(`/api/restaurants/${activeRestId}/team/${memberId}`, { method: 'DELETE' })
+    await loadTeam(activeRestId)
+  }
+
+  // ── Admin permission checks ──
+  function adminCan(tab: AdminSubTab): boolean {
+    if (!user) return false
+    if (user.role === 'super_admin') return true
+    if (user.role === 'admin') return tab !== 'platformteam'
+    if (user.role === 'moderator') return ['restaurants', 'orders', 'events'].includes(tab)
+    return false
   }
 
   // ── Loading splash ──
@@ -257,9 +319,8 @@ export default function AccountPage() {
     )
   }
 
-  // Admin tab gets wider container
   const containerClass =
-    step === 'dashboard' && tab === 'admin'
+    step === 'dashboard' && dashView === 'admin'
       ? 'max-w-5xl mx-auto px-4 py-8'
       : 'max-w-md mx-auto px-4 py-8'
 
@@ -272,59 +333,92 @@ export default function AccountPage() {
         {/* ── Login ── */}
         {step === 'login' && (
           <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
-            <div className="text-center mb-6">
+            <div className="text-center mb-5">
               <div className="text-5xl mb-3">👤</div>
               <h1 className="text-xl font-bold text-gray-900">{t('account.title')}</h1>
-              <p className="text-sm text-gray-400 mt-1">{t('account.whatsappHint')}</p>
             </div>
 
-            <form onSubmit={handleLoginSubmit} autoComplete="on" className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t('account.phoneLbl')}</label>
-                <input
-                  type="tel" name="phone" autoComplete="tel"
-                  value={phone} onChange={e => setPhone(e.target.value)}
-                  placeholder={t('account.phonePh')}
-                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t('account.passwordLbl')}</label>
-                <input
-                  type="password" name="password" autoComplete="current-password"
-                  value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder={t('account.passwordPh')}
-                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
-                />
-                <p className="text-xs text-gray-400 mt-1">{t('account.passwordHint')}</p>
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox" checked={rememberMe}
-                  onChange={e => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded accent-orange-500"
-                />
-                <span className="text-sm text-gray-600">{t('account.rememberMe')}</span>
-              </label>
-
-              {error && <p className="text-xs text-red-500">{error}</p>}
-
+            {/* Login tabs */}
+            <div className="flex bg-gray-100 rounded-2xl p-1 mb-5 gap-1">
               <button
-                type="submit"
-                disabled={loggingIn || sending || !phone.trim()}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
+                onClick={() => { setLoginTab('customer'); setError('') }}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'customer' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {(loggingIn || sending)
-                  ? (password.trim() ? t('account.loggingIn') : t('account.sending'))
-                  : (password.trim() ? t('account.loginBtn')  : t('account.sendOtp'))}
+                {t('account.tabCustomer')}
               </button>
-            </form>
+              <button
+                onClick={() => { setLoginTab('team'); setError('') }}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'team' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {t('account.tabTeam')}
+              </button>
+            </div>
+
+            {loginTab === 'customer' && (
+              <form onSubmit={handleSendCode} autoComplete="on" className="space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('account.phoneLbl')}</label>
+                  <input
+                    type="tel" name="phone" autoComplete="tel"
+                    value={phone} onChange={e => setPhone(e.target.value)}
+                    placeholder={t('account.phonePh')}
+                    className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">{t('account.whatsappHint')}</p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-orange-500" />
+                  <span className="text-sm text-gray-600">{t('account.rememberMe')}</span>
+                </label>
+                {error && <p className="text-xs text-red-500">{error}</p>}
+                <button
+                  type="submit"
+                  disabled={sending || !phone.trim()}
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
+                >
+                  {sending ? t('account.sending') : t('account.sendOtp')}
+                </button>
+              </form>
+            )}
+
+            {loginTab === 'team' && (
+              <form onSubmit={handleAdminLogin} autoComplete="on" className="space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('account.emailLbl')}</label>
+                  <input
+                    type="email" name="email" autoComplete="email"
+                    value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder={t('account.emailPh')}
+                    className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('account.passwordLbl')}</label>
+                  <input
+                    type="password" name="password" autoComplete="current-password"
+                    value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder={t('account.passwordPh')}
+                    className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
+                  />
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-orange-500" />
+                  <span className="text-sm text-gray-600">{t('account.rememberMe')}</span>
+                </label>
+                {error && <p className="text-xs text-red-500">{error}</p>}
+                <button
+                  type="submit"
+                  disabled={loggingIn || !email.trim() || !password.trim()}
+                  className="w-full bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
+                >
+                  {loggingIn ? t('account.loggingIn') : t('account.loginBtn')}
+                </button>
+              </form>
+            )}
           </div>
         )}
 
-        {/* ── Register (new customer: enter name + city) ── */}
+        {/* ── Register ── */}
         {step === 'register' && (
           <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
             <div className="text-center mb-6">
@@ -332,23 +426,16 @@ export default function AccountPage() {
               <h1 className="text-xl font-bold text-gray-900">{t('account.setupBtn')}</h1>
               <p className="text-sm text-green-600 font-medium mt-1">{t('account.setupSub')}</p>
             </div>
-
             <form onSubmit={handleRegisterSubmit} className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">{t('account.nameLbl')}</label>
-                <input
-                  type="text" value={name} onChange={e => setName(e.target.value)}
-                  placeholder={t('account.namePh')}
-                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
-                />
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder={t('account.namePh')}
+                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400" />
               </div>
-
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Ville / City</label>
-                <select
-                  value={city} onChange={e => setCity(e.target.value)}
-                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400 bg-white"
-                >
+                <select value={city} onChange={e => setCity(e.target.value)}
+                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400 bg-white">
                   <option value="">Choisir / Select…</option>
                   <option value="Yaoundé">Yaoundé</option>
                   <option value="Abidjan">Abidjan</option>
@@ -356,29 +443,20 @@ export default function AccountPage() {
                   <option value="Lomé">Lomé</option>
                 </select>
               </div>
-
               {error && <p className="text-xs text-red-500">{error}</p>}
-
-              <button
-                type="submit"
-                disabled={sending || !name.trim() || !city}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
-              >
+              <button type="submit" disabled={sending || !name.trim() || !city}
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors">
                 {sending ? t('account.sending') : t('account.sendOtp')}
               </button>
-
-              <button
-                type="button"
-                onClick={() => { setStep('login'); setError('') }}
-                className="w-full text-gray-400 text-sm py-2 hover:text-gray-600 transition-colors"
-              >
+              <button type="button" onClick={() => { setStep('login'); setError('') }}
+                className="w-full text-gray-400 text-sm py-2 hover:text-gray-600 transition-colors">
                 {t('account.changePhone')}
               </button>
             </form>
           </div>
         )}
 
-        {/* ── OTP (4-digit WhatsApp code) ── */}
+        {/* ── OTP ── */}
         {step === 'otp' && (
           <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
             <div className="text-center mb-6">
@@ -387,178 +465,366 @@ export default function AccountPage() {
               <p className="text-sm text-gray-500 mt-1">{phone}</p>
               <p className="text-xs text-green-600 font-medium mt-1">{t('account.checkWhatsApp')}</p>
             </div>
-
             <input
               type="text" inputMode="numeric"
               value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
               placeholder="1234"
               className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400 text-center tracking-[0.5em] font-mono text-xl mb-3"
             />
-
             {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
-
-            <button
-              onClick={verifyOtp}
-              disabled={verifying || otp.length < 4}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3"
-            >
+            <button onClick={verifyOtp} disabled={verifying || otp.length < 4}
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3">
               {verifying ? t('account.verifying') : t('account.verify')}
             </button>
-
-            <button
-              onClick={() => { setStep('login'); setOtp(''); setError('') }}
-              className="w-full text-gray-400 text-sm py-2 hover:text-gray-600 transition-colors"
-            >
+            <button onClick={() => { setStep('login'); setOtp(''); setError('') }}
+              className="w-full text-gray-400 text-sm py-2 hover:text-gray-600 transition-colors">
               {t('account.changePhone')}
             </button>
           </div>
         )}
 
         {/* ── Dashboard ── */}
-        {step === 'dashboard' && (
+        {step === 'dashboard' && user && (
           <div>
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
                 <p className="text-xs text-gray-400">{t('account.hello')}</p>
                 <p className="font-bold text-gray-900 text-lg">
-                  {isAdmin ? '🔐 Admin' : (customer?.name ?? '')}
+                  {dashView === 'admin' ? `🔐 ${user.name}` : user.name}
+                  {dashView === 'admin' && <span className="ml-2 text-xs text-gray-400 font-normal">({user.role.replace('_', ' ')})</span>}
                 </p>
               </div>
-              <button
-                onClick={handleSignOut}
-                className="text-xs text-gray-400 hover:text-red-500 transition-colors px-3 py-1.5 rounded-xl hover:bg-red-50"
-              >
+              <button onClick={handleSignOut}
+                className="text-xs text-gray-400 hover:text-red-500 transition-colors px-3 py-1.5 rounded-xl hover:bg-red-50">
                 {t('account.signOut')}
               </button>
             </div>
 
-            {/* Tab bar */}
-            <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
-              <button
-                onClick={() => setTab('vouchers')}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${tab === 'vouchers' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                🏷️ {t('account.vouchersTab')}
-              </button>
-              <button
-                onClick={() => setTab('orders')}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${tab === 'orders' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                📋 {t('account.ordersTab')}
-              </button>
-              {isAdmin && (
-                <button
-                  onClick={() => setTab('admin')}
-                  className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${tab === 'admin' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                >
-                  🔐 {t('account.adminTab')}
-                </button>
-              )}
-            </div>
-
-            {/* Vouchers */}
-            {tab === 'vouchers' && (
-              <>
-                {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-gray-300">…</div></div>}
-                {!loadingData && (
-                  <div className="space-y-3">
-                    {customerVouchers.length === 0 ? (
-                      <div className="text-center py-12">
-                        <div className="text-4xl mb-3">🏷️</div>
-                        <p className="text-gray-400 text-sm">{t('account.noVouchers')}</p>
-                      </div>
-                    ) : (
-                      customerVouchers.map(cv =>
-                        cv.vouchers && (
-                          <VoucherCard
-                            key={cv.id}
-                            voucher={cv.vouchers}
-                            customerVoucherId={cv.id}
-                            usedAt={cv.used_at}
-                          />
-                        )
-                      )
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Orders */}
-            {tab === 'orders' && (
-              <>
-                {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-gray-300">…</div></div>}
-                {!loadingData && (
-                  <div className="space-y-3">
-                    {orders.length === 0 ? (
-                      <div className="text-center py-12">
-                        <div className="text-4xl mb-3">📋</div>
-                        <p className="text-gray-400 text-sm">{t('account.noOrders')}</p>
-                        <Link href="/" className="mt-4 inline-block text-orange-500 text-sm font-semibold underline">
-                          Explorer les restaurants
-                        </Link>
-                      </div>
-                    ) : (
-                      orders.map(order => (
-                        <div key={order.id} className="bg-white rounded-2xl shadow-sm p-4">
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="font-semibold text-gray-900 text-sm">
-                              {t('account.orderAt')} {order.restaurants?.name ?? '—'}
-                            </p>
-                            <span className="text-xs text-gray-400">
-                              {new Date(order.created_at).toLocaleDateString('fr-FR')}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-400 mb-2">
-                            {Array.isArray(order.items)
-                              ? order.items.map((it: { name: string; quantity: number }) => `${it.quantity}× ${it.name}`).join(', ')
-                              : ''}
-                          </p>
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-orange-500 text-sm">
-                              {Number(order.total_price).toLocaleString()} FCFA
-                            </span>
-                            <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-medium capitalize">
-                              {order.status}
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Admin */}
-            {tab === 'admin' && isAdmin && (
+            {/* ══════════════════════════════════════════════════════════
+                ADMIN DASHBOARD
+               ══════════════════════════════════════════════════════════ */}
+            {dashView === 'admin' && (
               <div>
                 <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-                  {(['restaurants', 'orders', 'events', 'vouchers'] as AdminSubTab[]).map(sub => (
-                    <button
-                      key={sub}
-                      onClick={() => setAdminSubTab(sub)}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
-                        adminSubTab === sub
-                          ? 'bg-gray-800 text-white'
-                          : 'bg-white text-gray-600 shadow-sm hover:text-gray-900'
-                      }`}
-                    >
-                      {t(`account.adminNav${sub.charAt(0).toUpperCase()}${sub.slice(1)}` as Parameters<typeof t>[0])}
-                    </button>
-                  ))}
+                  {(['restaurants', 'orders', 'events', 'vouchers', 'accounts', 'platformteam'] as AdminSubTab[])
+                    .filter(adminCan)
+                    .map(sub => (
+                      <button key={sub}
+                        onClick={() => setAdminSubTab(sub)}
+                        className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
+                          adminSubTab === sub ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 shadow-sm hover:text-gray-900'
+                        }`}
+                      >
+                        {t(`account.adminNav${sub.charAt(0).toUpperCase()}${sub.slice(1)}` as Parameters<typeof t>[0])}
+                      </button>
+                    ))}
                 </div>
-                {adminSubTab === 'restaurants' && <AdminRestaurants />}
-                {adminSubTab === 'orders'      && <AdminOrders />}
-                {adminSubTab === 'events'      && <AdminEvents />}
-                {adminSubTab === 'vouchers'    && <AdminVouchers />}
+                {adminSubTab === 'restaurants'  && <AdminRestaurants />}
+                {adminSubTab === 'orders'       && <AdminOrders />}
+                {adminSubTab === 'events'       && <AdminEvents />}
+                {adminSubTab === 'vouchers'     && <AdminVouchers />}
+                {adminSubTab === 'accounts'     && <AdminAccounts />}
+                {adminSubTab === 'platformteam' && <AdminPlatformTeam />}
               </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════
+                CUSTOMER / VENDOR DASHBOARD
+               ══════════════════════════════════════════════════════════ */}
+            {dashView === 'customer' && (
+              <>
+                {/* Tab bar */}
+                <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1 overflow-x-auto">
+                  <TabBtn label={`🏷️ ${t('account.vouchersTab')}`}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
+                  <TabBtn label={`📋 ${t('account.ordersTab')}`}     active={customerTab === 'orders'}    onClick={() => setCustomerTab('orders')} />
+                  {myRestaurants.length > 0 && (
+                    <TabBtn label={`🏪 ${t('account.restaurantTab')}`} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
+                  )}
+                  {myRestaurants.length > 0 && activeRest?.teamRole === 'owner' && (
+                    <TabBtn label={`👥 ${t('account.teamTab')}`} active={customerTab === 'team'} onClick={() => setCustomerTab('team')} />
+                  )}
+                  <TabBtn label={`👤 ${t('account.profileTab')}`}   active={customerTab === 'profile'}   onClick={() => setCustomerTab('profile')} />
+                </div>
+
+                {/* Vouchers */}
+                {customerTab === 'vouchers' && (
+                  <>
+                    {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-gray-300">…</div></div>}
+                    {!loadingData && (
+                      <div className="space-y-3">
+                        {customerVouchers.length === 0 ? (
+                          <div className="text-center py-12">
+                            <div className="text-4xl mb-3">🏷️</div>
+                            <p className="text-gray-400 text-sm">{t('account.noVouchers')}</p>
+                          </div>
+                        ) : customerVouchers.map(cv => cv.vouchers && (
+                          <VoucherCard key={cv.id} voucher={cv.vouchers} customerVoucherId={cv.id} usedAt={cv.used_at} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Orders */}
+                {customerTab === 'orders' && (
+                  <>
+                    {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-gray-300">…</div></div>}
+                    {!loadingData && (
+                      <div className="space-y-3">
+                        {orders.length === 0 ? (
+                          <div className="text-center py-12">
+                            <div className="text-4xl mb-3">📋</div>
+                            <p className="text-gray-400 text-sm">{t('account.noOrders')}</p>
+                            <Link href="/" className="mt-4 inline-block text-orange-500 text-sm font-semibold underline">
+                              Explorer les restaurants
+                            </Link>
+                          </div>
+                        ) : orders.map(order => (
+                          <div key={order.id} className="bg-white rounded-2xl shadow-sm p-4">
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="font-semibold text-gray-900 text-sm">{t('account.orderAt')} {order.restaurants?.name ?? '—'}</p>
+                              <span className="text-xs text-gray-400">{new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
+                            </div>
+                            <p className="text-xs text-gray-400 mb-2">
+                              {Array.isArray(order.items) ? order.items.map((it: { name: string; quantity: number }) => `${it.quantity}× ${it.name}`).join(', ') : ''}
+                            </p>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-orange-500 text-sm">{Number(order.total_price).toLocaleString()} FCFA</span>
+                              <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-medium capitalize">{order.status}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Profile */}
+                {customerTab === 'profile' && (
+                  <div className="bg-white rounded-2xl shadow-sm p-6">
+                    <h2 className="font-bold text-gray-900 mb-4">👤 {t('account.profileTab')}</h2>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs text-gray-400">Nom / Name</label>
+                        <p className="font-semibold text-gray-900">{user.name}</p>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Téléphone / Phone</label>
+                        <p className="font-semibold text-gray-900 font-mono">{user.phone}</p>
+                      </div>
+                    </div>
+                    <div className="mt-6 pt-4 border-t border-gray-100">
+                      <p className="text-xs text-gray-400 mb-3">Inscrire un restaurant / Register a restaurant</p>
+                      <a href="https://wa.me/your-number?text=restaurant" target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                        🏪 {t('account.registerRest')} via WhatsApp
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Restaurant settings */}
+                {customerTab === 'restaurant' && (
+                  <div>
+                    {/* Multi-restaurant selector */}
+                    {myRestaurants.length > 1 && (
+                      <div className="mb-4">
+                        <label className="block text-xs text-gray-500 mb-1.5">{t('account.selectRest')}</label>
+                        <select
+                          value={activeRestId}
+                          onChange={e => setActiveRestId(e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-400 bg-white"
+                        >
+                          {myRestaurants.map(r => (
+                            <option key={r.id} value={r.id}>{r.name} — {r.city}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {activeRest && (
+                      <div className="bg-white rounded-2xl shadow-sm p-6">
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div>
+                            <h2 className="font-bold text-gray-900 text-lg">{activeRest.name}</h2>
+                            <p className="text-sm text-gray-500">{activeRest.city}{activeRest.neighborhood ? ` · ${activeRest.neighborhood}` : ''}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">{activeRest.cuisine_type} · Rôle: {activeRest.teamRole}</p>
+                          </div>
+                          <StatusBadge status={activeRest.deleted_at ? 'deleted' : activeRest.status} />
+                        </div>
+
+                        {/* Banners */}
+                        {activeRest.deleted_at && (
+                          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-sm text-red-700">
+                            🗑️ {t('account.deletedBanner')}
+                          </div>
+                        )}
+                        {!activeRest.deleted_at && activeRest.status === 'suspended' && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-700">
+                            ⏸️ {t('account.suspendedBanner')}
+                            {activeRest.suspended_by === 'admin' && ' — contactez le support / contact support'}
+                          </div>
+                        )}
+
+                        {/* Restaurant page link */}
+                        <a href={`/restaurant/${activeRest.id}`} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm text-orange-500 hover:text-orange-600 font-semibold mb-5">
+                          ↗ Voir la page / View page
+                        </a>
+
+                        {/* Actions (owner only) */}
+                        {activeRest.teamRole === 'owner' && (
+                          <div className="border-t border-gray-100 pt-4 space-y-3">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Paramètres / Settings</p>
+
+                            {activeRest.deleted_at ? (
+                              <button
+                                onClick={() => handleRestaurantAction('undo-delete')}
+                                disabled={!!restActionLoading}
+                                className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                              >
+                                {restActionLoading === 'undo-delete' ? '…' : t('account.undoDelete')}
+                              </button>
+                            ) : (
+                              <div className="flex gap-3 flex-wrap">
+                                {activeRest.status !== 'suspended' && (
+                                  <button
+                                    onClick={() => setShowSuspendForm(v => !v)}
+                                    className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                  >
+                                    ⏸️ {t('account.suspend')}
+                                  </button>
+                                )}
+                                {activeRest.status === 'suspended' && activeRest.suspended_by === 'vendor' && (
+                                  <button
+                                    onClick={() => handleRestaurantAction('reactivate')}
+                                    disabled={!!restActionLoading}
+                                    className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                  >
+                                    {restActionLoading === 'reactivate' ? '…' : `✅ ${t('account.reactivate')}`}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => { if (confirm('Supprimer ce restaurant? Annulable sous 30 jours.')) handleRestaurantAction('delete') }}
+                                  disabled={!!restActionLoading}
+                                  className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                >
+                                  {restActionLoading === 'delete' ? '…' : `🗑️ ${t('account.delete')}`}
+                                </button>
+                              </div>
+                            )}
+
+                            {showSuspendForm && (
+                              <div className="space-y-2">
+                                <input
+                                  value={suspendReason}
+                                  onChange={e => setSuspendReason(e.target.value)}
+                                  placeholder={t('account.reason')}
+                                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400"
+                                />
+                                <button
+                                  onClick={() => handleRestaurantAction('suspend')}
+                                  disabled={!!restActionLoading}
+                                  className="bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                >
+                                  {restActionLoading === 'suspend' ? '…' : 'Confirmer la suspension'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Team management */}
+                {customerTab === 'team' && activeRest?.teamRole === 'owner' && (
+                  <div className="bg-white rounded-2xl shadow-sm p-6">
+                    <h2 className="font-bold text-gray-900 mb-4">👥 {t('account.teamTitle')} — {activeRest.name}</h2>
+
+                    {/* Add member form */}
+                    <form onSubmit={handleAddTeamMember} className="flex gap-2 mb-5 flex-wrap">
+                      <input
+                        type="tel"
+                        value={teamPhone}
+                        onChange={e => setTeamPhone(e.target.value)}
+                        placeholder={t('account.memberPhone')}
+                        className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400"
+                      />
+                      <select value={teamRole} onChange={e => setTeamRole(e.target.value)}
+                        className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400 bg-white">
+                        <option value="manager">{t('account.roleManager')}</option>
+                        <option value="staff">{t('account.roleStaff')}</option>
+                      </select>
+                      <button type="submit" disabled={addingMember || !teamPhone.trim()}
+                        className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                        {addingMember ? '…' : t('account.addMember')}
+                      </button>
+                    </form>
+                    {teamError && <p className="text-xs text-red-500 mb-3">{teamError}</p>}
+
+                    {/* Team list */}
+                    {loadingTeam ? (
+                      <div className="text-center py-8 text-gray-400">Chargement…</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {teamMembers.map(m => (
+                          <div key={m.id} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                            <div>
+                              <p className="font-semibold text-sm text-gray-900">{m.customers.name}</p>
+                              <p className="text-xs text-gray-400 font-mono">{m.customers.phone} · {m.role}</p>
+                            </div>
+                            {m.role !== 'owner' && (
+                              <button
+                                onClick={() => handleRemoveTeamMember(m.id)}
+                                className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                {t('account.removeMember')}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {teamMembers.length === 0 && <p className="text-gray-400 text-sm text-center py-4">Équipe vide / Empty team</p>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
       </div>
     </div>
+  )
+}
+
+function TabBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+        active ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    active:    'bg-green-100 text-green-700',
+    pending:   'bg-amber-100 text-amber-700',
+    approved:  'bg-green-100 text-green-700',
+    suspended: 'bg-amber-100 text-amber-700',
+    deleted:   'bg-red-100 text-red-600',
+  }
+  return (
+    <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
+      {status}
+    </span>
   )
 }

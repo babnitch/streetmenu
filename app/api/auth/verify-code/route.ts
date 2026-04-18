@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { setSessionCookie, SessionPayload } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,5 +78,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ customer })
+  const rememberMe = Boolean(body.rememberMe)
+  const payload: SessionPayload = {
+    id:    customer.id,
+    phone: customer.phone,
+    name:  customer.name,
+    role:  'customer',
+  }
+  const res = NextResponse.json({ customer })
+  return setSessionCookie(res, payload, rememberMe)
 }
