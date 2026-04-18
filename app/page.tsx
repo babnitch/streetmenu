@@ -124,6 +124,8 @@ export default function HomePage() {
         .from('restaurants')
         .select('*')
         .eq('is_active', true)
+        .in('status', ['active', 'approved'])
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
       if (data) setRestaurants(data)
       setLoading(false)

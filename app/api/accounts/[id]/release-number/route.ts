@@ -31,7 +31,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Numéro déjà libéré / Number already released' }, { status: 400 })
   }
 
-  await releaseAccount(params.id)
+  try {
+    await releaseAccount(params.id, { id: session.id, type: session.role })
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 })
+  }
 
   return NextResponse.json({ ok: true, message: 'Numéro libéré et données anonymisées / Number released and data anonymized' })
 }

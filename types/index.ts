@@ -16,6 +16,12 @@ export interface Restaurant {
   owner_name?: string
   neighborhood?: string
   cuisine_type?: string
+  // Moderation fields (added via supabase-account-system.sql)
+  status?: string
+  deleted_at?: string | null
+  suspended_at?: string | null
+  suspended_by?: string | null
+  image_url?: string | null
 }
 
 export interface MenuItem {

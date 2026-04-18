@@ -66,6 +66,25 @@ export default function MenuPage() {
     )
   }
 
+  const unavailable =
+    !!restaurant.deleted_at ||
+    restaurant.status === 'suspended' ||
+    restaurant.status === 'deleted' ||
+    restaurant.status === 'pending'
+
+  if (unavailable) {
+    return (
+      <div className="min-h-screen bg-orange-50 flex items-center justify-center px-4">
+        <div className="text-center max-w-sm">
+          <div className="text-5xl mb-4">🏪</div>
+          <p className="text-gray-700 font-semibold mb-1">Ce restaurant n&apos;est pas disponible</p>
+          <p className="text-gray-500 text-sm mb-4">This restaurant is not available.</p>
+          <Link href="/" className="text-orange-500 underline">{t('menu.goBack')}</Link>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-orange-50">
       <TopNav />
