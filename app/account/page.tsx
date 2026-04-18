@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import VoucherCard from '@/components/VoucherCard'
+import AdminProfilePanel from '@/components/AdminProfilePanel'
 import { CustomerVoucher, Order } from '@/types'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
@@ -24,7 +25,21 @@ type LoginTab    = 'customer' | 'team'
 type AuthStep    = 'loading' | 'login' | 'register' | 'otp' | 'dashboard'
 type DashView    = 'customer' | 'vendor' | 'admin'
 type CustomerTab = 'vouchers' | 'orders' | 'profile' | 'restaurant' | 'team'
-type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'vouchers' | 'accounts' | 'platformteam'
+type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'vouchers' | 'accounts' | 'platformteam' | 'profile'
+
+// Explicit bilingual labels — avoids the earlier bug where the label was
+// built from the tab value (e.g. `account.adminNav${capitalize(sub)}`),
+// which produced a non-existent key `account.adminNavPlatformteam` and
+// rendered raw in the UI.
+const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
+  restaurants:  'Restaurants',
+  orders:       'Commandes / Orders',
+  events:       'Événements / Events',
+  vouchers:     'Bons / Vouchers',
+  accounts:     'Comptes / Accounts',
+  platformteam: 'Équipe plateforme / Platform Team',
+  profile:      'Mon profil / My Profile',
+}
 
 interface SessionUser {
   id:     string
@@ -445,6 +460,8 @@ export default function AccountPage() {
   // ── Admin permission checks ──
   function adminCan(tab: AdminSubTab): boolean {
     if (!user) return false
+    // Everyone in the admin dashboard can see their own profile
+    if (tab === 'profile') return true
     if (user.role === 'super_admin') return true
     if (user.role === 'admin') return tab !== 'platformteam'
     if (user.role === 'moderator') return ['restaurants', 'orders', 'events'].includes(tab)
@@ -654,7 +671,7 @@ export default function AccountPage() {
             {dashView === 'admin' && (
               <div>
                 <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-                  {(['restaurants', 'orders', 'events', 'vouchers', 'accounts', 'platformteam'] as AdminSubTab[])
+                  {(['restaurants', 'orders', 'events', 'vouchers', 'accounts', 'platformteam', 'profile'] as AdminSubTab[])
                     .filter(adminCan)
                     .map(sub => (
                       <button key={sub}
@@ -663,7 +680,7 @@ export default function AccountPage() {
                           adminSubTab === sub ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 shadow-sm hover:text-gray-900'
                         }`}
                       >
-                        {t(`account.adminNav${sub.charAt(0).toUpperCase()}${sub.slice(1)}` as Parameters<typeof t>[0])}
+                        {ADMIN_TAB_LABELS[sub]}
                       </button>
                     ))}
                 </div>
@@ -673,6 +690,7 @@ export default function AccountPage() {
                 {adminSubTab === 'vouchers'     && <AdminVouchers />}
                 {adminSubTab === 'accounts'     && <AdminAccounts />}
                 {adminSubTab === 'platformteam' && <AdminPlatformTeam />}
+                {adminSubTab === 'profile'      && <AdminProfilePanel />}
               </div>
             )}
 
