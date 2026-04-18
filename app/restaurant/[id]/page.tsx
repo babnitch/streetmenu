@@ -90,8 +90,8 @@ export default function MenuPage() {
       <TopNav />
       {/* Hero */}
       <div className="relative h-40 bg-gradient-to-br from-orange-400 to-orange-600">
-        {restaurant.logo_url && (
-          <Image src={restaurant.logo_url} alt={restaurant.name} fill className="object-cover opacity-60" />
+        {(restaurant.image_url || restaurant.logo_url) && (
+          <Image src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover opacity-60" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         <button

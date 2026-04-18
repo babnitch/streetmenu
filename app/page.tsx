@@ -42,9 +42,9 @@ function RestaurantCard({
     <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-orange-50">
       {/* Photo */}
       <div className="relative h-28 sm:h-36 bg-gradient-to-br from-orange-200 to-orange-400">
-        {restaurant.logo_url ? (
+        {(restaurant.image_url || restaurant.logo_url) ? (
           <Image
-            src={restaurant.logo_url}
+            src={(restaurant.image_url || restaurant.logo_url)!}
             alt={restaurant.name}
             fill
             className="object-cover"
