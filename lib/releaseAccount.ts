@@ -1,8 +1,24 @@
 import crypto from 'crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
-export function hashPhone(phone: string): string {
-  return 'deleted_' + crypto.createHash('sha256').update(phone).digest('hex').slice(0, 16)
+// Produce a unique anonymised phone token. Every call returns a fresh value
+// so re-releasing a previously-released phone (e.g. after a number was
+// re-registered by a new customer) never collides with the prior anonymised
+// row on the customers.phone UNIQUE constraint.
+//
+// 8 random bytes (16 hex chars) — matches the historical length of the
+// old deterministic hash, birthday-collision-safe well past any plausible
+// number of releases.
+export function anonymisedPhoneToken(): string {
+  return 'deleted_' + crypto.randomBytes(8).toString('hex')
+}
+
+// Retained for any external caller of the old deterministic hasher. New code
+// should use anonymisedPhoneToken(). The argument is ignored on purpose —
+// identical inputs MUST produce distinct outputs now.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function hashPhone(_input: string): string {
+  return anonymisedPhoneToken()
 }
 
 export interface ReleaseActor {
@@ -94,31 +110,62 @@ export async function releaseAccount(customerId: string, actor: ReleaseActor = {
 
   console.log('[releaseAccount] audit_log write OK — anonymising…')
 
-  const hashedPhone = hashPhone(customer.phone ?? '')
+  const anonymisedCustomerPhone = anonymisedPhoneToken()
   const now = new Date().toISOString()
 
-  // Anonymize the customer record
-  await supabaseAdmin.from('customers').update({
+  // Anonymise the customer. We .select() back so the query always returns
+  // rows-written count and so any UNIQUE / RLS / trigger error surfaces —
+  // before this check was added the UPDATE could fail silently and leave
+  // the customer LIVE despite an audit_log row saying "released".
+  const { data: custRows, error: custUpdErr } = await supabaseAdmin.from('customers').update({
     name:       'Deleted User',
-    phone:      hashedPhone,
+    phone:      anonymisedCustomerPhone,
     status:     'deleted',
     deleted_at: customer.deleted_at ?? now,
-  }).eq('id', customerId)
+  }).eq('id', customerId).select('id')
 
-  // Anonymize all restaurants owned by this customer
-  await supabaseAdmin.from('restaurants').update({
-    name:       'Deleted Restaurant',
-    whatsapp:   hashPhone((customer.phone ?? '') + '_rest'),
-    status:     'deleted',
-    deleted_at: now,
-  }).eq('customer_id', customerId)
+  if (custUpdErr) {
+    console.error(
+      `[releaseAccount] customer UPDATE failed code=${(custUpdErr as { code?: string }).code} ` +
+      `msg="${custUpdErr.message}" details="${(custUpdErr as { details?: string }).details ?? ''}"`
+    )
+    throw new Error(`Customer anonymisation failed: ${custUpdErr.message}`)
+  }
+  if (!custRows?.length) {
+    console.error('[releaseAccount] customer UPDATE matched 0 rows — id mismatch or RLS block')
+    throw new Error('Customer anonymisation matched no rows')
+  }
+
+  // Anonymise each restaurant. Doing them one-by-one so each gets its own
+  // unique whatsapp token (same collision risk as customers).
+  for (const r of ownedRestaurants ?? []) {
+    const { error: restUpdErr } = await supabaseAdmin.from('restaurants').update({
+      name:       'Deleted Restaurant',
+      whatsapp:   anonymisedPhoneToken(),
+      status:     'deleted',
+      deleted_at: now,
+    }).eq('id', r.id)
+
+    if (restUpdErr) {
+      console.error(
+        `[releaseAccount] restaurant ${r.id} UPDATE failed code=${(restUpdErr as { code?: string }).code} ` +
+        `msg="${restUpdErr.message}"`
+      )
+      throw new Error(`Restaurant anonymisation failed for ${r.id}: ${restUpdErr.message}`)
+    }
+  }
 
   // Remove all team entries for this customer
-  await supabaseAdmin.from('restaurant_team')
+  const { error: teamErr } = await supabaseAdmin.from('restaurant_team')
     .delete()
     .eq('customer_id', customerId)
 
-  console.log(`[releaseAccount] done — ${customerId} anonymised`)
+  if (teamErr) {
+    console.error(`[releaseAccount] restaurant_team delete failed: ${teamErr.message}`)
+    // Non-fatal: customer + restaurants already anonymised. Log and continue.
+  }
+
+  console.log(`[releaseAccount] done — ${customerId} anonymised (${ownedRestaurants?.length ?? 0} restaurants)`)
 }
 
 export async function releaseExpiredAccounts(): Promise<number> {
