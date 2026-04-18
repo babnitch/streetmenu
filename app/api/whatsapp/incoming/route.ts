@@ -47,27 +47,43 @@ const BASE_URL = 'https://streetmenu.vercel.app'
 
 // ── Media helpers ─────────────────────────────────────────────────────────────
 async function downloadTwilioMedia(mediaUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const sid    = process.env.TWILIO_API_KEY_SID
+  const secret = process.env.TWILIO_API_KEY_SECRET
+  if (!sid || !secret) {
+    console.error('[whatsapp] downloadTwilioMedia: TWILIO_API_KEY_SID/SECRET missing')
+    return null
+  }
+  console.log('[whatsapp] Downloading from Twilio:', mediaUrl.slice(0, 90))
   try {
     const res = await fetch(mediaUrl, {
       headers: {
-        Authorization: `Basic ${Buffer.from(
-          `${process.env.TWILIO_API_KEY_SID}:${process.env.TWILIO_API_KEY_SECRET}`
-        ).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(`${sid}:${secret}`).toString('base64')}`,
       },
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.error(`[whatsapp] downloadTwilioMedia: HTTP ${res.status} ${res.statusText}`, body.slice(0, 200))
+      return null
+    }
     const contentType = res.headers.get('content-type') ?? 'image/jpeg'
-    return { buffer: Buffer.from(await res.arrayBuffer()), contentType }
-  } catch { return null }
+    const buffer = Buffer.from(await res.arrayBuffer())
+    console.log(`[whatsapp] Downloaded ${buffer.length} bytes (${contentType})`)
+    return { buffer, contentType }
+  } catch (e) {
+    console.error('[whatsapp] downloadTwilioMedia threw:', (e as Error).message)
+    return null
+  }
 }
 
 async function uploadToStorage(bucket: string, buffer: Buffer, contentType: string): Promise<string | null> {
   const ext  = contentType.split('/')[1]?.split(';')[0] ?? 'jpg'
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+  console.log(`[whatsapp] Uploading to Supabase bucket "${bucket}" at ${path}`)
   const { error } = await supabaseAdmin.storage
     .from(bucket).upload(path, buffer, { contentType, upsert: false })
   if (error) { console.error(`[whatsapp] ${bucket} upload error:`, error.message); return null }
   const { data } = supabaseAdmin.storage.from(bucket).getPublicUrl(path)
+  console.log(`[whatsapp] Uploaded — public URL: ${data.publicUrl}`)
   return data.publicUrl
 }
 
@@ -442,8 +458,23 @@ async function handleSession(
             'Envoyez une photo, ou "passer" pour ignorer. / Send a photo, or "passer" to skip.')
           return ok()
         }
+        console.log(`[whatsapp] Step 5 photo detected for ${phone}`)
         const media = await downloadTwilioMedia(mediaUrl)
-        if (media) imageUrl = await uploadToStorage('restaurant-images', media.buffer, media.contentType)
+        if (!media) {
+          // Don't drop the session — let them retry with another photo or skip.
+          await sendWhatsApp(from,
+            '⚠️ Impossible de télécharger la photo. Réessayez ou envoyez "passer".\n' +
+            'Could not download the photo. Retry or send "skip".')
+          return ok()
+        }
+        imageUrl = await uploadToStorage('restaurant-images', media.buffer, media.contentType)
+        if (!imageUrl) {
+          await sendWhatsApp(from,
+            '⚠️ Impossible d\'enregistrer la photo. Réessayez ou envoyez "passer".\n' +
+            'Could not save the photo. Retry or send "skip".')
+          return ok()
+        }
+        console.log(`[whatsapp] Step 5 URL saved to session data: ${imageUrl}`)
       }
 
       const restaurantName = data.restaurant_name ?? 'Restaurant'
