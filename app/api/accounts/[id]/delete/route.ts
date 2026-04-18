@@ -29,14 +29,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: custError.message }, { status: 500 })
   }
 
+  // Suspend active/pending restaurants (not already suspended or deleted)
+  // suspended_by='system' allows selective reactivation when account is restored
   const { error: restError } = await supabaseAdmin
     .from('restaurants')
-    .update({ status: 'deleted', deleted_at: now })
+    .update({
+      status:           'suspended',
+      suspended_at:     now,
+      suspended_by:     'system',
+      suspension_reason: 'Account deleted',
+    })
     .eq('customer_id', targetId)
-    .is('deleted_at', null)
+    .in('status', ['active', 'pending'])
 
   if (restError) {
-    console.error('[delete account] restaurants update error:', restError)
+    console.error('[delete account] restaurants suspend error:', restError)
   }
 
   return NextResponse.json({ ok: true })

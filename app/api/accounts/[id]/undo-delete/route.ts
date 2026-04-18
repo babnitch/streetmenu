@@ -10,7 +10,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const targetId = params.id
 
-  // Customer can undo their own; admins can undo any
   if (session.role === 'customer' && session.id !== targetId) {
     return NextResponse.json({ error: 'Non autorisé / Not authorized' }, { status: 403 })
   }
@@ -31,10 +30,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Délai de 30 jours dépassé / 30-day window has passed' }, { status: 400 })
   }
 
-  await supabaseAdmin.from('customers').update({
-    status: 'active',
-    deleted_at: null,
-  }).eq('id', targetId)
+  const { error: custError } = await supabaseAdmin
+    .from('customers')
+    .update({ status: 'active', deleted_at: null })
+    .eq('id', targetId)
 
-  return NextResponse.json({ ok: true })
+  if (custError) {
+    return NextResponse.json({ error: custError.message }, { status: 500 })
+  }
+
+  // Reactivate restaurants that were auto-suspended when the account was deleted
+  const { data: reactivated } = await supabaseAdmin
+    .from('restaurants')
+    .update({ status: 'active', suspended_at: null, suspended_by: null, suspension_reason: null })
+    .eq('customer_id', targetId)
+    .eq('suspended_by', 'system')
+    .select('id')
+
+  return NextResponse.json({ ok: true, restaurantsReactivated: reactivated?.length ?? 0 })
 }
