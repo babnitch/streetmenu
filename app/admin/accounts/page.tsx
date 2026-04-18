@@ -67,6 +67,7 @@ export default function AdminAccountsPage() {
 
   // Core data
   const [accounts,     setAccounts]     = useState<EnrichedCustomer[]>([])
+  const [totalInDb,    setTotalInDb]    = useState<number | null>(null)
   const [loading,      setLoading]      = useState(true)
   const [currentRole,  setCurrentRole]  = useState<string>('')
 
@@ -111,6 +112,7 @@ export default function AdminAccountsPage() {
     const res = await fetch('/api/admin/accounts', { cache: 'no-store' })
     const data = await res.json()
     if (data.accounts) setAccounts(data.accounts)
+    if (typeof data.totalInDb === 'number' || data.totalInDb === null) setTotalInDb(data.totalInDb)
     setLoading(false)
   }
 
@@ -298,11 +300,31 @@ export default function AdminAccountsPage() {
         </div>
       )}
 
+      {/* Mismatch warning — API returned fewer rows than the DB actually has.
+          Usually means SUPABASE_SERVICE_ROLE_KEY is missing in prod, or a RLS
+          policy is filtering the service-role session. */}
+      {!loading && totalInDb !== null && totalInDb > accounts.length && (
+        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <p className="font-semibold">⚠️ Seulement {accounts.length} comptes affichés sur {totalInDb} en base.</p>
+          <p className="mt-1 text-red-600">
+            Only {accounts.length} of {totalInDb} accounts are visible. The API route uses the service-role
+            key and should bypass RLS — check that <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> is
+            set in Vercel (Production + Preview) and redeploy. If it&apos;s set, inspect the function log for the
+            <code className="font-mono"> [admin/accounts]</code> error line.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between mb-5 gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Comptes / Accounts</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{accounts.length} comptes / accounts</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {accounts.length} comptes / accounts
+            {totalInDb !== null && totalInDb !== accounts.length && (
+              <span className="text-red-600"> · {totalInDb} dans la DB / in DB</span>
+            )}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {currentRole === 'super_admin' && (
