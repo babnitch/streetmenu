@@ -95,8 +95,19 @@ export default function AccountPage() {
   const [addingMember,     setAddingMember]     = useState(false)
   const [teamError,        setTeamError]        = useState('')
   const [restActionLoading, setRestActionLoading] = useState('')
-  const [suspendReason,    setSuspendReason]    = useState('')
-  const [showSuspendForm,  setShowSuspendForm]  = useState(false)
+
+  // Modals
+  type VendorModal = 'suspend-rest' | 'delete-rest' | 'delete-account' | null
+  const [vendorModal,      setVendorModal]      = useState<VendorModal>(null)
+  const [modalReason,      setModalReason]      = useState('')
+  const [accountDeletedAt, setAccountDeletedAt] = useState<string | null>(null)
+
+  // Toast
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  function showToast(msg: string, ok = true) {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }
 
   // ── On mount: check JWT session ──
   useEffect(() => {
@@ -261,18 +272,56 @@ export default function AccountPage() {
 
   async function handleRestaurantAction(action: 'suspend' | 'reactivate' | 'delete' | 'undo-delete') {
     if (!activeRestId) return
+    setVendorModal(null)
     setRestActionLoading(action)
     try {
-      await fetch(`/api/restaurants/${activeRestId}/${action}`, {
+      const res = await fetch(`/api/restaurants/${activeRestId}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: suspendReason }),
+        body: JSON.stringify({ reason: modalReason }),
       })
-      setShowSuspendForm(false)
-      setSuspendReason('')
-      await loadMyRestaurants()
+      const data = await res.json()
+      if (res.ok) {
+        const labels: Record<string, string> = {
+          suspend: '⏸️ Restaurant suspendu / suspended',
+          reactivate: '✅ Restaurant réactivé / reactivated',
+          delete: '🗑️ Restaurant supprimé / deleted',
+          'undo-delete': '↩️ Suppression annulée / Deletion undone',
+        }
+        showToast(labels[action] ?? '✅ Fait / Done')
+        setModalReason('')
+        await loadMyRestaurants()
+      } else {
+        showToast(data.error ?? 'Erreur / Error', false)
+      }
     } finally {
       setRestActionLoading('')
+    }
+  }
+
+  // ── Vendor: delete own account ──
+  async function handleDeleteAccount() {
+    if (!user) return
+    setVendorModal(null)
+    const res = await fetch(`/api/accounts/${user.id}/delete`, { method: 'POST' })
+    const data = await res.json()
+    if (res.ok) {
+      showToast('🗑️ Compte supprimé / Account deleted')
+      setAccountDeletedAt(new Date().toISOString())
+    } else {
+      showToast(data.error ?? 'Erreur / Error', false)
+    }
+  }
+
+  async function handleUndoDeleteAccount() {
+    if (!user) return
+    const res = await fetch(`/api/accounts/${user.id}/undo-delete`, { method: 'POST' })
+    const data = await res.json()
+    if (res.ok) {
+      showToast('↩️ Suppression annulée / Deletion undone')
+      setAccountDeletedAt(null)
+    } else {
+      showToast(data.error ?? 'Erreur / Error', false)
     }
   }
 
@@ -326,6 +375,12 @@ export default function AccountPage() {
 
   return (
     <div className="min-h-screen" style={{ background: '#fffaf5' }}>
+      {toast && (
+        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white transition-all max-w-sm ${toast.ok ? 'bg-green-500' : 'bg-red-500'}`}>
+          {toast.msg}
+        </div>
+      )}
+
       <TopNav />
 
       <div className={containerClass}>
@@ -602,8 +657,9 @@ export default function AccountPage() {
 
                 {/* Profile */}
                 {customerTab === 'profile' && (
-                  <div className="bg-white rounded-2xl shadow-sm p-6">
-                    <h2 className="font-bold text-gray-900 mb-4">👤 {t('account.profileTab')}</h2>
+                  <div className="bg-white rounded-2xl shadow-sm p-6 space-y-5">
+                    <h2 className="font-bold text-gray-900">👤 {t('account.profileTab')}</h2>
+
                     <div className="space-y-3">
                       <div>
                         <label className="text-xs text-gray-400">Nom / Name</label>
@@ -614,12 +670,38 @@ export default function AccountPage() {
                         <p className="font-semibold text-gray-900 font-mono">{user.phone}</p>
                       </div>
                     </div>
-                    <div className="mt-6 pt-4 border-t border-gray-100">
+
+                    <div className="pt-4 border-t border-gray-100">
                       <p className="text-xs text-gray-400 mb-3">Inscrire un restaurant / Register a restaurant</p>
                       <a href="https://wa.me/your-number?text=restaurant" target="_blank" rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
                         🏪 {t('account.registerRest')} via WhatsApp
                       </a>
+                    </div>
+
+                    {/* Account deletion */}
+                    <div className="pt-4 border-t border-gray-100">
+                      {accountDeletedAt ? (
+                        <div className="space-y-3">
+                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700">
+                            ⚠️ Votre compte est en cours de suppression. Les données seront effacées après 30 jours.<br/>
+                            Your account is pending deletion. Data will be erased after 30 days.
+                          </div>
+                          <button
+                            onClick={handleUndoDeleteAccount}
+                            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                          >
+                            ↩️ Annuler la suppression / Undo deletion
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setVendorModal('delete-account')}
+                          className="text-sm text-red-500 hover:text-red-700 font-medium hover:bg-red-50 px-3 py-2 rounded-xl transition-colors"
+                        >
+                          🗑️ Supprimer mon compte / Delete my account
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -678,60 +760,47 @@ export default function AccountPage() {
                           <div className="border-t border-gray-100 pt-4 space-y-3">
                             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Paramètres / Settings</p>
 
-                            {activeRest.deleted_at ? (
-                              <button
-                                onClick={() => handleRestaurantAction('undo-delete')}
-                                disabled={!!restActionLoading}
-                                className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
-                              >
-                                {restActionLoading === 'undo-delete' ? '…' : t('account.undoDelete')}
-                              </button>
-                            ) : (
-                              <div className="flex gap-3 flex-wrap">
-                                {activeRest.status !== 'suspended' && (
-                                  <button
-                                    onClick={() => setShowSuspendForm(v => !v)}
-                                    className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
-                                  >
-                                    ⏸️ {t('account.suspend')}
-                                  </button>
-                                )}
-                                {activeRest.status === 'suspended' && activeRest.suspended_by === 'vendor' && (
-                                  <button
-                                    onClick={() => handleRestaurantAction('reactivate')}
-                                    disabled={!!restActionLoading}
-                                    className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
-                                  >
-                                    {restActionLoading === 'reactivate' ? '…' : `✅ ${t('account.reactivate')}`}
-                                  </button>
-                                )}
+                            <div className="flex gap-3 flex-wrap">
+                              {activeRest.deleted_at ? (
                                 <button
-                                  onClick={() => { if (confirm('Supprimer ce restaurant? Annulable sous 30 jours.')) handleRestaurantAction('delete') }}
-                                  disabled={!!restActionLoading}
-                                  className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                  onClick={() => handleRestaurantAction('undo-delete')}
+                                  disabled={restActionLoading === 'undo-delete'}
+                                  className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
                                 >
-                                  {restActionLoading === 'delete' ? '…' : `🗑️ ${t('account.delete')}`}
+                                  {restActionLoading === 'undo-delete' ? '…' : `↩️ ${t('account.undoDelete')}`}
                                 </button>
-                              </div>
-                            )}
-
-                            {showSuspendForm && (
-                              <div className="space-y-2">
-                                <input
-                                  value={suspendReason}
-                                  onChange={e => setSuspendReason(e.target.value)}
-                                  placeholder={t('account.reason')}
-                                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400"
-                                />
-                                <button
-                                  onClick={() => handleRestaurantAction('suspend')}
-                                  disabled={!!restActionLoading}
-                                  className="bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
-                                >
-                                  {restActionLoading === 'suspend' ? '…' : 'Confirmer la suspension'}
-                                </button>
-                              </div>
-                            )}
+                              ) : (
+                                <>
+                                  {activeRest.status !== 'suspended' ? (
+                                    <button
+                                      onClick={() => { setModalReason(''); setVendorModal('suspend-rest') }}
+                                      className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                    >
+                                      ⏸️ {t('account.suspend')}
+                                    </button>
+                                  ) : (
+                                    activeRest.suspended_by === 'vendor' ? (
+                                      <button
+                                        onClick={() => handleRestaurantAction('reactivate')}
+                                        disabled={restActionLoading === 'reactivate'}
+                                        className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                      >
+                                        {restActionLoading === 'reactivate' ? '…' : `✅ ${t('account.reactivate')}`}
+                                      </button>
+                                    ) : (
+                                      <p className="text-xs text-amber-600 py-1">Suspendu par l&apos;administration — contactez le support / Suspended by admin — contact support</p>
+                                    )
+                                  )}
+                                  <button
+                                    onClick={() => setVendorModal('delete-rest')}
+                                    disabled={restActionLoading === 'delete'}
+                                    className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                  >
+                                    {restActionLoading === 'delete' ? '…' : `🗑️ ${t('account.delete')}`}
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -793,6 +862,91 @@ export default function AccountPage() {
                 )}
               </>
             )}
+
+            {/* ── Vendor modals ── */}
+
+            {/* Suspend restaurant */}
+            {vendorModal === 'suspend-rest' && activeRest && (
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                  <h3 className="font-bold text-gray-900 mb-1">⏸️ Suspendre le restaurant / Suspend restaurant</h3>
+                  <p className="text-sm text-gray-500 mb-3">{activeRest.name}</p>
+                  <textarea
+                    value={modalReason}
+                    onChange={e => setModalReason(e.target.value)}
+                    placeholder="Raison (optionnel) / Reason (optional)"
+                    rows={3}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 mb-4"
+                  />
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleRestaurantAction('suspend')}
+                      disabled={restActionLoading === 'suspend'}
+                      className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                    >
+                      {restActionLoading === 'suspend' ? '…' : 'Suspendre / Suspend'}
+                    </button>
+                    <button onClick={() => setVendorModal(null)}
+                      className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors">
+                      Annuler / Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Delete restaurant */}
+            {vendorModal === 'delete-rest' && activeRest && (
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                  <h3 className="font-bold text-gray-900 mb-1">🗑️ Supprimer le restaurant / Delete restaurant</h3>
+                  <p className="text-sm text-gray-500 mb-3">{activeRest.name}</p>
+                  <p className="text-sm text-gray-500 mb-4 bg-amber-50 border border-amber-100 rounded-xl p-3">
+                    ⚠️ Les données seront supprimées après 30 jours. Vous pouvez annuler dans ce délai.<br/><br/>
+                    Data will be deleted after 30 days. You can undo within that period.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleRestaurantAction('delete')}
+                      disabled={restActionLoading === 'delete'}
+                      className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                    >
+                      {restActionLoading === 'delete' ? '…' : 'Supprimer / Delete'}
+                    </button>
+                    <button onClick={() => setVendorModal(null)}
+                      className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors">
+                      Annuler / Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Delete account */}
+            {vendorModal === 'delete-account' && (
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                  <h3 className="font-bold text-gray-900 mb-1">🗑️ Supprimer mon compte / Delete my account</h3>
+                  <p className="text-sm text-gray-500 mb-4 bg-red-50 border border-red-100 rounded-xl p-3">
+                    ⚠️ Votre compte et tous vos restaurants seront supprimés après 30 jours. Vous pourrez annuler dans ce délai.<br/><br/>
+                    Your account and all your restaurants will be deleted after 30 days. You can undo within that period.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleDeleteAccount}
+                      className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                    >
+                      Confirmer / Confirm
+                    </button>
+                    <button onClick={() => setVendorModal(null)}
+                      className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors">
+                      Annuler / Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
