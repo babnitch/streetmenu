@@ -668,11 +668,16 @@ export default function AccountPage() {
             {/* ══════════════════════════════════════════════════════════
                 ADMIN DASHBOARD
                ══════════════════════════════════════════════════════════ */}
-            {dashView === 'admin' && (
+            {dashView === 'admin' && (() => {
+              const allAdminTabs: AdminSubTab[] = ['restaurants', 'orders', 'events', 'vouchers', 'accounts', 'platformteam', 'profile']
+              const visibleTabs = allAdminTabs.filter(adminCan)
+              if (typeof window !== 'undefined') {
+                console.log('[admin-tabs] user.role =', user.role, '| visible =', visibleTabs, '| profile visible?', visibleTabs.includes('profile'))
+              }
+              return (
               <div>
                 <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-                  {(['restaurants', 'orders', 'events', 'vouchers', 'accounts', 'platformteam', 'profile'] as AdminSubTab[])
-                    .filter(adminCan)
+                  {visibleTabs
                     .map(sub => (
                       <button key={sub}
                         onClick={() => setAdminSubTab(sub)}
@@ -692,7 +697,8 @@ export default function AccountPage() {
                 {adminSubTab === 'platformteam' && <AdminPlatformTeam />}
                 {adminSubTab === 'profile'      && <AdminProfilePanel />}
               </div>
-            )}
+              )
+            })()}
 
             {/* ══════════════════════════════════════════════════════════
                 CUSTOMER / VENDOR DASHBOARD
