@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     deleted_at: new Date().toISOString(),
     status: 'deleted',
   }).eq('id', restaurantId)
+
+  await writeAudit({
+    action: 'restaurant_deleted',
+    targetType: 'restaurant',
+    targetId: restaurantId,
+    performedBy: session.id,
+    performedByType: session.role,
+    previousData: { name: restaurant.name, customer_id: restaurant.customer_id },
+  })
 
   return NextResponse.json({ ok: true })
 }

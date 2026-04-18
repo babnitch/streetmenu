@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,6 +53,15 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  await writeAudit({
+    action: 'admin_user_added',
+    targetType: 'admin_user',
+    targetId: data.id,
+    performedBy: session.id,
+    performedByType: session.role,
+    metadata: { email: data.email, name: data.name, role: data.role },
+  })
 
   return NextResponse.json({ ok: true, member: data })
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +46,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (restError) {
     console.error('[delete account] restaurants suspend error:', restError)
   }
+
+  await writeAudit({
+    action: 'account_deleted',
+    targetType: 'customer',
+    targetId: targetId,
+    performedBy: session.id,
+    performedByType: session.role,
+  })
 
   return NextResponse.json({ ok: true })
 }

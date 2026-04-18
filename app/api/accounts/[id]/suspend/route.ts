@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +26,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     suspended_by: 'admin',
     suspension_reason: reason ?? null,
   }).eq('id', params.id)
+
+  await writeAudit({
+    action: 'account_suspended',
+    targetType: 'customer',
+    targetId: params.id,
+    performedBy: session.id,
+    performedByType: session.role,
+    previousData: { status: customer.status },
+    metadata: { reason: reason ?? null },
+  })
 
   return NextResponse.json({ ok: true })
 }

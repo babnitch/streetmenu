@@ -5,6 +5,15 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback } from 'react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
+interface ReusedFrom {
+  audit_id: string
+  released_at: string
+  previous_name: string | null
+  previous_city: string | null
+  previous_signup: string | null
+  restaurants: Array<{ id: string; name: string; city?: string; whatsapp?: string; status?: string }>
+}
+
 interface EnrichedCustomer {
   id: string
   name: string
@@ -18,6 +27,7 @@ interface EnrichedCustomer {
   created_at: string
   restaurant_count: number
   roles: string[]   // team roles: 'owner' | 'manager' | 'staff'; empty = customer only
+  reusedFrom: ReusedFrom | null
 }
 
 interface RestaurantRow {
@@ -89,6 +99,9 @@ export default function AdminAccountsPage() {
   const [linkSelections,  setLinkSelections]  = useState<Record<string, string>>({})
   const [linkingId,       setLinkingId]       = useState<string | null>(null)
   const [autoLinking,     setAutoLinking]     = useState(false)
+
+  // Reuse history modal
+  const [reuseModal, setReuseModal] = useState<EnrichedCustomer | null>(null)
 
   // Account actions
   const [accountModal,    setAccountModal]    = useState<{ type: AccountModalType; account: EnrichedCustomer } | null>(null)
@@ -455,6 +468,15 @@ export default function AdminAccountsPage() {
                       <p className="font-semibold text-gray-900 text-sm">{a.name || '—'}</p>
                       <AccountStatusBadge a={a} />
                       <RoleBadges roles={a.roles} />
+                      {a.reusedFrom && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setReuseModal(a) }}
+                          title="Numéro réutilisé — voir historique / Reused number — view history"
+                          className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors flex items-center gap-1"
+                        >
+                          🕓 Numéro réutilisé / Reused
+                        </button>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 font-mono">{a.phone}</p>
                     <div className="flex flex-wrap gap-x-3 mt-0.5">
@@ -651,6 +673,55 @@ export default function AdminAccountsPage() {
             confirmLabel="⏸️ Suspendre / Suspend" confirmCls="bg-amber-500 hover:bg-amber-600"
             onConfirm={() => doRestaurantAction(restModal.accountId, restModal.rest.id, 'suspend', restModalReason)}
             onCancel={() => setRestModal(null)} />
+        </Modal>
+      )}
+
+      {reuseModal?.reusedFrom && (
+        <Modal onClose={() => setReuseModal(null)}>
+          <h3 className="font-bold text-gray-900 mb-1">🕓 Historique du numéro / Number history</h3>
+          <p className="text-sm text-gray-500 mb-3 font-mono">{reuseModal.phone}</p>
+          <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 mb-4 space-y-2 text-sm">
+            <p className="text-purple-900">
+              Ce numéro appartenait à un autre compte libéré.<br/>
+              This number belonged to another, released account.
+            </p>
+            <div className="text-xs text-purple-700 space-y-1">
+              <p><span className="font-semibold">Ancien nom / Previous name:</span> {reuseModal.reusedFrom.previous_name ?? '—'}</p>
+              <p><span className="font-semibold">Ville / City:</span> {reuseModal.reusedFrom.previous_city ?? '—'}</p>
+              {reuseModal.reusedFrom.previous_signup && (
+                <p><span className="font-semibold">Inscription initiale / Original signup:</span>{' '}
+                  {new Date(reuseModal.reusedFrom.previous_signup).toLocaleDateString('fr-FR')}
+                </p>
+              )}
+              <p><span className="font-semibold">Libéré le / Released on:</span>{' '}
+                {new Date(reuseModal.reusedFrom.released_at).toLocaleDateString('fr-FR')}
+              </p>
+            </div>
+          </div>
+          {reuseModal.reusedFrom.restaurants.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Anciens restaurants ({reuseModal.reusedFrom.restaurants.length}) / Previous restaurants
+              </p>
+              <div className="space-y-1.5">
+                {reuseModal.reusedFrom.restaurants.map(r => (
+                  <div key={r.id} className="text-sm bg-gray-50 rounded-lg px-3 py-2">
+                    <p className="font-medium text-gray-900">{r.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {[r.city, r.status].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-gray-400 italic mb-4">
+            Aucune donnée n&apos;a été restaurée automatiquement. / No data was automatically restored.
+          </p>
+          <button onClick={() => setReuseModal(null)}
+            className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-semibold text-sm transition-colors">
+            Fermer / Close
+          </button>
         </Modal>
       )}
 

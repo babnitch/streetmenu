@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,6 +64,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }, { onConflict: 'restaurant_id,customer_id' })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await writeAudit({
+    action: 'team_member_added',
+    targetType: 'restaurant_team',
+    targetId: newMember.id, // the customer id added
+    performedBy: session.id,
+    performedByType: 'vendor',
+    metadata: {
+      restaurant_id: params.id,
+      restaurant_name: restaurant?.name ?? null,
+      role,
+      member_name: newMember.name,
+      member_phone: newMember.phone,
+    },
+  })
 
   // Notify new member
   await sendWhatsApp(newMember.phone,

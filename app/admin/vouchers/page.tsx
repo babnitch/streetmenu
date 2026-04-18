@@ -37,15 +37,19 @@ export default function AdminVouchersPage() {
   async function createVoucher() {
     if (!code.trim() || !discountValue) return
     setSaving(true)
-    await supabase.from('vouchers').insert({
-      code: code.trim().toUpperCase(),
-      discount_type: discountType,
-      discount_value: parseFloat(discountValue),
-      min_order: parseFloat(minOrder) || 0,
-      max_uses: maxUses ? parseInt(maxUses) : null,
-      expires_at: expiresAt || null,
-      city: city.trim() || null,
-      is_active: isActive,
+    await fetch('/api/admin/vouchers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: code.trim().toUpperCase(),
+        discount_type: discountType,
+        discount_value: parseFloat(discountValue),
+        min_order: parseFloat(minOrder) || 0,
+        max_uses: maxUses ? parseInt(maxUses) : null,
+        expires_at: expiresAt || null,
+        city: city.trim() || null,
+        is_active: isActive,
+      }),
     })
     setSaving(false)
     setShowForm(false)
@@ -59,7 +63,11 @@ export default function AdminVouchersPage() {
   }
 
   async function toggleActive(v: Voucher) {
-    await supabase.from('vouchers').update({ is_active: !v.is_active }).eq('id', v.id)
+    await fetch(`/api/admin/vouchers/${v.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !v.is_active }),
+    })
     setVouchers(prev => prev.map(x => x.id === v.id ? { ...x, is_active: !v.is_active } : x))
   }
 

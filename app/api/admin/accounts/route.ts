@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   // .range() sidesteps whatever default row limit PostgREST might apply.
   // No filter, no status check — the admin needs every row.
-  const [customersRes, teamRes, restRes, countRes] = await Promise.all([
+  const [customersRes, teamRes, restRes, countRes, auditRes] = await Promise.all([
     supabaseAdmin
       .from('customers')
       .select('id, name, phone, city, status, suspended_at, suspended_by, suspension_reason, deleted_at, created_at')
@@ -34,6 +34,14 @@ export async function GET(req: NextRequest) {
     supabaseAdmin
       .from('customers')
       .select('id', { count: 'exact', head: true }),
+    // History of released numbers — used to surface "Numéro réutilisé"
+    // when a current customer's phone was previously released.
+    supabaseAdmin
+      .from('audit_log')
+      .select('id, previous_data, created_at')
+      .eq('action', 'number_released')
+      .order('created_at', { ascending: false })
+      .range(0, 9999),
   ])
 
   // Surface errors clearly — previously a silent .data = null meant an empty list.
@@ -65,11 +73,43 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const accounts = customers.map(c => ({
-    ...c,
-    restaurant_count: restCountByCustomer[c.id] ?? 0,
-    roles: Array.from(rolesByCustomer[c.id] ?? []),
-  }))
+  // Build phone → most-recent 'number_released' audit entry. A customer
+  // whose current phone matches any historical previous_data.customer.phone
+  // inherited that number.
+  type ReleasedAudit = {
+    id: string
+    created_at: string
+    previous_data: {
+      customer?: { name?: string; phone?: string; city?: string; created_at?: string }
+      restaurants?: Array<{ id: string; name: string; city?: string; whatsapp?: string; status?: string }>
+    } | null
+  }
+  const releasedByPhone: Record<string, ReleasedAudit> = {}
+  for (const row of (auditRes.data ?? []) as ReleasedAudit[]) {
+    const phone = row.previous_data?.customer?.phone
+    if (!phone) continue
+    // audit rows are ordered desc — keep first seen (most recent) per phone.
+    if (!releasedByPhone[phone]) releasedByPhone[phone] = row
+  }
+
+  const accounts = customers.map(c => {
+    const reused = c.phone ? releasedByPhone[c.phone] : undefined
+    return {
+      ...c,
+      restaurant_count: restCountByCustomer[c.id] ?? 0,
+      roles: Array.from(rolesByCustomer[c.id] ?? []),
+      reusedFrom: reused
+        ? {
+            audit_id:      reused.id,
+            released_at:   reused.created_at,
+            previous_name: reused.previous_data?.customer?.name ?? null,
+            previous_city: reused.previous_data?.customer?.city ?? null,
+            previous_signup: reused.previous_data?.customer?.created_at ?? null,
+            restaurants:   reused.previous_data?.restaurants ?? [],
+          }
+        : null,
+    }
+  })
 
   // Diagnostic: if this differs from accounts.length, RLS or an env var is
   // filtering us — the client can surface the mismatch in the UI.

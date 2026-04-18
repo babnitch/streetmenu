@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,10 +25,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Rôle invalide / Invalid role' }, { status: 400 })
   }
 
+  const { data: before } = await supabaseAdmin
+    .from('restaurant_team').select('customer_id, role')
+    .eq('id', params.memberId).maybeSingle()
+
   await supabaseAdmin.from('restaurant_team')
     .update({ role })
     .eq('id', params.memberId)
     .eq('restaurant_id', params.id)
+
+  await writeAudit({
+    action: 'team_member_role_changed',
+    targetType: 'restaurant_team',
+    targetId: params.memberId,
+    performedBy: session.id,
+    performedByType: 'vendor',
+    previousData: before ? { role: before.role, customer_id: before.customer_id } : null,
+    metadata: { restaurant_id: params.id, new_role: role },
+  })
 
   return NextResponse.json({ ok: true })
 }
@@ -58,6 +73,16 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
   const { data: restaurant } = await supabaseAdmin
     .from('restaurants').select('name').eq('id', params.id).maybeSingle()
+
+  await writeAudit({
+    action: 'team_member_removed',
+    targetType: 'restaurant_team',
+    targetId: params.memberId,
+    performedBy: session.id,
+    performedByType: 'vendor',
+    previousData: entry ? { customer_id: entry.customer_id } : null,
+    metadata: { restaurant_id: params.id, restaurant_name: restaurant?.name ?? null },
+  })
 
   // Notify removed member
   if (entry?.customers) {

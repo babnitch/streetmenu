@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,6 +41,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     suspended_by: null,
     suspension_reason: null,
   }).eq('id', restaurantId)
+
+  await writeAudit({
+    action: 'restaurant_reactivated',
+    targetType: 'restaurant',
+    targetId: restaurantId,
+    performedBy: session.id,
+    performedByType: session.role,
+    previousData: { suspended_by: restaurant.suspended_by, name: restaurant.name },
+  })
 
   if (restaurant.whatsapp) {
     await sendWhatsApp(restaurant.whatsapp,
