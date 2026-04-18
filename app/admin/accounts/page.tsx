@@ -36,7 +36,8 @@ export default function AdminAccountsPage() {
   const [currentRole,   setCurrentRole]   = useState<string>('')
   const [search,        setSearch]        = useState('')
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'active' | 'suspended' | 'deleted'>('all')
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [actionLoading,  setActionLoading]  = useState<string | null>(null)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
 
   // Modal
   const [modal,      setModal]      = useState<{ type: ModalType; account: CustomerRow } | null>(null)
@@ -54,6 +55,22 @@ export default function AdminAccountsPage() {
     const data = await res.json()
     if (data.accounts) setAccounts(data.accounts)
     setLoading(false)
+  }
+
+  async function runCleanup() {
+    setCleanupLoading(true)
+    try {
+      const res = await fetch('/api/admin/cleanup-expired', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        showToast(`🧹 ${data.message}`)
+        await fetchAccounts()
+      } else {
+        showToast(data.error ?? 'Erreur / Error', false)
+      }
+    } finally {
+      setCleanupLoading(false)
+    }
   }
 
   async function doAction(account: CustomerRow, action: string, reasonText?: string) {
@@ -113,9 +130,21 @@ export default function AdminAccountsPage() {
       )}
 
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Comptes / Accounts</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{accounts.length} comptes / accounts</p>
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Comptes / Accounts</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{accounts.length} comptes / accounts</p>
+        </div>
+        {currentRole === 'super_admin' && (
+          <button
+            onClick={runCleanup}
+            disabled={cleanupLoading}
+            title="Anonymise all accounts deleted more than 30 days ago"
+            className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl font-medium hover:bg-purple-100 transition-colors disabled:opacity-50 whitespace-nowrap"
+          >
+            {cleanupLoading ? '…' : '🧹 Nettoyer expirés / Clean up expired'}
+          </button>
+        )}
       </div>
 
       {/* Status filter tabs */}
