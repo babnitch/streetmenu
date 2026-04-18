@@ -11,19 +11,35 @@ export interface ReleaseActor {
 }
 
 export async function releaseAccount(customerId: string, actor: ReleaseActor = { type: 'system' }): Promise<void> {
+  console.log(`[releaseAccount] start customerId=${customerId} actor=${actor.type ?? 'system'}`)
+
   // Read the full pre-anonymisation snapshot so we can persist it to audit_log.
-  const { data: customer } = await supabaseAdmin
+  const { data: customer, error: customerErr } = await supabaseAdmin
     .from('customers')
     .select('id, name, phone, city, status, deleted_at, created_at')
     .eq('id', customerId)
     .maybeSingle()
 
-  if (!customer) return
+  if (customerErr) {
+    console.error('[releaseAccount] customers fetch failed:', customerErr.message)
+    throw new Error(`Customer fetch failed: ${customerErr.message}`)
+  }
+  if (!customer) {
+    console.warn(`[releaseAccount] no customer row for id=${customerId} — nothing to release`)
+    return
+  }
 
-  const { data: ownedRestaurants } = await supabaseAdmin
+  const { data: ownedRestaurants, error: restErr } = await supabaseAdmin
     .from('restaurants')
     .select('id, name, city, whatsapp, status')
     .eq('customer_id', customerId)
+
+  if (restErr) {
+    console.error('[releaseAccount] restaurants fetch failed:', restErr.message)
+    throw new Error(`Restaurants fetch failed: ${restErr.message}`)
+  }
+
+  console.log(`[releaseAccount] snapshot ready — ${ownedRestaurants?.length ?? 0} restaurants, writing audit_log…`)
 
   // Write the audit entry BEFORE anonymising. If this fails we abort the
   // release so we never destroy data without a trace.
@@ -53,9 +69,30 @@ export async function releaseAccount(customerId: string, actor: ReleaseActor = {
   })
 
   if (auditError) {
-    console.error('[releaseAccount] audit_log insert failed, aborting release:', auditError.message)
-    throw new Error('Audit log write failed — release aborted')
+    // PostgreSQL's "relation does not exist" — the audit_log table hasn't
+    // been created in this DB yet. Surface an actionable error so the admin
+    // knows exactly which migration to run.
+    const code    = (auditError as { code?: string }).code
+    const details = (auditError as { details?: string }).details
+    const hint    = (auditError as { hint?: string }).hint
+    console.error(
+      '[releaseAccount] audit_log insert failed — aborting release to protect PII trace. ' +
+      `code=${code ?? '?'} message="${auditError.message}" details="${details ?? ''}" hint="${hint ?? ''}"`
+    )
+
+    if (code === '42P01' || /audit_log/i.test(auditError.message)) {
+      throw new Error(
+        'Table audit_log manquante — exécutez supabase-audit-log.sql dans Supabase avant de libérer un numéro. ' +
+        'The audit_log table is missing — run supabase-audit-log.sql in Supabase before releasing a number.'
+      )
+    }
+
+    throw new Error(
+      `Audit log write failed — release aborted. ${auditError.message}`
+    )
   }
+
+  console.log('[releaseAccount] audit_log write OK — anonymising…')
 
   const hashedPhone = hashPhone(customer.phone ?? '')
   const now = new Date().toISOString()
@@ -80,6 +117,8 @@ export async function releaseAccount(customerId: string, actor: ReleaseActor = {
   await supabaseAdmin.from('restaurant_team')
     .delete()
     .eq('customer_id', customerId)
+
+  console.log(`[releaseAccount] done — ${customerId} anonymised`)
 }
 
 export async function releaseExpiredAccounts(): Promise<number> {
