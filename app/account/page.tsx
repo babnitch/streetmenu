@@ -97,6 +97,20 @@ export default function AccountPage() {
   const [restActionLoading, setRestActionLoading] = useState('')
   const [uploadingPhoto,   setUploadingPhoto]   = useState(false)
 
+  // Profile tab
+  interface ProfileRow {
+    id: string; name: string; phone: string; city: string
+    status: string
+    suspended_at: string | null; suspended_by: string | null; suspension_reason: string | null
+    deleted_at: string | null; created_at: string
+  }
+  const [profile,         setProfile]         = useState<ProfileRow | null>(null)
+  const [profileEditing,  setProfileEditing]  = useState(false)
+  const [profileName,     setProfileName]     = useState('')
+  const [profileCity,     setProfileCity]     = useState('')
+  const [savingProfile,   setSavingProfile]   = useState(false)
+  const PROFILE_CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
+
   // Modals
   type VendorModal = 'suspend-rest' | 'delete-rest' | 'delete-account' | null
   const [vendorModal,      setVendorModal]      = useState<VendorModal>(null)
@@ -164,7 +178,8 @@ export default function AccountPage() {
   // Load team when switching to team tab
   useEffect(() => {
     if (customerTab === 'team' && activeRestId) loadTeam(activeRestId)
-  }, [customerTab, activeRestId])
+    if (customerTab === 'profile' && !profile) loadProfile()
+  }, [customerTab, activeRestId, profile])
 
   // ── Customer login: send OTP ──
   async function handleSendCode(e: React.FormEvent) {
@@ -363,6 +378,40 @@ export default function AccountPage() {
     } else {
       const d = await res.json()
       showToast(d.error ?? 'Erreur / Error', false)
+    }
+  }
+
+  async function loadProfile() {
+    const res = await fetch('/api/auth/profile', { cache: 'no-store' })
+    if (!res.ok) return
+    const data = await res.json()
+    if (data.profile) {
+      setProfile(data.profile)
+      setProfileName(data.profile.name ?? '')
+      setProfileCity(data.profile.city ?? '')
+      setAccountDeletedAt(data.profile.deleted_at ?? null)
+    }
+  }
+
+  async function handleSaveProfile() {
+    if (!profile) return
+    setSavingProfile(true)
+    try {
+      const res = await fetch('/api/auth/update-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: profileName, city: profileCity }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setProfile(p => (p ? { ...p, name: profileName, city: profileCity } : p))
+        setProfileEditing(false)
+        showToast('✅ Profil mis à jour / Profile updated')
+      } else {
+        showToast(data.error ?? 'Erreur / Error', false)
+      }
+    } finally {
+      setSavingProfile(false)
     }
   }
 
@@ -701,26 +750,147 @@ export default function AccountPage() {
                 {/* Profile */}
                 {customerTab === 'profile' && (
                   <div className="bg-white rounded-2xl shadow-sm p-6 space-y-5">
-                    <h2 className="font-bold text-gray-900">👤 {t('account.profileTab')}</h2>
-
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-xs text-gray-400">Nom / Name</label>
-                        <p className="font-semibold text-gray-900">{user.name}</p>
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-400">Téléphone / Phone</label>
-                        <p className="font-semibold text-gray-900 font-mono">{user.phone}</p>
-                      </div>
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <h2 className="font-bold text-gray-900">👤 {t('account.profileTab')}</h2>
+                      {profile && !profile.deleted_at && (
+                        profileEditing ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleSaveProfile}
+                              disabled={savingProfile}
+                              className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                            >
+                              {savingProfile ? '…' : 'Enregistrer / Save'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setProfileEditing(false)
+                                setProfileName(profile.name ?? '')
+                                setProfileCity(profile.city ?? '')
+                              }}
+                              className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                            >
+                              Annuler / Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setProfileEditing(true)}
+                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                          >
+                            ✏️ Modifier / Edit
+                          </button>
+                        )
+                      )}
                     </div>
 
-                    <div className="pt-4 border-t border-gray-100">
-                      <p className="text-xs text-gray-400 mb-3">Inscrire un restaurant / Register a restaurant</p>
-                      <a href="https://wa.me/your-number?text=restaurant" target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
-                        🏪 {t('account.registerRest')} via WhatsApp
-                      </a>
-                    </div>
+                    {/* Fields */}
+                    {profile ? (
+                      <div className="space-y-4">
+                        {/* Status + role badges */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <StatusBadge status={profile.deleted_at ? 'deleted' : profile.status} />
+                          <ProfileRoleBadges restaurants={myRestaurants} />
+                        </div>
+
+                        {/* Name */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Nom / Name</label>
+                          {profileEditing ? (
+                            <input
+                              value={profileName}
+                              onChange={e => setProfileName(e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                            />
+                          ) : (
+                            <p className="font-semibold text-gray-900">{profile.name || '—'}</p>
+                          )}
+                        </div>
+
+                        {/* Phone — read-only */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">
+                            Téléphone / Phone <span className="text-gray-300">· non modifiable / not editable</span>
+                          </label>
+                          <p className="font-semibold text-gray-900 font-mono">{profile.phone}</p>
+                        </div>
+
+                        {/* City */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Ville / City</label>
+                          {profileEditing ? (
+                            <select
+                              value={profileCity}
+                              onChange={e => setProfileCity(e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
+                            >
+                              <option value="">—</option>
+                              {PROFILE_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          ) : (
+                            <p className="font-semibold text-gray-900">{profile.city || '—'}</p>
+                          )}
+                        </div>
+
+                        {/* Member since */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Membre depuis / Member since</label>
+                          <p className="text-gray-700 text-sm">
+                            {new Date(profile.created_at).toLocaleDateString('fr-FR', {
+                              day: 'numeric', month: 'long', year: 'numeric',
+                            })}
+                          </p>
+                        </div>
+
+                        {/* Suspension info */}
+                        {profile.status === 'suspended' && profile.suspended_by && (
+                          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-700">
+                            Suspendu par <span className="font-semibold">{profile.suspended_by}</span>
+                            {profile.suspended_at && ` · ${new Date(profile.suspended_at).toLocaleDateString('fr-FR')}`}
+                            {profile.suspension_reason && (
+                              <div className="text-xs mt-1">&quot;{profile.suspension_reason}&quot;</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">Chargement… / Loading…</p>
+                    )}
+
+                    {/* Restaurant summary */}
+                    {myRestaurants.length > 0 && (
+                      <div className="pt-4 border-t border-gray-100">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                          Mes restaurants ({myRestaurants.length}) / My restaurants
+                        </p>
+                        <div className="space-y-2">
+                          {myRestaurants.map(r => (
+                            <button
+                              key={r.id}
+                              onClick={() => { setActiveRestId(r.id); setCustomerTab('restaurant') }}
+                              className="w-full bg-gray-50 hover:bg-orange-50 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 transition-colors text-left"
+                            >
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
+                                <p className="text-xs text-gray-500">{r.city}{r.neighborhood ? ` · ${r.neighborhood}` : ''}</p>
+                              </div>
+                              <StatusBadge status={r.deleted_at ? 'deleted' : r.status} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Register a new restaurant via WhatsApp */}
+                    {!accountDeletedAt && myRestaurants.length === 0 && (
+                      <div className="pt-4 border-t border-gray-100">
+                        <p className="text-xs text-gray-400 mb-3">Inscrire un restaurant / Register a restaurant</p>
+                        <a href="https://wa.me/your-number?text=restaurant" target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                          🏪 {t('account.registerRest')} via WhatsApp
+                        </a>
+                      </div>
+                    )}
 
                     {/* Account deletion */}
                     <div className="pt-4 border-t border-gray-100">
@@ -1051,6 +1221,28 @@ function TabBtn({ label, active, onClick }: { label: string; active: boolean; on
       {label}
     </button>
   )
+}
+
+function ProfileRoleBadges({ restaurants }: { restaurants: VendorRestaurant[] }) {
+  const labels: Record<string, string> = {
+    owner:   'Vendeur Propriétaire / Vendor Owner',
+    manager: 'Vendeur Manager / Vendor Manager',
+    staff:   'Vendeur Staff / Vendor Staff',
+  }
+  const uniqueRoles = Array.from(new Set(restaurants.map(r => r.teamRole)))
+  const badges: React.ReactNode[] = [
+    <span key="client" className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+      Client / Customer
+    </span>,
+  ]
+  for (const role of uniqueRoles) {
+    badges.push(
+      <span key={role} className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+        {labels[role] ?? role}
+      </span>
+    )
+  }
+  return <>{badges}</>
 }
 
 function StatusBadge({ status }: { status: string }) {
