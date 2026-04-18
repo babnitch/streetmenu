@@ -118,6 +118,26 @@ export default function HomePage() {
     if (!dismissed) setBannerDismissed(false)
   }, [])
 
+  // Hide the mobile floating "Join" for users who already own a restaurant
+  // (or any admin). Same logic as <TopNav>.
+  const [hideJoinCta, setHideJoinCta] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const me = await (await fetch('/api/auth/me', { cache: 'no-store' })).json()
+        if (cancelled || !me.user) return
+        if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
+          setHideJoinCta(true); return
+        }
+        const v = await (await fetch('/api/vendor/restaurants', { cache: 'no-store' })).json()
+        if (cancelled) return
+        if ((v.restaurants ?? []).length > 0) setHideJoinCta(true)
+      } catch { /* fail open: keep showing Join */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   useEffect(() => {
     async function fetchRestaurants() {
       const { data } = await supabase
@@ -237,14 +257,16 @@ export default function HomePage() {
       </main>
 
       {/* ── Floating "Join us" (mobile only) ─────────────────────────── */}
-      <div className="sm:hidden fixed bottom-6 left-4 z-30">
-        <Link
-          href="/join"
-          className="bg-white border border-orange-200 text-orange-500 text-sm font-semibold px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-1.5"
-        >
-          {t('nav.join')}
-        </Link>
-      </div>
+      {!hideJoinCta && (
+        <div className="sm:hidden fixed bottom-6 left-4 z-30">
+          <Link
+            href="/join"
+            className="bg-white border border-orange-200 text-orange-500 text-sm font-semibold px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-1.5"
+          >
+            {t('nav.join')}
+          </Link>
+        </div>
+      )}
 
       {/* ── Floating Map Button ───────────────────────────────────────── */}
       <button
