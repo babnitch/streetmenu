@@ -264,13 +264,16 @@ export default function AdminAccountsPage() {
                           {actionLoading === a.id + '-undo-delete' ? '…' : '↩️ Annuler suppression / Undo delete'}
                         </button>
                       )}
-                      {currentRole === 'super_admin' && (
+                      {currentRole === 'super_admin' && !a.phone?.startsWith('deleted_') && (
                         <button
                           onClick={() => setModal({ type: 'release', account: a })}
-                          className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg font-medium hover:bg-purple-100 transition-colors"
+                          className="text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
                         >
                           🔓 Libérer numéro / Release number
                         </button>
+                      )}
+                      {a.phone?.startsWith('deleted_') && (
+                        <span className="text-xs text-gray-400 italic px-1">Numéro libéré / Released</span>
                       )}
                     </>
                   )}
@@ -339,8 +342,8 @@ export default function AdminAccountsPage() {
             <h3 className="font-bold text-gray-900 mb-1">🔓 Libérer le numéro / Release number</h3>
             <p className="text-sm text-gray-500 mb-3">{modal.account.name} · {modal.account.phone}</p>
             <p className="text-sm text-red-600 mb-4 bg-red-50 border border-red-100 rounded-xl p-3">
-              ⚠️ Action irréversible. Cela anonymisera définitivement le nom et le numéro de téléphone.<br/><br/>
-              Irreversible. This will permanently anonymize the name and phone number.
+              ⚠️ Cette action est définitive. Le numéro sera libéré et les données anonymisées. Continuer?<br/><br/>
+              This is permanent. The number will be released and data anonymized. Continue?
             </p>
             <div className="flex gap-3">
               <button onClick={() => doAction(modal.account, 'release-number')}
