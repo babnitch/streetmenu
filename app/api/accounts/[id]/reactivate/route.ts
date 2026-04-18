@@ -10,6 +10,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   }
 
+  // Count targets BEFORE updating the customer: the cascade trigger will
+  // clear suspended_by='system' as soon as the customer row changes, so
+  // counting after would always return 0 once the migration is installed.
+  const { data: targets } = await supabaseAdmin
+    .from('restaurants')
+    .select('id')
+    .eq('customer_id', params.id)
+    .eq('suspended_by', 'system')
+
   const { error: custError } = await supabaseAdmin
     .from('customers')
     .update({ status: 'active', suspended_at: null, suspended_by: null, suspension_reason: null })
@@ -20,17 +29,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: custError.message }, { status: 500 })
   }
 
-  // Reactivate only restaurants that were auto-suspended due to account deletion
-  const { data: reactivated, error: restError } = await supabaseAdmin
+  // Pre-migration fallback: if the cascade trigger isn't installed yet this
+  // UPDATE does the work. Post-migration it's idempotent (trigger already ran).
+  await supabaseAdmin
     .from('restaurants')
     .update({ status: 'active', suspended_at: null, suspended_by: null, suspension_reason: null })
     .eq('customer_id', params.id)
     .eq('suspended_by', 'system')
-    .select('id')
 
-  if (restError) {
-    console.error('[reactivate account] restaurants error:', restError)
-  }
-
-  return NextResponse.json({ ok: true, restaurantsReactivated: reactivated?.length ?? 0 })
+  return NextResponse.json({ ok: true, restaurantsReactivated: targets?.length ?? 0 })
 }

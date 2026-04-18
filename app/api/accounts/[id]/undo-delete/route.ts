@@ -30,6 +30,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Délai de 30 jours dépassé / 30-day window has passed' }, { status: 400 })
   }
 
+  // Count targets BEFORE updating the customer — the cascade trigger clears
+  // suspended_by='system' on the customer status change, so post-update counts
+  // would always be 0 once the migration is installed.
+  const { data: targets } = await supabaseAdmin
+    .from('restaurants')
+    .select('id')
+    .eq('customer_id', targetId)
+    .eq('suspended_by', 'system')
+
   const { error: custError } = await supabaseAdmin
     .from('customers')
     .update({ status: 'active', deleted_at: null })
@@ -39,13 +48,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: custError.message }, { status: 500 })
   }
 
-  // Reactivate restaurants that were auto-suspended when the account was deleted
-  const { data: reactivated } = await supabaseAdmin
+  // Pre-migration fallback: if the cascade trigger isn't installed yet, this
+  // UPDATE does the reactivation. Post-migration it's idempotent.
+  await supabaseAdmin
     .from('restaurants')
     .update({ status: 'active', suspended_at: null, suspended_by: null, suspension_reason: null })
     .eq('customer_id', targetId)
     .eq('suspended_by', 'system')
-    .select('id')
 
-  return NextResponse.json({ ok: true, restaurantsReactivated: reactivated?.length ?? 0 })
+  return NextResponse.json({ ok: true, restaurantsReactivated: targets?.length ?? 0 })
 }
