@@ -31,6 +31,8 @@ interface RestaurantRow {
   suspension_reason: string | null
   deleted_at: string | null
   created_at: string
+  customer_id: string | null
+  owner: { id: string; name: string; phone: string } | null
 }
 
 // ── Form for adding a new restaurant ─────────────────────────────────────────
@@ -86,9 +88,9 @@ export default function AdminRestaurantsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('restaurants')
-      .select('*')
+      .select('*, owner:customers!restaurants_customer_id_fkey(id, name, phone)')
       .order('created_at', { ascending: false })
-    if (data) setRestaurants(data as RestaurantRow[])
+    if (data) setRestaurants(data as unknown as RestaurantRow[])
     setLoading(false)
   }
 
@@ -479,6 +481,14 @@ function RestaurantCard({
             </div>
           </div>
           {r.cuisine_type && <p className="text-xs text-gray-400 mt-1">{r.cuisine_type}</p>}
+          {r.owner ? (
+            <p className="text-xs text-gray-500 mt-1">
+              👤 <span className="font-medium">{r.owner.name}</span>
+              <span className="font-mono text-gray-400"> · {r.owner.phone}</span>
+            </p>
+          ) : (
+            <p className="text-xs text-amber-500 mt-1">👤 Non lié / Unlinked</p>
+          )}
           {r.suspension_reason && (
             <p className="text-xs text-amber-600 mt-1">Raison: {r.suspension_reason}</p>
           )}

@@ -95,6 +95,7 @@ export default function AccountPage() {
   const [addingMember,     setAddingMember]     = useState(false)
   const [teamError,        setTeamError]        = useState('')
   const [restActionLoading, setRestActionLoading] = useState('')
+  const [uploadingPhoto,   setUploadingPhoto]   = useState(false)
 
   // Modals
   type VendorModal = 'suspend-rest' | 'delete-rest' | 'delete-account' | null
@@ -348,6 +349,48 @@ export default function AccountPage() {
   async function handleRemoveTeamMember(memberId: string) {
     await fetch(`/api/restaurants/${activeRestId}/team/${memberId}`, { method: 'DELETE' })
     await loadTeam(activeRestId)
+  }
+
+  async function handleChangeRole(memberId: string, role: string) {
+    const res = await fetch(`/api/restaurants/${activeRestId}/team/${memberId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    })
+    if (res.ok) {
+      showToast('✅ Rôle mis à jour / Role updated')
+      await loadTeam(activeRestId)
+    } else {
+      const d = await res.json()
+      showToast(d.error ?? 'Erreur / Error', false)
+    }
+  }
+
+  async function handleRestaurantPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !activeRestId) return
+    setUploadingPhoto(true)
+    try {
+      const path = `restaurants/${Date.now()}-${file.name.replace(/\s+/g, '-')}`
+      const { error: upErr } = await supabase.storage.from('photos').upload(path, file)
+      if (upErr) { showToast('Erreur upload / Upload error', false); return }
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path)
+      const res = await fetch(`/api/restaurants/${activeRestId}/image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_url: urlData.publicUrl }),
+      })
+      if (res.ok) {
+        showToast('✅ Photo mise à jour / Photo updated')
+        await loadMyRestaurants()
+      } else {
+        const d = await res.json()
+        showToast(d.error ?? 'Erreur / Error', false)
+      }
+    } finally {
+      setUploadingPhoto(false)
+      e.target.value = ''
+    }
   }
 
   // ── Admin permission checks ──
@@ -727,13 +770,34 @@ export default function AccountPage() {
 
                     {activeRest && (
                       <div className="bg-white rounded-2xl shadow-sm p-6">
-                        <div className="flex items-start justify-between gap-4 mb-4">
-                          <div>
-                            <h2 className="font-bold text-gray-900 text-lg">{activeRest.name}</h2>
-                            <p className="text-sm text-gray-500">{activeRest.city}{activeRest.neighborhood ? ` · ${activeRest.neighborhood}` : ''}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">{activeRest.cuisine_type} · Rôle: {activeRest.teamRole}</p>
+                        <div className="flex items-start gap-4 mb-4">
+                          {/* Photo */}
+                          <div className="relative w-20 h-20 rounded-2xl overflow-hidden flex-shrink-0 bg-orange-50">
+                            {activeRest.image_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={activeRest.image_url} alt={activeRest.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="absolute inset-0 flex items-center justify-center text-3xl">🏪</span>
+                            )}
+                            {activeRest.teamRole === 'owner' && !activeRest.deleted_at && (
+                              <label className="absolute inset-0 bg-black/50 text-white text-[10px] font-semibold flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer">
+                                {uploadingPhoto ? '…' : '📷 Changer'}
+                                <input type="file" accept="image/*" className="hidden"
+                                  disabled={uploadingPhoto}
+                                  onChange={handleRestaurantPhotoUpload} />
+                              </label>
+                            )}
                           </div>
-                          <StatusBadge status={activeRest.deleted_at ? 'deleted' : activeRest.status} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2 flex-wrap">
+                              <div>
+                                <h2 className="font-bold text-gray-900 text-lg">{activeRest.name}</h2>
+                                <p className="text-sm text-gray-500">{activeRest.city}{activeRest.neighborhood ? ` · ${activeRest.neighborhood}` : ''}</p>
+                                <p className="text-xs text-gray-400 mt-0.5">{activeRest.cuisine_type} · Rôle: {activeRest.teamRole}</p>
+                              </div>
+                              <StatusBadge status={activeRest.deleted_at ? 'deleted' : activeRest.status} />
+                            </div>
+                          </div>
                         </div>
 
                         {/* Banners */}
@@ -840,19 +904,40 @@ export default function AccountPage() {
                     ) : (
                       <div className="space-y-2">
                         {teamMembers.map(m => (
-                          <div key={m.id} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
-                            <div>
+                          <div key={m.id} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0 gap-2 flex-wrap">
+                            <div className="flex-1 min-w-0">
                               <p className="font-semibold text-sm text-gray-900">{m.customers.name}</p>
-                              <p className="text-xs text-gray-400 font-mono">{m.customers.phone} · {m.role}</p>
+                              <p className="text-xs text-gray-400 font-mono">{m.customers.phone}</p>
+                              {m.added_at && (
+                                <p className="text-[11px] text-gray-400 mt-0.5">
+                                  Ajouté le {new Date(m.added_at).toLocaleDateString('fr-FR')}
+                                </p>
+                              )}
                             </div>
-                            {m.role !== 'owner' && (
-                              <button
-                                onClick={() => handleRemoveTeamMember(m.id)}
-                                className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 hover:bg-red-50 rounded-lg transition-colors"
-                              >
-                                {t('account.removeMember')}
-                              </button>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {m.role === 'owner' ? (
+                                <span className="text-xs font-medium px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
+                                  Propriétaire / Owner
+                                </span>
+                              ) : (
+                                <select
+                                  value={m.role}
+                                  onChange={e => handleChangeRole(m.id, e.target.value)}
+                                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-orange-400 bg-white"
+                                >
+                                  <option value="manager">{t('account.roleManager')}</option>
+                                  <option value="staff">{t('account.roleStaff')}</option>
+                                </select>
+                              )}
+                              {m.role !== 'owner' && (
+                                <button
+                                  onClick={() => handleRemoveTeamMember(m.id)}
+                                  className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 hover:bg-red-50 rounded-lg transition-colors"
+                                >
+                                  {t('account.removeMember')}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ))}
                         {teamMembers.length === 0 && <p className="text-gray-400 text-sm text-center py-4">Équipe vide / Empty team</p>}
