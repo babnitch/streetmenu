@@ -1,218 +1,330 @@
 -- ============================================================================
 -- STREETMENU DATABASE OPTIMIZATION MIGRATION
 -- ----------------------------------------------------------------------------
--- Safe, idempotent migration. Run once in the Supabase SQL editor.
+-- Safe, idempotent. Re-running is a no-op. Never DROPs or DELETEs data.
 --
--- Goals:
---   1. Backfill missing relationships without losing any data
---   2. Add foreign keys, indexes, and check constraints the schema was missing
---   3. Enforce integrity via triggers (cascade suspend, auto-link, updated_at)
---   4. Introduce a relational `order_items` table alongside existing JSONB
+-- Structure (ordered so every reference is to something the previous phase
+-- already guaranteed exists):
 --
--- This script never DROPs tables and never DELETEs rows. Re-running it is safe.
+--   Phase 1: CREATE TABLE IF NOT EXISTS   — minimal scaffolds in dep order
+--   Phase 2: ALTER TABLE ADD COLUMN       — every column the migration touches
+--   Phase 3: ADD CONSTRAINTS (FK, UNIQUE) — conditional on absence
+--   Phase 4: CREATE INDEX IF NOT EXISTS
+--   Phase 5: BACKFILLS (data migration)
+--   Phase 6: CHECK + conditional NOT NULL
+--   Phase 7: Triggers, trigger functions, RPCs
 -- ============================================================================
 
 BEGIN;
 
 -- ============================================================================
--- 1. NEW COLUMNS
+-- PHASE 0: Extensions
 -- ============================================================================
-
--- events.submitted_by — who submitted the event (nullable for historical rows)
-ALTER TABLE events
-  ADD COLUMN IF NOT EXISTS submitted_by UUID REFERENCES customers(id) ON DELETE SET NULL;
-
--- events.restaurant_id — optional: event hosted by a restaurant
-ALTER TABLE events
-  ADD COLUMN IF NOT EXISTS restaurant_id UUID REFERENCES restaurants(id) ON DELETE SET NULL;
-
--- vouchers.restaurant_id — optional: restaurant-specific vouchers (NULL = platform-wide)
-ALTER TABLE vouchers
-  ADD COLUMN IF NOT EXISTS restaurant_id UUID REFERENCES restaurants(id) ON DELETE CASCADE;
-
--- customer_vouchers.order_id — which order consumed the voucher
-ALTER TABLE customer_vouchers
-  ADD COLUMN IF NOT EXISTS order_id UUID REFERENCES orders(id) ON DELETE SET NULL;
-
--- updated_at on all mutable tables
-ALTER TABLE customers         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE restaurants       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE menu_items        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE orders            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE vouchers          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE customer_vouchers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE events            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE admin_users       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-ALTER TABLE restaurant_team   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ============================================================================
--- 2. NEW TABLE: order_items (relational alongside orders.items JSONB)
+-- PHASE 1: Ensure tables exist (minimal scaffold, dependency order)
+-- ----------------------------------------------------------------------------
+-- CREATE TABLE IF NOT EXISTS leaves any pre-existing table untouched; Phase 2
+-- handles adding missing columns to those. For fresh DBs these scaffolds are
+-- filled out column-by-column in Phase 2.
 -- ============================================================================
--- orders.items JSONB stays as source of truth for legacy reads.
--- order_items is the go-forward relational home with FK to menu_items.
 
-CREATE TABLE IF NOT EXISTS order_items (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id       UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  menu_item_id   UUID REFERENCES menu_items(id) ON DELETE SET NULL,
-  name           TEXT NOT NULL,        -- snapshot at order time
-  price          NUMERIC(10,2) NOT NULL CHECK (price >= 0),
-  quantity       INTEGER NOT NULL CHECK (quantity > 0),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS customers (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone      TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_order_items_order_id     ON order_items(order_id);
-CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON order_items(menu_item_id);
+CREATE TABLE IF NOT EXISTS admin_users (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email      TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS restaurants (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS restaurant_team (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL,
+  customer_id   UUID NOT NULL,
+  added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS menu_items (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL,
+  name          TEXT NOT NULL DEFAULT '',
+  price         NUMERIC(10,2) NOT NULL DEFAULT 0,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS vouchers (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS customer_vouchers (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id UUID NOT NULL,
+  voucher_id  UUID NOT NULL,
+  claimed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS events (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  city       TEXT NOT NULL DEFAULT '',
+  date       DATE NOT NULL DEFAULT CURRENT_DATE,
+  category   TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS verification_codes (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone      TEXT NOT NULL,
+  code       TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used       BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS signup_sessions (
+  phone      TEXT PRIMARY KEY,
+  user_type  TEXT NOT NULL,
+  step       INTEGER NOT NULL DEFAULT 1,
+  data       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id   UUID NOT NULL,
+  name       TEXT NOT NULL DEFAULT '',
+  price      NUMERIC(10,2) NOT NULL DEFAULT 0,
+  quantity   INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- ============================================================================
--- 3. BACKFILLS (idempotent, safe to re-run)
+-- PHASE 2: Ensure every column exists. Safe to re-run — each is IF NOT EXISTS.
 -- ============================================================================
 
--- 3a. Link orphaned restaurants to matching customer by phone; create
---     a customer account from the restaurant's own details if no match.
-DO $$
+-- customers
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS name              TEXT NOT NULL DEFAULT '';
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS city              TEXT NOT NULL DEFAULT '';
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS status            TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS suspended_at      TIMESTAMPTZ;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS suspended_by      TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS suspension_reason TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_at        TIMESTAMPTZ;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- admin_users
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS name          TEXT NOT NULL DEFAULT '';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role          TEXT NOT NULL DEFAULT 'moderator';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS status        TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS created_by    UUID;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- restaurants
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS name              TEXT NOT NULL DEFAULT '';
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS description       TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS address           TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS lat               DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS lng               DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS phone             TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS whatsapp          TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS logo_url          TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS image_url         TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_open           BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_active         BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS city              TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS neighborhood      TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS owner_name        TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS cuisine_type      TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS customer_id       UUID;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS status            TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS suspended_at      TIMESTAMPTZ;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS suspended_by      TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS suspension_reason TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS deleted_at        TIMESTAMPTZ;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- restaurant_team
+ALTER TABLE restaurant_team ADD COLUMN IF NOT EXISTS role       TEXT NOT NULL DEFAULT 'owner';
+ALTER TABLE restaurant_team ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE restaurant_team ADD COLUMN IF NOT EXISTS added_by   UUID;
+ALTER TABLE restaurant_team ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- menu_items
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS description      TEXT;
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS photo_url        TEXT;
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS category         TEXT;
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS is_available     BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS is_daily_special BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- orders
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_id     UUID;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name   TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone  TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS items           JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_price     NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS voucher_code    TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS status          TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- vouchers
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS discount_type  TEXT NOT NULL DEFAULT 'percent';
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS discount_value NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS min_order      NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS max_uses       INTEGER;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS uses_count     INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS expires_at     TIMESTAMPTZ;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS is_active      BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS city           TEXT;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS restaurant_id  UUID;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- customer_vouchers
+ALTER TABLE customer_vouchers ADD COLUMN IF NOT EXISTS used_at    TIMESTAMPTZ;
+ALTER TABLE customer_vouchers ADD COLUMN IF NOT EXISTS order_id   UUID;
+ALTER TABLE customer_vouchers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- events
+ALTER TABLE events ADD COLUMN IF NOT EXISTS title          TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN IF NOT EXISTS description    TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS time           TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS venue          TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS neighborhood   TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS price          NUMERIC(10,2);
+ALTER TABLE events ADD COLUMN IF NOT EXISTS cover_photo    TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS whatsapp       TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS organizer_name TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS is_active      BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS submitted_by   UUID;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS restaurant_id  UUID;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- order_items (FK column)
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS menu_item_id UUID;
+
+-- ============================================================================
+-- PHASE 3: Foreign keys and UNIQUE constraints — only if missing
+-- ============================================================================
+-- Detection: check pg_constraint by column set rather than by name, so we
+-- don't re-add an FK/UNIQUE that was created under a different name in a
+-- prior migration.
+-- ============================================================================
+
+-- Helper: add FK iff no FK already exists on (table, column)
+CREATE OR REPLACE FUNCTION _smo_add_fk(
+  p_table       regclass,
+  p_column      text,
+  p_ref_table   regclass,
+  p_ref_column  text,
+  p_on_delete   text    -- 'CASCADE' | 'SET NULL' | 'NO ACTION'
+) RETURNS void AS $$
 DECLARE
-  r          RECORD;
-  cust_id    UUID;
+  col_attnum smallint;
+  cname      text;
 BEGIN
-  FOR r IN
-    SELECT id, name, whatsapp, city FROM restaurants WHERE customer_id IS NULL
-  LOOP
-    SELECT id INTO cust_id FROM customers WHERE phone = r.whatsapp LIMIT 1;
-    IF cust_id IS NULL THEN
-      INSERT INTO customers (name, phone, city, status)
-      VALUES (r.name, r.whatsapp, COALESCE(r.city, 'Yaoundé'), 'active')
-      RETURNING id INTO cust_id;
-    END IF;
-    UPDATE restaurants SET customer_id = cust_id WHERE id = r.id;
-    INSERT INTO restaurant_team (restaurant_id, customer_id, role, status, added_by)
-    VALUES (r.id, cust_id, 'owner', 'active', NULL)
-    ON CONFLICT (restaurant_id, customer_id) DO NOTHING;
-  END LOOP;
-END $$;
+  SELECT attnum INTO col_attnum FROM pg_attribute
+  WHERE attrelid = p_table AND attname = p_column AND NOT attisdropped;
+  IF col_attnum IS NULL THEN RETURN; END IF;
 
--- 3b. Every restaurant must have an owner row in restaurant_team.
-INSERT INTO restaurant_team (restaurant_id, customer_id, role, status)
-SELECT r.id, r.customer_id, 'owner', 'active'
-FROM restaurants r
-WHERE r.customer_id IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM restaurant_team t
-    WHERE t.restaurant_id = r.id AND t.customer_id = r.customer_id
-  )
-ON CONFLICT (restaurant_id, customer_id) DO NOTHING;
-
--- 3c. Backfill orders.customer_id by matching customer_phone.
-UPDATE orders o
-SET customer_id = c.id
-FROM customers c
-WHERE o.customer_id IS NULL
-  AND o.customer_phone IS NOT NULL
-  AND c.phone = o.customer_phone;
-
--- 3d. Backfill events.submitted_by by matching events.whatsapp against a customer.
-UPDATE events e
-SET submitted_by = c.id
-FROM customers c
-WHERE e.submitted_by IS NULL
-  AND e.whatsapp IS NOT NULL
-  AND c.phone = e.whatsapp;
-
--- 3e. Backfill order_items from orders.items JSONB. Matches menu items
---     by (restaurant_id, name) using case-insensitive exact compare.
---     If a name matches no menu item, menu_item_id stays NULL.
-DO $$
-DECLARE
-  o       RECORD;
-  item    JSONB;
-  mi_id   UUID;
-BEGIN
-  FOR o IN
-    SELECT id, restaurant_id, items FROM orders
-    WHERE items IS NOT NULL
-      AND jsonb_typeof(items) = 'array'
-      AND NOT EXISTS (SELECT 1 FROM order_items WHERE order_id = orders.id)
-  LOOP
-    FOR item IN SELECT jsonb_array_elements(o.items)
-    LOOP
-      SELECT id INTO mi_id
-      FROM menu_items
-      WHERE restaurant_id = o.restaurant_id
-        AND LOWER(name) = LOWER(item->>'name')
-      LIMIT 1;
-
-      INSERT INTO order_items (order_id, menu_item_id, name, price, quantity)
-      VALUES (
-        o.id,
-        mi_id,
-        COALESCE(item->>'name', ''),
-        COALESCE((item->>'price')::NUMERIC, 0),
-        COALESCE((item->>'quantity')::INTEGER, 1)
-      );
-    END LOOP;
-  END LOOP;
-END $$;
-
--- ============================================================================
--- 4. CONSTRAINTS (idempotent — only add if missing)
--- ============================================================================
-
--- 4a. restaurants.customer_id → NOT NULL (only if backfill left no orphans)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM restaurants WHERE customer_id IS NULL) THEN
-    BEGIN
-      ALTER TABLE restaurants ALTER COLUMN customer_id SET NOT NULL;
-    EXCEPTION WHEN OTHERS THEN
-      RAISE NOTICE 'restaurants.customer_id NOT NULL skipped: %', SQLERRM;
-    END;
-  ELSE
-    RAISE NOTICE 'restaurants.customer_id: % orphaned rows remain; NOT NULL skipped',
-      (SELECT COUNT(*) FROM restaurants WHERE customer_id IS NULL);
-  END IF;
-END $$;
-
--- 4b. menu_items.price >= 0
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'menu_items_price_nonneg'
-  ) THEN
-    ALTER TABLE menu_items ADD CONSTRAINT menu_items_price_nonneg CHECK (price >= 0);
-  END IF;
-END $$;
-
--- 4c. orders.total_price >= 0
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'orders_total_price_nonneg'
-  ) THEN
-    ALTER TABLE orders ADD CONSTRAINT orders_total_price_nonneg CHECK (total_price >= 0);
-  END IF;
-END $$;
-
--- 4d. customers.phone UNIQUE + NOT NULL (already enforced in base schema;
---     re-check here as a safety net)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE indexname = 'customers_phone_key'
-  ) AND NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'customers'::regclass AND contype = 'u'
-      AND conkey = (SELECT ARRAY[attnum] FROM pg_attribute
-                    WHERE attrelid = 'customers'::regclass AND attname = 'phone')
+    WHERE conrelid = p_table AND contype = 'f'
+      AND conkey = ARRAY[col_attnum]::smallint[]
   ) THEN
-    BEGIN
-      ALTER TABLE customers ADD CONSTRAINT customers_phone_unique UNIQUE (phone);
-    EXCEPTION WHEN duplicate_object THEN NULL;
-    END;
+    RETURN;
   END IF;
-END $$;
+
+  cname := format('%s_%s_fkey', split_part(p_table::text, '.', -1), p_column);
+  EXECUTE format(
+    'ALTER TABLE %s ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %s(%I) ON DELETE %s',
+    p_table, cname, p_column, p_ref_table, p_ref_column, p_on_delete
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Helper: add UNIQUE iff no UNIQUE constraint/index already covers these columns
+CREATE OR REPLACE FUNCTION _smo_add_unique(
+  p_table    regclass,
+  p_columns  text[]
+) RETURNS void AS $$
+DECLARE
+  col_attnums smallint[] := ARRAY[]::smallint[];
+  a           smallint;
+  col         text;
+  cname       text;
+BEGIN
+  FOREACH col IN ARRAY p_columns LOOP
+    SELECT attnum INTO a FROM pg_attribute
+    WHERE attrelid = p_table AND attname = col AND NOT attisdropped;
+    IF a IS NULL THEN RETURN; END IF;
+    col_attnums := col_attnums || a;
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = p_table AND contype IN ('u','p')
+      AND conkey = col_attnums
+  ) THEN
+    RETURN;
+  END IF;
+
+  cname := format('%s_%s_key', split_part(p_table::text, '.', -1), array_to_string(p_columns, '_'));
+  EXECUTE format(
+    'ALTER TABLE %s ADD CONSTRAINT %I UNIQUE (%s)',
+    p_table, cname, array_to_string(p_columns, ',')
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- FKs
+SELECT _smo_add_fk('admin_users',       'created_by',    'admin_users',  'id', 'SET NULL');
+SELECT _smo_add_fk('restaurants',       'customer_id',   'customers',    'id', 'SET NULL');
+SELECT _smo_add_fk('restaurant_team',   'restaurant_id', 'restaurants',  'id', 'CASCADE');
+SELECT _smo_add_fk('restaurant_team',   'customer_id',   'customers',    'id', 'CASCADE');
+SELECT _smo_add_fk('restaurant_team',   'added_by',      'customers',    'id', 'SET NULL');
+SELECT _smo_add_fk('menu_items',        'restaurant_id', 'restaurants',  'id', 'CASCADE');
+SELECT _smo_add_fk('orders',            'restaurant_id', 'restaurants',  'id', 'CASCADE');
+SELECT _smo_add_fk('orders',            'customer_id',   'customers',    'id', 'SET NULL');
+SELECT _smo_add_fk('order_items',       'order_id',      'orders',       'id', 'CASCADE');
+SELECT _smo_add_fk('order_items',       'menu_item_id',  'menu_items',   'id', 'SET NULL');
+SELECT _smo_add_fk('vouchers',          'restaurant_id', 'restaurants',  'id', 'CASCADE');
+SELECT _smo_add_fk('customer_vouchers', 'customer_id',   'customers',    'id', 'CASCADE');
+SELECT _smo_add_fk('customer_vouchers', 'voucher_id',    'vouchers',     'id', 'CASCADE');
+SELECT _smo_add_fk('customer_vouchers', 'order_id',      'orders',       'id', 'SET NULL');
+SELECT _smo_add_fk('events',            'submitted_by',  'customers',    'id', 'SET NULL');
+SELECT _smo_add_fk('events',            'restaurant_id', 'restaurants',  'id', 'SET NULL');
+
+-- UNIQUE
+SELECT _smo_add_unique('customers',       ARRAY['phone']);
+SELECT _smo_add_unique('admin_users',     ARRAY['email']);
+SELECT _smo_add_unique('vouchers',        ARRAY['code']);
+SELECT _smo_add_unique('restaurant_team', ARRAY['restaurant_id','customer_id']);
+
+DROP FUNCTION _smo_add_fk(regclass, text, regclass, text, text);
+DROP FUNCTION _smo_add_unique(regclass, text[]);
 
 -- ============================================================================
--- 5. INDEXES — on every FK column and every column used in WHERE / ORDER BY
+-- PHASE 4: Indexes (every FK + every hot filter column)
 -- ============================================================================
 
 -- restaurants
@@ -233,13 +345,16 @@ CREATE INDEX IF NOT EXISTS idx_orders_restaurant_id     ON orders(restaurant_id)
 CREATE INDEX IF NOT EXISTS idx_orders_customer_id       ON orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status            ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at        ON orders(created_at DESC);
--- Compound index used by the vendor dashboard "open orders for my restaurant" query
 CREATE INDEX IF NOT EXISTS idx_orders_rest_status       ON orders(restaurant_id, status);
 
 -- menu_items
 CREATE INDEX IF NOT EXISTS idx_menu_items_restaurant_id ON menu_items(restaurant_id);
 CREATE INDEX IF NOT EXISTS idx_menu_items_is_available  ON menu_items(is_available);
 CREATE INDEX IF NOT EXISTS idx_menu_items_rest_name     ON menu_items(restaurant_id, LOWER(name));
+
+-- order_items
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id     ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON order_items(menu_item_id);
 
 -- restaurant_team
 CREATE INDEX IF NOT EXISTS idx_team_restaurant_id       ON restaurant_team(restaurant_id);
@@ -277,10 +392,172 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user_type       ON signup_sessions(user_
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at      ON signup_sessions(expires_at);
 
 -- ============================================================================
--- 6. TRIGGERS
+-- PHASE 5: Backfills — safe now, every table/column/FK is guaranteed
 -- ============================================================================
 
--- 6a. Auto-update updated_at on every UPDATE
+-- 5a. Link orphaned restaurants: match by phone, else create a customer from
+--     the restaurant's own details. Adds owner row in restaurant_team.
+DO $$
+DECLARE
+  r        RECORD;
+  cust_id  UUID;
+BEGIN
+  FOR r IN
+    SELECT id, name, whatsapp, city FROM restaurants WHERE customer_id IS NULL
+  LOOP
+    IF r.whatsapp IS NULL OR r.whatsapp = '' THEN
+      CONTINUE;  -- can't match or create without a phone
+    END IF;
+
+    SELECT id INTO cust_id FROM customers WHERE phone = r.whatsapp LIMIT 1;
+
+    IF cust_id IS NULL THEN
+      INSERT INTO customers (name, phone, city, status)
+      VALUES (COALESCE(NULLIF(r.name,''), 'Restaurant'), r.whatsapp,
+              COALESCE(r.city, ''), 'active')
+      RETURNING id INTO cust_id;
+    END IF;
+
+    UPDATE restaurants SET customer_id = cust_id WHERE id = r.id;
+
+    INSERT INTO restaurant_team (restaurant_id, customer_id, role, status)
+    VALUES (r.id, cust_id, 'owner', 'active')
+    ON CONFLICT (restaurant_id, customer_id) DO NOTHING;
+  END LOOP;
+END $$;
+
+-- 5b. Every restaurant with a customer_id must have an owner row in team.
+INSERT INTO restaurant_team (restaurant_id, customer_id, role, status)
+SELECT r.id, r.customer_id, 'owner', 'active'
+FROM restaurants r
+WHERE r.customer_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM restaurant_team t
+    WHERE t.restaurant_id = r.id AND t.customer_id = r.customer_id
+  )
+ON CONFLICT (restaurant_id, customer_id) DO NOTHING;
+
+-- 5c. Backfill orders.customer_id from customer_phone.
+UPDATE orders o
+SET customer_id = c.id
+FROM customers c
+WHERE o.customer_id IS NULL
+  AND o.customer_phone IS NOT NULL
+  AND o.customer_phone <> ''
+  AND c.phone = o.customer_phone;
+
+-- 5d. Backfill events.submitted_by by matching events.whatsapp against a customer.
+UPDATE events e
+SET submitted_by = c.id
+FROM customers c
+WHERE e.submitted_by IS NULL
+  AND e.whatsapp IS NOT NULL
+  AND e.whatsapp <> ''
+  AND c.phone = e.whatsapp;
+
+-- 5e. Backfill order_items from orders.items JSONB. Matches menu_items by
+--     (restaurant_id, LOWER(name)); unmatched items still get a row with
+--     menu_item_id = NULL (historical snapshot).
+DO $$
+DECLARE
+  o     RECORD;
+  item  JSONB;
+  mi_id UUID;
+BEGIN
+  FOR o IN
+    SELECT id, restaurant_id, items FROM orders
+    WHERE items IS NOT NULL
+      AND jsonb_typeof(items) = 'array'
+      AND NOT EXISTS (SELECT 1 FROM order_items WHERE order_id = orders.id)
+  LOOP
+    FOR item IN SELECT jsonb_array_elements(o.items)
+    LOOP
+      SELECT id INTO mi_id
+      FROM menu_items
+      WHERE restaurant_id = o.restaurant_id
+        AND LOWER(name) = LOWER(item->>'name')
+      LIMIT 1;
+
+      INSERT INTO order_items (order_id, menu_item_id, name, price, quantity)
+      VALUES (
+        o.id,
+        mi_id,
+        COALESCE(item->>'name', ''),
+        COALESCE((item->>'price')::NUMERIC, 0),
+        GREATEST(COALESCE((item->>'quantity')::INTEGER, 1), 1)
+      );
+    END LOOP;
+  END LOOP;
+END $$;
+
+-- ============================================================================
+-- PHASE 6: CHECK constraints + conditional NOT NULL
+-- ============================================================================
+
+-- Helper: add CHECK iff no CHECK with this name exists
+CREATE OR REPLACE FUNCTION _smo_add_check(
+  p_table regclass,
+  p_name  text,
+  p_check text
+) RETURNS void AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = p_name) THEN
+    BEGIN
+      EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I CHECK (%s)', p_table, p_name, p_check);
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'CHECK % on % skipped: %', p_name, p_table, SQLERRM;
+    END;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT _smo_add_check('customers',       'customers_status_chk',          $c$status IN ('active','suspended','deleted')$c$);
+SELECT _smo_add_check('customers',       'customers_suspended_by_chk',    $c$suspended_by IS NULL OR suspended_by IN ('vendor','admin','system')$c$);
+SELECT _smo_add_check('restaurants',     'restaurants_status_chk',        $c$status IN ('pending','active','suspended','deleted')$c$);
+SELECT _smo_add_check('restaurants',     'restaurants_suspended_by_chk',  $c$suspended_by IS NULL OR suspended_by IN ('vendor','admin','system')$c$);
+SELECT _smo_add_check('restaurant_team', 'restaurant_team_role_chk',      $c$role IN ('owner','manager','staff')$c$);
+SELECT _smo_add_check('restaurant_team', 'restaurant_team_status_chk',    $c$status IN ('active','removed')$c$);
+SELECT _smo_add_check('admin_users',     'admin_users_role_chk',          $c$role IN ('super_admin','admin','moderator')$c$);
+SELECT _smo_add_check('admin_users',     'admin_users_status_chk',        $c$status IN ('active','suspended')$c$);
+SELECT _smo_add_check('orders',          'orders_status_chk',             $c$status IN ('pending','confirmed','preparing','ready','completed')$c$);
+SELECT _smo_add_check('orders',          'orders_total_price_nonneg',     $c$total_price >= 0$c$);
+SELECT _smo_add_check('menu_items',      'menu_items_price_nonneg',       $c$price >= 0$c$);
+SELECT _smo_add_check('vouchers',        'vouchers_discount_type_chk',    $c$discount_type IN ('percent','fixed')$c$);
+SELECT _smo_add_check('order_items',     'order_items_quantity_pos',      $c$quantity > 0$c$);
+SELECT _smo_add_check('order_items',     'order_items_price_nonneg',      $c$price >= 0$c$);
+
+DROP FUNCTION _smo_add_check(regclass, text, text);
+
+-- customers.phone NOT NULL
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE customers ALTER COLUMN phone SET NOT NULL;
+  EXCEPTION WHEN others THEN
+    RAISE NOTICE 'customers.phone NOT NULL skipped: %', SQLERRM;
+  END;
+END $$;
+
+-- restaurants.customer_id NOT NULL — only when backfill left no orphans.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM restaurants WHERE customer_id IS NULL) THEN
+    BEGIN
+      ALTER TABLE restaurants ALTER COLUMN customer_id SET NOT NULL;
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'restaurants.customer_id NOT NULL skipped: %', SQLERRM;
+    END;
+  ELSE
+    RAISE NOTICE 'restaurants.customer_id: % orphaned rows remain; NOT NULL skipped',
+      (SELECT COUNT(*) FROM restaurants WHERE customer_id IS NULL);
+  END IF;
+END $$;
+
+-- ============================================================================
+-- PHASE 7: Triggers + RPC functions
+-- ============================================================================
+
+-- 7a. updated_at auto-update
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN
   NEW.updated_at = NOW();
@@ -307,8 +584,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- 6b. When a new restaurant is inserted WITH a customer_id, auto-create
---     the owner row in restaurant_team.
+-- 7b. New restaurant → auto-create owner row
 CREATE OR REPLACE FUNCTION ensure_restaurant_owner() RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.customer_id IS NOT NULL THEN
@@ -325,18 +601,17 @@ CREATE TRIGGER trg_restaurants_ensure_owner
   AFTER INSERT ON restaurants
   FOR EACH ROW EXECUTE FUNCTION ensure_restaurant_owner();
 
--- 6c. When a customer is soft-deleted (status → 'deleted'), auto-suspend
---     their active/pending restaurants with suspended_by='system'.
+-- 7c. Customer soft-deleted → suspend their active/pending restaurants
 CREATE OR REPLACE FUNCTION cascade_customer_delete() RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.status = 'deleted' AND (OLD.status IS DISTINCT FROM 'deleted') THEN
     UPDATE restaurants
-    SET status             = 'suspended',
-        suspended_at       = NOW(),
-        suspended_by       = 'system',
-        suspension_reason  = 'Account deleted'
+    SET status            = 'suspended',
+        suspended_at      = NOW(),
+        suspended_by      = 'system',
+        suspension_reason = 'Account deleted'
     WHERE customer_id = NEW.id
-      AND status IN ('active', 'pending');
+      AND status IN ('active','pending');
   END IF;
   RETURN NEW;
 END;
@@ -347,16 +622,15 @@ CREATE TRIGGER trg_customers_cascade_delete
   AFTER UPDATE OF status ON customers
   FOR EACH ROW EXECUTE FUNCTION cascade_customer_delete();
 
--- 6d. When a customer is reactivated (status: deleted/suspended → active),
---     auto-reactivate restaurants that were suspended_by='system'.
+-- 7d. Customer reactivated → un-suspend system-suspended restaurants
 CREATE OR REPLACE FUNCTION cascade_customer_reactivate() RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW.status = 'active' AND OLD.status IN ('suspended', 'deleted') THEN
+  IF NEW.status = 'active' AND OLD.status IN ('suspended','deleted') THEN
     UPDATE restaurants
-    SET status             = 'active',
-        suspended_at       = NULL,
-        suspended_by       = NULL,
-        suspension_reason  = NULL
+    SET status            = 'active',
+        suspended_at      = NULL,
+        suspended_by      = NULL,
+        suspension_reason = NULL
     WHERE customer_id = NEW.id
       AND suspended_by = 'system';
   END IF;
@@ -369,8 +643,7 @@ CREATE TRIGGER trg_customers_cascade_reactivate
   AFTER UPDATE OF status ON customers
   FOR EACH ROW EXECUTE FUNCTION cascade_customer_reactivate();
 
--- 6e. When a new customer is created via WhatsApp, auto-link any restaurants
---     whose whatsapp number matches the customer's phone and have no customer_id.
+-- 7e. New customer → auto-link any orphaned restaurants whose whatsapp matches
 CREATE OR REPLACE FUNCTION auto_link_orphaned_on_customer_insert() RETURNS TRIGGER AS $$
 BEGIN
   UPDATE restaurants
@@ -396,85 +669,61 @@ CREATE TRIGGER trg_customers_autolink
   AFTER INSERT ON customers
   FOR EACH ROW EXECUTE FUNCTION auto_link_orphaned_on_customer_insert();
 
--- ============================================================================
--- 7. RPC FUNCTIONS (transactional multi-step writes)
--- ============================================================================
-
--- 7a. Atomic account deletion (triggers cascade automatically; RPC kept
---     for API callers that want a single result).
+-- 7f. RPC: delete_customer_cascade (the trigger does the work; this is the
+--     single-call version for API callers)
 CREATE OR REPLACE FUNCTION delete_customer_cascade(p_customer_id UUID)
 RETURNS TABLE(restaurants_suspended INTEGER) AS $$
-DECLARE
-  n INTEGER;
+DECLARE n INTEGER;
 BEGIN
-  UPDATE customers
-  SET status = 'deleted', deleted_at = NOW()
-  WHERE id = p_customer_id AND status != 'deleted';
-  -- cascade_customer_delete trigger handles the restaurants side
+  SELECT COUNT(*) INTO n FROM restaurants
+  WHERE customer_id = p_customer_id AND status IN ('active','pending');
 
-  SELECT COUNT(*) INTO n
-  FROM restaurants
-  WHERE customer_id = p_customer_id
-    AND suspended_by = 'system'
-    AND suspended_at IS NOT NULL;
+  UPDATE customers SET status = 'deleted', deleted_at = NOW()
+  WHERE id = p_customer_id AND status <> 'deleted';
+
   restaurants_suspended := n;
   RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 7b. Atomic account reactivation
+-- 7g. RPC: reactivate_customer_cascade
 CREATE OR REPLACE FUNCTION reactivate_customer_cascade(p_customer_id UUID)
 RETURNS TABLE(restaurants_reactivated INTEGER) AS $$
-DECLARE
-  n INTEGER;
+DECLARE n INTEGER;
 BEGIN
-  UPDATE customers
-  SET status             = 'active',
-      suspended_at       = NULL,
-      suspended_by       = NULL,
-      suspension_reason  = NULL
-  WHERE id = p_customer_id;
-  -- cascade_customer_reactivate trigger handles the restaurants side
+  SELECT COUNT(*) INTO n FROM restaurants
+  WHERE customer_id = p_customer_id AND suspended_by = 'system';
 
-  WITH updated AS (
-    SELECT id FROM restaurants
-    WHERE customer_id = p_customer_id
-      AND status = 'active'
-      AND suspended_at IS NULL
-  )
-  SELECT COUNT(*) INTO n FROM updated;
+  UPDATE customers
+  SET status = 'active', suspended_at = NULL, suspended_by = NULL, suspension_reason = NULL
+  WHERE id = p_customer_id;
+
   restaurants_reactivated := n;
   RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 7c. Atomic undo-delete
+-- 7h. RPC: undo_delete_customer_cascade
 CREATE OR REPLACE FUNCTION undo_delete_customer_cascade(p_customer_id UUID)
 RETURNS TABLE(restaurants_reactivated INTEGER) AS $$
-DECLARE
-  n INTEGER;
+DECLARE n INTEGER;
 BEGIN
-  UPDATE customers
-  SET status = 'active', deleted_at = NULL
-  WHERE id = p_customer_id AND deleted_at IS NOT NULL;
-  -- cascade_customer_reactivate trigger handles the restaurants side
+  SELECT COUNT(*) INTO n FROM restaurants
+  WHERE customer_id = p_customer_id AND suspended_by = 'system';
 
-  SELECT COUNT(*) INTO n
-  FROM restaurants
-  WHERE customer_id = p_customer_id
-    AND status = 'active'
-    AND suspended_at IS NULL;
+  UPDATE customers SET status = 'active', deleted_at = NULL
+  WHERE id = p_customer_id AND deleted_at IS NOT NULL;
+
   restaurants_reactivated := n;
   RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 7d. Atomic manual-link of an orphaned restaurant
+-- 7i. RPC: link_restaurant_to_customer (manual orphan link)
 CREATE OR REPLACE FUNCTION link_restaurant_to_customer(p_restaurant_id UUID, p_customer_id UUID)
 RETURNS void AS $$
 BEGIN
-  UPDATE restaurants
-  SET customer_id = p_customer_id
+  UPDATE restaurants SET customer_id = p_customer_id
   WHERE id = p_restaurant_id AND customer_id IS NULL;
 
   INSERT INTO restaurant_team (restaurant_id, customer_id, role, status)
@@ -486,5 +735,5 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMIT;
 
 -- ============================================================================
--- DONE. Summary of changes: see TECHNICAL-REQUIREMENTS.md
+-- DONE. The script is idempotent — re-run any time.
 -- ============================================================================
