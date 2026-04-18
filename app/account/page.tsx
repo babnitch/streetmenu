@@ -676,7 +676,7 @@ export default function AccountPage() {
               }
               return (
               <div>
-                <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+                <div className="flex flex-wrap gap-2 mb-5">
                   {visibleTabs
                     .map(sub => (
                       <button key={sub}
