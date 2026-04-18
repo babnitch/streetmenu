@@ -51,7 +51,7 @@ export default function AdminAccountsPage() {
 
   async function fetchAccounts() {
     setLoading(true)
-    const res = await fetch('/api/admin/accounts')
+    const res = await fetch('/api/admin/accounts', { cache: 'no-store' })
     const data = await res.json()
     if (data.accounts) setAccounts(data.accounts)
     setLoading(false)
@@ -92,6 +92,10 @@ export default function AdminAccountsPage() {
           'release-number': `🔓 Numéro libéré / Number released`,
         }
         showToast(labels[action] ?? '✅ Fait / Done')
+        // Switch to the tab where the result is visible
+        if (action === 'delete')        setStatusFilter('deleted')
+        if (action === 'suspend')       setStatusFilter('suspended')
+        if (action === 'reactivate' || action === 'undo-delete') setStatusFilter('active')
         await fetchAccounts()
       } else {
         showToast(data.error ?? 'Erreur / Error', false)
