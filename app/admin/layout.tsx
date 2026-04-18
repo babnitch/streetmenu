@@ -72,6 +72,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
           <div className="flex items-center gap-3">
             <LanguageToggle />
+            <Link
+              href="/admin/profile"
+              className={`text-sm font-medium transition-colors px-3 py-1.5 rounded-lg ${
+                pathname.startsWith('/admin/profile')
+                  ? 'bg-orange-50 text-orange-600'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              👤 Mon profil / My Profile
+            </Link>
             <button
               onClick={logout}
               className="text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"
