@@ -207,17 +207,20 @@ export default function AccountPage() {
     e.preventDefault()
     setError('')
     const cleaned = phone.trim()
+    console.log('[login-flow] submit, cleaned phone =', JSON.stringify(cleaned))
     if (!cleaned) return
     setSending(true)
     try {
+      console.log('[login-flow] calling check-phone…')
       const checkRes = await fetch(
         `/api/auth/check-phone?phone=${encodeURIComponent(cleaned)}`
       )
       const check = await checkRes.json()
+      console.log('[login-flow] check-phone status =', checkRes.status, 'body =', check)
       if (!checkRes.ok) { setError(check.error || 'Erreur / Error'); return }
 
       if (check.exists) {
-        // Existing customer — send code immediately, go to OTP
+        console.log('[login-flow] existing customer — skipping register form, sending code')
         setKnownName(check.name ?? null)
         const sendRes = await fetch('/api/auth/send-code', {
           method: 'POST',
@@ -225,12 +228,13 @@ export default function AccountPage() {
           body: JSON.stringify({ phone: cleaned }),
         })
         const sendData = await sendRes.json()
+        console.log('[login-flow] send-code status =', sendRes.status, 'body =', sendData)
         if (!sendRes.ok) { setError(sendData.error || 'Erreur / Error'); return }
         setStep('otp')
         return
       }
 
-      // New customer — collect name + city, then send-code on that form's submit
+      console.log('[login-flow] new customer — showing register form')
       setKnownName(null)
       setStep('register')
     } finally {
