@@ -102,13 +102,13 @@ export default function SubmitEventPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center" style={{ background: '#fffaf5' }}>
-        <div className="w-20 h-20 bg-green-100 rounded-3xl flex items-center justify-center text-4xl mb-5">✅</div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">{t('evt.successTitle')}</h1>
-        <p className="text-gray-500 text-sm mb-6 max-w-xs">{t('evt.successSub')}</p>
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center bg-surface">
+        <div className="w-20 h-20 bg-brand-light rounded-3xl flex items-center justify-center text-4xl mb-5">✅</div>
+        <h1 className="text-2xl font-bold text-ink-primary mb-2">{t('evt.successTitle')}</h1>
+        <p className="text-ink-secondary text-sm mb-6 max-w-xs">{t('evt.successSub')}</p>
         <Link
           href="/events"
-          className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+          className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
           {t('evt.backToEvents')}
         </Link>
@@ -117,14 +117,14 @@ export default function SubmitEventPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: '#fffaf5' }}>
+    <div className="min-h-screen bg-surface">
       <TopNav />
       <div className="max-w-xl mx-auto px-4 py-6">
 
         {/* Title */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">{t('evt.submitTitle')}</h1>
-          <p className="text-sm text-gray-400 mt-1">{t('evt.submitSub')}</p>
+          <h1 className="text-2xl font-bold text-ink-primary">{t('evt.submitTitle')}</h1>
+          <p className="text-sm text-ink-tertiary mt-1">{t('evt.submitSub')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -134,19 +134,19 @@ export default function SubmitEventPage() {
             <label className={LABEL}>{t('evt.photoLbl')}</label>
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="relative h-40 bg-orange-50 border-2 border-dashed border-orange-200 rounded-2xl flex items-center justify-center cursor-pointer hover:border-orange-400 transition-colors overflow-hidden"
+              className="relative h-40 bg-brand-light border-2 border-dashed border-brand-badge rounded-2xl flex items-center justify-center cursor-pointer hover:border-brand transition-colors overflow-hidden"
             >
               {photoPreview ? (
                 <>
                   <Image src={photoPreview} alt="preview" fill className="object-cover rounded-2xl" />
-                  <span className="absolute bottom-2 right-2 bg-white/90 text-xs text-gray-600 px-2 py-1 rounded-lg backdrop-blur-sm">
+                  <span className="absolute bottom-2 right-2 bg-white/90 text-xs text-ink-secondary px-2 py-1 rounded-lg backdrop-blur-sm">
                     {t('evt.changePhoto')}
                   </span>
                 </>
               ) : (
                 <div className="text-center">
-                  <p className="text-gray-400 text-sm">{t('evt.photoHint')}</p>
-                  <p className="text-gray-300 text-xs mt-1">{t('evt.photoSize')}</p>
+                  <p className="text-ink-tertiary text-sm">{t('evt.photoHint')}</p>
+                  <p className="text-ink-tertiary text-xs mt-1">{t('evt.photoSize')}</p>
                 </div>
               )}
             </div>
@@ -233,13 +233,13 @@ export default function SubmitEventPage() {
           </Field>
 
           {error && (
-            <p className="text-red-500 text-sm bg-red-50 px-4 py-3 rounded-xl">{error}</p>
+            <p className="text-danger text-sm bg-brand-light px-4 py-3 rounded-xl">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={submitting}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
+            className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
           >
             {submitting ? t('evt.submitting') : t('evt.submitFormBtn')}
           </button>
@@ -250,8 +250,8 @@ export default function SubmitEventPage() {
   )
 }
 
-const LABEL = 'block text-sm font-semibold text-gray-700 mb-1'
-const INPUT  = 'w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 bg-white'
+const LABEL = 'block text-sm font-semibold text-ink-primary mb-1'
+const INPUT  = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand-light bg-white'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

@@ -32,7 +32,7 @@ export default function EventDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#fffaf5' }}>
+      <div className="min-h-screen flex items-center justify-center bg-surface">
         <div className="text-4xl animate-bounce">🎉</div>
       </div>
     )
@@ -40,10 +40,10 @@ export default function EventDetailPage() {
 
   if (!event) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4" style={{ background: '#fffaf5' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-surface">
         <div className="text-5xl">😕</div>
-        <p className="text-gray-600">{t('evt.notFound')}</p>
-        <Link href="/events" className="text-orange-500 underline text-sm">{t('evt.back')}</Link>
+        <p className="text-ink-secondary">{t('evt.notFound')}</p>
+        <Link href="/events" className="text-brand underline text-sm">{t('evt.back')}</Link>
       </div>
     )
   }
@@ -64,12 +64,12 @@ export default function EventDetailPage() {
   const shareUrl = `https://wa.me/?text=${shareMsg}`
 
   return (
-    <div className="min-h-screen" style={{ background: '#fffaf5' }}>
+    <div className="min-h-screen bg-surface">
 
       <TopNav />
 
       {/* Hero */}
-      <div className="relative h-56 sm:h-72 bg-gradient-to-br from-orange-300 to-orange-500">
+      <div className="relative h-56 sm:h-72 bg-gradient-to-br from-brand-badge to-brand">
         {event.cover_photo && (
           <Image
             src={event.cover_photo}
@@ -85,7 +85,7 @@ export default function EventDetailPage() {
         <div className="absolute top-4 left-4 z-10">
           <Link
             href="/events"
-            className="bg-white/90 backdrop-blur-sm text-gray-800 px-3 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-1 hover:bg-white transition-colors"
+            className="bg-white/90 backdrop-blur-sm text-ink-primary px-3 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-1 hover:bg-white transition-colors"
           >
             {t('evt.back')}
           </Link>
@@ -93,7 +93,7 @@ export default function EventDetailPage() {
 
         {/* Category badge */}
         <div className="absolute bottom-4 left-4 right-4 z-10">
-          <span className="inline-block bg-orange-500 text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
+          <span className="inline-block bg-brand text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
             {event.category}
           </span>
           <h1 className="text-white text-2xl font-bold leading-tight drop-shadow-lg">
@@ -132,7 +132,7 @@ export default function EventDetailPage() {
         {/* Description */}
         {event.description && (
           <div className="bg-white rounded-2xl p-4 shadow-sm">
-            <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{event.description}</p>
+            <p className="text-ink-primary text-sm leading-relaxed whitespace-pre-wrap">{event.description}</p>
           </div>
         )}
 
@@ -142,7 +142,7 @@ export default function EventDetailPage() {
             href={whatsappUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full bg-green-500 hover:bg-green-600 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-lg shadow-green-200"
+            className="block w-full bg-brand hover:bg-brand-dark text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
             💬 {t('evt.interested')}
           </a>
@@ -152,7 +152,7 @@ export default function EventDetailPage() {
           href={shareUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-center py-3 rounded-2xl text-sm font-semibold transition-colors"
+          className="block w-full bg-white border border-divider hover:bg-surface-muted text-ink-primary text-center py-3 rounded-2xl text-sm font-semibold transition-colors"
         >
           {t('evt.share')}
         </a>
@@ -167,8 +167,8 @@ function DetailRow({ icon, label, value }: { icon: string; label: string; value:
     <div className="flex items-start gap-3">
       <span className="text-lg mt-0.5 flex-shrink-0">{icon}</span>
       <div>
-        <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">{label}</p>
-        <p className="text-sm text-gray-800 font-medium mt-0.5">{value}</p>
+        <p className="text-xs text-ink-tertiary font-medium uppercase tracking-wide">{label}</p>
+        <p className="text-sm text-ink-primary font-medium mt-0.5">{value}</p>
       </div>
     </div>
   )

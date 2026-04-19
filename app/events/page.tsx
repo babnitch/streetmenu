@@ -22,8 +22,8 @@ function EventCard({ event, viewLabel, freeLabel }: { event: Event; viewLabel: s
   })
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-orange-50">
-      <div className="relative h-36 bg-gradient-to-br from-orange-200 to-orange-400">
+    <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-brand-light">
+      <div className="relative h-36 bg-gradient-to-br from-brand-badge to-brand">
         {event.cover_photo ? (
           <Image
             src={event.cover_photo}
@@ -35,11 +35,11 @@ function EventCard({ event, viewLabel, freeLabel }: { event: Event; viewLabel: s
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-5xl">🎉</div>
         )}
-        <span className="absolute top-2 left-2 bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+        <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
           {event.category}
         </span>
         {event.price === null || event.price === 0 ? (
-          <span className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+          <span className="absolute top-2 right-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
             {freeLabel}
           </span>
         ) : (
@@ -50,16 +50,16 @@ function EventCard({ event, viewLabel, freeLabel }: { event: Event; viewLabel: s
       </div>
 
       <div className="px-3 pt-3 pb-3">
-        <p className="font-bold text-gray-900 text-sm leading-tight line-clamp-2 mb-1">
+        <p className="font-bold text-ink-primary text-sm leading-tight line-clamp-2 mb-1">
           {event.title}
         </p>
-        <p className="text-xs text-orange-500 font-medium mb-0.5">📅 {dateStr}{event.time ? ` · ${event.time}` : ''}</p>
+        <p className="text-xs text-brand font-medium mb-0.5">📅 {dateStr}{event.time ? ` · ${event.time}` : ''}</p>
         {event.venue && (
-          <p className="text-xs text-gray-400 truncate">📍 {event.venue}{event.neighborhood ? `, ${event.neighborhood}` : ''}</p>
+          <p className="text-xs text-ink-tertiary truncate">📍 {event.venue}{event.neighborhood ? `, ${event.neighborhood}` : ''}</p>
         )}
         <Link
           href={`/events/${event.id}`}
-          className="mt-2.5 block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-1.5 rounded-xl text-xs font-semibold transition-colors"
+          className="mt-2.5 block w-full bg-brand hover:bg-brand-dark text-white text-center py-1.5 rounded-xl text-xs font-semibold transition-colors"
         >
           {viewLabel}
         </Link>
@@ -70,13 +70,13 @@ function EventCard({ event, viewLabel, freeLabel }: { event: Event; viewLabel: s
 
 function CardSkeleton() {
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-orange-50 animate-pulse">
-      <div className="h-36 bg-orange-100" />
+    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-brand-light animate-pulse">
+      <div className="h-36 bg-brand-light" />
       <div className="px-3 pt-3 pb-3 space-y-2">
-        <div className="h-3.5 bg-gray-100 rounded-full w-3/4" />
-        <div className="h-3 bg-gray-100 rounded-full w-1/2" />
-        <div className="h-3 bg-gray-100 rounded-full w-2/3" />
-        <div className="h-7 bg-orange-100 rounded-xl mt-3" />
+        <div className="h-3.5 bg-surface-muted rounded-full w-3/4" />
+        <div className="h-3 bg-surface-muted rounded-full w-1/2" />
+        <div className="h-3 bg-surface-muted rounded-full w-2/3" />
+        <div className="h-7 bg-brand-light rounded-xl mt-3" />
       </div>
     </div>
   )
@@ -109,12 +109,12 @@ export default function EventsPage() {
   })
 
   return (
-    <div className="min-h-screen" style={{ background: '#fffaf5' }}>
+    <div className="min-h-screen bg-surface">
 
       <TopNav cta={{ label: t('evt.submitBtn'), href: '/events/submit' }} />
 
       {/* City pills */}
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-white border-b border-divider">
         <div className="max-w-5xl mx-auto px-4 py-3 flex gap-2 overflow-x-auto scrollbar-hide">
           {CITIES.map(city => (
             <button
@@ -122,8 +122,8 @@ export default function EventsPage() {
               onClick={() => setSelectedCity(city)}
               className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                 selectedCity === city
-                  ? 'bg-orange-500 text-white shadow-sm'
-                  : 'bg-orange-50 text-gray-600 hover:bg-orange-100'
+                  ? 'bg-brand text-white shadow-sm'
+                  : 'bg-brand-light text-ink-secondary hover:bg-brand-light'
               }`}
             >
               {city}
@@ -133,14 +133,14 @@ export default function EventsPage() {
       </div>
 
       {/* Category filter */}
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-white border-b border-divider">
         <div className="max-w-5xl mx-auto px-4 py-2.5 flex gap-2 overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setSelectedCategory('all')}
             className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
               selectedCategory === 'all'
-                ? 'bg-gray-800 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                ? 'bg-ink-primary text-white'
+                : 'bg-surface-muted text-ink-secondary hover:bg-divider'
             }`}
           >
             {t('evt.allCategories')}
@@ -151,8 +151,8 @@ export default function EventsPage() {
               onClick={() => setSelectedCategory(cat)}
               className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
                 selectedCategory === cat
-                  ? 'bg-gray-800 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-ink-primary text-white'
+                  : 'bg-surface-muted text-ink-secondary hover:bg-divider'
               }`}
             >
               {cat}
@@ -166,8 +166,8 @@ export default function EventsPage() {
 
         {/* Page title */}
         <div className="mb-4">
-          <h1 className="text-xl font-bold text-gray-900">{t('evt.title')}</h1>
-          <p className="text-sm text-gray-400">{t('evt.sub')}</p>
+          <h1 className="text-xl font-bold text-ink-primary">{t('evt.title')}</h1>
+          <p className="text-sm text-ink-tertiary">{t('evt.sub')}</p>
         </div>
 
         {/* Skeletons */}
@@ -194,14 +194,14 @@ export default function EventsPage() {
         {/* Empty state */}
         {!loading && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center px-4">
-            <div className="w-20 h-20 bg-orange-100 rounded-3xl flex items-center justify-center text-4xl mb-5">
+            <div className="w-20 h-20 bg-brand-light rounded-3xl flex items-center justify-center text-4xl mb-5">
               🎉
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">{t('evt.emptyTitle')}</h2>
-            <p className="text-gray-500 text-sm mb-6 max-w-xs">{t('evt.emptySub')}</p>
+            <h2 className="text-xl font-bold text-ink-primary mb-2">{t('evt.emptyTitle')}</h2>
+            <p className="text-ink-secondary text-sm mb-6 max-w-xs">{t('evt.emptySub')}</p>
             <Link
               href="/events/submit"
-              className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+              className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
             >
               {t('evt.submitBtn')}
             </Link>
@@ -214,7 +214,7 @@ export default function EventsPage() {
       <div className="sm:hidden fixed bottom-6 right-4 z-30">
         <Link
           href="/events/submit"
-          className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-3 rounded-2xl shadow-xl shadow-orange-200 flex items-center gap-2 text-sm font-semibold transition-colors"
+          className="bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-2xl shadow-xl shadow-brand-badge flex items-center gap-2 text-sm font-semibold transition-colors"
         >
           {t('evt.submitBtn')}
         </Link>
