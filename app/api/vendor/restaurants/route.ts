@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
     supabaseAdmin
       .from('restaurants')
       .select('id, name, city, neighborhood, cuisine_type, image_url, is_active, status, deleted_at, suspended_at, suspended_by, whatsapp, customer_id')
-      .eq('customer_id', session.id),
+      .eq('customer_id', session.id)
+      .is('deleted_at', null)
+      .neq('status', 'deleted'),
   ])
 
   type RestaurantRow = {
@@ -47,6 +49,8 @@ export async function GET(req: NextRequest) {
   for (const entry of teamRes.data ?? []) {
     const r = entry.restaurants as unknown as RestaurantRow | null
     if (!r) continue
+    // Skip deleted restaurants even when the team row still points at them.
+    if (r.deleted_at || r.status === 'deleted') continue
     const role = entry.role as 'owner' | 'manager' | 'staff'
     merged.set(r.id, { ...r, teamRole: role })
   }

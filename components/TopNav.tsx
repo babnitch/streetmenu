@@ -33,28 +33,35 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
   const isJoinCta = cta?.href === '/join'
   const [swap, setSwap] = useState<JoinSwap>({ kind: 'join' })
+  // Separate from swap: whether to show the persistent Dashboard pill in
+  // the nav. True when the session owns/manages ≥1 non-pending restaurant,
+  // regardless of whether the page passes a Join CTA.
+  const [showDashboard, setShowDashboard] = useState(false)
 
   useEffect(() => {
-    if (!isJoinCta) { setSwap({ kind: 'join' }); return }
     let cancelled = false
     ;(async () => {
       try {
         const meRes = await fetch('/api/auth/me', { cache: 'no-store' })
         const me = await meRes.json()
         if (cancelled) return
-        if (!me.user) { setSwap({ kind: 'join' }); return }
+        if (!me.user) { setSwap({ kind: 'join' }); setShowDashboard(false); return }
         if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
-          setSwap({ kind: 'hidden' }); return
+          setSwap({ kind: 'hidden' })
+          setShowDashboard(false)
+          return
         }
         const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
         const v = await vRes.json()
         if (cancelled) return
         const list: Array<{ status?: string }> = v.restaurants ?? []
-        if (!list.length) { setSwap({ kind: 'join' }); return }
+        if (!list.length) { setSwap({ kind: 'join' }); setShowDashboard(false); return }
         const pending = list.every(r => r.status === 'pending')
-        setSwap({ kind: 'myRestaurant', pending })
+        if (isJoinCta) setSwap({ kind: 'myRestaurant', pending })
+        // Dashboard is only useful once ≥1 restaurant is actually approved.
+        setShowDashboard(!pending)
       } catch {
-        if (!cancelled) setSwap({ kind: 'join' })
+        if (!cancelled) { setSwap({ kind: 'join' }); setShowDashboard(false) }
       }
     })()
     return () => { cancelled = true }
@@ -78,6 +85,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <NavPill href="/events" active={isEvents}>
             {t('nav.events')}
           </NavPill>
+          {showDashboard && (
+            <NavPill href="/dashboard" active={pathname?.startsWith('/dashboard') ?? false}>
+              📦 Dashboard
+            </NavPill>
+          )}
         </nav>
 
         {/* Right cluster */}
@@ -101,7 +113,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <LanguageToggle />
           {cta && isJoinCta && swap.kind === 'myRestaurant' && (
             <Link
-              href="/account"
+              href={swap.pending ? '/account' : '/dashboard'}
               className="hidden sm:flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors"
             >
               🏪 Mon restaurant / My Restaurant

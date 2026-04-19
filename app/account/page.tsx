@@ -977,6 +977,24 @@ export default function AccountPage() {
                       </div>
                     )}
 
+                    {activeRest && !activeRest.deleted_at && activeRest.status !== 'pending' && (
+                      <Link
+                        href="/dashboard"
+                        className="block bg-orange-500 hover:bg-orange-600 text-white rounded-2xl shadow-sm px-5 py-4 mb-4 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="text-3xl">📦</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm">Tableau de bord / Restaurant Dashboard</p>
+                            <p className="text-xs text-white/80 mt-0.5">
+                              Gérer commandes, menu et bons / Manage orders, menu and vouchers
+                            </p>
+                          </div>
+                          <span className="text-xl">→</span>
+                        </div>
+                      </Link>
+                    )}
+
                     {activeRest && (
                       <div className="bg-white rounded-2xl shadow-sm p-6">
                         <div className="flex items-start gap-4 mb-4">
@@ -1022,17 +1040,11 @@ export default function AccountPage() {
                           </div>
                         )}
 
-                        {/* Quick links */}
-                        <div className="flex items-center gap-4 mb-5 flex-wrap">
-                          <a href={`/restaurant/${activeRest.id}`} target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-sm text-orange-500 hover:text-orange-600 font-semibold">
-                            ↗ Voir la page / View page
-                          </a>
-                          <Link href="/dashboard"
-                            className="inline-flex items-center gap-1.5 text-sm bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-xl font-semibold transition-colors">
-                            📦 Gérer les commandes / Manage orders
-                          </Link>
-                        </div>
+                        {/* Restaurant page link */}
+                        <a href={`/restaurant/${activeRest.id}`} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm text-orange-500 hover:text-orange-600 font-semibold mb-5">
+                          ↗ Voir la page / View page
+                        </a>
 
                         {/* Actions (owner only) */}
                         {activeRest.teamRole === 'owner' && (

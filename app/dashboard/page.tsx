@@ -159,7 +159,10 @@ export default function DashboardPage() {
     if (!me) return
     const isAdmin = ['super_admin', 'admin', 'moderator'].includes(me.role)
     if (isAdmin) {
-      supabase.from('restaurants').select('*').order('created_at', { ascending: false })
+      // Admins see every non-deleted restaurant.
+      supabase.from('restaurants').select('*')
+        .is('deleted_at', null).neq('status', 'deleted')
+        .order('created_at', { ascending: false })
         .then(({ data }) => {
           if (data) {
             setRestaurants(data)
@@ -359,37 +362,43 @@ export default function DashboardPage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-4 gap-0.5">
-            <button
-              onClick={() => setTab('orders')}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                tab === 'orders' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              {t('dash.ordersTab')}{' '}
-              {orders.filter(o => o.status !== 'completed').length > 0 && (
-                <span className="ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
-                  {orders.filter(o => o.status !== 'completed').length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setTab('menu')}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                tab === 'menu' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              {t('dash.menuTab')}
-            </button>
-            <button
-              onClick={() => { setTab('validate'); setValidateResult(null); setValidateDetails(null); setValidateDone(false); setValidateInput('') }}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                tab === 'validate' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              🏷️
-            </button>
-          </div>
+          {(() => {
+            const TERMINAL = new Set(['delivered', 'completed', 'cancelled'])
+            const activeCount = orders.filter(o => !TERMINAL.has(o.status)).length
+            return (
+              <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-4 gap-1">
+                <button
+                  onClick={() => setTab('orders')}
+                  className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
+                    tab === 'orders' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  📦 {t('dash.ordersTab')}
+                  {activeCount > 0 && (
+                    <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                      {activeCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setTab('menu')}
+                  className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
+                    tab === 'menu' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  🍽️ {t('dash.menuTab')}
+                </button>
+                <button
+                  onClick={() => { setTab('validate'); setValidateResult(null); setValidateDetails(null); setValidateDone(false); setValidateInput('') }}
+                  className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
+                    tab === 'validate' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  🏷️ Bons / Vouchers
+                </button>
+              </div>
+            )
+          })()}
 
           {/* Orders Tab */}
           {tab === 'orders' && (
