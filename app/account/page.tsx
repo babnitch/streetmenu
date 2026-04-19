@@ -495,7 +495,7 @@ export default function AccountPage() {
   // ── Loading splash ──
   if (step === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#fffaf5' }}>
+      <div className="min-h-screen flex items-center justify-center bg-surface">
         <div className="text-4xl animate-bounce">👤</div>
       </div>
     )
@@ -507,9 +507,9 @@ export default function AccountPage() {
       : 'max-w-md mx-auto px-4 py-8'
 
   return (
-    <div className="min-h-screen" style={{ background: '#fffaf5' }}>
+    <div className="min-h-screen bg-surface">
       {toast && (
-        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white transition-all max-w-sm ${toast.ok ? 'bg-green-500' : 'bg-red-500'}`}>
+        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white transition-all max-w-sm ${toast.ok ? 'bg-brand' : 'bg-danger'}`}>
           {toast.msg}
         </div>
       )}
@@ -523,20 +523,20 @@ export default function AccountPage() {
           <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
             <div className="text-center mb-5">
               <div className="text-5xl mb-3">👤</div>
-              <h1 className="text-xl font-bold text-gray-900">{t('account.title')}</h1>
+              <h1 className="text-xl font-bold text-ink-primary">{t('account.title')}</h1>
             </div>
 
             {/* Login tabs */}
-            <div className="flex bg-gray-100 rounded-2xl p-1 mb-5 gap-1">
+            <div className="flex bg-surface-muted rounded-2xl p-1 mb-5 gap-1">
               <button
                 onClick={() => { setLoginTab('customer'); setError('') }}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'customer' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'customer' ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'}`}
               >
                 {t('account.tabCustomer')}
               </button>
               <button
                 onClick={() => { setLoginTab('team'); setError('') }}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'team' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'team' ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'}`}
               >
                 {t('account.tabTeam')}
               </button>
@@ -545,24 +545,24 @@ export default function AccountPage() {
             {loginTab === 'customer' && (
               <form onSubmit={handleSendCode} autoComplete="on" className="space-y-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('account.phoneLbl')}</label>
+                  <label className="block text-xs text-ink-secondary mb-1">{t('account.phoneLbl')}</label>
                   <input
                     type="tel" name="phone" autoComplete="tel"
                     value={phone} onChange={e => setPhone(e.target.value)}
                     placeholder={t('account.phonePh')}
-                    className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
+                    className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand"
                   />
-                  <p className="text-xs text-gray-400 mt-1">{t('account.whatsappHint')}</p>
+                  <p className="text-xs text-ink-tertiary mt-1">{t('account.whatsappHint')}</p>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-orange-500" />
-                  <span className="text-sm text-gray-600">{t('account.rememberMe')}</span>
+                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
+                  <span className="text-sm text-ink-secondary">{t('account.rememberMe')}</span>
                 </label>
-                {error && <p className="text-xs text-red-500">{error}</p>}
+                {error && <p className="text-xs text-danger">{error}</p>}
                 <button
                   type="submit"
                   disabled={sending || !phone.trim()}
-                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
+                  className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
                 >
                   {sending ? t('account.sending') : t('account.sendOtp')}
                 </button>
@@ -572,32 +572,32 @@ export default function AccountPage() {
             {loginTab === 'team' && (
               <form onSubmit={handleAdminLogin} autoComplete="on" className="space-y-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('account.emailLbl')}</label>
+                  <label className="block text-xs text-ink-secondary mb-1">{t('account.emailLbl')}</label>
                   <input
                     type="email" name="email" autoComplete="email"
                     value={email} onChange={e => setEmail(e.target.value)}
                     placeholder={t('account.emailPh')}
-                    className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
+                    className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('account.passwordLbl')}</label>
+                  <label className="block text-xs text-ink-secondary mb-1">{t('account.passwordLbl')}</label>
                   <input
                     type="password" name="password" autoComplete="current-password"
                     value={password} onChange={e => setPassword(e.target.value)}
                     placeholder={t('account.passwordPh')}
-                    className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400"
+                    className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand"
                   />
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-orange-500" />
-                  <span className="text-sm text-gray-600">{t('account.rememberMe')}</span>
+                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
+                  <span className="text-sm text-ink-secondary">{t('account.rememberMe')}</span>
                 </label>
-                {error && <p className="text-xs text-red-500">{error}</p>}
+                {error && <p className="text-xs text-danger">{error}</p>}
                 <button
                   type="submit"
                   disabled={loggingIn || !email.trim() || !password.trim()}
-                  className="w-full bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
+                  className="w-full bg-ink-primary hover:bg-ink-secondary disabled:bg-ink-tertiary text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
                 >
                   {loggingIn ? t('account.loggingIn') : t('account.loginBtn')}
                 </button>
@@ -611,19 +611,19 @@ export default function AccountPage() {
           <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
             <div className="text-center mb-6">
               <div className="text-5xl mb-3">🎉</div>
-              <h1 className="text-xl font-bold text-gray-900">{t('account.setupBtn')}</h1>
-              <p className="text-sm text-green-600 font-medium mt-1">{t('account.setupSub')}</p>
+              <h1 className="text-xl font-bold text-ink-primary">{t('account.setupBtn')}</h1>
+              <p className="text-sm text-brand-darker font-medium mt-1">{t('account.setupSub')}</p>
             </div>
             <form onSubmit={handleRegisterSubmit} className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">{t('account.nameLbl')}</label>
+                <label className="block text-xs text-ink-secondary mb-1">{t('account.nameLbl')}</label>
                 <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder={t('account.namePh')}
-                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400" />
+                  className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand" />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Ville / City</label>
+                <label className="block text-xs text-ink-secondary mb-1">Ville / City</label>
                 <select value={city} onChange={e => setCity(e.target.value)}
-                  className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400 bg-white">
+                  className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand bg-white">
                   <option value="">Choisir / Select…</option>
                   <option value="Yaoundé">Yaoundé</option>
                   <option value="Abidjan">Abidjan</option>
@@ -631,13 +631,13 @@ export default function AccountPage() {
                   <option value="Lomé">Lomé</option>
                 </select>
               </div>
-              {error && <p className="text-xs text-red-500">{error}</p>}
+              {error && <p className="text-xs text-danger">{error}</p>}
               <button type="submit" disabled={sending || !name.trim() || !city}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors">
+                className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors">
                 {sending ? t('account.sending') : t('account.sendOtp')}
               </button>
               <button type="button" onClick={() => { setStep('login'); setError('') }}
-                className="w-full text-gray-400 text-sm py-2 hover:text-gray-600 transition-colors">
+                className="w-full text-ink-tertiary text-sm py-2 hover:text-ink-secondary transition-colors">
                 {t('account.changePhone')}
               </button>
             </form>
@@ -649,26 +649,26 @@ export default function AccountPage() {
           <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
             <div className="text-center mb-6">
               <div className="text-5xl mb-3">💬</div>
-              <h1 className="text-xl font-bold text-gray-900">{t('account.otpLbl')}</h1>
+              <h1 className="text-xl font-bold text-ink-primary">{t('account.otpLbl')}</h1>
               {knownName && (
-                <p className="text-sm text-gray-700 font-semibold mt-1">👋 {knownName}</p>
+                <p className="text-sm text-ink-primary font-semibold mt-1">👋 {knownName}</p>
               )}
-              <p className="text-sm text-gray-500 mt-1">{phone}</p>
-              <p className="text-xs text-green-600 font-medium mt-1">{t('account.checkWhatsApp')}</p>
+              <p className="text-sm text-ink-secondary mt-1">{phone}</p>
+              <p className="text-xs text-brand-darker font-medium mt-1">{t('account.checkWhatsApp')}</p>
             </div>
             <input
               type="text" inputMode="numeric"
               value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
               placeholder="1234"
-              className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-orange-400 text-center tracking-[0.5em] font-mono text-xl mb-3"
+              className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand text-center tracking-[0.5em] font-mono text-xl mb-3"
             />
-            {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+            {error && <p className="text-xs text-danger mb-3">{error}</p>}
             <button onClick={verifyOtp} disabled={verifying || otp.length < 4}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3">
+              className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3">
               {verifying ? t('account.verifying') : t('account.verify')}
             </button>
             <button onClick={() => { setStep('login'); setOtp(''); setError('') }}
-              className="w-full text-gray-400 text-sm py-2 hover:text-gray-600 transition-colors">
+              className="w-full text-ink-tertiary text-sm py-2 hover:text-ink-secondary transition-colors">
               {t('account.changePhone')}
             </button>
           </div>
@@ -680,14 +680,14 @@ export default function AccountPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
-                <p className="text-xs text-gray-400">{t('account.hello')}</p>
-                <p className="font-bold text-gray-900 text-lg">
+                <p className="text-xs text-ink-tertiary">{t('account.hello')}</p>
+                <p className="font-bold text-ink-primary text-lg">
                   {dashView === 'admin' ? `🔐 ${user.name}` : user.name}
-                  {dashView === 'admin' && <span className="ml-2 text-xs text-gray-400 font-normal">({user.role.replace('_', ' ')})</span>}
+                  {dashView === 'admin' && <span className="ml-2 text-xs text-ink-tertiary font-normal">({user.role.replace('_', ' ')})</span>}
                 </p>
               </div>
               <button onClick={handleSignOut}
-                className="text-xs text-gray-400 hover:text-red-500 transition-colors px-3 py-1.5 rounded-xl hover:bg-red-50">
+                className="text-xs text-ink-tertiary hover:text-danger transition-colors px-3 py-1.5 rounded-xl hover:bg-brand-light">
                 {t('account.signOut')}
               </button>
             </div>
@@ -709,7 +709,7 @@ export default function AccountPage() {
                       <button key={sub}
                         onClick={() => setAdminSubTab(sub)}
                         className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
-                          adminSubTab === sub ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 shadow-sm hover:text-gray-900'
+                          adminSubTab === sub ? 'bg-ink-primary text-white' : 'bg-white text-ink-secondary shadow-sm hover:text-ink-primary'
                         }`}
                       >
                         {ADMIN_TAB_LABELS[sub]}
@@ -754,13 +754,13 @@ export default function AccountPage() {
                     <VoucherClaimForm
                       onClaimed={() => user && loadCustomerData(user.id)}
                     />
-                    {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-gray-300">…</div></div>}
+                    {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-ink-tertiary">…</div></div>}
                     {!loadingData && (
                       <div className="space-y-3">
                         {customerVouchers.length === 0 ? (
                           <div className="text-center py-12">
                             <div className="text-4xl mb-3">🏷️</div>
-                            <p className="text-gray-400 text-sm">{t('account.noVouchers')}</p>
+                            <p className="text-ink-tertiary text-sm">{t('account.noVouchers')}</p>
                           </div>
                         ) : customerVouchers.map(cv => cv.vouchers && (
                           <VoucherCard key={cv.id} voucher={cv.vouchers} customerVoucherId={cv.id} usedAt={cv.used_at} />
@@ -773,14 +773,14 @@ export default function AccountPage() {
                 {/* Orders */}
                 {customerTab === 'orders' && (
                   <>
-                    {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-gray-300">…</div></div>}
+                    {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-ink-tertiary">…</div></div>}
                     {!loadingData && (
                       <div className="space-y-3">
                         {orders.length === 0 ? (
                           <div className="text-center py-12">
                             <div className="text-4xl mb-3">📋</div>
-                            <p className="text-gray-400 text-sm">{t('account.noOrders')}</p>
-                            <Link href="/" className="mt-4 inline-block text-orange-500 text-sm font-semibold underline">
+                            <p className="text-ink-tertiary text-sm">{t('account.noOrders')}</p>
+                            <Link href="/" className="mt-4 inline-block text-brand text-sm font-semibold underline">
                               Explorer les restaurants
                             </Link>
                           </div>
@@ -796,14 +796,14 @@ export default function AccountPage() {
                 {customerTab === 'profile' && (
                   <div className="bg-white rounded-2xl shadow-sm p-6 space-y-5">
                     <div className="flex items-start justify-between gap-4 flex-wrap">
-                      <h2 className="font-bold text-gray-900">👤 {t('account.profileTab')}</h2>
+                      <h2 className="font-bold text-ink-primary">👤 {t('account.profileTab')}</h2>
                       {profile && !profile.deleted_at && (
                         profileEditing ? (
                           <div className="flex gap-2">
                             <button
                               onClick={handleSaveProfile}
                               disabled={savingProfile}
-                              className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                              className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
                             >
                               {savingProfile ? '…' : 'Enregistrer / Save'}
                             </button>
@@ -813,7 +813,7 @@ export default function AccountPage() {
                                 setProfileName(profile.name ?? '')
                                 setProfileCity(profile.city ?? '')
                               }}
-                              className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                              className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
                             >
                               Annuler / Cancel
                             </button>
@@ -821,7 +821,7 @@ export default function AccountPage() {
                         ) : (
                           <button
                             onClick={() => setProfileEditing(true)}
-                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                            className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
                           >
                             ✏️ Modifier / Edit
                           </button>
@@ -840,47 +840,47 @@ export default function AccountPage() {
 
                         {/* Name */}
                         <div>
-                          <label className="block text-xs text-gray-400 mb-1">Nom / Name</label>
+                          <label className="block text-xs text-ink-tertiary mb-1">Nom / Name</label>
                           {profileEditing ? (
                             <input
                               value={profileName}
                               onChange={e => setProfileName(e.target.value)}
-                              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                              className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
                             />
                           ) : (
-                            <p className="font-semibold text-gray-900">{profile.name || '—'}</p>
+                            <p className="font-semibold text-ink-primary">{profile.name || '—'}</p>
                           )}
                         </div>
 
                         {/* Phone — read-only */}
                         <div>
-                          <label className="block text-xs text-gray-400 mb-1">
-                            Téléphone / Phone <span className="text-gray-300">· non modifiable / not editable</span>
+                          <label className="block text-xs text-ink-tertiary mb-1">
+                            Téléphone / Phone <span className="text-ink-tertiary">· non modifiable / not editable</span>
                           </label>
-                          <p className="font-semibold text-gray-900 font-mono">{profile.phone}</p>
+                          <p className="font-semibold text-ink-primary font-mono">{profile.phone}</p>
                         </div>
 
                         {/* City */}
                         <div>
-                          <label className="block text-xs text-gray-400 mb-1">Ville / City</label>
+                          <label className="block text-xs text-ink-tertiary mb-1">Ville / City</label>
                           {profileEditing ? (
                             <select
                               value={profileCity}
                               onChange={e => setProfileCity(e.target.value)}
-                              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
+                              className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white"
                             >
                               <option value="">—</option>
                               {PROFILE_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                           ) : (
-                            <p className="font-semibold text-gray-900">{profile.city || '—'}</p>
+                            <p className="font-semibold text-ink-primary">{profile.city || '—'}</p>
                           )}
                         </div>
 
                         {/* Member since */}
                         <div>
-                          <label className="block text-xs text-gray-400 mb-1">Membre depuis / Member since</label>
-                          <p className="text-gray-700 text-sm">
+                          <label className="block text-xs text-ink-tertiary mb-1">Membre depuis / Member since</label>
+                          <p className="text-ink-primary text-sm">
                             {new Date(profile.created_at).toLocaleDateString('fr-FR', {
                               day: 'numeric', month: 'long', year: 'numeric',
                             })}
@@ -889,7 +889,7 @@ export default function AccountPage() {
 
                         {/* Suspension info */}
                         {profile.status === 'suspended' && profile.suspended_by && (
-                          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-700">
+                          <div className="bg-surface-muted border border-divider rounded-xl p-3 text-sm text-warning">
                             Suspendu par <span className="font-semibold">{profile.suspended_by}</span>
                             {profile.suspended_at && ` · ${new Date(profile.suspended_at).toLocaleDateString('fr-FR')}`}
                             {profile.suspension_reason && (
@@ -899,13 +899,13 @@ export default function AccountPage() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-400">Chargement… / Loading…</p>
+                      <p className="text-sm text-ink-tertiary">Chargement… / Loading…</p>
                     )}
 
                     {/* Restaurant summary */}
                     {myRestaurants.length > 0 && (
-                      <div className="pt-4 border-t border-gray-100">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                      <div className="pt-4 border-t border-divider">
+                        <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide mb-3">
                           Mes restaurants ({myRestaurants.length}) / My restaurants
                         </p>
                         <div className="space-y-2">
@@ -913,11 +913,11 @@ export default function AccountPage() {
                             <button
                               key={r.id}
                               onClick={() => { setActiveRestId(r.id); setCustomerTab('restaurant') }}
-                              className="w-full bg-gray-50 hover:bg-orange-50 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 transition-colors text-left"
+                              className="w-full bg-surface-muted hover:bg-brand-light rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 transition-colors text-left"
                             >
                               <div className="min-w-0">
-                                <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
-                                <p className="text-xs text-gray-500">{r.city}{r.neighborhood ? ` · ${r.neighborhood}` : ''}</p>
+                                <p className="font-semibold text-sm text-ink-primary truncate">{r.name}</p>
+                                <p className="text-xs text-ink-secondary">{r.city}{r.neighborhood ? ` · ${r.neighborhood}` : ''}</p>
                               </div>
                               <StatusBadge status={r.deleted_at ? 'deleted' : r.status} />
                             </button>
@@ -928,26 +928,26 @@ export default function AccountPage() {
 
                     {/* Register a new restaurant via WhatsApp */}
                     {!accountDeletedAt && myRestaurants.length === 0 && (
-                      <div className="pt-4 border-t border-gray-100">
-                        <p className="text-xs text-gray-400 mb-3">Inscrire un restaurant / Register a restaurant</p>
+                      <div className="pt-4 border-t border-divider">
+                        <p className="text-xs text-ink-tertiary mb-3">Inscrire un restaurant / Register a restaurant</p>
                         <a href="https://wa.me/your-number?text=restaurant" target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                          className="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
                           🏪 {t('account.registerRest')} via WhatsApp
                         </a>
                       </div>
                     )}
 
                     {/* Account deletion */}
-                    <div className="pt-4 border-t border-gray-100">
+                    <div className="pt-4 border-t border-divider">
                       {accountDeletedAt ? (
                         <div className="space-y-3">
-                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700">
+                          <div className="bg-surface-muted border border-divider rounded-xl p-3 text-sm text-warning">
                             ⚠️ Votre compte est en cours de suppression. Les données seront effacées après 30 jours.<br/>
                             Your account is pending deletion. Data will be erased after 30 days.
                           </div>
                           <button
                             onClick={handleUndoDeleteAccount}
-                            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                            className="bg-brand hover:bg-brand-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
                           >
                             ↩️ Annuler la suppression / Undo deletion
                           </button>
@@ -955,7 +955,7 @@ export default function AccountPage() {
                       ) : (
                         <button
                           onClick={() => setVendorModal('delete-account')}
-                          className="text-sm text-red-500 hover:text-red-700 font-medium hover:bg-red-50 px-3 py-2 rounded-xl transition-colors"
+                          className="text-sm text-danger hover:text-danger font-medium hover:bg-brand-light px-3 py-2 rounded-xl transition-colors"
                         >
                           🗑️ Supprimer mon compte / Delete my account
                         </button>
@@ -970,11 +970,11 @@ export default function AccountPage() {
                     {/* Multi-restaurant selector */}
                     {myRestaurants.length > 1 && (
                       <div className="mb-4">
-                        <label className="block text-xs text-gray-500 mb-1.5">{t('account.selectRest')}</label>
+                        <label className="block text-xs text-ink-secondary mb-1.5">{t('account.selectRest')}</label>
                         <select
                           value={activeRestId}
                           onChange={e => setActiveRestId(e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-400 bg-white"
+                          className="w-full border border-divider rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand bg-white"
                         >
                           {myRestaurants.map(r => (
                             <option key={r.id} value={r.id}>{r.name} — {r.city}</option>
@@ -986,7 +986,7 @@ export default function AccountPage() {
                     {activeRest && !activeRest.deleted_at && activeRest.status !== 'pending' && (
                       <Link
                         href="/dashboard"
-                        className="block bg-orange-500 hover:bg-orange-600 text-white rounded-2xl shadow-sm px-5 py-4 mb-4 transition-colors"
+                        className="block bg-brand hover:bg-brand-dark text-white rounded-2xl shadow-sm px-5 py-4 mb-4 transition-colors"
                       >
                         <div className="flex items-center gap-3">
                           <div className="text-3xl">📦</div>
@@ -1005,7 +1005,7 @@ export default function AccountPage() {
                       <div className="bg-white rounded-2xl shadow-sm p-6">
                         <div className="flex items-start gap-4 mb-4">
                           {/* Photo */}
-                          <div className="relative w-20 h-20 rounded-2xl overflow-hidden flex-shrink-0 bg-orange-50">
+                          <div className="relative w-20 h-20 rounded-2xl overflow-hidden flex-shrink-0 bg-brand-light">
                             {activeRest.image_url ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={activeRest.image_url} alt={activeRest.name} className="w-full h-full object-cover" />
@@ -1024,9 +1024,9 @@ export default function AccountPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2 flex-wrap">
                               <div>
-                                <h2 className="font-bold text-gray-900 text-lg">{activeRest.name}</h2>
-                                <p className="text-sm text-gray-500">{activeRest.city}{activeRest.neighborhood ? ` · ${activeRest.neighborhood}` : ''}</p>
-                                <p className="text-xs text-gray-400 mt-0.5">{activeRest.cuisine_type} · Rôle: {activeRest.teamRole}</p>
+                                <h2 className="font-bold text-ink-primary text-lg">{activeRest.name}</h2>
+                                <p className="text-sm text-ink-secondary">{activeRest.city}{activeRest.neighborhood ? ` · ${activeRest.neighborhood}` : ''}</p>
+                                <p className="text-xs text-ink-tertiary mt-0.5">{activeRest.cuisine_type} · Rôle: {activeRest.teamRole}</p>
                               </div>
                               <StatusBadge status={activeRest.deleted_at ? 'deleted' : activeRest.status} />
                             </div>
@@ -1035,12 +1035,12 @@ export default function AccountPage() {
 
                         {/* Banners */}
                         {activeRest.deleted_at && (
-                          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-sm text-red-700">
+                          <div className="bg-brand-light border border-divider rounded-xl p-3 mb-4 text-sm text-danger">
                             🗑️ {t('account.deletedBanner')}
                           </div>
                         )}
                         {!activeRest.deleted_at && activeRest.status === 'suspended' && (
-                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-700">
+                          <div className="bg-surface-muted border border-divider rounded-xl p-3 mb-4 text-sm text-warning">
                             ⏸️ {t('account.suspendedBanner')}
                             {activeRest.suspended_by === 'admin' && ' — contactez le support / contact support'}
                           </div>
@@ -1048,21 +1048,21 @@ export default function AccountPage() {
 
                         {/* Restaurant page link */}
                         <a href={`/restaurant/${activeRest.id}`} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-orange-500 hover:text-orange-600 font-semibold mb-5">
+                          className="inline-flex items-center gap-1.5 text-sm text-brand hover:text-brand-dark font-semibold mb-5">
                           ↗ Voir la page / View page
                         </a>
 
                         {/* Actions (owner only) */}
                         {activeRest.teamRole === 'owner' && (
-                          <div className="border-t border-gray-100 pt-4 space-y-3">
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Paramètres / Settings</p>
+                          <div className="border-t border-divider pt-4 space-y-3">
+                            <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide">Paramètres / Settings</p>
 
                             <div className="flex gap-3 flex-wrap">
                               {activeRest.deleted_at ? (
                                 <button
                                   onClick={() => handleRestaurantAction('undo-delete')}
                                   disabled={restActionLoading === 'undo-delete'}
-                                  className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                  className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
                                 >
                                   {restActionLoading === 'undo-delete' ? '…' : `↩️ ${t('account.undoDelete')}`}
                                 </button>
@@ -1071,7 +1071,7 @@ export default function AccountPage() {
                                   {activeRest.status !== 'suspended' ? (
                                     <button
                                       onClick={() => { setModalReason(''); setVendorModal('suspend-rest') }}
-                                      className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                      className="bg-surface-muted hover:bg-brand-light text-warning border border-divider px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
                                     >
                                       ⏸️ {t('account.suspend')}
                                     </button>
@@ -1080,18 +1080,18 @@ export default function AccountPage() {
                                       <button
                                         onClick={() => handleRestaurantAction('reactivate')}
                                         disabled={restActionLoading === 'reactivate'}
-                                        className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                        className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
                                       >
                                         {restActionLoading === 'reactivate' ? '…' : `✅ ${t('account.reactivate')}`}
                                       </button>
                                     ) : (
-                                      <p className="text-xs text-amber-600 py-1">Suspendu par l&apos;administration — contactez le support / Suspended by admin — contact support</p>
+                                      <p className="text-xs text-warning py-1">Suspendu par l&apos;administration — contactez le support / Suspended by admin — contact support</p>
                                     )
                                   )}
                                   <button
                                     onClick={() => setVendorModal('delete-rest')}
                                     disabled={restActionLoading === 'delete'}
-                                    className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                                    className="bg-brand-light hover:bg-brand-light text-danger border border-divider px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
                                   >
                                     {restActionLoading === 'delete' ? '…' : `🗑️ ${t('account.delete')}`}
                                   </button>
@@ -1108,7 +1108,7 @@ export default function AccountPage() {
                 {/* Team management */}
                 {customerTab === 'team' && activeRest?.teamRole === 'owner' && (
                   <div className="bg-white rounded-2xl shadow-sm p-6">
-                    <h2 className="font-bold text-gray-900 mb-4">👥 {t('account.teamTitle')} — {activeRest.name}</h2>
+                    <h2 className="font-bold text-ink-primary mb-4">👥 {t('account.teamTitle')} — {activeRest.name}</h2>
 
                     {/* Add member form */}
                     <form onSubmit={handleAddTeamMember} className="flex gap-2 mb-5 flex-wrap">
@@ -1117,46 +1117,46 @@ export default function AccountPage() {
                         value={teamPhone}
                         onChange={e => setTeamPhone(e.target.value)}
                         placeholder={t('account.memberPhone')}
-                        className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400"
+                        className="flex-1 min-w-0 border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand"
                       />
                       <select value={teamRole} onChange={e => setTeamRole(e.target.value)}
-                        className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400 bg-white">
+                        className="border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand bg-white">
                         <option value="manager">{t('account.roleManager')}</option>
                         <option value="staff">{t('account.roleStaff')}</option>
                       </select>
                       <button type="submit" disabled={addingMember || !teamPhone.trim()}
-                        className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                        className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
                         {addingMember ? '…' : t('account.addMember')}
                       </button>
                     </form>
-                    {teamError && <p className="text-xs text-red-500 mb-3">{teamError}</p>}
+                    {teamError && <p className="text-xs text-danger mb-3">{teamError}</p>}
 
                     {/* Team list */}
                     {loadingTeam ? (
-                      <div className="text-center py-8 text-gray-400">Chargement…</div>
+                      <div className="text-center py-8 text-ink-tertiary">Chargement…</div>
                     ) : (
                       <div className="space-y-2">
                         {teamMembers.map(m => (
-                          <div key={m.id} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0 gap-2 flex-wrap">
+                          <div key={m.id} className="flex items-center justify-between py-2.5 border-b border-divider last:border-0 gap-2 flex-wrap">
                             <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-sm text-gray-900">{m.customers.name}</p>
-                              <p className="text-xs text-gray-400 font-mono">{m.customers.phone}</p>
+                              <p className="font-semibold text-sm text-ink-primary">{m.customers.name}</p>
+                              <p className="text-xs text-ink-tertiary font-mono">{m.customers.phone}</p>
                               {m.added_at && (
-                                <p className="text-[11px] text-gray-400 mt-0.5">
+                                <p className="text-[11px] text-ink-tertiary mt-0.5">
                                   Ajouté le {new Date(m.added_at).toLocaleDateString('fr-FR')}
                                 </p>
                               )}
                             </div>
                             <div className="flex items-center gap-2">
                               {m.role === 'owner' ? (
-                                <span className="text-xs font-medium px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
+                                <span className="text-xs font-medium px-2 py-1 rounded-full bg-brand-light text-brand-darker">
                                   Propriétaire / Owner
                                 </span>
                               ) : (
                                 <select
                                   value={m.role}
                                   onChange={e => handleChangeRole(m.id, e.target.value)}
-                                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-orange-400 bg-white"
+                                  className="text-xs border border-divider rounded-lg px-2 py-1 outline-none focus:border-brand bg-white"
                                 >
                                   <option value="manager">{t('account.roleManager')}</option>
                                   <option value="staff">{t('account.roleStaff')}</option>
@@ -1165,7 +1165,7 @@ export default function AccountPage() {
                               {m.role !== 'owner' && (
                                 <button
                                   onClick={() => handleRemoveTeamMember(m.id)}
-                                  className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 hover:bg-red-50 rounded-lg transition-colors"
+                                  className="text-xs text-danger hover:text-danger font-medium px-2 py-1 hover:bg-brand-light rounded-lg transition-colors"
                                 >
                                   {t('account.removeMember')}
                                 </button>
@@ -1173,7 +1173,7 @@ export default function AccountPage() {
                             </div>
                           </div>
                         ))}
-                        {teamMembers.length === 0 && <p className="text-gray-400 text-sm text-center py-4">Équipe vide / Empty team</p>}
+                        {teamMembers.length === 0 && <p className="text-ink-tertiary text-sm text-center py-4">Équipe vide / Empty team</p>}
                       </div>
                     )}
                   </div>
@@ -1187,25 +1187,25 @@ export default function AccountPage() {
             {vendorModal === 'suspend-rest' && activeRest && (
               <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                  <h3 className="font-bold text-gray-900 mb-1">⏸️ Suspendre le restaurant / Suspend restaurant</h3>
-                  <p className="text-sm text-gray-500 mb-3">{activeRest.name}</p>
+                  <h3 className="font-bold text-ink-primary mb-1">⏸️ Suspendre le restaurant / Suspend restaurant</h3>
+                  <p className="text-sm text-ink-secondary mb-3">{activeRest.name}</p>
                   <textarea
                     value={modalReason}
                     onChange={e => setModalReason(e.target.value)}
                     placeholder="Raison (optionnel) / Reason (optional)"
                     rows={3}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 mb-4"
+                    className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand mb-4"
                   />
                   <div className="flex gap-3">
                     <button
                       onClick={() => handleRestaurantAction('suspend')}
                       disabled={restActionLoading === 'suspend'}
-                      className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                      className="flex-1 bg-warning hover:bg-warning/90 disabled:bg-warning/50 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
                     >
                       {restActionLoading === 'suspend' ? '…' : 'Suspendre / Suspend'}
                     </button>
                     <button onClick={() => setVendorModal(null)}
-                      className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors">
+                      className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
                       Annuler / Cancel
                     </button>
                   </div>
@@ -1217,9 +1217,9 @@ export default function AccountPage() {
             {vendorModal === 'delete-rest' && activeRest && (
               <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                  <h3 className="font-bold text-gray-900 mb-1">🗑️ Supprimer le restaurant / Delete restaurant</h3>
-                  <p className="text-sm text-gray-500 mb-3">{activeRest.name}</p>
-                  <p className="text-sm text-gray-500 mb-4 bg-amber-50 border border-amber-100 rounded-xl p-3">
+                  <h3 className="font-bold text-ink-primary mb-1">🗑️ Supprimer le restaurant / Delete restaurant</h3>
+                  <p className="text-sm text-ink-secondary mb-3">{activeRest.name}</p>
+                  <p className="text-sm text-ink-secondary mb-4 bg-surface-muted border border-divider rounded-xl p-3">
                     ⚠️ Les données seront supprimées après 30 jours. Vous pouvez annuler dans ce délai.<br/><br/>
                     Data will be deleted after 30 days. You can undo within that period.
                   </p>
@@ -1227,12 +1227,12 @@ export default function AccountPage() {
                     <button
                       onClick={() => handleRestaurantAction('delete')}
                       disabled={restActionLoading === 'delete'}
-                      className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                      className="flex-1 bg-danger hover:bg-danger disabled:bg-danger/50 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
                     >
                       {restActionLoading === 'delete' ? '…' : 'Supprimer / Delete'}
                     </button>
                     <button onClick={() => setVendorModal(null)}
-                      className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors">
+                      className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
                       Annuler / Cancel
                     </button>
                   </div>
@@ -1244,20 +1244,20 @@ export default function AccountPage() {
             {vendorModal === 'delete-account' && (
               <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                  <h3 className="font-bold text-gray-900 mb-1">🗑️ Supprimer mon compte / Delete my account</h3>
-                  <p className="text-sm text-gray-500 mb-4 bg-red-50 border border-red-100 rounded-xl p-3">
+                  <h3 className="font-bold text-ink-primary mb-1">🗑️ Supprimer mon compte / Delete my account</h3>
+                  <p className="text-sm text-ink-secondary mb-4 bg-brand-light border border-divider rounded-xl p-3">
                     ⚠️ Votre compte et tous vos restaurants seront supprimés après 30 jours. Vous pourrez annuler dans ce délai.<br/><br/>
                     Your account and all your restaurants will be deleted after 30 days. You can undo within that period.
                   </p>
                   <div className="flex gap-3">
                     <button
                       onClick={handleDeleteAccount}
-                      className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                      className="flex-1 bg-danger hover:bg-danger text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
                     >
                       Confirmer / Confirm
                     </button>
                     <button onClick={() => setVendorModal(null)}
-                      className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors">
+                      className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
                       Annuler / Cancel
                     </button>
                   </div>
@@ -1305,7 +1305,7 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
 
   return (
     <form onSubmit={handleClaim} className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-      <label className="block text-xs text-gray-500 mb-2 font-semibold">
+      <label className="block text-xs text-ink-secondary mb-2 font-semibold">
         Ajouter un code / Add a code
       </label>
       <div className="flex gap-2">
@@ -1314,18 +1314,18 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
           value={code}
           onChange={e => { setCode(e.target.value.toUpperCase()); setError(''); setSuccess('') }}
           placeholder="TCHOP-XXXX"
-          className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 uppercase font-mono"
+          className="flex-1 min-w-0 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand uppercase font-mono"
         />
         <button
           type="submit"
           disabled={submitting || !code.trim()}
-          className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+          className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
         >
           {submitting ? '…' : 'Ajouter / Add'}
         </button>
       </div>
-      {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
-      {success && <p className="text-xs text-green-600 mt-2">{success}</p>}
+      {error && <p className="text-xs text-danger mt-2">{error}</p>}
+      {success && <p className="text-xs text-brand-darker mt-2">{success}</p>}
     </form>
   )
 }
@@ -1347,7 +1347,7 @@ function TabBtn({
       aria-label={label}
       title={label}
       className={`basis-[calc(33.333%-0.25rem)] sm:basis-0 flex-1 min-w-0 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
-        active ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+        active ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
       }`}
     >
       <span aria-hidden="true" className="text-base leading-none">{icon}</span>
@@ -1364,13 +1364,13 @@ function ProfileRoleBadges({ restaurants }: { restaurants: VendorRestaurant[] })
   }
   const uniqueRoles = Array.from(new Set(restaurants.map(r => r.teamRole)))
   const badges: React.ReactNode[] = [
-    <span key="client" className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+    <span key="client" className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker">
       Client / Customer
     </span>,
   ]
   for (const role of uniqueRoles) {
     badges.push(
-      <span key={role} className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+      <span key={role} className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker">
         {labels[role] ?? role}
       </span>
     )
@@ -1380,30 +1380,30 @@ function ProfileRoleBadges({ restaurants }: { restaurants: VendorRestaurant[] })
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    active:    'bg-green-100 text-green-700',
-    pending:   'bg-amber-100 text-amber-700',
-    approved:  'bg-green-100 text-green-700',
-    suspended: 'bg-amber-100 text-amber-700',
-    deleted:   'bg-red-100 text-red-600',
+    active:    'bg-brand-light text-brand-darker',
+    pending:   'bg-brand-light text-warning',
+    approved:  'bg-brand-light text-brand-darker',
+    suspended: 'bg-brand-light text-warning',
+    deleted:   'bg-brand-light text-danger',
   }
   return (
-    <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
+    <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${map[status] ?? 'bg-surface-muted text-ink-secondary'}`}>
       {status}
     </span>
   )
 }
 
 const ORDER_STATUS_STYLES: Record<string, { cls: string; label: string }> = {
-  pending:   { cls: 'bg-amber-100 text-amber-700',   label: '⏳ En attente / Pending' },
-  confirmed: { cls: 'bg-blue-100 text-blue-700',     label: '✅ Confirmée / Confirmed' },
-  preparing: { cls: 'bg-indigo-100 text-indigo-700', label: '👨‍🍳 En préparation / Preparing' },
-  ready:     { cls: 'bg-green-100 text-green-700',   label: '🎉 Prête / Ready' },
-  completed: { cls: 'bg-gray-100 text-gray-700',     label: '🏁 Terminée / Completed' },
-  cancelled: { cls: 'bg-red-100 text-red-600',       label: '❌ Annulée / Cancelled' },
+  pending:   { cls: 'bg-brand-light text-warning',   label: '⏳ En attente / Pending' },
+  confirmed: { cls: 'bg-brand-light text-brand-darker',     label: '✅ Confirmée / Confirmed' },
+  preparing: { cls: 'bg-brand-light text-brand-darker', label: '👨‍🍳 En préparation / Preparing' },
+  ready:     { cls: 'bg-brand-light text-brand-darker',   label: '🎉 Prête / Ready' },
+  completed: { cls: 'bg-surface-muted text-ink-primary',     label: '🏁 Terminée / Completed' },
+  cancelled: { cls: 'bg-brand-light text-danger',       label: '❌ Annulée / Cancelled' },
 }
 
 function OrderStatusBadge({ status }: { status: string }) {
-  const s = ORDER_STATUS_STYLES[status] ?? { cls: 'bg-gray-100 text-gray-600', label: status }
+  const s = ORDER_STATUS_STYLES[status] ?? { cls: 'bg-surface-muted text-ink-secondary', label: status }
   return (
     <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${s.cls}`}>
       {s.label}
@@ -1427,41 +1427,41 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
         className="w-full text-left"
       >
         <div className="flex items-center justify-between mb-1 gap-2">
-          <p className="font-semibold text-gray-900 text-sm truncate">
+          <p className="font-semibold text-ink-primary text-sm truncate">
             {orderAtLabel} {order.restaurants?.name ?? '—'}
-            <span className="ml-2 text-gray-400 font-mono text-xs">#{orderShortId(order.id)}</span>
+            <span className="ml-2 text-ink-tertiary font-mono text-xs">#{orderShortId(order.id)}</span>
           </p>
-          <span className="text-xs text-gray-400 flex-shrink-0">{new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
+          <span className="text-xs text-ink-tertiary flex-shrink-0">{new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
         </div>
-        <p className="text-xs text-gray-400 mb-2 truncate">{itemsSummary}</p>
+        <p className="text-xs text-ink-tertiary mb-2 truncate">{itemsSummary}</p>
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="font-bold text-orange-500 text-sm">{Number(order.total_price).toLocaleString()} FCFA</span>
+          <span className="font-bold text-brand text-sm">{Number(order.total_price).toLocaleString()} FCFA</span>
           <div className="flex items-center gap-2">
             <OrderStatusBadge status={order.status} />
-            <span className="text-gray-300 text-sm">{expanded ? '▾' : '▸'}</span>
+            <span className="text-ink-tertiary text-sm">{expanded ? '▾' : '▸'}</span>
           </div>
         </div>
       </button>
 
       {expanded && (
-        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+        <div className="mt-3 pt-3 border-t border-divider space-y-2">
           {items.length === 0 ? (
-            <p className="text-xs text-gray-400">Aucun détail d&apos;article / No item details</p>
+            <p className="text-xs text-ink-tertiary">Aucun détail d&apos;article / No item details</p>
           ) : (
             <ul className="space-y-1">
               {items.map((it, idx) => (
-                <li key={idx} className="flex items-center justify-between text-sm text-gray-700">
+                <li key={idx} className="flex items-center justify-between text-sm text-ink-primary">
                   <span>{it.quantity}× {it.name}</span>
                   {typeof it.price === 'number' && (
-                    <span className="text-gray-500 font-mono">{(it.quantity * it.price).toLocaleString()} FCFA</span>
+                    <span className="text-ink-secondary font-mono">{(it.quantity * it.price).toLocaleString()} FCFA</span>
                   )}
                 </li>
               ))}
             </ul>
           )}
-          <div className="flex items-center justify-between pt-2 border-t border-gray-50">
-            <span className="text-xs text-gray-500 uppercase tracking-wide">Total</span>
-            <span className="font-bold text-gray-900 font-mono">{Number(order.total_price).toLocaleString()} FCFA</span>
+          <div className="flex items-center justify-between pt-2 border-t border-divider">
+            <span className="text-xs text-ink-secondary uppercase tracking-wide">Total</span>
+            <span className="font-bold text-ink-primary font-mono">{Number(order.total_price).toLocaleString()} FCFA</span>
           </div>
         </div>
       )}
