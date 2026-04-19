@@ -68,27 +68,27 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   }, [isJoinCta])
 
   return (
-    <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-orange-100 shadow-sm">
-      <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+    <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur-sm border-b border-divider">
+      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
 
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 flex-shrink-0">
-          <span className="bg-orange-500 text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
-          <span className="font-bold text-gray-900 text-base hidden sm:inline">Ndjoka &amp; Tchop</span>
+          <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
+          <span className="font-bold text-ink-primary text-base hidden sm:inline">Ndjoka &amp; Tchop</span>
         </Link>
 
-        {/* Nav pills */}
-        <nav className="flex items-center gap-1">
-          <NavPill href="/" active={isRestaurants}>
+        {/* Nav — underline-indicator pattern, not filled pills */}
+        <nav className="flex items-center gap-1 sm:gap-2">
+          <NavLink href="/" active={isRestaurants}>
             {t('nav.restaurants')}
-          </NavPill>
-          <NavPill href="/events" active={isEvents}>
+          </NavLink>
+          <NavLink href="/events" active={isEvents}>
             {t('nav.events')}
-          </NavPill>
+          </NavLink>
           {showDashboard && (
-            <NavPill href="/dashboard" active={pathname?.startsWith('/dashboard') ?? false}>
-              📦 Dashboard
-            </NavPill>
+            <NavLink href="/dashboard" active={pathname?.startsWith('/dashboard') ?? false}>
+              Dashboard
+            </NavLink>
           )}
         </nav>
 
@@ -97,14 +97,14 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           {totalItems > 0 && (
             <Link
               href="/order"
-              className="bg-orange-500 text-white rounded-xl px-3 py-1.5 text-sm font-semibold flex items-center gap-1.5 hover:bg-orange-600 transition-colors"
+              className="bg-brand hover:bg-brand-dark text-white rounded-full px-3 py-1.5 text-sm font-semibold flex items-center gap-1.5 transition-colors"
             >
               🛒 {totalItems}
             </Link>
           )}
           <Link
             href="/account"
-            className="text-gray-600 hover:text-gray-900 hover:bg-gray-50 px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors flex items-center gap-1"
+            className="text-ink-secondary hover:text-ink-primary hover:bg-surface-muted px-2.5 py-1.5 rounded-full text-sm font-semibold transition-colors flex items-center gap-1"
             title={t('nav.account')}
           >
             {user ? '👤' : <span className="hidden sm:inline">{t('nav.account')}</span>}
@@ -114,9 +114,9 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           {cta && isJoinCta && swap.kind === 'myRestaurant' && (
             <Link
               href={swap.pending ? '/account' : '/dashboard'}
-              className="hidden sm:flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors"
+              className="hidden sm:flex items-center gap-1.5 bg-ink-primary hover:bg-ink-secondary text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
             >
-              🏪 Mon restaurant / My Restaurant
+              Mon restaurant / My Restaurant
               {swap.pending && (
                 <span className="bg-white/25 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                   En attente / Pending
@@ -127,7 +127,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           {cta && (!isJoinCta || swap.kind === 'join') && (
             <Link
               href={cta.href}
-              className="hidden sm:block bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors"
+              className="hidden sm:block bg-ink-primary hover:bg-ink-secondary text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
             >
               {cta.label}
             </Link>
@@ -140,7 +140,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   )
 }
 
-function NavPill({
+// Underline-indicator nav link (Uber Eats style, not filled pill).
+function NavLink({
   href,
   active,
   children,
@@ -152,13 +153,14 @@ function NavPill({
   return (
     <Link
       href={href}
-      className={`px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors ${
-        active
-          ? 'bg-orange-500 text-white shadow-sm'
-          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+      className={`relative px-2 sm:px-3 py-4 text-sm font-semibold transition-colors ${
+        active ? 'text-ink-primary' : 'text-ink-secondary hover:text-ink-primary'
       }`}
     >
       {children}
+      {active && (
+        <span className="absolute bottom-0 left-2 right-2 sm:left-3 sm:right-3 h-[2px] bg-ink-primary rounded-full" />
+      )}
     </Link>
   )
 }

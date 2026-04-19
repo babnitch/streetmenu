@@ -23,86 +23,79 @@ const CITIES: { name: string; center: [number, number]; zoom: number }[] = [
   { name: 'Lomé',     center: [1.2123, 6.1375],     zoom: 13 },
 ]
 
-// ─── Card ────────────────────────────────────────────────────────────────────
+// ─── Restaurant card — full-width 16:9 image, bold name, subtle meta ─────────
 function RestaurantCard({
   restaurant,
-  viewMenuLabel,
   openLabel,
   closedLabel,
 }: {
   restaurant: Restaurant
-  viewMenuLabel: string
   openLabel: string
   closedLabel: string
 }) {
   const cuisine = restaurant.cuisine_type || restaurant.description
   const neighborhood = restaurant.neighborhood || restaurant.address
+  const meta = [cuisine, neighborhood].filter(Boolean).join(' · ')
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-orange-50">
-      {/* Photo */}
-      <div className="relative h-28 sm:h-36 bg-gradient-to-br from-orange-200 to-orange-400">
+    <Link
+      href={`/restaurant/${restaurant.id}`}
+      className="group block"
+    >
+      {/* Hero image — 16:9, rounded, with shimmer placeholder */}
+      <div className="relative aspect-[16/9] bg-surface-muted rounded-xl overflow-hidden mb-3">
         {(restaurant.image_url || restaurant.logo_url) ? (
           <Image
             src={(restaurant.image_url || restaurant.logo_url)!}
             alt={restaurant.name}
             fill
-            className="object-cover"
-            sizes="(max-width: 768px) 50vw, 33vw"
+            className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-4xl">
+          <div className="absolute inset-0 flex items-center justify-center text-5xl">
             🍽️
           </div>
         )}
-        {/* Open/closed badge */}
-        <span className={`absolute top-2 right-2 text-xs font-bold px-2 py-0.5 rounded-full ${
-          restaurant.is_open
-            ? 'bg-green-500 text-white'
-            : 'bg-black/40 text-white backdrop-blur-sm'
-        }`}>
-          {restaurant.is_open ? openLabel : closedLabel}
-        </span>
+        {!restaurant.is_open && (
+          <span className="absolute top-3 left-3 bg-ink-primary text-white text-xs font-semibold px-2.5 py-1 rounded-full">
+            {closedLabel}
+          </span>
+        )}
+        {restaurant.is_open && (
+          <span className="absolute top-3 left-3 bg-brand-light text-brand-darker text-xs font-semibold px-2.5 py-1 rounded-full">
+            {openLabel}
+          </span>
+        )}
       </div>
 
-      {/* Body */}
-      <div className="px-2.5 pt-2.5 pb-3">
-        <p className="font-bold text-gray-900 text-sm leading-tight line-clamp-1 mb-0.5">
+      {/* Body — plain text hierarchy, no button */}
+      <div>
+        <p className="font-bold text-ink-primary text-base leading-tight line-clamp-1 mb-0.5">
           {restaurant.name}
         </p>
-        {cuisine && (
-          <p className="text-xs text-orange-500 font-medium truncate">{cuisine}</p>
+        {meta && (
+          <p className="text-sm text-ink-secondary line-clamp-1">
+            {meta}
+          </p>
         )}
-        {neighborhood && (
-          <p className="text-xs text-gray-400 truncate mt-0.5">📍 {neighborhood}</p>
-        )}
-        <Link
-          href={`/restaurant/${restaurant.id}`}
-          className="mt-2.5 block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-1.5 rounded-xl text-xs font-semibold transition-colors"
-        >
-          {viewMenuLabel}
-        </Link>
       </div>
-    </div>
+    </Link>
   )
 }
 
-// ─── Skeleton loader ──────────────────────────────────────────────────────────
+// ─── Skeleton loader ─────────────────────────────────────────────────────────
 function CardSkeleton() {
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-orange-50 animate-pulse">
-      <div className="h-28 sm:h-36 bg-orange-100" />
-      <div className="px-2.5 pt-2.5 pb-3 space-y-2">
-        <div className="h-3.5 bg-gray-100 rounded-full w-3/4" />
-        <div className="h-3 bg-gray-100 rounded-full w-1/2" />
-        <div className="h-3 bg-gray-100 rounded-full w-2/3" />
-        <div className="h-7 bg-orange-100 rounded-xl mt-3" />
-      </div>
+    <div>
+      <div className="aspect-[16/9] skeleton rounded-xl mb-3" />
+      <div className="skeleton h-4 w-3/4 mb-2" />
+      <div className="skeleton h-3 w-1/2" />
     </div>
   )
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
@@ -160,75 +153,81 @@ export default function HomePage() {
   const openCount = filtered.filter(r => r.is_open).length
 
   return (
-    <div className="min-h-screen" style={{ background: '#fffaf5' }}>
+    <div className="min-h-screen bg-surface">
 
-      {/* ── Sticky Header ─────────────────────────────────────────────── */}
       <TopNav cta={{ label: t('nav.join'), href: '/join' }} />
 
-      {/* ── Promo Banner ──────────────────────────────────────────────── */}
+      {/* Welcome banner — muted brand-light surface, not a shouting orange */}
       {!authLoading && !user && !bannerDismissed && (
-        <div className="bg-orange-500 text-white px-4 py-2.5 flex items-center justify-between gap-3">
-          <Link href="/account" className="flex-1 text-center text-sm font-semibold hover:underline">
-            🎉 {t('banner.text')} — {t('banner.cta')}
-          </Link>
-          <button
-            onClick={() => { setBannerDismissed(true); localStorage.setItem('banner_dismissed', '1') }}
-            className="text-white/80 hover:text-white flex-shrink-0 text-lg leading-none"
-            aria-label="Fermer"
-          >
-            ✕
-          </button>
+        <div className="bg-brand-light text-brand-darker border-b border-divider">
+          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
+            <Link href="/account" className="text-sm font-semibold flex-1 hover:underline">
+              🎉 {t('banner.text')} — {t('banner.cta')}
+            </Link>
+            <button
+              onClick={() => { setBannerDismissed(true); localStorage.setItem('banner_dismissed', '1') }}
+              className="text-brand-darker/60 hover:text-brand-darker text-lg leading-none"
+              aria-label="Fermer"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
-      {/* ── City Selector ─────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex gap-2 overflow-x-auto scrollbar-hide">
-          {CITIES.map(city => (
-            <button
-              key={city.name}
-              onClick={() => setSelectedCity(city.name)}
-              className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                selectedCity === city.name
-                  ? 'bg-orange-500 text-white shadow-sm'
-                  : 'bg-orange-50 text-gray-600 hover:bg-orange-100 border border-transparent'
-              }`}
-            >
-              {city.name}
-            </button>
-          ))}
+      {/* City selector — pill row, selected city filled in black (Uber style) */}
+      <div className="bg-surface border-b border-divider">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex gap-2 overflow-x-auto">
+          {CITIES.map(city => {
+            const active = selectedCity === city.name
+            return (
+              <button
+                key={city.name}
+                onClick={() => setSelectedCity(city.name)}
+                className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+                  active
+                    ? 'bg-ink-primary text-white'
+                    : 'bg-surface-muted text-ink-secondary hover:text-ink-primary'
+                }`}
+              >
+                {city.name}
+              </button>
+            )
+          })}
         </div>
       </div>
 
-      {/* ── Main Content ──────────────────────────────────────────────── */}
-      <main className="max-w-5xl mx-auto px-4 py-5 pb-24">
+      {/* Main grid */}
+      <main className="max-w-6xl mx-auto px-4 py-6 pb-28">
 
-        {/* Count row */}
         {!loading && filtered.length > 0 && (
-          <p className="text-sm text-gray-500 mb-4">
-            <span className="font-semibold text-gray-700">{filtered.length}</span>{' '}
-            {t('list.count')}
+          <h1 className="text-2xl sm:text-3xl font-bold text-ink-primary mb-1">
+            Restaurants à {selectedCity}
+          </h1>
+        )}
+
+        {!loading && filtered.length > 0 && (
+          <p className="text-sm text-ink-secondary mb-6">
+            <span className="font-semibold text-ink-primary">{filtered.length}</span>
+            {' '}{t('list.count')}
             {openCount > 0 && (
-              <> · <span className="text-green-600 font-semibold">{openCount}</span> {t('list.openCount')}</>
+              <> · <span className="text-brand-darker font-semibold">{openCount}</span> {t('list.openCount')}</>
             )}
           </p>
         )}
 
-        {/* Loading skeletons */}
         {loading && (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
             {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
           </div>
         )}
 
-        {/* Restaurant grid */}
         {!loading && filtered.length > 0 && (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
             {filtered.map(r => (
               <RestaurantCard
                 key={r.id}
                 restaurant={r}
-                viewMenuLabel={t('list.viewMenuBtn')}
                 openLabel={t('list.openBadge')}
                 closedLabel={t('list.closedBadge')}
               />
@@ -236,18 +235,17 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Empty state */}
         {!loading && filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center px-4">
-            <div className="w-20 h-20 bg-orange-100 rounded-3xl flex items-center justify-center text-4xl mb-5">
+          <div className="flex flex-col items-center justify-center py-24 text-center px-4">
+            <div className="w-20 h-20 bg-surface-muted rounded-full flex items-center justify-center text-4xl mb-5">
               🏪
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">{t('list.emptyTitle')}</h2>
-            <p className="text-gray-500 text-sm mb-1 max-w-xs">{t('list.emptySub')}</p>
-            <p className="text-gray-400 text-xs mb-6">{selectedCity}</p>
+            <h2 className="text-xl font-bold text-ink-primary mb-2">{t('list.emptyTitle')}</h2>
+            <p className="text-ink-secondary text-sm mb-1 max-w-xs">{t('list.emptySub')}</p>
+            <p className="text-ink-tertiary text-xs mb-6">{selectedCity}</p>
             <Link
               href="/join"
-              className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+              className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold text-sm transition-colors"
             >
               {t('list.joinBtn')}
             </Link>
@@ -256,43 +254,41 @@ export default function HomePage() {
 
       </main>
 
-      {/* ── Floating "Join us" (mobile only) ─────────────────────────── */}
+      {/* Mobile "Join us" pill — discreet, bottom-left */}
       {!hideJoinCta && (
         <div className="sm:hidden fixed bottom-6 left-4 z-30">
           <Link
             href="/join"
-            className="bg-white border border-orange-200 text-orange-500 text-sm font-semibold px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-1.5"
+            className="bg-surface border border-divider text-ink-primary text-sm font-semibold px-4 py-2.5 rounded-full shadow-card flex items-center gap-1.5"
           >
             {t('nav.join')}
           </Link>
         </div>
       )}
 
-      {/* ── Floating Map Button ───────────────────────────────────────── */}
+      {/* Floating Map button — green primary */}
       <button
         onClick={() => setShowMap(true)}
-        className="fixed bottom-6 right-4 z-30 bg-orange-500 hover:bg-orange-600 text-white px-5 py-3 rounded-2xl shadow-xl shadow-orange-200 flex items-center gap-2 text-sm font-semibold transition-colors"
+        className="fixed bottom-6 right-4 z-30 bg-ink-primary hover:bg-ink-secondary text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"
       >
-        {t('list.viewMap')}
+        🗺️ {t('list.viewMap')}
       </button>
 
-      {/* ── Map Overlay ───────────────────────────────────────────────── */}
+      {/* Map overlay */}
       {showMap && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-white">
-          {/* Map header bar */}
-          <div className="h-14 flex-shrink-0 bg-white border-b border-gray-100 flex items-center justify-between px-4 shadow-sm">
-            <span className="font-semibold text-gray-900 text-sm">
+        <div className="fixed inset-0 z-50 flex flex-col bg-surface">
+          <div className="h-14 flex-shrink-0 bg-surface border-b border-divider flex items-center justify-between px-4">
+            <span className="font-semibold text-ink-primary text-sm">
               {t('list.mapIn')} {selectedCity}
             </span>
             <button
               onClick={() => { setShowMap(false); setMapSelected(null) }}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-1.5 rounded-xl text-sm font-semibold transition-colors"
+              className="bg-surface-muted hover:bg-divider text-ink-primary px-4 py-1.5 rounded-full text-sm font-semibold transition-colors"
             >
               {t('list.closeMap')}
             </button>
           </div>
 
-          {/* Map + sidebar */}
           <div className="flex-1 relative overflow-hidden">
             <Map
               restaurants={filtered}
@@ -302,15 +298,14 @@ export default function HomePage() {
               zoom={cityData.zoom}
             />
 
-            {/* Sidebar over map when marker selected */}
             {mapSelected && (
               <>
                 <div
                   className="absolute inset-0 bg-black/30 md:hidden"
                   onClick={() => setMapSelected(null)}
                 />
-                <div className="absolute bottom-0 left-0 right-0 z-10 md:top-0 md:right-auto md:w-80 bg-white rounded-t-3xl md:rounded-none md:border-r md:border-gray-100 shadow-2xl overflow-hidden">
-                  <div className="md:hidden w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3 mb-1" />
+                <div className="absolute bottom-0 left-0 right-0 z-10 md:top-0 md:right-auto md:w-80 bg-surface rounded-t-3xl md:rounded-none md:border-r md:border-divider shadow-2xl overflow-hidden">
+                  <div className="md:hidden w-10 h-1 bg-divider rounded-full mx-auto mt-3 mb-1" />
                   <div className="h-[60vh] md:h-full">
                     <RestaurantSidebar
                       restaurant={mapSelected}
