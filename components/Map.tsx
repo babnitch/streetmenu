@@ -98,7 +98,7 @@ export default function Map({ restaurants, onSelectRestaurant, selectedId, cente
           transition: transform 0.2s, box-shadow 0.2s;
         }
         .marker:hover { transform: rotate(-45deg) scale(1.15); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
-        .marker-open { background: #f97316; }
+        .marker-open { background: var(--brand, #F97316); }
         .marker-closed { background: #9ca3af; }
         .marker-selected { transform: rotate(-45deg) scale(1.2); box-shadow: 0 6px 20px rgba(249,115,22,0.6); }
         .marker svg { transform: rotate(45deg); }

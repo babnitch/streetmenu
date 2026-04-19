@@ -66,14 +66,16 @@ function RestaurantCard({
         </span>
       </div>
 
-      {/* Body */}
+      {/* Body — restaurant name + location both ride the brand-dark orange,
+          matching the project-wide rule that restaurant identity reads in
+          brand color rather than black. */}
       <div>
-        <p className="font-bold text-ink-primary text-base leading-tight line-clamp-1">
+        <p className="font-bold text-brand-dark text-base leading-tight line-clamp-1">
           {restaurant.name}
         </p>
 
         {location && (
-          <p className="text-sm text-ink-secondary mt-0.5 line-clamp-1">
+          <p className="text-sm text-brand-dark mt-0.5 line-clamp-1">
             {location}
           </p>
         )}
