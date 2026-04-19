@@ -23,61 +23,65 @@ const CITIES: { name: string; center: [number, number]; zoom: number }[] = [
   { name: 'Lomé',     center: [1.2123, 6.1375],     zoom: 13 },
 ]
 
-// ─── Restaurant card — full-width 16:9 image, bold name, subtle meta ─────────
+// ─── Restaurant card — full-width 16:9 image, bold name, meta + cuisine pill ─
 function RestaurantCard({
   restaurant,
-  openLabel,
-  closedLabel,
 }: {
   restaurant: Restaurant
-  openLabel: string
-  closedLabel: string
 }) {
-  const cuisine = restaurant.cuisine_type || restaurant.description
   const neighborhood = restaurant.neighborhood || restaurant.address
-  const meta = [cuisine, neighborhood].filter(Boolean).join(' · ')
+  const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
+  const cuisine = restaurant.cuisine_type || restaurant.description
+  const initial = (restaurant.name?.[0] ?? '?').toUpperCase()
+  const heroImage = restaurant.image_url || restaurant.logo_url
 
   return (
-    <Link
-      href={`/restaurant/${restaurant.id}`}
-      className="group block"
-    >
-      {/* Hero image — 16:9, rounded, with shimmer placeholder */}
-      <div className="relative aspect-[16/9] bg-surface-muted rounded-xl overflow-hidden mb-3">
-        {(restaurant.image_url || restaurant.logo_url) ? (
+    <Link href={`/restaurant/${restaurant.id}`} className="group block">
+      {/* Hero image — 16:9 rounded-xl. Falls back to a warm gradient with
+          the restaurant's initial when no profile photo exists. */}
+      <div className="relative aspect-[16/9] rounded-xl overflow-hidden mb-3 bg-surface-muted">
+        {heroImage ? (
           <Image
-            src={(restaurant.image_url || restaurant.logo_url)!}
+            src={heroImage}
             alt={restaurant.name}
             fill
             className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-5xl">
-            🍽️
+          <div className="absolute inset-0 bg-gradient-to-br from-brand-light via-brand-badge to-brand flex items-center justify-center">
+            <span className="text-white text-5xl font-black tracking-tight drop-shadow-sm">
+              {initial}
+            </span>
           </div>
         )}
-        {!restaurant.is_open && (
-          <span className="absolute top-3 left-3 bg-ink-primary text-white text-xs font-semibold px-2.5 py-1 rounded-full">
-            {closedLabel}
-          </span>
-        )}
-        {restaurant.is_open && (
-          <span className="absolute top-3 left-3 bg-brand-light text-brand-darker text-xs font-semibold px-2.5 py-1 rounded-full">
-            {openLabel}
-          </span>
-        )}
+
+        {/* Open / closed pill — top-left, dot prefix, bilingual. */}
+        <span className={`absolute top-3 left-3 text-xs font-semibold px-2.5 py-1 rounded-full ${
+          restaurant.is_open
+            ? 'bg-white/95 text-ink-primary'
+            : 'bg-ink-primary/85 text-white backdrop-blur-sm'
+        }`}>
+          {restaurant.is_open ? '🟢 Ouvert / Open' : '🔴 Fermé / Closed'}
+        </span>
       </div>
 
-      {/* Body — plain text hierarchy, no button */}
+      {/* Body */}
       <div>
-        <p className="font-bold text-ink-primary text-base leading-tight line-clamp-1 mb-0.5">
+        <p className="font-bold text-ink-primary text-base leading-tight line-clamp-1">
           {restaurant.name}
         </p>
-        {meta && (
-          <p className="text-sm text-ink-secondary line-clamp-1">
-            {meta}
+
+        {location && (
+          <p className="text-sm text-ink-secondary mt-0.5 line-clamp-1">
+            {location}
           </p>
+        )}
+
+        {cuisine && (
+          <span className="inline-block mt-2 bg-brand-light text-brand-darker text-xs font-semibold px-2 py-0.5 rounded-full">
+            {cuisine}
+          </span>
         )}
       </div>
     </Link>
@@ -224,14 +228,7 @@ export default function HomePage() {
 
         {!loading && filtered.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-            {filtered.map(r => (
-              <RestaurantCard
-                key={r.id}
-                restaurant={r}
-                openLabel={t('list.openBadge')}
-                closedLabel={t('list.closedBadge')}
-              />
-            ))}
+            {filtered.map(r => <RestaurantCard key={r.id} restaurant={r} />)}
           </div>
         )}
 
