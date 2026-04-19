@@ -7,25 +7,54 @@ const FROM           = process.env.TWILIO_WHATSAPP_NUMBER ?? 'whatsapp:+14155238
 
 // ── Core send ─────────────────────────────────────────────────────────────────
 
-export async function sendWhatsApp(to: string, message: string): Promise<void> {
-  // Normalise destination: accept bare numbers or whatsapp: prefixed
-  const destination = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
+export interface SendResult {
+  ok:     boolean
+  status: number            // Twilio HTTP status (0 on network error)
+  sid?:   string            // Twilio message SID when present
+  twilioStatus?: string     // Twilio's own status field (queued, accepted, failed…)
+  error?: string            // Short error string when ok=false
+}
 
+// Sends a WhatsApp message via Twilio. Always resolves with a SendResult;
+// never throws. Keep callers resilient to individual recipient failures.
+//
+// IMPORTANT (Twilio sandbox): recipients that have not sent `join <keyword>`
+// to the sandbox number receive NOTHING, but Twilio's API still returns
+// 201 + an SID. Delivery failures only show up in Twilio's async status
+// callback or the Twilio console. At this layer we can detect protocol
+// errors (401, 4xx on bad To/From, 429 rate limits, network failures)
+// but not post-accept silent drops.
+export async function sendWhatsApp(to: string, message: string): Promise<SendResult> {
+  const destination = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
   const url = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`
   const body = new URLSearchParams({ From: FROM, To: destination, Body: message })
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${Buffer.from(`${API_KEY_SID}:${API_KEY_SECRET}`).toString('base64')}`,
-    },
-    body: body.toString(),
-  })
-
-  if (!res.ok) {
-    const err = await res.text()
-    console.error('[whatsapp] send failed:', res.status, err)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${Buffer.from(`${API_KEY_SID}:${API_KEY_SECRET}`).toString('base64')}`,
+      },
+      body: body.toString(),
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      console.error(`[whatsapp] send FAILED to=${destination} status=${res.status} body=${text.slice(0, 400)}`)
+      return { ok: false, status: res.status, error: text.slice(0, 400) }
+    }
+    try {
+      const parsed = JSON.parse(text) as { sid?: string; status?: string }
+      console.log(`[whatsapp] send ok to=${destination} sid=${parsed.sid ?? '-'} twilioStatus=${parsed.status ?? '-'}`)
+      return { ok: true, status: res.status, sid: parsed.sid, twilioStatus: parsed.status }
+    } catch {
+      console.log(`[whatsapp] send ok to=${destination} (no JSON body)`)
+      return { ok: true, status: res.status }
+    }
+  } catch (e) {
+    const msg = (e as Error).message
+    console.error(`[whatsapp] send THREW to=${destination}: ${msg}`)
+    return { ok: false, status: 0, error: msg }
   }
 }
 

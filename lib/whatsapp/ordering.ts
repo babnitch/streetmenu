@@ -213,6 +213,12 @@ async function notifyVendorsOfNewOrder(
 ): Promise<void> {
   const recipients = await vendorRecipients(restaurantId)
   const id4 = last4(orderId)
+  console.log(`[ordering] notifyVendors: restaurant=${restaurantId} order=${orderId} recipients=${JSON.stringify(recipients)}`)
+  if (recipients.length === 0) {
+    console.warn(`[ordering] notifyVendors: NO RECIPIENTS for restaurant=${restaurantId}. Check restaurants.whatsapp and active owner/manager rows in restaurant_team.`)
+    return
+  }
+
   const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} (${(i.quantity * i.price).toLocaleString()} FCFA)`).join('\n')
   const msg = [
     `🔔 *NOUVELLE COMMANDE / NEW ORDER!*`,
@@ -233,7 +239,16 @@ async function notifyVendorsOfNewOrder(
     `Répondez "annuler ${id4}" pour annuler / Reply "cancel ${id4}" to cancel`,
   ].join('\n')
 
-  await Promise.allSettled(recipients.map(p => sendWhatsApp(p, msg)))
+  const results = await Promise.allSettled(recipients.map(p => sendWhatsApp(p, msg)))
+  results.forEach((r, i) => {
+    const to = recipients[i]
+    if (r.status === 'rejected') {
+      console.error(`[ordering] notifyVendors: send rejected to=${to} reason=${String((r as PromiseRejectedResult).reason)}`)
+    } else {
+      const v = r.value
+      console.log(`[ordering] notifyVendors: to=${to} ok=${v.ok} status=${v.status} sid=${v.sid ?? '-'} twilioStatus=${v.twilioStatus ?? '-'}${v.error ? ` error=${v.error.slice(0, 120)}` : ''}`)
+    }
+  })
 }
 
 // ── Public: handle a "commander" / "mes commandes" intent ────────────────────
@@ -415,16 +430,22 @@ export async function handleOrderingSession(
         `The restaurant has been notified. You'll receive a message when your order is ready!`,
       ].join('\n'))
 
-      // Fan out to vendors (non-blocking of the customer reply)
-      notifyVendorsOfNewOrder(
-        data.restaurant_id,
-        data.restaurant_name,
-        newOrder.id,
-        customer.name,
-        customer.phone,
-        items,
-        total,
-      ).catch(e => console.error('[ordering] vendor fan-out failed:', (e as Error).message))
+      // Fan out to vendors — must be awaited. Fire-and-forget here dies with
+      // the serverless response lifecycle on Vercel, which is the root cause
+      // of "vendors don't get notified" reports.
+      try {
+        await notifyVendorsOfNewOrder(
+          data.restaurant_id,
+          data.restaurant_name,
+          newOrder.id,
+          customer.name,
+          customer.phone,
+          items,
+          total,
+        )
+      } catch (e) {
+        console.error('[ordering] vendor fan-out failed:', (e as Error).message)
+      }
 
       return ok()
     }
