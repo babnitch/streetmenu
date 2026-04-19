@@ -14,12 +14,16 @@ const config: Config = {
       colors: {
         background: 'var(--background)',
         foreground: 'var(--foreground)',
-        // Primary brand (Uber Eats green).
+        // Primary brand — Ndjoka & Tchop orange, Uber Eats-style tokens.
+        // DEFAULT and dark are the CTA colors; light fills soft surfaces
+        // (banners, subtle highlights); badge is the medium pill shade;
+        // darker is the ink for "orange text on brand-light" contrast.
         brand: {
-          DEFAULT: '#06C167',
-          dark:    '#04A357',
-          darker:  '#037B43',
-          light:   '#E8FAEF',
+          DEFAULT: '#F97316',  // primary
+          dark:    '#EA580C',  // hover / pressed
+          darker:  '#9A3412',  // text on brand-light surfaces
+          light:   '#FFF7ED',  // soft background
+          badge:   '#FDBA74',  // medium pill
         },
         // Neutral scale — echoes Uber Eats' black / dark-gray / light-gray trio.
         ink: {

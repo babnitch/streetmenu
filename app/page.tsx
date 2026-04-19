@@ -266,10 +266,10 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Floating Map button — green primary */}
+      {/* Floating Map button — primary brand */}
       <button
         onClick={() => setShowMap(true)}
-        className="fixed bottom-6 right-4 z-30 bg-ink-primary hover:bg-ink-secondary text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"
+        className="fixed bottom-6 right-4 z-30 bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"
       >
         🗺️ {t('list.viewMap')}
       </button>

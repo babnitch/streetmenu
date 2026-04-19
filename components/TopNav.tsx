@@ -114,7 +114,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           {cta && isJoinCta && swap.kind === 'myRestaurant' && (
             <Link
               href={swap.pending ? '/account' : '/dashboard'}
-              className="hidden sm:flex items-center gap-1.5 bg-ink-primary hover:bg-ink-secondary text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
+              className="hidden sm:flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
             >
               Mon restaurant / My Restaurant
               {swap.pending && (
@@ -127,7 +127,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           {cta && (!isJoinCta || swap.kind === 'join') && (
             <Link
               href={cta.href}
-              className="hidden sm:block bg-ink-primary hover:bg-ink-secondary text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
+              className="hidden sm:block bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
             >
               {cta.label}
             </Link>
