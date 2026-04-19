@@ -732,18 +732,23 @@ export default function AccountPage() {
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'customer' && (
               <>
-                {/* Tab bar — overflow-x-auto covers any viewport too narrow
-                    for short-form labels (emoji + one word) to fit. */}
-                <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1 overflow-x-auto pb-1">
-                  <TabBtn label={`🏷️ ${t('account.vouchersTab')}`}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
-                  <TabBtn label={`📋 ${t('account.ordersTab')}`}     active={customerTab === 'orders'}    onClick={() => setCustomerTab('orders')} />
+                {/* Tab bar — icon-only on mobile, icon+label on sm+.
+                    overflow-x-auto is a safety net; with icon-only the 5
+                    tabs already fit on a 320px viewport. Scrollbar hidden
+                    visually since we don't want it to show in normal use. */}
+                <div
+                  className="flex bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden"
+                  style={{ scrollbarWidth: 'none' }}
+                >
+                  <TabBtn icon="🏷️" label={t('account.vouchersTab')}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
+                  <TabBtn icon="📋" label={t('account.ordersTab')}     active={customerTab === 'orders'}    onClick={() => setCustomerTab('orders')} />
                   {myRestaurants.length > 0 && (
-                    <TabBtn label={`🏪 ${t('account.restaurantTab')}`} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
+                    <TabBtn icon="🏪" label={t('account.restaurantTab')} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
                   )}
                   {myRestaurants.length > 0 && activeRest?.teamRole === 'owner' && (
-                    <TabBtn label={`👥 ${t('account.teamTab')}`} active={customerTab === 'team'} onClick={() => setCustomerTab('team')} />
+                    <TabBtn icon="👥" label={t('account.teamTab')} active={customerTab === 'team'} onClick={() => setCustomerTab('team')} />
                   )}
-                  <TabBtn label={`👤 ${t('account.profileTab')}`}   active={customerTab === 'profile'}   onClick={() => setCustomerTab('profile')} />
+                  <TabBtn icon="👤" label={t('account.profileTab')}   active={customerTab === 'profile'}   onClick={() => setCustomerTab('profile')} />
                 </div>
 
                 {/* Vouchers */}
@@ -1268,15 +1273,27 @@ export default function AccountPage() {
   )
 }
 
-function TabBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function TabBtn({
+  icon, label, active, onClick,
+}: {
+  icon: string
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
   return (
     <button
       onClick={onClick}
+      aria-label={label}
+      title={label}
       className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
         active ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
       }`}
     >
-      {label}
+      <span aria-hidden="true">{icon}</span>
+      {/* Label hides on mobile (<640px) so 5 tabs always fit; icons still
+          distinguish them, title/aria-label preserve accessibility. */}
+      <span className="hidden sm:inline sm:ml-1">{label}</span>
     </button>
   )
 }
