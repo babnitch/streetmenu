@@ -10,6 +10,7 @@ import {
   notifyCustomerOrderReady,
   notifyCustomerOrderCancelled,
 } from '@/lib/whatsapp'
+import { validateVoucher, consumeVoucherForOrder } from '@/lib/vouchers'
 
 // ── TwiML ack ────────────────────────────────────────────────────────────────
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
@@ -42,6 +43,9 @@ interface OrderingSessionData {
   menu?: MenuItemRef[]
   items?: CartItem[]
   total?: number
+  voucher_id?: string
+  voucher_code?: string
+  voucher_discount?: number
 }
 
 interface OrderingSessionRow {
@@ -378,28 +382,33 @@ export async function handleOrderingSession(
     return ok()
   }
 
-  // Step 3: waiting for oui/non
+  // Step 3: waiting for oui/non (or a voucher code)
   if (step === 3) {
     if (cmd === 'oui' || cmd === 'yes' || cmd === 'ok') {
       const items = data.items ?? []
-      const total = data.total ?? 0
-      if (items.length === 0 || total <= 0) {
+      const subtotal = data.total ?? 0
+      if (items.length === 0 || subtotal <= 0) {
         await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
         await sendWhatsApp(from, '❌ Commande invalide. Recommencez avec "commander". / Invalid order. Start again with "commander".')
         return ok()
       }
 
+      const discount = data.voucher_discount ?? 0
+      const total = Math.max(0, subtotal - discount)
+
       const itemsJsonb = items.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))
       const { data: newOrder, error: orderErr } = await supabaseAdmin
         .from('orders')
         .insert({
-          restaurant_id:  data.restaurant_id,
-          customer_id:    customer.id,
-          customer_name:  customer.name,
-          customer_phone: customer.phone,
-          items:          itemsJsonb,
-          total_price:    total,
-          status:         'pending',
+          restaurant_id:   data.restaurant_id,
+          customer_id:     customer.id,
+          customer_name:   customer.name,
+          customer_phone:  customer.phone,
+          items:           itemsJsonb,
+          total_price:     total,
+          status:          'pending',
+          voucher_code:    data.voucher_code ?? null,
+          discount_amount: discount > 0 ? discount : null,
         })
         .select('id')
         .single()
@@ -422,25 +431,41 @@ export async function handleOrderingSession(
 
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
 
+      // Consume the voucher if one was applied during this session.
+      if (data.voucher_id) {
+        await consumeVoucherForOrder(data.voucher_id, customer.id, newOrder.id)
+        await writeAudit({
+          action: 'voucher_applied',
+          targetType: 'voucher',
+          targetId: data.voucher_id,
+          performedBy: customer.id,
+          performedByType: 'customer',
+          metadata: { order_id: newOrder.id, code: data.voucher_code, discount },
+        })
+      }
+
       await writeAudit({
         action: 'order_created',
         targetType: 'order',
         targetId: newOrder.id,
         performedBy: customer.id,
         performedByType: 'customer',
-        metadata: { restaurant_id: data.restaurant_id, total_price: total, item_count: items.length },
+        metadata: { restaurant_id: data.restaurant_id, total_price: total, item_count: items.length, voucher_code: data.voucher_code ?? null, discount },
       })
 
       const id4 = last4(newOrder.id)
-      await sendWhatsApp(from, [
+      const confirmLines = [
         `✅ *Commande confirmée!*`,
         `🧾 Commande #${id4}`,
         `🏪 ${data.restaurant_name}`,
-        `💰 Total: ${total.toLocaleString()} FCFA`,
-        ``,
-        `Le restaurant a été notifié. Vous recevrez un message quand votre commande sera prête!`,
-        `The restaurant has been notified. You'll receive a message when your order is ready!`,
-      ].join('\n'))
+      ]
+      if (discount > 0 && data.voucher_code) {
+        confirmLines.push(`🏷️ ${data.voucher_code} (−${discount.toLocaleString()} FCFA)`)
+      }
+      confirmLines.push(`💰 Total: ${total.toLocaleString()} FCFA`)
+      confirmLines.push(``, `Le restaurant a été notifié. Vous recevrez un message quand votre commande sera prête!`)
+      confirmLines.push(`The restaurant has been notified. You'll receive a message when your order is ready!`)
+      await sendWhatsApp(from, confirmLines.join('\n'))
 
       // Fan out to vendors — must be awaited. Fire-and-forget here dies with
       // the serverless response lifecycle on Vercel, which is the root cause
@@ -468,7 +493,50 @@ export async function handleOrderingSession(
       return ok()
     }
 
-    await sendWhatsApp(from, 'Envoyez "oui" pour confirmer ou "non" pour annuler. / Send "yes" to confirm or "no" to cancel.')
+    // Otherwise treat the input as a voucher code attempt. Any non-empty
+    // token that isn't oui/non is tried as a code — liberal on input,
+    // explicit on errors.
+    const maybeCode = body.trim().toUpperCase()
+    if (maybeCode.length >= 3) {
+      const subtotal = data.total ?? 0
+      const result = await validateVoucher(maybeCode, {
+        customerId:   customer.id,
+        restaurantId: data.restaurant_id,
+        orderTotal:   subtotal,
+        city:         customer.city,
+      })
+      if (!result.ok) {
+        await sendWhatsApp(from, `❌ ${result.message}\n\nEnvoyez "oui" pour confirmer ou "non" pour annuler. / Send "yes" to confirm or "no" to cancel.`)
+        return ok()
+      }
+      await supabaseAdmin.from('signup_sessions').update({
+        data: {
+          ...data,
+          voucher_id:       result.voucher.id,
+          voucher_code:     result.voucher.code,
+          voucher_discount: result.discount,
+        },
+        expires_at: sessionExpiry(30),
+      }).eq('phone', phone)
+
+      const lines = (data.items ?? []).map(i => `${i.quantity}× ${i.name} — ${(i.quantity * i.price).toLocaleString()} FCFA`)
+      await sendWhatsApp(from, [
+        `🏷️ Code *${result.voucher.code}* appliqué! / applied!`,
+        ``,
+        `🏪 ${data.restaurant_name}`,
+        ...lines,
+        ``,
+        `Sous-total / Subtotal: ${subtotal.toLocaleString()} FCFA`,
+        `Remise / Discount: −${result.discount.toLocaleString()} FCFA`,
+        `💰 *Nouveau total / New total: ${result.finalTotal.toLocaleString()} FCFA*`,
+        ``,
+        `Envoyez "oui" pour confirmer ou "non" pour annuler.`,
+        `Send "yes" to confirm or "no" to cancel.`,
+      ].join('\n'))
+      return ok()
+    }
+
+    await sendWhatsApp(from, 'Envoyez "oui" pour confirmer, "non" pour annuler, ou un code promo. / Send "yes", "no", or a voucher code.')
     return ok()
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { setSessionCookie, SessionPayload } from '@/lib/auth'
 import { normalizePhone } from '@/lib/phone'
+import { assignWelcomeVoucher } from '@/lib/vouchers'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,19 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     customer = created
-
-    // Assign welcome voucher to new customers
-    const { data: voucher } = await supabaseAdmin
-      .from('vouchers')
-      .select('id')
-      .eq('code', 'BIENVENUE10')
-      .maybeSingle()
-
-    if (voucher) {
-      await supabaseAdmin
-        .from('customer_vouchers')
-        .insert({ customer_id: customer.id, voucher_id: voucher.id })
-    }
+    await assignWelcomeVoucher(customer.id)
   }
 
   const rememberMe = Boolean(body.rememberMe)

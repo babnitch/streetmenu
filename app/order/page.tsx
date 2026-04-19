@@ -34,7 +34,7 @@ export default function OrderPage() {
 
   const [voucherInput, setVoucherInput] = useState('')
   const [appliedVoucher, setAppliedVoucher] = useState<Voucher | null>(null)
-  const [appliedCvId, setAppliedCvId] = useState<string | null>(null)
+  const [, setAppliedCvId] = useState<string | null>(null)
   const [voucherError, setVoucherError] = useState('')
   const [applyingVoucher, setApplyingVoucher] = useState(false)
   const [myVouchers, setMyVouchers] = useState<CustomerVoucher[]>([])
@@ -76,57 +76,43 @@ export default function OrderPage() {
 
   async function applyVoucher() {
     const code = voucherInput.trim().toUpperCase()
-    if (!code) return
+    if (!code || !restaurantId) return
     setApplyingVoucher(true)
     setVoucherError('')
 
-    const { data: voucher } = await supabase
-      .from('vouchers')
-      .select('*')
-      .eq('code', code)
-      .eq('is_active', true)
-      .single()
-
-    if (!voucher) {
-      setVoucherError('Code invalide ou inactif.')
-      setApplyingVoucher(false)
-      return
-    }
-    if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
-      setVoucherError('Ce bon a expiré.')
-      setApplyingVoucher(false)
-      return
-    }
-    if (totalPrice < voucher.min_order) {
-      setVoucherError(`Commande minimum: ${voucher.min_order.toLocaleString()} FCFA.`)
-      setApplyingVoucher(false)
-      return
-    }
-    if (me) {
-      const { data: cv } = await supabase
-        .from('customer_vouchers')
-        .select('*')
-        .eq('customer_id', me.id)
-        .eq('voucher_id', voucher.id)
-        .not('used_at', 'is', null)
-        .maybeSingle()
-      if (cv) {
-        setVoucherError('Vous avez déjà utilisé ce bon.')
-        setApplyingVoucher(false)
+    try {
+      // Server-side validation — enforces scope, expiry, exhaustion,
+      // per-customer limit, and min-order through the same library used
+      // by the WhatsApp ordering flow.
+      const res = await fetch('/api/customer/vouchers/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, restaurantId, orderTotal: totalPrice }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setVoucherError(data.error ?? 'Code invalide / Invalid code')
         return
       }
-      const { data: claimData } = await supabase
-        .from('customer_vouchers')
-        .select('id')
-        .eq('customer_id', me.id)
-        .eq('voucher_id', voucher.id)
-        .is('used_at', null)
-        .maybeSingle()
-      setAppliedCvId(claimData?.id ?? null)
+      // Only id/code/discount_type/discount_value are used for display
+      // and for linking the voucher on the order row.
+      setAppliedVoucher({
+        id:             data.voucher.id,
+        code:           data.voucher.code,
+        discount_type:  data.voucher.discount_type,
+        discount_value: data.voucher.discount_value,
+        min_order:      0,
+        max_uses:       null,
+        uses_count:     0,
+        expires_at:     null,
+        is_active:      true,
+        city:           null,
+        created_at:     '',
+      })
+      setAppliedCvId(null)
+    } finally {
+      setApplyingVoucher(false)
     }
-
-    setAppliedVoucher(voucher)
-    setApplyingVoucher(false)
   }
 
   function removeVoucher() {
@@ -161,10 +147,12 @@ export default function OrderPage() {
 
     if (!error && data) {
       if (appliedVoucher) {
-        await supabase.from('vouchers').update({ uses_count: (appliedVoucher.uses_count ?? 0) + 1 }).eq('id', appliedVoucher.id)
-        if (appliedCvId) {
-          await supabase.from('customer_vouchers').update({ used_at: new Date().toISOString() }).eq('id', appliedCvId)
-        }
+        // Server-side consumption: atomic current_uses bump + claim mark.
+        fetch('/api/customer/vouchers/consume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voucherId: appliedVoucher.id, orderId: data.id }),
+        }).catch(() => null)
       }
       // Fire-and-forget WhatsApp notification to vendor
       fetch('/api/whatsapp/notify-order', {

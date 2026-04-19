@@ -46,3 +46,39 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   return NextResponse.json({ ok: true })
 }
+
+// DELETE /api/admin/vouchers/[id]
+// Only allowed when the voucher has never been used. Otherwise callers are
+// expected to deactivate. Prevents orphaning orders.voucher_code references.
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = getSessionFromRequest(req)
+  if (!session || !['super_admin', 'admin'].includes(session.role)) {
+    return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
+  }
+
+  const { data: before } = await supabaseAdmin
+    .from('vouchers').select('id, code, current_uses').eq('id', params.id).maybeSingle()
+  if (!before) return NextResponse.json({ error: 'Bon introuvable / Voucher not found' }, { status: 404 })
+
+  if ((before.current_uses ?? 0) > 0) {
+    return NextResponse.json({
+      error: 'Ce bon a déjà été utilisé — désactivez-le à la place / Voucher already used — deactivate instead',
+    }, { status: 409 })
+  }
+
+  // Clean up any still-unused claims before removing the voucher itself.
+  await supabaseAdmin.from('customer_vouchers').delete().eq('voucher_id', params.id).is('used_at', null)
+  const { error } = await supabaseAdmin.from('vouchers').delete().eq('id', params.id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await writeAudit({
+    action: 'voucher_deleted',
+    targetType: 'voucher',
+    targetId: params.id,
+    performedBy: session.id,
+    performedByType: session.role,
+    previousData: { code: before.code },
+  })
+
+  return NextResponse.json({ ok: true })
+}

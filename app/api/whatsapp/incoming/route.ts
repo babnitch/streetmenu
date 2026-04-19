@@ -378,15 +378,13 @@ async function handleSession(
         await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Please retry.')
         return ok()
       }
-      const { data: voucher } = await supabaseAdmin
-        .from('vouchers').select('id').eq('code', 'BIENVENUE10').maybeSingle()
-      if (voucher) {
-        await supabaseAdmin.from('customer_vouchers')
-          .insert({ customer_id: newCustomer.id, voucher_id: voucher.id })
-      }
+      const { assignWelcomeVoucher } = await import('@/lib/vouchers')
+      await assignWelcomeVoucher(newCustomer.id)
       await sendWhatsApp(from,
         `✅ *Bienvenue ${name}!* 🍽️\n\n` +
         `Votre compte est créé. / Your account is created.\n\n` +
+        `🎉 Utilisez le code *BIENVENUE* pour 10% de réduction sur votre première commande!\n` +
+        `Use code *BIENVENUE* for 10% off your first order!\n\n` +
         `🌍 Restaurants: ${BASE_URL}\n` +
         `🔑 Mon compte / My account: ${BASE_URL}/account\n\n` +
         `🏪 Vous avez un restaurant? Envoyez *restaurant*!\n` +

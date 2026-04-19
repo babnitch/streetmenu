@@ -5,11 +5,33 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/languageContext'
-import { Voucher } from '@/types'
+
+// Enriched voucher row returned by GET /api/admin/vouchers — includes the
+// server-derived status and the joined restaurant name.
+interface VoucherWithStatus {
+  id: string
+  code: string
+  discount_type: 'percent' | 'fixed'
+  discount_value: number
+  min_order: number | null
+  max_uses: number | null
+  current_uses: number | null
+  per_customer_max?: number | null
+  is_active: boolean
+  expires_at: string | null
+  city: string | null
+  restaurant_id: string | null
+  restaurant_name: string | null
+  status: 'active' | 'inactive' | 'expired' | 'exhausted'
+  created_at: string
+}
+
+interface RestaurantLite { id: string; name: string }
 
 export default function AdminVouchersPage() {
   const { t } = useLanguage()
-  const [vouchers, setVouchers] = useState<Voucher[]>([])
+  const [vouchers, setVouchers] = useState<VoucherWithStatus[]>([])
+  const [restaurants, setRestaurants] = useState<RestaurantLite[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -19,35 +41,47 @@ export default function AdminVouchersPage() {
   const [discountValue, setDiscountValue] = useState('')
   const [minOrder, setMinOrder] = useState('0')
   const [maxUses, setMaxUses] = useState('')
+  const [perCustomerMax, setPerCustomerMax] = useState('1')
   const [expiresAt, setExpiresAt] = useState('')
   const [city, setCity] = useState('')
+  const [restaurantId, setRestaurantId] = useState('')  // empty = platform-wide
   const [isActive, setIsActive] = useState(true)
 
   useEffect(() => {
     fetchVouchers()
+    // Restaurant list for the scope dropdown. Anon-readable; only needs
+    // id + name so RLS on other columns doesn't matter.
+    supabase.from('restaurants').select('id, name').is('deleted_at', null).neq('status', 'deleted').order('name')
+      .then(({ data }) => { if (data) setRestaurants(data) })
   }, [])
 
   async function fetchVouchers() {
     setLoading(true)
-    const { data } = await supabase.from('vouchers').select('*').order('created_at', { ascending: false })
-    if (data) setVouchers(data)
-    setLoading(false)
+    try {
+      const res = await fetch('/api/admin/vouchers', { cache: 'no-store' })
+      const data = await res.json()
+      if (res.ok && Array.isArray(data.vouchers)) setVouchers(data.vouchers)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function createVoucher() {
-    if (!code.trim() || !discountValue) return
+    if (!discountValue) return
     setSaving(true)
     await fetch('/api/admin/vouchers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        code: code.trim().toUpperCase(),
+        code: code.trim().toUpperCase(),     // blank triggers TCHOP-XXXX auto-gen server-side
         discount_type: discountType,
         discount_value: parseFloat(discountValue),
         min_order: parseFloat(minOrder) || 0,
         max_uses: maxUses ? parseInt(maxUses) : null,
+        per_customer_max: perCustomerMax ? parseInt(perCustomerMax) : 1,
         expires_at: expiresAt || null,
         city: city.trim() || null,
+        restaurant_id: restaurantId || null,
         is_active: isActive,
       }),
     })
@@ -59,20 +93,32 @@ export default function AdminVouchersPage() {
 
   function resetForm() {
     setCode(''); setDiscountType('percent'); setDiscountValue('')
-    setMinOrder('0'); setMaxUses(''); setExpiresAt(''); setCity(''); setIsActive(true)
+    setMinOrder('0'); setMaxUses(''); setPerCustomerMax('1')
+    setExpiresAt(''); setCity(''); setRestaurantId(''); setIsActive(true)
   }
 
-  async function toggleActive(v: Voucher) {
+  async function toggleActive(v: VoucherWithStatus) {
     await fetch(`/api/admin/vouchers/${v.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_active: !v.is_active }),
     })
-    setVouchers(prev => prev.map(x => x.id === v.id ? { ...x, is_active: !v.is_active } : x))
+    fetchVouchers()
   }
 
-  const totalUses = vouchers.reduce((s, v) => s + (v.uses_count ?? 0), 0)
-  const activeCount = vouchers.filter(v => v.is_active).length
+  async function deleteVoucher(v: VoucherWithStatus) {
+    if (!confirm(`Supprimer ${v.code}? / Delete ${v.code}?`)) return
+    const res = await fetch(`/api/admin/vouchers/${v.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(data.error ?? 'Erreur / Error')
+      return
+    }
+    fetchVouchers()
+  }
+
+  const totalUses = vouchers.reduce((s, v) => s + (v.current_uses ?? 0), 0)
+  const activeCount = vouchers.filter(v => v.status === 'active').length
 
   return (
     <div>
@@ -143,12 +189,23 @@ export default function AdminVouchersPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Max utilisations</label>
+              <label className="block text-xs text-gray-500 mb-1">Max utilisations / Max uses</label>
               <input
                 type="number"
                 value={maxUses}
                 onChange={e => setMaxUses(e.target.value)}
-                placeholder={t('admin.vchMaxUsesPh')}
+                placeholder="0 = illimité / unlimited"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Par client / Per customer</label>
+              <input
+                type="number"
+                value={perCustomerMax}
+                onChange={e => setPerCustomerMax(e.target.value)}
+                placeholder="1 = one-time"
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
               />
             </div>
@@ -163,8 +220,22 @@ export default function AdminVouchersPage() {
               />
             </div>
 
+            <div className="col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Portée / Scope</label>
+              <select
+                value={restaurantId}
+                onChange={e => setRestaurantId(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
+              >
+                <option value="">Plateforme / Platform-wide</option>
+                {restaurants.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Ville</label>
+              <label className="block text-xs text-gray-500 mb-1">Ville / City</label>
               <input
                 value={city}
                 onChange={e => setCity(e.target.value)}
@@ -211,10 +282,11 @@ export default function AdminVouchersPage() {
                 <tr>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchCode')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchValue')}</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchMinOrder')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Portée / Scope</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchUseCount')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchExpiry')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchStatus')}</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -226,11 +298,14 @@ export default function AdminVouchersPage() {
                     <td className="px-4 py-3 text-orange-600 font-semibold">
                       {v.discount_type === 'percent' ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {Number(v.min_order).toLocaleString()} FCFA
+                    <td className="px-4 py-3 text-gray-600 text-xs">
+                      {v.restaurant_name
+                        ? <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{v.restaurant_name}</span>
+                        : <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">Plateforme</span>}
+                      {v.city && <span className="ml-1 text-gray-400">· {v.city}</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      {v.uses_count}{v.max_uses ? `/${v.max_uses}` : ''}
+                      {v.current_uses ?? 0}{v.max_uses ? `/${v.max_uses}` : ''}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
                       {v.expires_at
@@ -238,16 +313,17 @@ export default function AdminVouchersPage() {
                         : <span className="text-gray-300">{t('admin.vchNoExpiry')}</span>}
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleActive(v)}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
-                          v.is_active
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                        }`}
-                      >
-                        {v.is_active ? t('admin.vchToggleActive') : t('admin.vchToggleInactive')}
-                      </button>
+                      <VoucherStatusBadge status={v.status} onToggle={() => toggleActive(v)} isActive={v.is_active} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {(v.current_uses ?? 0) === 0 && (
+                        <button
+                          onClick={() => deleteVoucher(v)}
+                          className="text-xs text-red-500 hover:text-red-700 font-semibold"
+                        >
+                          🗑️
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -257,6 +333,36 @@ export default function AdminVouchersPage() {
         </div>
       )}
     </div>
+  )
+}
+
+// Status pill on the voucher row. Clickable when active/inactive (toggles
+// is_active via the PATCH route); read-only for terminal-ish expired and
+// exhausted states.
+function VoucherStatusBadge({
+  status, isActive, onToggle,
+}: {
+  status: 'active' | 'inactive' | 'expired' | 'exhausted'
+  isActive: boolean
+  onToggle: () => void
+}) {
+  const STYLES: Record<typeof status, { cls: string; label: string }> = {
+    active:    { cls: 'bg-green-100 text-green-700 hover:bg-green-200', label: '✅ Active' },
+    inactive:  { cls: 'bg-gray-100 text-gray-500 hover:bg-gray-200',    label: 'Inactif / Inactive' },
+    expired:   { cls: 'bg-red-50 text-red-600',                         label: '⏰ Expiré / Expired' },
+    exhausted: { cls: 'bg-amber-50 text-amber-700',                     label: '🪫 Épuisé / Exhausted' },
+  }
+  const s = STYLES[status]
+  const clickable = status === 'active' || status === 'inactive'
+  return (
+    <button
+      onClick={clickable ? onToggle : undefined}
+      disabled={!clickable}
+      className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${s.cls} ${clickable ? '' : 'cursor-default opacity-80'}`}
+      title={clickable ? (isActive ? 'Désactiver / Deactivate' : 'Activer / Activate') : s.label}
+    >
+      {s.label}
+    </button>
   )
 }
 

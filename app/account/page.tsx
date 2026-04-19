@@ -751,6 +751,9 @@ export default function AccountPage() {
                 {/* Vouchers */}
                 {customerTab === 'vouchers' && (
                   <>
+                    <VoucherClaimForm
+                      onClaimed={() => user && loadCustomerData(user.id)}
+                    />
                     {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-gray-300">…</div></div>}
                     {!loadingData && (
                       <div className="space-y-3">
@@ -1267,6 +1270,63 @@ export default function AccountPage() {
 
       </div>
     </div>
+  )
+}
+
+// Claim-a-code input rendered at the top of the Vouchers tab. Successful
+// claim re-runs loadCustomerData so the new claim appears without refresh.
+function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
+  const [code, setCode] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  async function handleClaim(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmed = code.trim().toUpperCase()
+    if (!trimmed) return
+    setSubmitting(true)
+    setError(''); setSuccess('')
+    try {
+      const res = await fetch('/api/customer/vouchers/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Erreur / Error'); return }
+      setSuccess(`✅ ${trimmed} ajouté / added`)
+      setCode('')
+      onClaimed()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleClaim} className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+      <label className="block text-xs text-gray-500 mb-2 font-semibold">
+        Ajouter un code / Add a code
+      </label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={code}
+          onChange={e => { setCode(e.target.value.toUpperCase()); setError(''); setSuccess('') }}
+          placeholder="TCHOP-XXXX"
+          className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 uppercase font-mono"
+        />
+        <button
+          type="submit"
+          disabled={submitting || !code.trim()}
+          className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+        >
+          {submitting ? '…' : 'Ajouter / Add'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+      {success && <p className="text-xs text-green-600 mt-2">{success}</p>}
+    </form>
   )
 }
 
