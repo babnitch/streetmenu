@@ -114,15 +114,27 @@ export async function notifyCustomerOrderConfirmed(
   order: OrderPayload,
   restaurantName: string
 ): Promise<void> {
+  const id4 = last4(order.id)
   const msg = [
-    `✅ *Commande confirmée / Order Confirmed*`,
+    `✅ Votre commande #${id4} a été confirmée par *${restaurantName}*!`,
+    `En cours de préparation.`,
     ``,
-    `Bonjour ${order.customer_name} ! Votre commande chez *${restaurantName}* est confirmée.`,
-    `Hi ${order.customer_name}! Your order at *${restaurantName}* is confirmed.`,
+    `/ Your order #${id4} has been confirmed! Being prepared.`,
+  ].join('\n')
+
+  await sendWhatsApp(customerPhone, msg)
+}
+
+export async function notifyCustomerOrderPreparing(
+  customerPhone: string,
+  order: OrderPayload,
+  restaurantName: string
+): Promise<void> {
+  const id4 = last4(order.id)
+  const msg = [
+    `🍳 Votre commande #${id4} chez *${restaurantName}* est en préparation!`,
     ``,
-    `*Total: ${Number(order.total_price).toLocaleString()} FCFA*`,
-    ``,
-    `Nous vous préviendrons quand elle sera prête. / We'll let you know when it's ready.`,
+    `/ Your order #${id4} at *${restaurantName}* is being prepared!`,
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg)
@@ -133,13 +145,27 @@ export async function notifyCustomerOrderReady(
   order: OrderPayload,
   restaurantName: string
 ): Promise<void> {
+  const id4 = last4(order.id)
   const msg = [
-    `🍽️ *Commande prête / Order Ready*`,
+    `🎉 Votre commande #${id4} chez *${restaurantName}* est prête!`,
+    `Venez la récupérer.`,
     ``,
-    `Bonjour ${order.customer_name} ! Votre commande chez *${restaurantName}* est prête à être récupérée.`,
-    `Hi ${order.customer_name}! Your order at *${restaurantName}* is ready for pickup.`,
+    `/ Your order #${id4} at *${restaurantName}* is ready! Come pick it up.`,
+  ].join('\n')
+
+  await sendWhatsApp(customerPhone, msg)
+}
+
+export async function notifyCustomerOrderDelivered(
+  customerPhone: string,
+  order: OrderPayload,
+  _restaurantName: string
+): Promise<void> {
+  const id4 = last4(order.id)
+  const msg = [
+    `✅ Commande #${id4} livrée. Merci et bon appétit!`,
     ``,
-    `*Total: ${Number(order.total_price).toLocaleString()} FCFA*`,
+    `/ Order #${id4} delivered. Thank you and enjoy!`,
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg)
@@ -152,11 +178,9 @@ export async function notifyCustomerOrderCancelled(
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = [
-    `❌ *Commande annulée / Order Cancelled*`,
+    `❌ Votre commande #${id4} a été annulée par *${restaurantName}*.`,
     ``,
-    `Bonjour ${order.customer_name},`,
-    `Votre commande #${id4} chez *${restaurantName}* a été annulée par le restaurant.`,
-    `Your order #${id4} at *${restaurantName}* has been cancelled by the restaurant.`,
+    `/ Your order #${id4} has been cancelled by *${restaurantName}*.`,
     ``,
     `Envoyez "commander" pour passer une nouvelle commande.`,
     `Send "commander" to place a new order.`,

@@ -2,31 +2,113 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem, Order } from '@/types'
 import { useLanguage } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
 
+type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
+type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
+type OrderFilter = 'pending' | 'active' | 'completed' | 'all'
+
 const STATUS_COLORS: Record<string, string> = {
-  pending:   'bg-yellow-100 text-yellow-700',
+  pending:   'bg-amber-100 text-amber-700',
   confirmed: 'bg-blue-100 text-blue-700',
-  preparing: 'bg-orange-100 text-orange-700',
+  preparing: 'bg-indigo-100 text-indigo-700',
   ready:     'bg-green-100 text-green-700',
-  completed: 'bg-gray-100 text-gray-600',
+  delivered: 'bg-gray-100 text-gray-600',
+  completed: 'bg-gray-100 text-gray-600',   // legacy alias
+  cancelled: 'bg-red-100 text-red-600',
 }
 
-const STATUS_NEXT: Record<string, string> = {
-  pending:   'confirmed',
-  confirmed: 'preparing',
-  preparing: 'ready',
-  ready:     'completed',
+const STATUS_LABEL: Record<string, string> = {
+  pending:   '⏳ En attente / Pending',
+  confirmed: '✅ Confirmée / Confirmed',
+  preparing: '🍳 En préparation / Preparing',
+  ready:     '🎉 Prête / Ready',
+  delivered: '✅ Livrée / Delivered',
+  completed: '✅ Terminée / Completed',     // legacy
+  cancelled: '❌ Annulée / Cancelled',
 }
+
+// Buttons visible per current status, and which roles can press each.
+interface ActionButton {
+  label: string
+  target: TargetStatus
+  roles: Array<'owner' | 'manager' | 'staff'>
+  destructive?: boolean
+}
+const STATUS_ACTIONS: Record<string, ActionButton[]> = {
+  pending: [
+    { label: '✅ Confirmer / Confirm',    target: 'confirmed', roles: ['owner', 'manager'] },
+    { label: '❌ Annuler / Cancel',        target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
+  ],
+  confirmed: [
+    { label: '🍳 Préparer / Start prep',   target: 'preparing', roles: ['owner', 'manager'] },
+    { label: '❌ Annuler / Cancel',        target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
+  ],
+  preparing: [
+    { label: '🎉 Prête / Mark ready',      target: 'ready',     roles: ['owner', 'manager', 'staff'] },
+    { label: '❌ Annuler / Cancel',        target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
+  ],
+  ready: [
+    { label: '✅ Livrée / Mark delivered', target: 'delivered', roles: ['owner', 'manager', 'staff'] },
+  ],
+  delivered: [],
+  completed: [],
+  cancelled: [],
+}
+
+const FILTER_LABEL: Record<OrderFilter, string> = {
+  pending:   'En attente / Pending',
+  active:    'En cours / Active',
+  completed: 'Terminées / Completed',
+  all:       'Toutes / All',
+}
+const FILTER_STATUSES: Record<OrderFilter, string[] | null> = {
+  pending:   ['pending'],
+  active:    ['confirmed', 'preparing', 'ready'],
+  completed: ['delivered', 'completed', 'cancelled'],
+  all:       null,
+}
+
+function orderShortId(id: string): string {
+  return id.replace(/-/g, '').slice(-4).toUpperCase()
+}
+
+function buildWhatsappHref(phone: string): string {
+  const digits = phone.replace(/[^\d+]/g, '').replace(/^\+/, '')
+  return `https://wa.me/${digits}`
+}
+
+function playNewOrderBeep() {
+  try {
+    const W = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }
+    const Ctx = W.AudioContext ?? W.webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    const o = ctx.createOscillator()
+    const g = ctx.createGain()
+    o.connect(g); g.connect(ctx.destination)
+    o.type = 'sine'; o.frequency.value = 880
+    g.gain.setValueAtTime(0.12, ctx.currentTime)
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+    o.start(); o.stop(ctx.currentTime + 0.4)
+  } catch { /* autoplay restrictions — silent fail */ }
+}
+
+interface SessionUser { id: string; name: string; role: string }
 
 export default function DashboardPage() {
   const { t } = useLanguage()
+  const router = useRouter()
+  const [me, setMe] = useState<SessionUser | null>(null)
+  const [loadingAuth, setLoadingAuth] = useState(true)
+  const [effectiveRole, setEffectiveRole] = useState<VendorRole | null>(null)
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
@@ -42,14 +124,67 @@ export default function DashboardPage() {
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
   const [uploading, setUploading] = useState(false)
 
+  // Order management state
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>('pending')
+  const [newOrderFlash, setNewOrderFlash] = useState(false)
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
+  const [updateError, setUpdateError] = useState<string>('')
+  const lastSeenPendingRef = useRef<string | null | undefined>(undefined)
+
+  // Auth on mount
   useEffect(() => {
-    supabase.from('restaurants').select('*').then(({ data }) => {
-      if (data) {
-        setRestaurants(data)
-        if (data.length > 0) setSelectedRestaurant(data[0])
+    let cancelled = false
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        if (!data?.user) { router.push('/account'); return }
+        setMe(data.user)
+      })
+      .catch(() => router.push('/account'))
+      .finally(() => { if (!cancelled) setLoadingAuth(false) })
+    return () => { cancelled = true }
+  }, [router])
+
+  // Scope restaurants: admins see all, customers see owned + team memberships
+  useEffect(() => {
+    if (!me) return
+    const isAdmin = ['super_admin', 'admin', 'moderator'].includes(me.role)
+    if (isAdmin) {
+      supabase.from('restaurants').select('*').order('created_at', { ascending: false })
+        .then(({ data }) => {
+          if (data) { setRestaurants(data); setSelectedRestaurant(prev => prev ?? data[0] ?? null) }
+        })
+      return
+    }
+    Promise.all([
+      supabase.from('restaurants').select('*').eq('customer_id', me.id),
+      supabase.from('restaurant_team').select('restaurants(*)').eq('customer_id', me.id).eq('status', 'active'),
+    ]).then(([direct, team]) => {
+      const acc = new Map<string, Restaurant>()
+      for (const r of direct.data ?? []) acc.set(r.id, r)
+      for (const entry of team.data ?? []) {
+        const r = (entry as unknown as { restaurants: Restaurant | null }).restaurants
+        if (r) acc.set(r.id, r)
       }
+      const list = Array.from(acc.values())
+      setRestaurants(list)
+      setSelectedRestaurant(prev => prev ?? list[0] ?? null)
     })
-  }, [])
+  }, [me])
+
+  // Resolve this session's role for the currently-selected restaurant
+  useEffect(() => {
+    if (!me || !selectedRestaurant) { setEffectiveRole(null); return }
+    if (['super_admin', 'admin', 'moderator'].includes(me.role)) { setEffectiveRole('admin'); return }
+    supabase.from('restaurant_team')
+      .select('role').eq('restaurant_id', selectedRestaurant.id)
+      .eq('customer_id', me.id).eq('status', 'active').maybeSingle()
+      .then(({ data }) => {
+        const r = (data?.role ?? null) as VendorRole | null
+        setEffectiveRole(r && ['owner', 'manager', 'staff'].includes(r) ? r : null)
+      })
+  }, [me, selectedRestaurant])
 
   const fetchOrders = useCallback(async (restaurantId: string) => {
     const { data } = await supabase
@@ -57,7 +192,23 @@ export default function DashboardPage() {
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('created_at', { ascending: false })
-    if (data) setOrders(data)
+    if (!data) return
+    setOrders(data)
+
+    // New-order detection: if the newest pending id changed (and it's not the
+    // initial load), flash + beep. Tracked in a ref so we don't need to add
+    // it to fetchOrders' dep array.
+    const newestPending = data.find(o => o.status === 'pending')?.id ?? null
+    if (lastSeenPendingRef.current === undefined) {
+      lastSeenPendingRef.current = newestPending
+    } else if (newestPending && newestPending !== lastSeenPendingRef.current) {
+      playNewOrderBeep()
+      setNewOrderFlash(true)
+      setTimeout(() => setNewOrderFlash(false), 4000)
+      lastSeenPendingRef.current = newestPending
+    } else if (!newestPending) {
+      lastSeenPendingRef.current = null
+    }
   }, [])
 
   const fetchMenu = useCallback(async (restaurantId: string) => {
@@ -98,9 +249,26 @@ export default function DashboardPage() {
     }
   }
 
-  async function updateOrderStatus(orderId: string, status: string) {
-    await supabase.from('orders').update({ status }).eq('id', orderId)
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: status as Order['status'] } : o))
+  async function updateOrderStatus(orderId: string, status: TargetStatus) {
+    setUpdatingOrderId(orderId)
+    setUpdateError('')
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setUpdateError(data.error ?? 'Erreur / Error')
+        return
+      }
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: status as Order['status'] } : o))
+    } catch (e) {
+      setUpdateError((e as Error).message)
+    } finally {
+      setUpdatingOrderId(null)
+    }
   }
 
   async function toggleItemAvailability(item: MenuItem) {
@@ -112,6 +280,14 @@ export default function DashboardPage() {
     if (!confirm(t('dash.deleteConfirm'))) return
     await supabase.from('menu_items').delete().eq('id', id)
     setMenuItems(prev => prev.filter(m => m.id !== id))
+  }
+
+  if (loadingAuth || !me) {
+    return (
+      <div className="min-h-screen bg-orange-50 flex items-center justify-center px-4">
+        <div className="text-3xl animate-pulse text-gray-300">…</div>
+      </div>
+    )
   }
 
   if (restaurants.length === 0) {
@@ -208,47 +384,124 @@ export default function DashboardPage() {
 
           {/* Orders Tab */}
           {tab === 'orders' && (
-            <div className="space-y-3">
-              {orders.length === 0 && (
-                <div className="text-center py-12 text-gray-400">
-                  <div className="text-4xl mb-3">📋</div>
-                  <p>{t('dash.noOrders')}</p>
+            <div>
+              {newOrderFlash && (
+                <div className="bg-orange-500 text-white rounded-2xl px-4 py-3 mb-3 text-sm font-semibold shadow-lg animate-pulse">
+                  🔔 Nouvelle commande! / New order!
                 </div>
               )}
-              {orders.map(order => (
-                <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className="font-semibold text-gray-900">{order.customer_name}</p>
-                      <p className="text-sm text-gray-500">{order.customer_phone}</p>
-                    </div>
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLORS[order.status]}`}>
-                      {t(`status.${order.status}` as Parameters<typeof t>[0])}
-                    </span>
-                  </div>
-                  <div className="text-sm text-gray-600 mb-3">
-                    {Array.isArray(order.items) && order.items.map((item: { name: string; quantity: number; price: number }, i: number) => (
-                      <span key={i}>{item.quantity}× {item.name}{i < order.items.length - 1 ? ', ' : ''}</span>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-orange-500">CHF {Number(order.total_price).toFixed(2)}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400">
-                        {new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      {STATUS_NEXT[order.status] && (
-                        <button
-                          onClick={() => updateOrderStatus(order.id, STATUS_NEXT[order.status])}
-                          className="bg-orange-500 text-white text-xs px-3 py-1.5 rounded-full font-semibold hover:bg-orange-600 transition-colors"
-                        >
-                          → {t(`status.${STATUS_NEXT[order.status]}` as Parameters<typeof t>[0])}
-                        </button>
-                      )}
-                    </div>
-                  </div>
+
+              {/* Filter bar with counts */}
+              <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                {(['pending', 'active', 'completed', 'all'] as OrderFilter[]).map(f => {
+                  const statuses = FILTER_STATUSES[f]
+                  const count = statuses === null ? orders.length : orders.filter(o => statuses.includes(o.status)).length
+                  const active = orderFilter === f
+                  return (
+                    <button
+                      key={f}
+                      onClick={() => setOrderFilter(f)}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                        active ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 shadow-sm hover:text-gray-900'
+                      }`}
+                    >
+                      {FILTER_LABEL[f]} ({count})
+                    </button>
+                  )
+                })}
+              </div>
+
+              {updateError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-3 py-2 mb-3">
+                  {updateError}
                 </div>
-              ))}
+              )}
+
+              {/* Filtered list */}
+              {(() => {
+                const statuses = FILTER_STATUSES[orderFilter]
+                const visible = statuses === null ? orders : orders.filter(o => statuses.includes(o.status))
+                if (visible.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-gray-400">
+                      <div className="text-4xl mb-3">📋</div>
+                      <p className="text-sm">Aucune commande / No orders</p>
+                    </div>
+                  )
+                }
+                return (
+                  <div className="space-y-3">
+                    {visible.map(order => {
+                      const id4 = orderShortId(order.id)
+                      const created = new Date(order.created_at)
+                      const dateStr = created.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
+                      const timeStr = created.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                      const actions = (STATUS_ACTIONS[order.status] ?? [])
+                        .filter(a => effectiveRole === 'admin' || (effectiveRole && a.roles.includes(effectiveRole as 'owner' | 'manager' | 'staff')))
+                      return (
+                        <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm">
+                          <div className="flex items-start justify-between mb-2 gap-3 flex-wrap">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-900">
+                                {order.customer_name}
+                                <span className="ml-2 text-gray-400 font-mono text-xs">#{id4}</span>
+                              </p>
+                              {order.customer_phone ? (
+                                <a
+                                  href={buildWhatsappHref(order.customer_phone)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-green-600 hover:text-green-700 transition-colors font-mono"
+                                >
+                                  📱 {order.customer_phone}
+                                </a>
+                              ) : (
+                                <p className="text-sm text-gray-400">—</p>
+                              )}
+                              <p className="text-xs text-gray-400 mt-0.5">{dateStr} · {timeStr}</p>
+                            </div>
+                            <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${STATUS_COLORS[order.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                              {STATUS_LABEL[order.status] ?? order.status}
+                            </span>
+                          </div>
+
+                          <ul className="text-sm text-gray-700 space-y-0.5 mb-3">
+                            {Array.isArray(order.items) && order.items.map((item: { name: string; quantity: number; price: number }, i: number) => (
+                              <li key={i} className="flex items-center justify-between">
+                                <span>{item.quantity}× {item.name}</span>
+                                <span className="text-gray-500 font-mono text-xs">{(item.quantity * item.price).toLocaleString()} FCFA</span>
+                              </li>
+                            ))}
+                          </ul>
+
+                          <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-gray-50">
+                            <span className="font-bold text-orange-500">{Number(order.total_price).toLocaleString()} FCFA</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {actions.length === 0 && (
+                                <span className="text-xs text-gray-400">— / —</span>
+                              )}
+                              {actions.map(a => (
+                                <button
+                                  key={a.target}
+                                  onClick={() => updateOrderStatus(order.id, a.target)}
+                                  disabled={updatingOrderId === order.id}
+                                  className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+                                    a.destructive
+                                      ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                                      : 'bg-orange-500 text-white hover:bg-orange-600'
+                                  }`}
+                                >
+                                  {updatingOrderId === order.id ? '…' : a.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
           )}
 

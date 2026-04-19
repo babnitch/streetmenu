@@ -1022,11 +1022,17 @@ export default function AccountPage() {
                           </div>
                         )}
 
-                        {/* Restaurant page link */}
-                        <a href={`/restaurant/${activeRest.id}`} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-orange-500 hover:text-orange-600 font-semibold mb-5">
-                          ↗ Voir la page / View page
-                        </a>
+                        {/* Quick links */}
+                        <div className="flex items-center gap-4 mb-5 flex-wrap">
+                          <a href={`/restaurant/${activeRest.id}`} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm text-orange-500 hover:text-orange-600 font-semibold">
+                            ↗ Voir la page / View page
+                          </a>
+                          <Link href="/dashboard"
+                            className="inline-flex items-center gap-1.5 text-sm bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-xl font-semibold transition-colors">
+                            📦 Gérer les commandes / Manage orders
+                          </Link>
+                        </div>
 
                         {/* Actions (owner only) */}
                         {activeRest.teamRole === 'owner' && (
