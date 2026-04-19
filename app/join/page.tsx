@@ -29,12 +29,12 @@ const CUISINE_TYPES = [
   'Autre',
 ]
 
-const INPUT = 'w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-50 bg-white'
+const INPUT = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand-light bg-white'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs text-gray-500 font-medium mb-1.5">{label}</label>
+      <label className="block text-xs text-ink-secondary font-medium mb-1.5">{label}</label>
       {children}
     </div>
   )
@@ -120,15 +120,15 @@ export default function JoinPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-orange-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-brand-light flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl shadow-xl p-10 max-w-md w-full text-center">
           <div className="text-6xl mb-5">🎉</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('join.successTitle')}</h2>
-          <p className="text-gray-600 mb-1 font-medium">{t('join.successSub')}</p>
-          <p className="text-sm text-gray-400 mb-8">{t('join.successSub2')}</p>
+          <h2 className="text-2xl font-bold text-ink-primary mb-2">{t('join.successTitle')}</h2>
+          <p className="text-ink-secondary mb-1 font-medium">{t('join.successSub')}</p>
+          <p className="text-sm text-ink-tertiary mb-8">{t('join.successSub2')}</p>
           <Link
             href="/"
-            className="inline-block bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 rounded-xl font-semibold transition-colors"
+            className="inline-block bg-brand hover:bg-brand-dark text-white px-8 py-3 rounded-xl font-semibold transition-colors"
           >
             {t('join.backToMap')}
           </Link>
@@ -138,17 +138,17 @@ export default function JoinPage() {
   }
 
   return (
-    <div className="min-h-screen bg-orange-50">
+    <div className="min-h-screen bg-brand-light">
       {/* Nav */}
-      <div className="bg-white border-b border-orange-100 sticky top-0 z-10">
+      <div className="bg-white border-b border-brand-light sticky top-0 z-10">
         <div className="max-w-xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <span className="bg-orange-500 text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
-            <span className="font-bold text-gray-900 text-base">Ndjoka &amp; Tchop</span>
+            <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
+            <span className="font-bold text-ink-primary text-base">Ndjoka &amp; Tchop</span>
           </Link>
           <div className="flex items-center gap-3">
             <LanguageToggle />
-            <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
+            <Link href="/" className="text-sm text-ink-secondary hover:text-ink-primary transition-colors">
               {t('join.back')}
             </Link>
           </div>
@@ -158,16 +158,16 @@ export default function JoinPage() {
       <div className="max-w-xl mx-auto px-4 py-10 pb-16">
         {/* Hero */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-orange-100 rounded-3xl text-4xl mb-5">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-brand-light rounded-3xl text-4xl mb-5">
             🏪
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2 leading-tight">
+          <h1 className="text-3xl font-bold text-ink-primary mb-2 leading-tight">
             {t('join.headline1')}<br />{t('join.headline2')}
           </h1>
-          <p className="text-gray-500 text-base font-medium">
+          <p className="text-ink-secondary text-base font-medium">
             {t('join.subHeadline')}
           </p>
-          <p className="text-sm text-gray-400 mt-2 max-w-sm mx-auto">
+          <p className="text-sm text-ink-tertiary mt-2 max-w-sm mx-auto">
             {t('join.sub2')}
           </p>
         </div>
@@ -175,14 +175,14 @@ export default function JoinPage() {
         {/* Benefits pills */}
         <div className="flex flex-wrap justify-center gap-2 mb-8">
           {(['join.pill1', 'join.pill2', 'join.pill3', 'join.pill4'] as const).map(key => (
-            <span key={key} className="bg-white border border-orange-100 text-gray-600 text-xs font-medium px-3 py-1.5 rounded-full shadow-sm">
+            <span key={key} className="bg-white border border-brand-light text-ink-secondary text-xs font-medium px-3 py-1.5 rounded-full shadow-sm">
               {t(key)}
             </span>
           ))}
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-sm border border-orange-100 p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-sm border border-brand-light p-6 space-y-5">
           <Field label={t('join.nameLbl')}>
             <input
               value={form.name}
@@ -254,10 +254,10 @@ export default function JoinPage() {
                   </div>
                 </div>
               ) : (
-                <div className="border-2 border-dashed border-orange-200 rounded-xl p-8 text-center hover:border-orange-400 transition-colors">
+                <div className="border-2 border-dashed border-brand-badge rounded-xl p-8 text-center hover:border-brand transition-colors">
                   <div className="text-3xl mb-2">📷</div>
-                  <p className="text-sm text-gray-500 font-medium">{t('join.photoHint')}</p>
-                  <p className="text-xs text-gray-400 mt-1">{t('join.photoSize')}</p>
+                  <p className="text-sm text-ink-secondary font-medium">{t('join.photoHint')}</p>
+                  <p className="text-xs text-ink-tertiary mt-1">{t('join.photoSize')}</p>
                 </div>
               )}
               <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
@@ -265,18 +265,18 @@ export default function JoinPage() {
           </Field>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 rounded-xl px-4 py-3">{error}</p>
+            <p className="text-sm text-danger bg-brand-light rounded-xl px-4 py-3">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={submitting || uploading}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3.5 rounded-xl font-bold text-base transition-colors"
+            className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-xl font-bold text-base transition-colors"
           >
             {submitting || uploading ? t('join.submitting') : t('join.submitBtn')}
           </button>
 
-          <p className="text-center text-xs text-gray-400 leading-relaxed">
+          <p className="text-center text-xs text-ink-tertiary leading-relaxed">
             {t('join.terms')}
           </p>
         </form>
