@@ -181,7 +181,10 @@ function buildSummaryMessage(restaurantName: string, items: CartItem[], total: n
 }
 
 // ── Vendor fan-out on order creation ─────────────────────────────────────────
-async function vendorRecipients(restaurantId: string): Promise<string[]> {
+// Exported so web-initiated orders (app/api/whatsapp/notify-order) reuse the
+// exact same recipient resolution and message format as WhatsApp-initiated
+// orders. Single source of truth for "who gets pinged when an order lands."
+export async function vendorRecipients(restaurantId: string): Promise<string[]> {
   const phones = new Set<string>()
 
   const { data: rest } = await supabaseAdmin
@@ -202,13 +205,22 @@ async function vendorRecipients(restaurantId: string): Promise<string[]> {
   return Array.from(phones)
 }
 
-async function notifyVendorsOfNewOrder(
+// Item shape accepted by the notifier. Matches CartItem's relevant subset, so
+// the WhatsApp ordering flow passes CartItem[] and the web flow can pass the
+// minimal {name, quantity, price} tuples from orders.items JSONB.
+export interface OrderNotificationItem {
+  name: string
+  quantity: number
+  price: number
+}
+
+export async function notifyVendorsOfNewOrder(
   restaurantId: string,
   restaurantName: string,
   orderId: string,
   customerName: string,
   customerPhone: string,
-  items: CartItem[],
+  items: OrderNotificationItem[],
   total: number,
 ): Promise<void> {
   const recipients = await vendorRecipients(restaurantId)

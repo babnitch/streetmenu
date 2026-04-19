@@ -71,33 +71,42 @@ interface OrderPayload {
   created_at: string
 }
 
-export async function notifyVendorNewOrder(
-  vendorWhatsapp: string,
+function last4(orderId: string): string {
+  return orderId.replace(/-/g, '').slice(-4).toUpperCase()
+}
+
+// Sent to a customer right after their web order is inserted, before the
+// vendor has accepted/prepared anything. "Placed" distinguishes it from
+// notifyCustomerOrderConfirmed, which fires when the vendor sends "ok XXXX".
+export async function notifyCustomerOrderPlaced(
+  customerPhone: string,
   order: OrderPayload,
-  restaurantName: string
+  restaurantName: string,
+  trackingUrl: string,
 ): Promise<void> {
-  const time = new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-  const itemLines = Array.isArray(order.items)
-    ? order.items.map((i: OrderItem) => `  • ${i.quantity}× ${i.name} — ${Number(i.price).toLocaleString()} FCFA`).join('\n')
-    : ''
+  const id4 = last4(order.id)
+  const items = Array.isArray(order.items) ? order.items : []
+  const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} — ${Number(i.price).toLocaleString()} FCFA`).join('\n')
 
   const msg = [
-    `🛒 *Nouvelle commande / New Order* — ${restaurantName}`,
-    `🕐 ${time}`,
+    `✅ *Commande confirmée / Order confirmed!*`,
     ``,
-    `*Client / Customer:* ${order.customer_name}`,
-    `*Tél / Phone:* ${order.customer_phone}`,
+    `🧾 Commande #${id4}`,
+    `🏪 ${restaurantName}`,
     ``,
-    `*Articles / Items:*`,
+    `🍽️ *Articles / Items:*`,
     itemLines,
     ``,
-    `*Total: ${Number(order.total_price).toLocaleString()} FCFA*`,
+    `💰 *Total: ${Number(order.total_price).toLocaleString()} FCFA*`,
     ``,
-    `Répondez "commandes" pour voir toutes vos commandes.`,
-    `Reply "orders" to see all your orders.`,
+    `Le restaurant a été notifié et prépare votre commande!`,
+    `The restaurant has been notified and is preparing your order!`,
+    ``,
+    `Suivez votre commande ici / Track your order here:`,
+    trackingUrl,
   ].join('\n')
 
-  await sendWhatsApp(vendorWhatsapp, msg)
+  await sendWhatsApp(customerPhone, msg)
 }
 
 export async function notifyCustomerOrderConfirmed(
@@ -141,13 +150,13 @@ export async function notifyCustomerOrderCancelled(
   order: OrderPayload,
   restaurantName: string
 ): Promise<void> {
-  const last4 = order.id.replace(/-/g, '').slice(-4).toUpperCase()
+  const id4 = last4(order.id)
   const msg = [
     `❌ *Commande annulée / Order Cancelled*`,
     ``,
     `Bonjour ${order.customer_name},`,
-    `Votre commande #${last4} chez *${restaurantName}* a été annulée par le restaurant.`,
-    `Your order #${last4} at *${restaurantName}* has been cancelled by the restaurant.`,
+    `Votre commande #${id4} chez *${restaurantName}* a été annulée par le restaurant.`,
+    `Your order #${id4} at *${restaurantName}* has been cancelled by the restaurant.`,
     ``,
     `Envoyez "commander" pour passer une nouvelle commande.`,
     `Send "commander" to place a new order.`,
