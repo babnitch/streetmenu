@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import {
+  handleOrderCommand,
+  handleOrderingSession,
+  handleVendorOrderAction,
+  type OrderingCustomer,
+} from '@/lib/whatsapp/ordering'
 
 export const dynamic = 'force-dynamic'
 
@@ -143,7 +149,7 @@ export async function POST(req: NextRequest) {
 
   // Look up registered customer (or check suspension)
   const { data: customer } = await supabaseAdmin
-    .from('customers').select('id, name, city, status, deleted_at')
+    .from('customers').select('id, name, phone, city, status, deleted_at')
     .eq('phone', phone).maybeSingle()
 
   if (customer?.deleted_at || customer?.status === 'deleted') {
@@ -318,6 +324,23 @@ async function handleSession(
   mediaUrl:  string,
 ): Promise<NextResponse> {
   const { user_type, step, data } = session
+
+  // ── Ordering session — handed off to lib/whatsapp/ordering.ts ────────────
+  if (user_type === 'ordering') {
+    const { data: customer } = await supabaseAdmin
+      .from('customers').select('id, name, phone, city')
+      .eq('phone', phone).maybeSingle()
+    if (!customer) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, '❌ Session expirée. Envoyez "aide". / Session expired. Send "help".')
+      return ok()
+    }
+    return handleOrderingSession(
+      from, phone, body, cmd,
+      session as unknown as Parameters<typeof handleOrderingSession>[4],
+      customer as OrderingCustomer,
+    )
+  }
 
   // ────────────────────────────────────────────────────────────────────────────
   // Customer signup (2 steps: name → city)
@@ -606,7 +629,12 @@ async function handleVendor(
           `📷 "photo restaurant" → Changer la photo / Update restaurant photo\n` +
           `🍽️ "menu" → Voir votre menu / View your menu\n`
         : `🍽️ "menu" → Voir le menu / View menu\n`) +
-      (canViewOrders ? `📦 "commandes" → Voir les commandes / View orders\n` : '') +
+      (canViewOrders
+        ? `📦 "commandes" → Voir les commandes / View orders\n` +
+          `✅ "ok XXXX" → Confirmer une commande / Confirm an order\n` +
+          `🎉 "pret XXXX" → Commande prête / Order ready\n` +
+          `❌ "annuler XXXX" → Annuler une commande / Cancel an order\n`
+        : '') +
       `🔗 "restaurant" → Voir votre page / View your page\n` +
       ownerCmds +
       `❓ "aide" → Ce message / This message`)
@@ -953,6 +981,12 @@ async function handleVendor(
     return ok()
   }
 
+  // ── VENDOR ORDER ACTIONS: ok XXXX / pret XXXX / annuler XXXX ─────────────
+  if (canViewOrders) {
+    const actionResp = await handleVendorOrderAction(from, body, { id: restaurant.id, name: restaurant.name })
+    if (actionResp) return actionResp
+  }
+
   // ── Unknown ──────────────────────────────────────────────────────────────
   await sendWhatsApp(from,
     'Je n\'ai pas compris. Envoyez *aide* pour la liste des commandes.\n' +
@@ -978,17 +1012,24 @@ async function handleCustomer(
   from:     string,
   phone:    string,
   cmd:      string,
-  customer: { id: string; name: string; city: string },
+  customer: { id: string; name: string; phone: string; city: string },
 ): Promise<NextResponse> {
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
     await sendWhatsApp(from,
       `👋 *Bonjour ${customer.name}!* / *Hello ${customer.name}!*\n\n` +
-      `🌍 Parcourez les restaurants / Browse:\n${BASE_URL}\n\n` +
-      `🔑 Votre compte / Your account:\n${BASE_URL}/account\n\n` +
-      `🏪 Envoyez *restaurant* pour inscrire votre restaurant!\n` +
-      `Send *restaurant* to register your restaurant!`)
+      `📋 *Commandes disponibles / Available commands:*\n` +
+      `🍽️ "commander" → Passer une commande / Place an order\n` +
+      `📦 "mes commandes" → Voir vos commandes / View your orders\n` +
+      `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
+      `❓ "aide" → Ce message / This message\n\n` +
+      `🌍 Parcourez / Browse: ${BASE_URL}\n` +
+      `🔑 Mon compte / My account: ${BASE_URL}/account`)
     return ok()
   }
+
+  // Customer ordering intents (commander / mes commandes)
+  const ordering = await handleOrderCommand(from, phone, cmd, customer as OrderingCustomer)
+  if (ordering) return ordering
 
   if (cmd === 'restaurant' || cmd === 'inscription' || cmd === 'register') {
     await supabaseAdmin.from('signup_sessions').upsert({

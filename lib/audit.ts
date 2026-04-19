@@ -2,7 +2,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export interface AuditEntry {
   action: string
-  targetType: 'customer' | 'restaurant' | 'admin_user' | 'restaurant_team' | 'voucher'
+  targetType: 'customer' | 'restaurant' | 'admin_user' | 'restaurant_team' | 'voucher' | 'order'
   targetId: string
   performedBy?: string | null
   performedByType?: string | null

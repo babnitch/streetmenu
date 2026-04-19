@@ -106,3 +106,23 @@ export async function notifyCustomerOrderReady(
 
   await sendWhatsApp(customerPhone, msg)
 }
+
+export async function notifyCustomerOrderCancelled(
+  customerPhone: string,
+  order: OrderPayload,
+  restaurantName: string
+): Promise<void> {
+  const last4 = order.id.replace(/-/g, '').slice(-4).toUpperCase()
+  const msg = [
+    `❌ *Commande annulée / Order Cancelled*`,
+    ``,
+    `Bonjour ${order.customer_name},`,
+    `Votre commande #${last4} chez *${restaurantName}* a été annulée par le restaurant.`,
+    `Your order #${last4} at *${restaurantName}* has been cancelled by the restaurant.`,
+    ``,
+    `Envoyez "commander" pour passer une nouvelle commande.`,
+    `Send "commander" to place a new order.`,
+  ].join('\n')
+
+  await sendWhatsApp(customerPhone, msg)
+}

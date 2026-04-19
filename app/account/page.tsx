@@ -752,19 +752,7 @@ export default function AccountPage() {
                             </Link>
                           </div>
                         ) : orders.map(order => (
-                          <div key={order.id} className="bg-white rounded-2xl shadow-sm p-4">
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="font-semibold text-gray-900 text-sm">{t('account.orderAt')} {order.restaurants?.name ?? '—'}</p>
-                              <span className="text-xs text-gray-400">{new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
-                            </div>
-                            <p className="text-xs text-gray-400 mb-2">
-                              {Array.isArray(order.items) ? order.items.map((it: { name: string; quantity: number }) => `${it.quantity}× ${it.name}`).join(', ') : ''}
-                            </p>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-orange-500 text-sm">{Number(order.total_price).toLocaleString()} FCFA</span>
-                              <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-medium capitalize">{order.status}</span>
-                            </div>
-                          </div>
+                          <OrderCard key={order.id} order={order} orderAtLabel={t('account.orderAt')} />
                         ))}
                       </div>
                     )}
@@ -1281,5 +1269,81 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
       {status}
     </span>
+  )
+}
+
+const ORDER_STATUS_STYLES: Record<string, { cls: string; label: string }> = {
+  pending:   { cls: 'bg-amber-100 text-amber-700',   label: '⏳ En attente / Pending' },
+  confirmed: { cls: 'bg-blue-100 text-blue-700',     label: '✅ Confirmée / Confirmed' },
+  preparing: { cls: 'bg-indigo-100 text-indigo-700', label: '👨‍🍳 En préparation / Preparing' },
+  ready:     { cls: 'bg-green-100 text-green-700',   label: '🎉 Prête / Ready' },
+  completed: { cls: 'bg-gray-100 text-gray-700',     label: '🏁 Terminée / Completed' },
+  cancelled: { cls: 'bg-red-100 text-red-600',       label: '❌ Annulée / Cancelled' },
+}
+
+function OrderStatusBadge({ status }: { status: string }) {
+  const s = ORDER_STATUS_STYLES[status] ?? { cls: 'bg-gray-100 text-gray-600', label: status }
+  return (
+    <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${s.cls}`}>
+      {s.label}
+    </span>
+  )
+}
+
+function orderShortId(id: string): string {
+  return id.replace(/-/g, '').slice(-4).toUpperCase()
+}
+
+function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const items: Array<{ name: string; quantity: number; price?: number }> = Array.isArray(order.items) ? order.items : []
+  const itemsSummary = items.map(i => `${i.quantity}× ${i.name}`).join(', ')
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full text-left"
+      >
+        <div className="flex items-center justify-between mb-1 gap-2">
+          <p className="font-semibold text-gray-900 text-sm truncate">
+            {orderAtLabel} {order.restaurants?.name ?? '—'}
+            <span className="ml-2 text-gray-400 font-mono text-xs">#{orderShortId(order.id)}</span>
+          </p>
+          <span className="text-xs text-gray-400 flex-shrink-0">{new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
+        </div>
+        <p className="text-xs text-gray-400 mb-2 truncate">{itemsSummary}</p>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="font-bold text-orange-500 text-sm">{Number(order.total_price).toLocaleString()} FCFA</span>
+          <div className="flex items-center gap-2">
+            <OrderStatusBadge status={order.status} />
+            <span className="text-gray-300 text-sm">{expanded ? '▾' : '▸'}</span>
+          </div>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+          {items.length === 0 ? (
+            <p className="text-xs text-gray-400">Aucun détail d&apos;article / No item details</p>
+          ) : (
+            <ul className="space-y-1">
+              {items.map((it, idx) => (
+                <li key={idx} className="flex items-center justify-between text-sm text-gray-700">
+                  <span>{it.quantity}× {it.name}</span>
+                  {typeof it.price === 'number' && (
+                    <span className="text-gray-500 font-mono">{(it.quantity * it.price).toLocaleString()} FCFA</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+            <span className="text-xs text-gray-500 uppercase tracking-wide">Total</span>
+            <span className="font-bold text-gray-900 font-mono">{Number(order.total_price).toLocaleString()} FCFA</span>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
