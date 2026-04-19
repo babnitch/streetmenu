@@ -732,14 +732,11 @@ export default function AccountPage() {
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'customer' && (
               <>
-                {/* Tab bar — icon-only on mobile, icon+label on sm+.
-                    overflow-x-auto is a safety net; with icon-only the 5
-                    tabs already fit on a 320px viewport. Scrollbar hidden
-                    visually since we don't want it to show in normal use. */}
-                <div
-                  className="flex bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden"
-                  style={{ scrollbarWidth: 'none' }}
-                >
+                {/* Tab bar — wraps to 2 rows on mobile (3 per row), single
+                    row on sm+ (5 per row). Never scrolls; every tab is
+                    always fully visible. On mobile each tab stacks its
+                    icon above the label; on sm+ they sit inline. */}
+                <div className="flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
                   <TabBtn icon="🏷️" label={t('account.vouchersTab')}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
                   <TabBtn icon="📋" label={t('account.ordersTab')}     active={customerTab === 'orders'}    onClick={() => setCustomerTab('orders')} />
                   {myRestaurants.length > 0 && (
@@ -1281,19 +1278,20 @@ function TabBtn({
   active: boolean
   onClick: () => void
 }) {
+  // basis ≈ 1/3 on mobile so 3 tabs fit per row and the 4th/5th wrap.
+  // basis-0 + flex-1 on sm+ so 5 tabs share a single row evenly.
+  // min-w-0 lets labels truncate if they ever get long.
   return (
     <button
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+      className={`basis-[calc(33.333%-0.25rem)] sm:basis-0 flex-1 min-w-0 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
         active ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
       }`}
     >
-      <span aria-hidden="true">{icon}</span>
-      {/* Label hides on mobile (<640px) so 5 tabs always fit; icons still
-          distinguish them, title/aria-label preserve accessibility. */}
-      <span className="hidden sm:inline sm:ml-1">{label}</span>
+      <span aria-hidden="true" className="text-base leading-none">{icon}</span>
+      <span className="truncate">{label}</span>
     </button>
   )
 }
