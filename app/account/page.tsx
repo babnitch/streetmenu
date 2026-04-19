@@ -732,8 +732,9 @@ export default function AccountPage() {
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'customer' && (
               <>
-                {/* Tab bar */}
-                <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1 overflow-x-auto">
+                {/* Tab bar — overflow-x-auto covers any viewport too narrow
+                    for short-form labels (emoji + one word) to fit. */}
+                <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1 overflow-x-auto pb-1">
                   <TabBtn label={`🏷️ ${t('account.vouchersTab')}`}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
                   <TabBtn label={`📋 ${t('account.ordersTab')}`}     active={customerTab === 'orders'}    onClick={() => setCustomerTab('orders')} />
                   {myRestaurants.length > 0 && (
