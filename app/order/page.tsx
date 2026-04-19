@@ -4,19 +4,27 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import Image from 'next/image'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage } from '@/lib/languageContext'
-import { useAuth } from '@/lib/authContext'
 import { supabase } from '@/lib/supabase'
 import TopNav from '@/components/TopNav'
 import { Voucher, CustomerVoucher } from '@/types'
+
+// Customer session from the JWT cookie (what /account actually writes).
+// The legacy useAuth hook reads Supabase Auth, which this app doesn't use
+// for customers — so it always returns null here. Fetching /api/auth/me
+// directly is the pattern already used by app/page.tsx and TopNav.
+interface SessionUser { id: string; name: string; phone: string; role: string }
 
 export default function OrderPage() {
   const { items, totalPrice, totalItems, restaurantId, updateQuantity, clearCart } = useCart()
   const router = useRouter()
   const { t } = useLanguage()
-  const { user } = useAuth()
+
+  const [me, setMe] = useState<SessionUser | null>(null)
+  const [loadingMe, setLoadingMe] = useState(true)
 
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -31,17 +39,33 @@ export default function OrderPage() {
   const [applyingVoucher, setApplyingVoucher] = useState(false)
   const [myVouchers, setMyVouchers] = useState<CustomerVoucher[]>([])
 
+  // Pull session on mount; only treat role='customer' as "logged in" for the
+  // purposes of this page (admins and vendors don't have customer-ordering
+  // UX needs here).
   useEffect(() => {
-    if (!user) return
+    let cancelled = false
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        if (data?.user?.role === 'customer') setMe(data.user)
+      })
+      .catch(() => null)
+      .finally(() => { if (!cancelled) setLoadingMe(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!me) return
     supabase
       .from('customer_vouchers')
       .select('*, vouchers(*)')
-      .eq('customer_id', user.id)
+      .eq('customer_id', me.id)
       .is('used_at', null)
       .then(({ data }) => {
         if (data) setMyVouchers(data.filter(cv => cv.vouchers?.is_active))
       })
-  }, [user])
+  }, [me])
 
   const discountAmount = appliedVoucher
     ? appliedVoucher.discount_type === 'percent'
@@ -78,11 +102,11 @@ export default function OrderPage() {
       setApplyingVoucher(false)
       return
     }
-    if (user) {
+    if (me) {
       const { data: cv } = await supabase
         .from('customer_vouchers')
         .select('*')
-        .eq('customer_id', user.id)
+        .eq('customer_id', me.id)
         .eq('voucher_id', voucher.id)
         .not('used_at', 'is', null)
         .maybeSingle()
@@ -94,7 +118,7 @@ export default function OrderPage() {
       const { data: claimData } = await supabase
         .from('customer_vouchers')
         .select('id')
-        .eq('customer_id', user.id)
+        .eq('customer_id', me.id)
         .eq('voucher_id', voucher.id)
         .is('used_at', null)
         .maybeSingle()
@@ -116,15 +140,21 @@ export default function OrderPage() {
     e.preventDefault()
     if (!restaurantId || items.length === 0) return
 
+    // Logged-in customers use their session identity; guests use form input.
+    // Source of truth matters: if the user edited the form then logged in
+    // mid-flow, we still trust the session over stale form state.
+    const customerName  = me?.name  ?? name.trim()
+    const customerPhone = me?.phone ?? phone.trim()
+
     setSubmitting(true)
     const { data, error } = await supabase.from('orders').insert({
       restaurant_id: restaurantId,
-      customer_name: name.trim(),
-      customer_phone: phone.trim(),
+      customer_name: customerName,
+      customer_phone: customerPhone,
       items: items,
       total_price: finalPrice,
       status: 'pending',
-      customer_id: user?.id ?? null,
+      customer_id: me?.id ?? null,
       voucher_code: appliedVoucher?.code ?? null,
       discount_amount: discountAmount > 0 ? discountAmount : null,
     }).select().single()
@@ -170,6 +200,8 @@ export default function OrderPage() {
   }
 
   if (success) {
+    // Confirmed-order phone: session value when logged in, form value otherwise.
+    const confirmedPhone = me?.phone ?? phone
     return (
       <div className="min-h-screen bg-orange-50 flex items-center justify-center px-4">
         <div className="text-center max-w-sm">
@@ -184,16 +216,33 @@ export default function OrderPage() {
           <div className="bg-white rounded-2xl p-4 mb-6 shadow-sm text-left">
             <p className="text-sm text-gray-600">
               {t('order.contactPre')}{' '}
-              <strong className="text-gray-900">{phone}</strong>{' '}
+              <strong className="text-gray-900">{confirmedPhone}</strong>{' '}
               {t('order.contactPost')}
             </p>
           </div>
-          <button
-            onClick={() => router.push('/')}
-            className="bg-orange-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-orange-600 transition-colors w-full"
-          >
-            {t('order.backToMap')}
-          </button>
+          {me ? (
+            <div className="space-y-2">
+              <Link
+                href="/account"
+                className="block bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-xl font-semibold transition-colors w-full"
+              >
+                📦 Voir mes commandes / View my orders
+              </Link>
+              <button
+                onClick={() => router.push('/')}
+                className="block text-gray-500 text-sm py-2 w-full hover:text-gray-700 transition-colors"
+              >
+                {t('order.backToMap')}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => router.push('/')}
+              className="bg-orange-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-orange-600 transition-colors w-full"
+            >
+              {t('order.backToMap')}
+            </button>
+          )}
         </div>
       </div>
     )
@@ -318,37 +367,75 @@ export default function OrderPage() {
           )}
         </div>
 
-        {/* Customer Form */}
+        {/* Customer identity — session if logged in, inputs otherwise */}
         <form onSubmit={handleSubmit}>
           <h2 className="text-base font-bold text-gray-900 mb-3">{t('order.detailsTitle')}</h2>
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-4">
-            <div className="px-4 py-3 border-b border-gray-50">
-              <label className="block text-xs text-gray-500 mb-1">{t('order.nameLbl')}</label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder={t('order.namePh')}
-                required
-                className="w-full text-sm text-gray-900 placeholder-gray-400 outline-none"
-              />
+
+          {loadingMe ? (
+            <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+              <p className="text-sm text-gray-400 animate-pulse">…</p>
             </div>
-            <div className="px-4 py-3">
-              <label className="block text-xs text-gray-500 mb-1">{t('order.phoneLbl')}</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder={t('order.phonePh')}
-                required
-                className="w-full text-sm text-gray-900 placeholder-gray-400 outline-none"
-              />
+          ) : me ? (
+            // Logged-in: read-only identity, no inputs
+            <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-4">
+              <div className="px-4 py-3 bg-orange-50 border-b border-orange-100">
+                <p className="text-sm font-semibold text-gray-900">👋 Bonjour {me.name}!</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Hello {me.name}! <span className="text-gray-400">— Ndjoka & Tchop</span>
+                </p>
+              </div>
+              <div className="px-4 py-3">
+                <label className="block text-xs text-gray-400 mb-1">
+                  {t('order.phoneLbl')} <span className="text-gray-300">· non modifiable / not editable</span>
+                </label>
+                <p className="text-sm text-gray-900 font-mono">{me.phone}</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            // Guest: inputs + "log in to track" banner
+            <>
+              <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-4">
+                <div className="px-4 py-3 border-b border-gray-50">
+                  <label className="block text-xs text-gray-500 mb-1">{t('order.nameLbl')}</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder={t('order.namePh')}
+                    required
+                    className="w-full text-sm text-gray-900 placeholder-gray-400 outline-none"
+                  />
+                </div>
+                <div className="px-4 py-3">
+                  <label className="block text-xs text-gray-500 mb-1">{t('order.phoneLbl')}</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder={t('order.phonePh')}
+                    required
+                    className="w-full text-sm text-gray-900 placeholder-gray-400 outline-none"
+                  />
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 mb-4 flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-xs text-blue-700 flex-1 min-w-0">
+                  Connectez-vous pour suivre vos commandes.<br />
+                  <span className="text-blue-500">Log in to track your orders.</span>
+                </p>
+                <Link
+                  href="/account"
+                  className="text-xs font-semibold bg-white text-blue-700 px-3 py-1.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors flex-shrink-0"
+                >
+                  Se connecter / Log in
+                </Link>
+              </div>
+            </>
+          )}
 
           <button
             type="submit"
-            disabled={submitting || !name || !phone}
+            disabled={submitting || loadingMe || (!me && (!name || !phone))}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-orange-200 transition-colors"
           >
             {submitting ? t('order.placing') : `${t('order.placeBtn')} · ${finalPrice.toLocaleString()} FCFA`}
