@@ -16,13 +16,13 @@ type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancell
 type OrderFilter = 'pending' | 'active' | 'completed' | 'all'
 
 const STATUS_COLORS: Record<string, string> = {
-  pending:   'bg-amber-100 text-amber-700',
-  confirmed: 'bg-blue-100 text-blue-700',
-  preparing: 'bg-indigo-100 text-indigo-700',
-  ready:     'bg-green-100 text-green-700',
-  delivered: 'bg-gray-100 text-gray-600',
-  completed: 'bg-gray-100 text-gray-600',   // legacy alias
-  cancelled: 'bg-red-100 text-red-600',
+  pending:   'bg-brand-light text-warning',
+  confirmed: 'bg-brand-light text-brand-darker',
+  preparing: 'bg-brand-light text-brand-darker',
+  ready:     'bg-brand-light text-brand-darker',
+  delivered: 'bg-surface-muted text-ink-secondary',
+  completed: 'bg-surface-muted text-ink-secondary',   // legacy alias
+  cancelled: 'bg-brand-light text-danger',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -296,42 +296,42 @@ export default function DashboardPage() {
 
   if (loadingAuth || !me) {
     return (
-      <div className="min-h-screen bg-orange-50 flex items-center justify-center px-4">
-        <div className="text-3xl animate-pulse text-gray-300">…</div>
+      <div className="min-h-screen bg-brand-light flex items-center justify-center px-4">
+        <div className="text-3xl animate-pulse text-ink-tertiary">…</div>
       </div>
     )
   }
 
   if (restaurants.length === 0) {
     return (
-      <div className="min-h-screen bg-orange-50 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-brand-light flex items-center justify-center px-4">
         <div className="text-center">
           <div className="text-5xl mb-4">🏪</div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">{t('dash.noRest')}</h2>
-          <p className="text-gray-500 mb-4">{t('dash.noRestSub')}</p>
-          <Link href="/" className="text-orange-500 underline">{t('dash.backToMap')}</Link>
+          <h2 className="text-xl font-bold text-ink-primary mb-2">{t('dash.noRest')}</h2>
+          <p className="text-ink-secondary mb-4">{t('dash.noRestSub')}</p>
+          <Link href="/" className="text-brand underline">{t('dash.backToMap')}</Link>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-orange-50">
+    <div className="min-h-screen bg-brand-light">
       {/* Header — stacks on narrow viewports so the restaurant selector
           can take full width instead of colliding with the title */}
       <div className="bg-white shadow-sm px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href="/account" className="text-gray-500 hover:text-orange-500 transition-colors text-sm whitespace-nowrap">
+          <Link href="/account" className="text-ink-secondary hover:text-brand transition-colors text-sm whitespace-nowrap">
             ← Mon compte / My account
           </Link>
-          <h1 className="text-lg font-bold text-gray-900 truncate">{t('dash.title')}</h1>
+          <h1 className="text-lg font-bold text-ink-primary truncate">{t('dash.title')}</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {restaurants.length > 1 && (
             <select
               value={selectedRestaurant?.id}
               onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
-              className="text-sm border border-gray-200 rounded-xl px-3 py-1.5 outline-none focus:border-orange-400 max-w-[60vw]"
+              className="text-sm border border-divider rounded-xl px-3 py-1.5 outline-none focus:border-brand max-w-[60vw]"
             >
               {restaurants.map(r => (
                 <option key={r.id} value={r.id}>{r.name}</option>
@@ -347,15 +347,15 @@ export default function DashboardPage() {
           {/* Restaurant card */}
           <div className="bg-white rounded-2xl p-4 shadow-sm mb-4 flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-gray-900">{selectedRestaurant.name}</h2>
-              <p className="text-sm text-gray-500">{selectedRestaurant.address}</p>
+              <h2 className="font-bold text-ink-primary">{selectedRestaurant.name}</h2>
+              <p className="text-sm text-ink-secondary">{selectedRestaurant.address}</p>
             </div>
             <button
               onClick={toggleOpen}
               className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
                 selectedRestaurant.is_open
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-brand-light text-brand-darker hover:bg-brand-light'
+                  : 'bg-surface-muted text-ink-secondary hover:bg-divider'
               }`}
             >
               {selectedRestaurant.is_open ? t('dash.openBtn') : t('dash.closedBtn')}
@@ -371,12 +371,12 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setTab('orders')}
                   className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
-                    tab === 'orders' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                    tab === 'orders' ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
                   }`}
                 >
                   📦 {t('dash.ordersTab')}
                   {activeCount > 0 && (
-                    <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                    <span className="ml-1.5 bg-brand text-white text-[10px] px-1.5 py-0.5 rounded-full">
                       {activeCount}
                     </span>
                   )}
@@ -384,7 +384,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setTab('menu')}
                   className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
-                    tab === 'menu' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                    tab === 'menu' ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
                   }`}
                 >
                   🍽️ {t('dash.menuTab')}
@@ -392,7 +392,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => { setTab('validate'); setValidateResult(null); setValidateDetails(null); setValidateDone(false); setValidateInput('') }}
                   className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
-                    tab === 'validate' ? 'bg-orange-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                    tab === 'validate' ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
                   }`}
                 >
                   🏷️ Bons / Vouchers
@@ -405,7 +405,7 @@ export default function DashboardPage() {
           {tab === 'orders' && (
             <div>
               {newOrderFlash && (
-                <div className="bg-orange-500 text-white rounded-2xl px-4 py-3 mb-3 text-sm font-semibold shadow-lg animate-pulse">
+                <div className="bg-brand text-white rounded-2xl px-4 py-3 mb-3 text-sm font-semibold shadow-lg animate-pulse">
                   🔔 Nouvelle commande! / New order!
                 </div>
               )}
@@ -421,7 +421,7 @@ export default function DashboardPage() {
                       key={f}
                       onClick={() => setOrderFilter(f)}
                       className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-                        active ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 shadow-sm hover:text-gray-900'
+                        active ? 'bg-ink-primary text-white' : 'bg-white text-ink-secondary shadow-sm hover:text-ink-primary'
                       }`}
                     >
                       {FILTER_LABEL[f]} ({count})
@@ -431,7 +431,7 @@ export default function DashboardPage() {
               </div>
 
               {updateError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-3 py-2 mb-3">
+                <div className="bg-brand-light border border-divider text-danger text-xs rounded-xl px-3 py-2 mb-3">
                   {updateError}
                 </div>
               )}
@@ -442,7 +442,7 @@ export default function DashboardPage() {
                 const visible = statuses === null ? orders : orders.filter(o => statuses.includes(o.status))
                 if (visible.length === 0) {
                   return (
-                    <div className="text-center py-12 text-gray-400">
+                    <div className="text-center py-12 text-ink-tertiary">
                       <div className="text-4xl mb-3">📋</div>
                       <p className="text-sm">Aucune commande / No orders</p>
                     </div>
@@ -461,43 +461,43 @@ export default function DashboardPage() {
                         <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm">
                           <div className="flex items-start justify-between mb-2 gap-3 flex-wrap">
                             <div className="min-w-0">
-                              <p className="font-semibold text-gray-900">
+                              <p className="font-semibold text-ink-primary">
                                 {order.customer_name}
-                                <span className="ml-2 text-gray-400 font-mono text-xs">#{id4}</span>
+                                <span className="ml-2 text-ink-tertiary font-mono text-xs">#{id4}</span>
                               </p>
                               {order.customer_phone ? (
                                 <a
                                   href={buildWhatsappHref(order.customer_phone)}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-sm text-green-600 hover:text-green-700 transition-colors font-mono"
+                                  className="text-sm text-brand-darker hover:text-brand-darker transition-colors font-mono"
                                 >
                                   📱 {order.customer_phone}
                                 </a>
                               ) : (
-                                <p className="text-sm text-gray-400">—</p>
+                                <p className="text-sm text-ink-tertiary">—</p>
                               )}
-                              <p className="text-xs text-gray-400 mt-0.5">{dateStr} · {timeStr}</p>
+                              <p className="text-xs text-ink-tertiary mt-0.5">{dateStr} · {timeStr}</p>
                             </div>
-                            <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${STATUS_COLORS[order.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                            <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${STATUS_COLORS[order.status] ?? 'bg-surface-muted text-ink-secondary'}`}>
                               {STATUS_LABEL[order.status] ?? order.status}
                             </span>
                           </div>
 
-                          <ul className="text-sm text-gray-700 space-y-0.5 mb-3">
+                          <ul className="text-sm text-ink-primary space-y-0.5 mb-3">
                             {Array.isArray(order.items) && order.items.map((item: { name: string; quantity: number; price: number }, i: number) => (
                               <li key={i} className="flex items-center justify-between">
                                 <span>{item.quantity}× {item.name}</span>
-                                <span className="text-gray-500 font-mono text-xs">{(item.quantity * item.price).toLocaleString()} FCFA</span>
+                                <span className="text-ink-secondary font-mono text-xs">{(item.quantity * item.price).toLocaleString()} FCFA</span>
                               </li>
                             ))}
                           </ul>
 
-                          <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-gray-50">
-                            <span className="font-bold text-orange-500">{Number(order.total_price).toLocaleString()} FCFA</span>
+                          <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-divider">
+                            <span className="font-bold text-brand">{Number(order.total_price).toLocaleString()} FCFA</span>
                             <div className="flex items-center gap-2 flex-wrap">
                               {actions.length === 0 && (
-                                <span className="text-xs text-gray-400">— / —</span>
+                                <span className="text-xs text-ink-tertiary">— / —</span>
                               )}
                               {actions.map(a => (
                                 <button
@@ -506,8 +506,8 @@ export default function DashboardPage() {
                                   disabled={updatingOrderId === order.id}
                                   className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors disabled:opacity-50 ${
                                     a.destructive
-                                      ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-                                      : 'bg-orange-500 text-white hover:bg-orange-600'
+                                      ? 'bg-brand-light text-danger border border-divider hover:bg-brand-light'
+                                      : 'bg-brand text-white hover:bg-brand-dark'
                                   }`}
                                 >
                                   {updatingOrderId === order.id ? '…' : a.label}
@@ -527,14 +527,14 @@ export default function DashboardPage() {
           {/* Validate Tab */}
           {tab === 'validate' && (
             <div className="bg-white rounded-2xl shadow-sm p-5">
-              <h3 className="font-bold text-gray-900 mb-4">{t('dash.validateTitle')}</h3>
+              <h3 className="font-bold text-ink-primary mb-4">{t('dash.validateTitle')}</h3>
               <div className="flex gap-2 mb-4">
                 <input
                   type="text"
                   value={validateInput}
                   onChange={e => { setValidateInput(e.target.value); setValidateResult(null); setValidateDetails(null); setValidateDone(false) }}
                   placeholder={t('dash.validateInputPh')}
-                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                  className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
                 />
                 <button
                   onClick={async () => {
@@ -586,27 +586,27 @@ export default function DashboardPage() {
                     setValidating(false)
                   }}
                   disabled={validating || !validateInput.trim()}
-                  className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+                  className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
                 >
                   {validating ? t('dash.validating') : t('dash.validateBtn')}
                 </button>
               </div>
 
               {validateResult === 'invalid' && (
-                <div className="bg-red-50 rounded-xl p-4 text-center">
-                  <p className="text-red-600 font-semibold">❌ {t('dash.validateInvalid')}</p>
+                <div className="bg-brand-light rounded-xl p-4 text-center">
+                  <p className="text-danger font-semibold">❌ {t('dash.validateInvalid')}</p>
                 </div>
               )}
               {validateResult === 'used' && (
-                <div className="bg-gray-50 rounded-xl p-4 text-center">
-                  <p className="text-gray-500 font-semibold">⚠️ {t('dash.validateUsed')}</p>
+                <div className="bg-surface-muted rounded-xl p-4 text-center">
+                  <p className="text-ink-secondary font-semibold">⚠️ {t('dash.validateUsed')}</p>
                 </div>
               )}
               {validateResult === 'ok' && validateDetails && !validateDone && (
-                <div className="bg-green-50 rounded-xl p-4">
-                  <p className="text-green-700 font-bold text-lg mb-1">✓ {t('dash.validateOk')}</p>
-                  <p className="text-sm text-green-600 mb-1">Code: <strong>{validateDetails.code}</strong></p>
-                  <p className="text-sm text-green-600 mb-4">{t('dash.validateDiscount')}: <strong>{validateDetails.discount}</strong></p>
+                <div className="bg-brand-light rounded-xl p-4">
+                  <p className="text-brand-darker font-bold text-lg mb-1">✓ {t('dash.validateOk')}</p>
+                  <p className="text-sm text-brand-darker mb-1">Code: <strong>{validateDetails.code}</strong></p>
+                  <p className="text-sm text-brand-darker mb-4">{t('dash.validateDiscount')}: <strong>{validateDetails.discount}</strong></p>
                   <button
                     onClick={async () => {
                       setConfirming(true)
@@ -621,15 +621,15 @@ export default function DashboardPage() {
                       setValidateResult(null)
                     }}
                     disabled={confirming}
-                    className="w-full bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                    className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
                   >
                     {confirming ? t('dash.validateConfirming') : t('dash.validateConfirm')}
                   </button>
                 </div>
               )}
               {validateDone && (
-                <div className="bg-green-50 rounded-xl p-4 text-center">
-                  <p className="text-green-600 font-bold">✅ {t('dash.validateDone')}</p>
+                <div className="bg-brand-light rounded-xl p-4 text-center">
+                  <p className="text-brand-darker font-bold">✅ {t('dash.validateDone')}</p>
                 </div>
               )}
             </div>
@@ -640,7 +640,7 @@ export default function DashboardPage() {
             <div>
               <button
                 onClick={() => { setEditingItem(null); setShowItemForm(true) }}
-                className="w-full bg-orange-500 text-white py-3 rounded-2xl font-semibold mb-4 hover:bg-orange-600 transition-colors"
+                className="w-full bg-brand text-white py-3 rounded-2xl font-semibold mb-4 hover:bg-brand-dark transition-colors"
               >
                 {t('dash.addItem')}
               </button>
@@ -658,7 +658,7 @@ export default function DashboardPage() {
 
               <div className="space-y-3">
                 {menuItems.length === 0 && !showItemForm && (
-                  <div className="text-center py-12 text-gray-400">
+                  <div className="text-center py-12 text-ink-tertiary">
                     <div className="text-4xl mb-3">🍽️</div>
                     <p>{t('dash.noItems')}</p>
                   </div>
@@ -670,25 +670,25 @@ export default function DashboardPage() {
                         <Image src={item.photo_url} alt={item.name} fill className="object-cover" />
                       </div>
                     ) : (
-                      <div className="w-14 h-14 rounded-xl bg-orange-50 flex items-center justify-center text-2xl flex-shrink-0">🍽️</div>
+                      <div className="w-14 h-14 rounded-xl bg-brand-light flex items-center justify-center text-2xl flex-shrink-0">🍽️</div>
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-gray-900 text-sm truncate">{item.name}</p>
+                        <p className="font-semibold text-ink-primary text-sm truncate">{item.name}</p>
                         {item.is_daily_special && (
-                          <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">
+                          <span className="text-xs bg-brand-light text-brand-dark px-1.5 py-0.5 rounded-full">
                             {t('dash.itemSpecial')}
                           </span>
                         )}
                       </div>
-                      <p className="text-orange-500 text-sm font-semibold">CHF {item.price.toFixed(2)}</p>
-                      <p className="text-xs text-gray-400">{item.category}</p>
+                      <p className="text-brand text-sm font-semibold">CHF {item.price.toFixed(2)}</p>
+                      <p className="text-xs text-ink-tertiary">{item.category}</p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <button
                         onClick={() => toggleItemAvailability(item)}
                         className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          item.is_available ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'
+                          item.is_available ? 'bg-brand-light text-brand-darker' : 'bg-surface-muted text-ink-secondary'
                         }`}
                       >
                         {item.is_available ? t('dash.available') : t('dash.hidden')}
@@ -696,14 +696,14 @@ export default function DashboardPage() {
                       <div className="flex gap-1">
                         <button
                           onClick={() => { setEditingItem(item); setShowItemForm(true) }}
-                          className="text-xs text-blue-500 hover:text-blue-700"
+                          className="text-xs text-brand-darker hover:text-brand-darker"
                         >
                           {t('dash.edit')}
                         </button>
-                        <span className="text-gray-300">·</span>
+                        <span className="text-ink-tertiary">·</span>
                         <button
                           onClick={() => deleteItem(item.id)}
-                          className="text-xs text-red-400 hover:text-red-600"
+                          className="text-xs text-danger hover:text-danger"
                         >
                           {t('dash.delete')}
                         </button>
@@ -783,8 +783,8 @@ function MenuItemForm({
   return (
     <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-bold text-gray-900">{item ? t('dash.editItem') : t('dash.newItem')}</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        <h3 className="font-bold text-ink-primary">{item ? t('dash.editItem') : t('dash.newItem')}</h3>
+        <button onClick={onClose} className="text-ink-tertiary hover:text-ink-secondary">✕</button>
       </div>
 
       <div className="space-y-3">
@@ -792,14 +792,14 @@ function MenuItemForm({
           placeholder={t('dash.itemNamePh')}
           value={name}
           onChange={e => setName(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+          className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
         />
         <textarea
           placeholder={t('dash.itemDescPh')}
           value={description}
           onChange={e => setDescription(e.target.value)}
           rows={2}
-          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 resize-none"
+          className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand resize-none"
         />
         <div className="flex gap-2">
           <input
@@ -808,20 +808,20 @@ function MenuItemForm({
             step="0.50"
             value={price}
             onChange={e => setPrice(e.target.value)}
-            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+            className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
           <input
             placeholder={t('dash.itemCatPh')}
             value={category}
             onChange={e => setCategory(e.target.value)}
-            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+            className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">{t('dash.photoLbl')}</label>
-          <input type="file" accept="image/*" onChange={handlePhotoUpload} className="text-xs text-gray-600" />
-          {uploading && <p className="text-xs text-orange-500 mt-1">{t('dash.uploading')}</p>}
+          <label className="block text-xs text-ink-secondary mb-1">{t('dash.photoLbl')}</label>
+          <input type="file" accept="image/*" onChange={handlePhotoUpload} className="text-xs text-ink-secondary" />
+          {uploading && <p className="text-xs text-brand mt-1">{t('dash.uploading')}</p>}
           {photoUrl && !uploading && (
             <div className="relative w-20 h-20 rounded-xl overflow-hidden mt-2">
               <Image src={photoUrl} alt="preview" fill className="object-cover" />
@@ -831,11 +831,11 @@ function MenuItemForm({
 
         <div className="flex gap-4">
           <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={isAvailable} onChange={e => setIsAvailable(e.target.checked)} className="accent-orange-500" />
+            <input type="checkbox" checked={isAvailable} onChange={e => setIsAvailable(e.target.checked)} className="accent-brand" />
             {t('dash.itemAvail')}
           </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={isSpecial} onChange={e => setIsSpecial(e.target.checked)} className="accent-orange-500" />
+            <input type="checkbox" checked={isSpecial} onChange={e => setIsSpecial(e.target.checked)} className="accent-brand" />
             {t('dash.itemSpecial')}
           </label>
         </div>
@@ -843,7 +843,7 @@ function MenuItemForm({
         <button
           onClick={handleSave}
           disabled={saving || !name || !price || uploading}
-          className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+          className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
           {saving ? t('dash.saving') : item ? t('dash.save') : t('dash.addItemBtn')}
         </button>
