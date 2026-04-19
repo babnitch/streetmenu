@@ -94,7 +94,7 @@ export default function AccountPage() {
   // Session / dashboard
   const [user,             setUser]             = useState<SessionUser | null>(null)
   const [dashView,         setDashView]         = useState<DashView>('customer')
-  const [customerTab,      setCustomerTab]      = useState<CustomerTab>('vouchers')
+  const [customerTab,      setCustomerTab]      = useState<CustomerTab>('orders')
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   const [orders,           setOrders]           = useState<Order[]>([])
@@ -737,8 +737,8 @@ export default function AccountPage() {
                     always fully visible. On mobile each tab stacks its
                     icon above the label; on sm+ they sit inline. */}
                 <div className="flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
-                  <TabBtn icon="🏷️" label={t('account.vouchersTab')}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
                   <TabBtn icon="📋" label={t('account.ordersTab')}     active={customerTab === 'orders'}    onClick={() => setCustomerTab('orders')} />
+                  <TabBtn icon="🏷️" label={t('account.vouchersTab')}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
                   {myRestaurants.length > 0 && (
                     <TabBtn icon="🏪" label={t('account.restaurantTab')} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
                   )}
