@@ -159,13 +159,13 @@ export async function notifyCustomerOrderReady(
 export async function notifyCustomerOrderDelivered(
   customerPhone: string,
   order: OrderPayload,
-  _restaurantName: string
+  restaurantName: string
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = [
-    `✅ Commande #${id4} livrée. Merci et bon appétit!`,
+    `✅ Commande #${id4} livrée par *${restaurantName}*. Merci et bon appétit!`,
     ``,
-    `/ Order #${id4} delivered. Thank you and enjoy!`,
+    `/ Order #${id4} delivered by *${restaurantName}*. Thank you and enjoy!`,
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg)
