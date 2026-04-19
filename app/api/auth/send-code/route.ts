@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { normalizePhone } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,7 +11,7 @@ function generateCode(): string {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const phone: string = (body.phone ?? '').trim()
+  const phone: string = normalizePhone(body.phone)
   const name: string  = (body.name  ?? '').trim()
   const city: string  = (body.city  ?? '').trim()
 
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Phone required' }, { status: 400 })
   }
 
-  // Check if customer already exists
+  // Check if customer already exists (normalized lookup matches stored format)
   const { data: existing } = await supabaseAdmin
     .from('customers')
     .select('id')

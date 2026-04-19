@@ -196,7 +196,13 @@ export default function AccountPage() {
     if (customerTab === 'profile' && !profile) loadProfile()
   }, [customerTab, activeRestId, profile])
 
-  // ── Customer login: send OTP ──
+  // Name of the known customer when check-phone confirms existence.
+  // Lets the OTP screen greet them by name without exposing their details.
+  const [knownName, setKnownName] = useState<string | null>(null)
+
+  // ── Customer login: check phone, then send OTP ──
+  // Two-phase flow so a customer who registered via WhatsApp goes straight to
+  // code entry instead of being asked for name/city again.
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -204,15 +210,29 @@ export default function AccountPage() {
     if (!cleaned) return
     setSending(true)
     try {
-      const res  = await fetch('/api/auth/send-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleaned }),
-      })
-      const data = await res.json()
-      if (data.needsRegistration) { setStep('register'); return }
-      if (!res.ok) { setError(data.error || 'Erreur / Error'); return }
-      setStep('otp')
+      const checkRes = await fetch(
+        `/api/auth/check-phone?phone=${encodeURIComponent(cleaned)}`
+      )
+      const check = await checkRes.json()
+      if (!checkRes.ok) { setError(check.error || 'Erreur / Error'); return }
+
+      if (check.exists) {
+        // Existing customer — send code immediately, go to OTP
+        setKnownName(check.name ?? null)
+        const sendRes = await fetch('/api/auth/send-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: cleaned }),
+        })
+        const sendData = await sendRes.json()
+        if (!sendRes.ok) { setError(sendData.error || 'Erreur / Error'); return }
+        setStep('otp')
+        return
+      }
+
+      // New customer — collect name + city, then send-code on that form's submit
+      setKnownName(null)
+      setStep('register')
     } finally {
       setSending(false)
     }
@@ -626,6 +646,9 @@ export default function AccountPage() {
             <div className="text-center mb-6">
               <div className="text-5xl mb-3">💬</div>
               <h1 className="text-xl font-bold text-gray-900">{t('account.otpLbl')}</h1>
+              {knownName && (
+                <p className="text-sm text-gray-700 font-semibold mt-1">👋 {knownName}</p>
+              )}
               <p className="text-sm text-gray-500 mt-1">{phone}</p>
               <p className="text-xs text-green-600 font-medium mt-1">{t('account.checkWhatsApp')}</p>
             </div>

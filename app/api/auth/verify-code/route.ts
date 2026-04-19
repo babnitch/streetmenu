@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { setSessionCookie, SessionPayload } from '@/lib/auth'
+import { normalizePhone } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   const body  = await req.json()
-  const phone: string = (body.phone ?? '').trim()
+  const phone: string = normalizePhone(body.phone)
   const code:  string = (body.code  ?? '').trim()
   const name:  string = (body.name  ?? '').trim()
   const city:  string = (body.city  ?? '').trim()
