@@ -36,8 +36,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (checking) {
     return (
-      <div className="min-h-screen bg-orange-50 flex items-center justify-center">
-        <div className="text-orange-400 animate-pulse text-4xl">🍜</div>
+      <div className="min-h-screen bg-brand-light flex items-center justify-center">
+        <div className="text-brand animate-pulse text-4xl">🍜</div>
       </div>
     )
   }
@@ -46,14 +46,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!authed) return null
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-muted">
       {/* Top nav */}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-30">
+      <nav className="bg-white border-b border-divider sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href="/" className="flex items-center gap-2">
-              <span className="bg-orange-500 text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
-              <span className="font-bold text-gray-900 text-base hidden sm:inline">Ndjoka &amp; Tchop</span>
+              <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
+              <span className="font-bold text-ink-primary text-base hidden sm:inline">Ndjoka &amp; Tchop</span>
             </Link>
             <div className="flex items-center gap-1">
               <NavLink href="/admin/restaurants" active={pathname.startsWith('/admin/restaurants')}>
@@ -76,15 +76,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               href="/admin/profile"
               className={`text-sm font-medium transition-colors px-3 py-1.5 rounded-lg ${
                 pathname.startsWith('/admin/profile')
-                  ? 'bg-orange-50 text-orange-600'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  ? 'bg-brand-light text-brand-dark'
+                  : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-muted'
               }`}
             >
               👤 Mon profil / My Profile
             </Link>
             <button
               onClick={logout}
-              className="text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100"
+              className="text-sm text-ink-secondary hover:text-ink-primary transition-colors px-3 py-1.5 rounded-lg hover:bg-surface-muted"
             >
               {t('admin.logout')}
             </button>
@@ -113,8 +113,8 @@ function NavLink({
       href={href}
       className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
         active
-          ? 'bg-orange-50 text-orange-600'
-          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+          ? 'bg-brand-light text-brand-dark'
+          : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-muted'
       }`}
     >
       {children}

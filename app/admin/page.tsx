@@ -43,7 +43,7 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-100 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gradient-to-br from-brand-light to-brand-light flex items-center justify-center px-4">
       {/* Language toggle top-right */}
       <div className="absolute top-4 right-4">
         <LanguageToggle />
@@ -52,17 +52,17 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-3">
-            <span className="bg-orange-500 text-white font-black text-xl px-2.5 py-1.5 rounded-xl tracking-tight leading-none">NT</span>
+            <span className="bg-brand text-white font-black text-xl px-2.5 py-1.5 rounded-xl tracking-tight leading-none">NT</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Ndjoka &amp; Tchop</h1>
-          <p className="text-sm text-gray-500 mt-1">{t('admin.panel')}</p>
+          <h1 className="text-2xl font-bold text-ink-primary">Ndjoka &amp; Tchop</h1>
+          <p className="text-sm text-ink-secondary mt-1">{t('admin.panel')}</p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white rounded-3xl shadow-xl shadow-orange-100 p-8"
+          className="bg-white rounded-3xl shadow-xl shadow-brand-light p-8"
         >
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-ink-primary mb-2">
             {t('admin.passwordLbl')}
           </label>
           <input
@@ -72,17 +72,17 @@ export default function AdminLoginPage() {
             placeholder={t('admin.passwordPh')}
             required
             autoFocus
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition mb-4"
+            className="w-full border border-divider rounded-xl px-4 py-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand-light transition mb-4"
           />
 
           {error && (
-            <p className="text-red-500 text-sm mb-4 text-center">{error}</p>
+            <p className="text-danger text-sm mb-4 text-center">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={loading || !password}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-3 rounded-xl font-semibold transition-colors"
+            className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3 rounded-xl font-semibold transition-colors"
           >
             {loading ? t('admin.checking') : t('admin.enterBtn')}
           </button>

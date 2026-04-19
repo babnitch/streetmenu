@@ -109,22 +109,22 @@ export default function AdminProfilePanel() {
   }
 
   if (loading) {
-    return <div className="text-center py-16 text-gray-400">Chargement… / Loading…</div>
+    return <div className="text-center py-16 text-ink-tertiary">Chargement… / Loading…</div>
   }
 
   if (!profile) {
-    return <div className="text-center py-16 text-gray-400">Profil introuvable / Profile not found</div>
+    return <div className="text-center py-16 text-ink-tertiary">Profil introuvable / Profile not found</div>
   }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       {toast && (
-        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white max-w-sm ${toast.ok ? 'bg-green-500' : 'bg-red-500'}`}>
+        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white max-w-sm ${toast.ok ? 'bg-brand' : 'bg-danger'}`}>
           {toast.msg}
         </div>
       )}
 
-      <h2 className="text-xl font-bold text-gray-900">👤 Mon profil / My Profile</h2>
+      <h2 className="text-xl font-bold text-ink-primary">👤 Mon profil / My Profile</h2>
 
       {/* Profile card */}
       <div className="bg-white rounded-2xl shadow-sm p-6 space-y-5">
@@ -138,13 +138,13 @@ export default function AdminProfilePanel() {
               <button
                 onClick={handleSaveName}
                 disabled={saving}
-                className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
               >
                 {saving ? '…' : 'Enregistrer / Save'}
               </button>
               <button
                 onClick={() => { setEditing(false); setName(profile.name) }}
-                className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+                className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
               >
                 Annuler / Cancel
               </button>
@@ -152,7 +152,7 @@ export default function AdminProfilePanel() {
           ) : (
             <button
               onClick={() => setEditing(true)}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
+              className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
             >
               ✏️ Modifier / Edit
             </button>
@@ -160,28 +160,28 @@ export default function AdminProfilePanel() {
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Nom / Name</label>
+          <label className="block text-xs text-ink-tertiary mb-1">Nom / Name</label>
           {editing ? (
             <input
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+              className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
             />
           ) : (
-            <p className="font-semibold text-gray-900">{profile.name || '—'}</p>
+            <p className="font-semibold text-ink-primary">{profile.name || '—'}</p>
           )}
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">
-            Email <span className="text-gray-300">· non modifiable / not editable</span>
+          <label className="block text-xs text-ink-tertiary mb-1">
+            Email <span className="text-ink-tertiary">· non modifiable / not editable</span>
           </label>
-          <p className="font-semibold text-gray-900 font-mono text-sm break-all">{profile.email}</p>
+          <p className="font-semibold text-ink-primary font-mono text-sm break-all">{profile.email}</p>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Membre depuis / Member since</label>
-          <p className="text-gray-700 text-sm">
+          <label className="block text-xs text-ink-tertiary mb-1">Membre depuis / Member since</label>
+          <p className="text-ink-primary text-sm">
             {new Date(profile.created_at).toLocaleDateString('fr-FR', {
               day: 'numeric', month: 'long', year: 'numeric',
             })}
@@ -191,48 +191,48 @@ export default function AdminProfilePanel() {
 
       {/* Change password card */}
       <form onSubmit={handleChangePassword} className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
-        <h3 className="font-bold text-gray-900">🔐 Changer le mot de passe / Change password</h3>
+        <h3 className="font-bold text-ink-primary">🔐 Changer le mot de passe / Change password</h3>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Mot de passe actuel / Current password</label>
+          <label className="block text-xs text-ink-tertiary mb-1">Mot de passe actuel / Current password</label>
           <input
             type="password"
             value={currentPw}
             onChange={e => setCurrentPw(e.target.value)}
             autoComplete="current-password"
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+            className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Nouveau mot de passe / New password <span className="text-gray-300">· min 8</span></label>
+          <label className="block text-xs text-ink-tertiary mb-1">Nouveau mot de passe / New password <span className="text-ink-tertiary">· min 8</span></label>
           <input
             type="password"
             value={newPw}
             onChange={e => setNewPw(e.target.value)}
             autoComplete="new-password"
             minLength={8}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+            className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Confirmer / Confirm</label>
+          <label className="block text-xs text-ink-tertiary mb-1">Confirmer / Confirm</label>
           <input
             type="password"
             value={confirmPw}
             onChange={e => setConfirmPw(e.target.value)}
             autoComplete="new-password"
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+            className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
         </div>
 
-        {pwError && <p className="text-sm text-red-500">{pwError}</p>}
+        {pwError && <p className="text-sm text-danger">{pwError}</p>}
 
         <button
           type="submit"
           disabled={pwSaving || !currentPw || !newPw || !confirmPw}
-          className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors"
+          className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors"
         >
           {pwSaving ? '…' : 'Mettre à jour / Update'}
         </button>
@@ -243,15 +243,15 @@ export default function AdminProfilePanel() {
 
 function RoleBadge({ role }: { role: AdminProfile['role'] }) {
   const cls = role === 'super_admin'
-    ? 'bg-purple-100 text-purple-700'
+    ? 'bg-brand-light text-brand-darker'
     : role === 'admin'
-      ? 'bg-indigo-100 text-indigo-700'
+      ? 'bg-brand-light text-brand-darker'
       : 'bg-sky-100 text-sky-700'
   return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cls}`}>{ROLE_LABELS[role] ?? role}</span>
 }
 
 function StatusBadge({ status }: { status: AdminProfile['status'] }) {
-  const cls = status === 'active' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+  const cls = status === 'active' ? 'bg-brand-light text-brand-darker' : 'bg-brand-light text-warning'
   const label = status === 'active' ? 'Actif / Active' : 'Suspendu / Suspended'
   return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cls}`}>{label}</span>
 }

@@ -48,7 +48,7 @@ const EMPTY_FORM: RestaurantForm = {
 type Tab = 'all' | 'pending' | 'suspended' | 'deleted'
 type ModalType = 'suspend' | 'delete' | 'reject' | null
 
-const INPUT = 'w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-orange-400'
+const INPUT = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand'
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function useToast() {
@@ -256,7 +256,7 @@ export default function AdminRestaurantsPage() {
     <div>
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white transition-all ${toast.ok ? 'bg-green-500' : 'bg-red-500'}`}>
+        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white transition-all ${toast.ok ? 'bg-brand' : 'bg-danger'}`}>
           {toast.msg}
         </div>
       )}
@@ -264,21 +264,21 @@ export default function AdminRestaurantsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('admin.restTitle')}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="text-2xl font-bold text-ink-primary">{t('admin.restTitle')}</h1>
+          <p className="text-sm text-ink-secondary mt-0.5">
             {active.length} {t('admin.restActive')} · {restaurants.length} {t('admin.restTotal')}
           </p>
         </div>
         <button
           onClick={() => setShowForm(v => !v)}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+          className="bg-brand hover:bg-brand-dark text-white px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
           {showForm ? t('admin.cancelBtn') : t('admin.addRestBtn')}
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1 w-fit overflow-x-auto">
+      <div className="flex gap-1 mb-5 bg-surface-muted rounded-xl p-1 w-fit overflow-x-auto">
         {([ ['all', t('admin.allTab'), active.length],
             ['pending', t('admin.pendingTab'), pending.length],
             ['suspended', 'Suspendus / Suspended', suspended.length],
@@ -288,13 +288,13 @@ export default function AdminRestaurantsPage() {
             key={key}
             onClick={() => setTab(key)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
-              tab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              tab === key ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
             }`}
           >
             {label}
             {count > 0 && (
               <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${
-                tab === key ? 'bg-orange-500 text-white' : 'bg-gray-300 text-gray-600'
+                tab === key ? 'bg-brand text-white' : 'bg-divider text-ink-secondary'
               }`}>
                 {count}
               </span>
@@ -305,8 +305,8 @@ export default function AdminRestaurantsPage() {
 
       {/* Add form */}
       {showForm && tab === 'all' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-orange-100 p-6 mb-6">
-          <h2 className="font-bold text-gray-900 mb-4">{t('admin.newRest')}</h2>
+        <div className="bg-white rounded-2xl shadow-sm border border-brand-light p-6 mb-6">
+          <h2 className="font-bold text-ink-primary mb-4">{t('admin.newRest')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Nom / Name *"><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Chez Mama Afrika" className={INPUT} /></Field>
             <Field label="Ville / City *"><input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Yaoundé" className={INPUT} /></Field>
@@ -316,8 +316,8 @@ export default function AdminRestaurantsPage() {
             <Field label="Longitude *"><input type="number" step="any" value={form.lng} onChange={e => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="11.5167" className={INPUT} /></Field>
             <Field label="WhatsApp"><input value={form.whatsapp} onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))} placeholder="+237 6XX XXX XXX" className={INPUT} /></Field>
             <Field label="Photo" className="sm:col-span-2">
-              <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-gray-600" />
-              {uploading && <span className="text-xs text-orange-500 ml-2">Envoi…</span>}
+              <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-ink-secondary" />
+              {uploading && <span className="text-xs text-brand ml-2">Envoi…</span>}
               {form.logo_url && !uploading && (
                 <div className="relative w-24 h-16 rounded-lg overflow-hidden mt-2">
                   <Image src={form.logo_url} alt="preview" fill className="object-cover" />
@@ -327,10 +327,10 @@ export default function AdminRestaurantsPage() {
           </div>
           <div className="mt-4 flex gap-3">
             <button onClick={handleSave} disabled={saving || uploading || !form.name || !form.city || !form.lat || !form.lng}
-              className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors">
+              className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors">
               {saving ? t('admin.saving') : t('admin.addRestSaveBtn')}
             </button>
-            <button onClick={() => setShowForm(false)} className="text-sm text-gray-500 hover:text-gray-700 px-4">{t('admin.cancelBtn')}</button>
+            <button onClick={() => setShowForm(false)} className="text-sm text-ink-secondary hover:text-ink-primary px-4">{t('admin.cancelBtn')}</button>
           </div>
         </div>
       )}
@@ -339,9 +339,9 @@ export default function AdminRestaurantsPage() {
       {tab === 'all' && (
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('admin.searchPh')}
-            className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-400" />
+            className="flex-1 border border-divider rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand" />
           <select value={cityFilter} onChange={e => setCityFilter(e.target.value)}
-            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-orange-400 bg-white">
+            className="border border-divider rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand bg-white">
             {cities.map(c => <option key={c} value={c}>{c === 'all' ? t('admin.allCities') : c}</option>)}
           </select>
         </div>
@@ -349,9 +349,9 @@ export default function AdminRestaurantsPage() {
 
       {/* Restaurant list */}
       {loading ? (
-        <div className="text-center py-16 text-gray-400"><div className="text-4xl mb-3 animate-bounce">🍜</div><p>{t('nav.loading')}</p></div>
+        <div className="text-center py-16 text-ink-tertiary"><div className="text-4xl mb-3 animate-bounce">🍜</div><p>{t('nav.loading')}</p></div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-ink-tertiary">
           <div className="text-4xl mb-3">🏪</div>
           <p>{tab === 'pending' ? t('admin.noPending') : t('admin.noResults')}</p>
           {tab === 'pending' && <p className="text-sm mt-1">{t('admin.noPendingSub')}</p>}
@@ -380,7 +380,7 @@ export default function AdminRestaurantsPage() {
         <ConfirmModal
           title={`Suspendre "${modal.restaurant.name}" / Suspend`}
           confirmLabel="Suspendre / Suspend"
-          confirmClass="bg-amber-500 hover:bg-amber-600 text-white"
+          confirmClass="bg-warning hover:bg-warning/90 text-white"
           onCancel={() => setModal(null)}
           onConfirm={() => confirmSuspend(modal.restaurant)}
         >
@@ -389,7 +389,7 @@ export default function AdminRestaurantsPage() {
             onChange={e => setModalReason(e.target.value)}
             placeholder="Raison (optionnel) / Reason (optional)"
             rows={3}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+            className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
         </ConfirmModal>
       )}
@@ -398,11 +398,11 @@ export default function AdminRestaurantsPage() {
         <ConfirmModal
           title={`Supprimer "${modal.restaurant.name}" / Delete`}
           confirmLabel="Supprimer / Delete"
-          confirmClass="bg-red-500 hover:bg-red-600 text-white"
+          confirmClass="bg-danger hover:bg-danger text-white"
           onCancel={() => setModal(null)}
           onConfirm={() => confirmDelete(modal.restaurant)}
         >
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-ink-secondary">
             Cette action est irréversible après 30 jours.<br/>
             This action is irreversible after 30 days.
           </p>
@@ -413,11 +413,11 @@ export default function AdminRestaurantsPage() {
         <ConfirmModal
           title={`Rejeter "${modal.restaurant.name}" / Reject`}
           confirmLabel="Rejeter / Reject"
-          confirmClass="bg-red-500 hover:bg-red-600 text-white"
+          confirmClass="bg-danger hover:bg-danger text-white"
           onCancel={() => setModal(null)}
           onConfirm={() => confirmReject(modal.restaurant)}
         >
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-ink-secondary">
             Le restaurant sera définitivement supprimé.<br/>
             The restaurant will be permanently deleted.
           </p>
@@ -449,10 +449,10 @@ function RestaurantCard({
     : false
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-50 overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-sm border border-divider overflow-hidden">
       <div className="flex gap-4 p-5">
         {/* Photo */}
-        <div className="relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-orange-50">
+        <div className="relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-brand-light">
           {(r.logo_url || r.image_url) ? (
             <Image src={(r.logo_url || r.image_url)!} alt={r.name} fill className="object-cover" />
           ) : (
@@ -464,36 +464,36 @@ function RestaurantCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 flex-wrap">
             <div>
-              <h3 className="font-bold text-gray-900 text-base">{r.name}</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="font-bold text-ink-primary text-base">{r.name}</h3>
+              <p className="text-sm text-ink-secondary">
                 {r.city}{r.neighborhood ? ` · ${r.neighborhood}` : r.address ? ` · ${r.address}` : ''}
               </p>
               {r.whatsapp && (
                 <a href={`https://wa.me/${r.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-green-600 font-mono hover:text-green-700">
+                  className="text-xs text-brand-darker font-mono hover:text-brand-darker">
                   {r.whatsapp}
                 </a>
               )}
             </div>
             <div className="flex flex-col items-end gap-1">
               <StatusBadge r={r} />
-              {r.suspended_by && <span className="text-xs text-gray-400">par / by {r.suspended_by}</span>}
+              {r.suspended_by && <span className="text-xs text-ink-tertiary">par / by {r.suspended_by}</span>}
             </div>
           </div>
-          {r.cuisine_type && <p className="text-xs text-gray-400 mt-1">{r.cuisine_type}</p>}
+          {r.cuisine_type && <p className="text-xs text-ink-tertiary mt-1">{r.cuisine_type}</p>}
           {r.owner ? (
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-ink-secondary mt-1">
               👤 <span className="font-medium">{r.owner.name}</span>
-              <span className="font-mono text-gray-400"> · {r.owner.phone}</span>
+              <span className="font-mono text-ink-tertiary"> · {r.owner.phone}</span>
             </p>
           ) : (
-            <p className="text-xs text-amber-500 mt-1">👤 Non lié / Unlinked</p>
+            <p className="text-xs text-warning mt-1">👤 Non lié / Unlinked</p>
           )}
           {r.suspension_reason && (
-            <p className="text-xs text-amber-600 mt-1">Raison: {r.suspension_reason}</p>
+            <p className="text-xs text-warning mt-1">Raison: {r.suspension_reason}</p>
           )}
           {r.deleted_at && (
-            <p className="text-xs text-red-400 mt-1">
+            <p className="text-xs text-danger mt-1">
               Supprimé le {new Date(r.deleted_at).toLocaleDateString('fr-FR')}
               {within30Days && ' · annulable / reversible'}
             </p>
@@ -502,19 +502,19 @@ function RestaurantCard({
       </div>
 
       {/* Action bar */}
-      <div className="border-t border-gray-50 px-5 py-3 flex gap-2 bg-gray-50/50 flex-wrap">
+      <div className="border-t border-divider px-5 py-3 flex gap-2 bg-surface-muted/50 flex-wrap">
         {/* Pending → approve / reject */}
         {tab === 'pending' && (
           <>
             <ActionBtn
               label="✅ Approuver / Approve"
-              className="bg-green-500 hover:bg-green-600 text-white"
+              className="bg-brand hover:bg-brand-dark text-white"
               loading={actionLoading === r.id + '-approve'}
               onClick={() => onApprove(r)}
             />
             <ActionBtn
               label="❌ Rejeter / Reject"
-              className="bg-white hover:bg-red-50 text-red-500 border border-red-200"
+              className="bg-white hover:bg-brand-light text-danger border border-divider"
               loading={actionLoading === r.id + '-reject'}
               onClick={() => onReject(r)}
             />
@@ -526,18 +526,18 @@ function RestaurantCard({
           <>
             <ActionBtn
               label="⏸️ Suspendre / Suspend"
-              className="bg-white hover:bg-amber-50 text-amber-700 border border-amber-200"
+              className="bg-white hover:bg-brand-light text-warning border border-divider"
               loading={actionLoading === r.id + '-suspend'}
               onClick={() => onSuspend(r)}
             />
             <ActionBtn
               label="🗑️ Supprimer / Delete"
-              className="bg-white hover:bg-red-50 text-red-500 border border-red-200"
+              className="bg-white hover:bg-brand-light text-danger border border-divider"
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
             />
             <a href={`/restaurant/${r.id}`} target="_blank" rel="noopener noreferrer"
-              className="text-xs text-gray-400 hover:text-orange-500 transition-colors px-2 py-1.5 ml-auto">
+              className="text-xs text-ink-tertiary hover:text-brand transition-colors px-2 py-1.5 ml-auto">
               ↗ Voir / View
             </a>
           </>
@@ -548,13 +548,13 @@ function RestaurantCard({
           <>
             <ActionBtn
               label="✅ Réactiver / Reactivate"
-              className="bg-green-500 hover:bg-green-600 text-white"
+              className="bg-brand hover:bg-brand-dark text-white"
               loading={actionLoading === r.id + '-reactivate'}
               onClick={() => onReactivate(r)}
             />
             <ActionBtn
               label="🗑️ Supprimer / Delete"
-              className="bg-white hover:bg-red-50 text-red-500 border border-red-200"
+              className="bg-white hover:bg-brand-light text-danger border border-divider"
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
             />
@@ -565,13 +565,13 @@ function RestaurantCard({
         {tab === 'deleted' && within30Days && (
           <ActionBtn
             label="↩️ Annuler suppression / Undo delete"
-            className="bg-orange-500 hover:bg-orange-600 text-white"
+            className="bg-brand hover:bg-brand-dark text-white"
             loading={actionLoading === r.id + '-undo'}
             onClick={() => onUndoDelete(r)}
           />
         )}
         {tab === 'deleted' && !within30Days && (
-          <span className="text-xs text-gray-400 italic py-1.5">Supprimé définitivement / Permanently deleted</span>
+          <span className="text-xs text-ink-tertiary italic py-1.5">Supprimé définitivement / Permanently deleted</span>
         )}
       </div>
     </div>
@@ -594,11 +594,11 @@ function ActionBtn({ label, className, loading, onClick }: {
 }
 
 function StatusBadge({ r }: { r: RestaurantRow }) {
-  if (r.deleted_at) return <Badge label="Supprimé / Deleted" cls="bg-red-100 text-red-600" />
-  if (r.status === 'suspended') return <Badge label="Suspendu / Suspended" cls="bg-amber-100 text-amber-700" />
-  if (!r.is_active) return <Badge label="En attente / Pending" cls="bg-gray-100 text-gray-600" />
-  if (r.is_open) return <Badge label="Ouvert / Open" cls="bg-green-100 text-green-700" />
-  return <Badge label="Actif / Active" cls="bg-blue-100 text-blue-700" />
+  if (r.deleted_at) return <Badge label="Supprimé / Deleted" cls="bg-brand-light text-danger" />
+  if (r.status === 'suspended') return <Badge label="Suspendu / Suspended" cls="bg-brand-light text-warning" />
+  if (!r.is_active) return <Badge label="En attente / Pending" cls="bg-surface-muted text-ink-secondary" />
+  if (r.is_open) return <Badge label="Ouvert / Open" cls="bg-brand-light text-brand-darker" />
+  return <Badge label="Actif / Active" cls="bg-brand-light text-brand-darker" />
 }
 
 function Badge({ label, cls }: { label: string; cls: string }) {
@@ -608,7 +608,7 @@ function Badge({ label, cls }: { label: string; cls: string }) {
 function Field({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={className}>
-      <label className="block text-xs text-gray-500 font-medium mb-1.5">{label}</label>
+      <label className="block text-xs text-ink-secondary font-medium mb-1.5">{label}</label>
       {children}
     </div>
   )
@@ -621,13 +621,13 @@ function ConfirmModal({ title, confirmLabel, confirmClass, children, onCancel, o
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-        <h3 className="font-bold text-gray-900 mb-4 text-base">{title}</h3>
+        <h3 className="font-bold text-ink-primary mb-4 text-base">{title}</h3>
         <div className="mb-4">{children}</div>
         <div className="flex gap-3">
           <button onClick={onConfirm} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-colors ${confirmClass}`}>
             {confirmLabel}
           </button>
-          <button onClick={onCancel} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors">
+          <button onClick={onCancel} className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
             Annuler / Cancel
           </button>
         </div>

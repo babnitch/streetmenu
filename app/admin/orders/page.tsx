@@ -8,11 +8,11 @@ import { Order, Restaurant } from '@/types'
 import { useLanguage } from '@/lib/languageContext'
 
 const STATUS_STYLES: Record<string, string> = {
-  pending:   'bg-yellow-100 text-yellow-700',
-  confirmed: 'bg-blue-100 text-blue-700',
-  preparing: 'bg-orange-100 text-orange-700',
+  pending:   'bg-brand-light text-warning',
+  confirmed: 'bg-brand-light text-brand-darker',
+  preparing: 'bg-brand-light text-brand-darker',
   ready:     'bg-teal-100 text-teal-700',
-  completed: 'bg-gray-100 text-gray-500',
+  completed: 'bg-surface-muted text-ink-secondary',
 }
 
 type OrderWithRestaurant = Order & { restaurants: { name: string; city: string } | null }
@@ -62,8 +62,8 @@ export default function AdminOrdersPage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{t('admin.ordTitle')}</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{t('admin.ordSub')}</p>
+        <h1 className="text-2xl font-bold text-ink-primary">{t('admin.ordTitle')}</h1>
+        <p className="text-sm text-ink-secondary mt-0.5">{t('admin.ordSub')}</p>
       </div>
 
       {/* Stats row */}
@@ -77,7 +77,7 @@ export default function AdminOrdersPage() {
       {/* Filters */}
       <div className="bg-white rounded-2xl shadow-sm p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Restaurant</label>
+          <label className="block text-xs text-ink-secondary mb-1">Restaurant</label>
           <select
             value={restaurantFilter}
             onChange={e => setRestaurantFilter(e.target.value)}
@@ -90,7 +90,7 @@ export default function AdminOrdersPage() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Status</label>
+          <label className="block text-xs text-ink-secondary mb-1">Status</label>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={SELECT}>
             <option value="all">{t('admin.ordAllStatus')}</option>
             {(['pending','confirmed','preparing','ready','completed'] as const).map(s => (
@@ -99,29 +99,29 @@ export default function AdminOrdersPage() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">{t('admin.ordFromDate')}</label>
+          <label className="block text-xs text-ink-secondary mb-1">{t('admin.ordFromDate')}</label>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={SELECT} />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">{t('admin.ordToDate')}</label>
+          <label className="block text-xs text-ink-secondary mb-1">{t('admin.ordToDate')}</label>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={SELECT} />
         </div>
       </div>
 
       {/* Orders list */}
       {loading ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-ink-tertiary">
           <div className="text-4xl mb-3 animate-bounce">🍜</div>
           <p>{t('admin.ordLoading')}</p>
         </div>
       ) : orders.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-ink-tertiary">
           <div className="text-4xl mb-3">📋</div>
           <p>{t('admin.ordNone')}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-          <div className="hidden lg:grid grid-cols-[1.5fr_1.2fr_1fr_2fr_0.8fr_1fr] gap-4 px-5 py-3 border-b border-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          <div className="hidden lg:grid grid-cols-[1.5fr_1.2fr_1fr_2fr_0.8fr_1fr] gap-4 px-5 py-3 border-b border-divider text-xs font-semibold text-ink-secondary uppercase tracking-wide">
             <span>{t('admin.ordColRest')}</span>
             <span>{t('admin.ordColCustomer')}</span>
             <span>{t('admin.ordColPhone')}</span>
@@ -133,47 +133,47 @@ export default function AdminOrdersPage() {
           {orders.map((order, idx) => (
             <div
               key={order.id}
-              className={`px-5 py-4 ${idx < orders.length - 1 ? 'border-b border-gray-50' : ''} hover:bg-orange-50/30 transition-colors`}
+              className={`px-5 py-4 ${idx < orders.length - 1 ? 'border-b border-divider' : ''} hover:bg-brand-light/30 transition-colors`}
             >
               {/* Mobile layout */}
               <div className="lg:hidden space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-semibold text-gray-900 text-sm">{order.restaurants?.name ?? '—'}</p>
-                    <p className="text-xs text-gray-400">{order.restaurants?.city}</p>
+                    <p className="font-semibold text-ink-primary text-sm">{order.restaurants?.name ?? '—'}</p>
+                    <p className="text-xs text-ink-tertiary">{order.restaurants?.city}</p>
                   </div>
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[order.status]}`}>
                     {t(`status.${order.status}` as Parameters<typeof t>[0])}
                   </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
-                  <span className="font-medium text-gray-800">{order.customer_name}</span>
-                  <span className="text-gray-500">{order.customer_phone}</span>
+                  <span className="font-medium text-ink-primary">{order.customer_name}</span>
+                  <span className="text-ink-secondary">{order.customer_phone}</span>
                 </div>
-                <p className="text-sm text-gray-600">{formatItems(order.items)}</p>
+                <p className="text-sm text-ink-secondary">{formatItems(order.items)}</p>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-orange-500">CHF {Number(order.total_price).toFixed(2)}</span>
-                  <span className="text-xs text-gray-400">{formatDate(order.created_at)}</span>
+                  <span className="font-bold text-brand">CHF {Number(order.total_price).toFixed(2)}</span>
+                  <span className="text-xs text-ink-tertiary">{formatDate(order.created_at)}</span>
                 </div>
               </div>
 
               {/* Desktop layout */}
               <div className="hidden lg:grid grid-cols-[1.5fr_1.2fr_1fr_2fr_0.8fr_1fr] gap-4 items-center">
                 <div>
-                  <p className="font-medium text-gray-900 text-sm truncate">{order.restaurants?.name ?? '—'}</p>
-                  <p className="text-xs text-gray-400">{order.restaurants?.city}</p>
+                  <p className="font-medium text-ink-primary text-sm truncate">{order.restaurants?.name ?? '—'}</p>
+                  <p className="text-xs text-ink-tertiary">{order.restaurants?.city}</p>
                 </div>
-                <p className="text-sm text-gray-800 truncate">{order.customer_name}</p>
-                <p className="text-sm text-gray-600 font-mono text-xs">{order.customer_phone}</p>
-                <p className="text-sm text-gray-600 truncate" title={formatItems(order.items)}>
+                <p className="text-sm text-ink-primary truncate">{order.customer_name}</p>
+                <p className="text-sm text-ink-secondary font-mono text-xs">{order.customer_phone}</p>
+                <p className="text-sm text-ink-secondary truncate" title={formatItems(order.items)}>
                   {formatItems(order.items)}
                 </p>
-                <p className="font-bold text-orange-500 text-sm">CHF {Number(order.total_price).toFixed(2)}</p>
+                <p className="font-bold text-brand text-sm">CHF {Number(order.total_price).toFixed(2)}</p>
                 <div>
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[order.status]}`}>
                     {t(`status.${order.status}` as Parameters<typeof t>[0])}
                   </span>
-                  <p className="text-xs text-gray-400 mt-1">{formatDate(order.created_at)}</p>
+                  <p className="text-xs text-ink-tertiary mt-1">{formatDate(order.created_at)}</p>
                 </div>
               </div>
             </div>
@@ -195,13 +195,13 @@ function formatDate(dateStr: string): string {
     ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
-const SELECT = 'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white'
+const SELECT = 'w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white'
 
 function StatCard({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className={`rounded-2xl p-4 ${highlight ? 'bg-orange-500 text-white' : 'bg-white shadow-sm'}`}>
-      <p className={`text-xs font-medium ${highlight ? 'text-orange-100' : 'text-gray-500'}`}>{label}</p>
-      <p className={`text-xl font-bold mt-1 ${highlight ? 'text-white' : 'text-gray-900'}`}>{value}</p>
+    <div className={`rounded-2xl p-4 ${highlight ? 'bg-brand text-white' : 'bg-white shadow-sm'}`}>
+      <p className={`text-xs font-medium ${highlight ? 'text-brand-light' : 'text-ink-secondary'}`}>{label}</p>
+      <p className={`text-xl font-bold mt-1 ${highlight ? 'text-white' : 'text-ink-primary'}`}>{value}</p>
     </div>
   )
 }

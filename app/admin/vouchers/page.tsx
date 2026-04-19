@@ -131,10 +131,10 @@ export default function AdminVouchersPage() {
 
       {/* Header row */}
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-gray-900">{t('admin.vchTitle')}</h1>
+        <h1 className="text-xl font-bold text-ink-primary">{t('admin.vchTitle')}</h1>
         <button
           onClick={() => setShowForm(s => !s)}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+          className="bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
         >
           {showForm ? t('admin.vchCancel') : t('admin.vchCreateBtn')}
         </button>
@@ -145,21 +145,21 @@ export default function AdminVouchersPage() {
         <div className="bg-white rounded-2xl shadow-sm p-5 mb-6">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs text-gray-500 mb-1">{t('admin.vchCode')}</label>
+              <label className="block text-xs text-ink-secondary mb-1">{t('admin.vchCode')}</label>
               <input
                 value={code}
                 onChange={e => setCode(e.target.value.toUpperCase())}
                 placeholder={t('admin.vchCodePh')}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 uppercase font-mono"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand uppercase font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">{t('admin.vchType')}</label>
+              <label className="block text-xs text-ink-secondary mb-1">{t('admin.vchType')}</label>
               <select
                 value={discountType}
                 onChange={e => setDiscountType(e.target.value as 'percent' | 'fixed')}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
               >
                 <option value="percent">{t('admin.vchPercent')}</option>
                 <option value="fixed">{t('admin.vchFixed')}</option>
@@ -167,65 +167,65 @@ export default function AdminVouchersPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">{t('admin.vchValue')}</label>
+              <label className="block text-xs text-ink-secondary mb-1">{t('admin.vchValue')}</label>
               <input
                 type="number"
                 value={discountValue}
                 onChange={e => setDiscountValue(e.target.value)}
                 placeholder={t('admin.vchValuePh')}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">{t('admin.vchMinOrder')}</label>
+              <label className="block text-xs text-ink-secondary mb-1">{t('admin.vchMinOrder')}</label>
               <input
                 type="number"
                 value={minOrder}
                 onChange={e => setMinOrder(e.target.value)}
                 placeholder={t('admin.vchMinPh')}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Max utilisations / Max uses</label>
+              <label className="block text-xs text-ink-secondary mb-1">Max utilisations / Max uses</label>
               <input
                 type="number"
                 value={maxUses}
                 onChange={e => setMaxUses(e.target.value)}
                 placeholder="0 = illimité / unlimited"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Par client / Per customer</label>
+              <label className="block text-xs text-ink-secondary mb-1">Par client / Per customer</label>
               <input
                 type="number"
                 value={perCustomerMax}
                 onChange={e => setPerCustomerMax(e.target.value)}
                 placeholder="1 = one-time"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">{t('admin.vchExpiry')}</label>
+              <label className="block text-xs text-ink-secondary mb-1">{t('admin.vchExpiry')}</label>
               <input
                 type="date"
                 value={expiresAt}
                 onChange={e => setExpiresAt(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="block text-xs text-gray-500 mb-1">Portée / Scope</label>
+              <label className="block text-xs text-ink-secondary mb-1">Portée / Scope</label>
               <select
                 value={restaurantId}
                 onChange={e => setRestaurantId(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white"
               >
                 <option value="">Plateforme / Platform-wide</option>
                 {restaurants.map(r => (
@@ -235,12 +235,12 @@ export default function AdminVouchersPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Ville / City</label>
+              <label className="block text-xs text-ink-secondary mb-1">Ville / City</label>
               <input
                 value={city}
                 onChange={e => setCity(e.target.value)}
                 placeholder={t('admin.vchCityPh')}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </div>
 
@@ -250,16 +250,16 @@ export default function AdminVouchersPage() {
                 id="vch-active"
                 checked={isActive}
                 onChange={e => setIsActive(e.target.checked)}
-                className="accent-orange-500"
+                className="accent-brand"
               />
-              <label htmlFor="vch-active" className="text-sm text-gray-700 cursor-pointer">Activer immédiatement</label>
+              <label htmlFor="vch-active" className="text-sm text-ink-primary cursor-pointer">Activer immédiatement</label>
             </div>
           </div>
 
           <button
             onClick={createVoucher}
             disabled={saving || !code.trim() || !discountValue}
-            className="w-full mt-4 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+            className="w-full mt-4 bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
           >
             {saving ? t('admin.vchLoading') : t('admin.vchSaveBtn')}
           </button>
@@ -268,9 +268,9 @@ export default function AdminVouchersPage() {
 
       {/* Table */}
       {loading ? (
-        <div className="text-center py-12 text-gray-400">{t('admin.vchLoading')}</div>
+        <div className="text-center py-12 text-ink-tertiary">{t('admin.vchLoading')}</div>
       ) : vouchers.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
+        <div className="text-center py-12 text-ink-tertiary">
           <div className="text-4xl mb-3">🏷️</div>
           <p>{t('admin.vchNoVouchers')}</p>
         </div>
@@ -278,39 +278,39 @@ export default function AdminVouchersPage() {
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="bg-surface-muted border-b border-divider">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchCode')}</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchValue')}</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Portée / Scope</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchUseCount')}</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchExpiry')}</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('admin.vchStatus')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchCode')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchValue')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">Portée / Scope</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchUseCount')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchExpiry')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchStatus')}</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-divider">
                 {vouchers.map(v => (
-                  <tr key={v.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={v.id} className="hover:bg-surface-muted transition-colors">
                     <td className="px-4 py-3">
-                      <p className="font-mono font-bold text-gray-900">{v.code}</p>
+                      <p className="font-mono font-bold text-ink-primary">{v.code}</p>
                     </td>
-                    <td className="px-4 py-3 text-orange-600 font-semibold">
+                    <td className="px-4 py-3 text-brand-dark font-semibold">
                       {v.discount_type === 'percent' ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
                     </td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">
+                    <td className="px-4 py-3 text-ink-secondary text-xs">
                       {v.restaurant_name
-                        ? <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{v.restaurant_name}</span>
-                        : <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">Plateforme</span>}
-                      {v.city && <span className="ml-1 text-gray-400">· {v.city}</span>}
+                        ? <span className="bg-brand-light text-brand-darker px-2 py-0.5 rounded-full">{v.restaurant_name}</span>
+                        : <span className="bg-brand-light text-brand-darker px-2 py-0.5 rounded-full">Plateforme</span>}
+                      {v.city && <span className="ml-1 text-ink-tertiary">· {v.city}</span>}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
+                    <td className="px-4 py-3 text-ink-secondary">
                       {v.current_uses ?? 0}{v.max_uses ? `/${v.max_uses}` : ''}
                     </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
+                    <td className="px-4 py-3 text-ink-secondary text-xs">
                       {v.expires_at
                         ? new Date(v.expires_at).toLocaleDateString('fr-FR')
-                        : <span className="text-gray-300">{t('admin.vchNoExpiry')}</span>}
+                        : <span className="text-ink-tertiary">{t('admin.vchNoExpiry')}</span>}
                     </td>
                     <td className="px-4 py-3">
                       <VoucherStatusBadge status={v.status} onToggle={() => toggleActive(v)} isActive={v.is_active} />
@@ -319,7 +319,7 @@ export default function AdminVouchersPage() {
                       {(v.current_uses ?? 0) === 0 && (
                         <button
                           onClick={() => deleteVoucher(v)}
-                          className="text-xs text-red-500 hover:text-red-700 font-semibold"
+                          className="text-xs text-danger hover:text-danger font-semibold"
                         >
                           🗑️
                         </button>
@@ -347,10 +347,10 @@ function VoucherStatusBadge({
   onToggle: () => void
 }) {
   const STYLES: Record<typeof status, { cls: string; label: string }> = {
-    active:    { cls: 'bg-green-100 text-green-700 hover:bg-green-200', label: '✅ Active' },
-    inactive:  { cls: 'bg-gray-100 text-gray-500 hover:bg-gray-200',    label: 'Inactif / Inactive' },
-    expired:   { cls: 'bg-red-50 text-red-600',                         label: '⏰ Expiré / Expired' },
-    exhausted: { cls: 'bg-amber-50 text-amber-700',                     label: '🪫 Épuisé / Exhausted' },
+    active:    { cls: 'bg-brand-light text-brand-darker hover:bg-brand-badge', label: '✅ Active' },
+    inactive:  { cls: 'bg-surface-muted text-ink-secondary hover:bg-divider',    label: 'Inactif / Inactive' },
+    expired:   { cls: 'bg-brand-light text-danger',                         label: '⏰ Expiré / Expired' },
+    exhausted: { cls: 'bg-brand-light text-warning',                     label: '🪫 Épuisé / Exhausted' },
   }
   const s = STYLES[status]
   const clickable = status === 'active' || status === 'inactive'
@@ -369,8 +369,8 @@ function VoucherStatusBadge({
 function StatCard({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm">
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
-      <p className={`text-2xl font-black ${accent ? 'text-orange-500' : 'text-gray-900'}`}>{value}</p>
+      <p className="text-xs text-ink-tertiary mb-1">{label}</p>
+      <p className={`text-2xl font-black ${accent ? 'text-brand' : 'text-ink-primary'}`}>{value}</p>
     </div>
   )
 }
