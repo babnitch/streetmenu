@@ -78,6 +78,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .maybeSingle()
     if (team?.role && ['owner', 'manager', 'staff'].includes(team.role)) {
       effectiveRole = team.role as 'owner' | 'manager' | 'staff'
+    } else {
+      // Fallback: restaurants.customer_id link without an explicit team row.
+      // Covers legacy restaurants where the team-row trigger didn't fire.
+      const { data: rest } = await supabaseAdmin
+        .from('restaurants').select('customer_id')
+        .eq('id', order.restaurant_id).maybeSingle()
+      if (rest?.customer_id === session.id) effectiveRole = 'owner'
     }
   }
 

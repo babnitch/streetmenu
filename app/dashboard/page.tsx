@@ -146,52 +146,61 @@ export default function DashboardPage() {
     return () => { cancelled = true }
   }, [router])
 
-  // Scope restaurants: admins see all, customers see owned + team memberships
+  // Map of restaurant.id → role, populated from the server. Admins get no
+  // map (role resolution short-circuits to 'admin').
+  const [rolesByRestaurantId, setRolesByRestaurantId] = useState<Record<string, VendorRole>>({})
+
+  // Scope restaurants. Routed through /api/vendor/restaurants (uses
+  // supabaseAdmin) rather than an anon query because RLS blocks anon reads
+  // of restaurant_team. The server also merges restaurants.customer_id
+  // (implicit owner) into the result, so owners without explicit team
+  // rows still see their restaurant here.
   useEffect(() => {
     if (!me) return
     const isAdmin = ['super_admin', 'admin', 'moderator'].includes(me.role)
     if (isAdmin) {
       supabase.from('restaurants').select('*').order('created_at', { ascending: false })
         .then(({ data }) => {
-          if (data) { setRestaurants(data); setSelectedRestaurant(prev => prev ?? data[0] ?? null) }
+          if (data) {
+            setRestaurants(data)
+            setSelectedRestaurant(prev => prev ?? data[0] ?? null)
+          }
         })
       return
     }
-    Promise.all([
-      supabase.from('restaurants').select('*').eq('customer_id', me.id),
-      supabase.from('restaurant_team').select('restaurants(*)').eq('customer_id', me.id).eq('status', 'active'),
-    ]).then(([direct, team]) => {
-      const acc = new Map<string, Restaurant>()
-      for (const r of direct.data ?? []) acc.set(r.id, r)
-      for (const entry of team.data ?? []) {
-        const r = (entry as unknown as { restaurants: Restaurant | null }).restaurants
-        if (r) acc.set(r.id, r)
-      }
-      const list = Array.from(acc.values())
-      setRestaurants(list)
-      setSelectedRestaurant(prev => prev ?? list[0] ?? null)
-    })
+    fetch('/api/vendor/restaurants', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        const list = (data?.restaurants ?? []) as Restaurant[]
+        const rolesMap = (data?.rolesByRestaurantId ?? {}) as Record<string, VendorRole>
+        console.log('[dashboard] me=', me.id.slice(0, 8), 'restaurants=', list.length, 'roles=', rolesMap)
+        setRestaurants(list)
+        setRolesByRestaurantId(rolesMap)
+        setSelectedRestaurant(prev => prev ?? list[0] ?? null)
+      })
+      .catch(e => console.error('[dashboard] vendor/restaurants fetch failed:', (e as Error).message))
   }, [me])
 
-  // Resolve this session's role for the currently-selected restaurant
+  // Resolve this session's role for the currently-selected restaurant.
+  // For customers, use the server-provided map; for admins, short-circuit.
   useEffect(() => {
     if (!me || !selectedRestaurant) { setEffectiveRole(null); return }
-    if (['super_admin', 'admin', 'moderator'].includes(me.role)) { setEffectiveRole('admin'); return }
-    supabase.from('restaurant_team')
-      .select('role').eq('restaurant_id', selectedRestaurant.id)
-      .eq('customer_id', me.id).eq('status', 'active').maybeSingle()
-      .then(({ data }) => {
-        const r = (data?.role ?? null) as VendorRole | null
-        setEffectiveRole(r && ['owner', 'manager', 'staff'].includes(r) ? r : null)
-      })
-  }, [me, selectedRestaurant])
+    if (['super_admin', 'admin', 'moderator'].includes(me.role)) {
+      setEffectiveRole('admin')
+      return
+    }
+    const role = rolesByRestaurantId[selectedRestaurant.id] ?? null
+    console.log('[dashboard] selectedRestaurant=', selectedRestaurant.id.slice(0, 8), 'role=', role)
+    setEffectiveRole(role)
+  }, [me, selectedRestaurant, rolesByRestaurantId])
 
   const fetchOrders = useCallback(async (restaurantId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('orders')
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('created_at', { ascending: false })
+    console.log('[dashboard] fetchOrders restaurant=', restaurantId.slice(0, 8), 'count=', data?.length, 'error=', error)
     if (!data) return
     setOrders(data)
 
