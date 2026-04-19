@@ -86,6 +86,8 @@ async function main() {
       '+999 000 555 111',           // with spaces
       '+999-000-555-111',           // with dashes
       '  +999000555111  ',          // with surrounding whitespace
+      '00999000555111',             // 00 international prefix (European convention)
+      '00 999 000 555 111',         // 00 prefix with spaces
     ]
     for (const v of variants) {
       const r = await checkPhone(v)
