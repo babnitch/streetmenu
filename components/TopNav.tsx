@@ -128,9 +128,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         </form>
 
         {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these.
+            `flex-shrink-0` + `whitespace-nowrap` keep every link visible even
+            when the search input tries to grow and squeeze the cluster.
             Orders + Restaurant only render for signed-in / vendor users; guests
-            see just the Events link. */}
-        <nav className="hidden md:flex items-center gap-1">
+            still see the Events link. */}
+        <nav className="hidden md:flex items-center gap-1 flex-shrink-0 whitespace-nowrap">
           <TopNavLink href="/events" active={isEvents}>
             🎉 {bi('Événements', 'Events')}
           </TopNavLink>
