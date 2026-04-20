@@ -22,6 +22,7 @@ interface TabSpec {
   label:  string            // used for aria-label + title only (not rendered)
   match:  (path: string) => boolean
   onClick?: () => void      // Search uses this instead of href-nav
+  badge?: number            // red pill on icon top-right when > 0
 }
 
 export default function BottomNav() {
@@ -30,10 +31,16 @@ export default function BottomNav() {
 
   const [showVendorTab, setShowVendorTab] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
 
+  // Initial vendor probe + start polling pending count. Poll interval 30s
+  // per spec — light enough to not burn battery, frequent enough to feel
+  // near-real-time on the restaurant tab badge.
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
+    let pollTimer: ReturnType<typeof setInterval> | null = null
+
+    async function probe() {
       try {
         const meRes = await fetch('/api/auth/me', { cache: 'no-store' })
         const me = await meRes.json()
@@ -49,9 +56,26 @@ export default function BottomNav() {
         const list: Array<{ status?: string }> = v.restaurants ?? []
         const hasApproved = list.some(r => r.status && r.status !== 'pending')
         setShowVendorTab(hasApproved)
+
+        if (hasApproved) {
+          const refreshCount = async () => {
+            try {
+              const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
+              const d = await r.json()
+              if (!cancelled) setPendingCount(Number(d?.count ?? 0))
+            } catch { /* transient network; keep prior count */ }
+          }
+          refreshCount()
+          pollTimer = setInterval(refreshCount, 30_000)
+        }
       } catch { /* swallow — show base tabs */ }
-    })()
-    return () => { cancelled = true }
+    }
+
+    probe()
+    return () => {
+      cancelled = true
+      if (pollTimer) clearInterval(pollTimer)
+    }
   }, [])
 
   // Hide entirely on admin routes (admins navigate via the /account admin tabs).
@@ -73,7 +97,13 @@ export default function BottomNav() {
     { href: '/events',              icon: '🎉', label: 'Événements / Events', match: p => p.startsWith('/events') },
     { href: '/account?tab=orders',  icon: '📦', label: 'Commandes / Orders', match: p => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
     ...(showVendorTab ? [
-      { href: '/dashboard', icon: '🏪', label: 'Restaurant', match: (p: string) => p.startsWith('/dashboard') }
+      {
+        href: '/dashboard',
+        icon: '🏪',
+        label: 'Restaurant',
+        match: (p: string) => p.startsWith('/dashboard'),
+        badge: pendingCount,
+      }
     ] : []),
     { href: '/account',             icon: '👤', label: 'Compte / Account',   match: p => p === '/account' },
   ]
@@ -108,6 +138,14 @@ export default function BottomNav() {
               </span>
               {active && (
                 <span className="absolute bottom-2 h-1 w-1 rounded-full bg-brand" aria-hidden="true" />
+              )}
+              {tab.badge != null && tab.badge > 0 && (
+                <span
+                  aria-label={`${tab.badge} ${tab.label} pending`}
+                  className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center leading-none"
+                >
+                  {tab.badge > 99 ? '99+' : tab.badge}
+                </span>
               )}
             </>
           )

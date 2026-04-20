@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Restaurant } from '@/types'
 import RestaurantSidebar from '@/components/RestaurantSidebar'
@@ -98,16 +99,69 @@ function CardSkeleton() {
 }
 
 export default function HomePage() {
+  const router = useRouter()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Restaurant | null>(null)
   const [bannerDismissed, setBannerDismissed] = useState(true)
   const [query, setQuery] = useState('')
+  const [pendingOrders, setPendingOrders] = useState(0)
+  const [redirecting, setRedirecting] = useState(false)
   const { t } = useLanguage()
   const { user, loading: authLoading } = useAuth()
   const { city } = useCity()
   const searchRef = useRef<HTMLInputElement>(null)
+
+  // Vendor auto-redirect + pending-orders banner.
+  //
+  // - On a fresh app open (no nt_hasVisitedHome flag in sessionStorage),
+  //   an approved vendor lands on /dashboard instead of the home page.
+  //   Pending-only vendors (all restaurants still awaiting approval)
+  //   stay on / — they have nothing to manage yet.
+  // - Once the flag is set, subsequent visits to / (e.g. tapping the
+  //   Home tab from the dashboard) don't redirect. The user explicitly
+  //   asked for the home feed.
+  // - Whether or not the redirect fires, we populate pendingOrders so
+  //   a vendor who returns to / can see the banner CTA.
+  useEffect(() => {
+    let cancelled = false
+    const hasVisited = typeof window !== 'undefined'
+      ? sessionStorage.getItem('nt_hasVisitedHome') === '1'
+      : false
+    // Mark visited synchronously — subsequent mounts in the same session
+    // skip the redirect regardless of whether the async probe has finished.
+    try { sessionStorage.setItem('nt_hasVisitedHome', '1') } catch {}
+
+    ;(async () => {
+      try {
+        const meRes = await fetch('/api/auth/me', { cache: 'no-store' })
+        const me = await meRes.json()
+        if (cancelled) return
+        if (!me?.user) return
+        if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) return
+
+        const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
+        const v = await vRes.json()
+        if (cancelled) return
+        const list: Array<{ status?: string }> = v.restaurants ?? []
+        const hasApproved = list.some(r => r.status && r.status !== 'pending')
+        if (!hasApproved) return
+
+        if (!hasVisited) {
+          setRedirecting(true)
+          router.replace('/dashboard')
+          return
+        }
+
+        // User explicitly came back to home — show the pending banner.
+        const pRes = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
+        const p = await pRes.json()
+        if (!cancelled) setPendingOrders(Number(p?.count ?? 0))
+      } catch { /* fail open: just show the home feed */ }
+    })()
+    return () => { cancelled = true }
+  }, [router])
 
   // TopNav desktop search submits to /?q=...#search. Seed the local query
   // from the URL on mount + whenever history changes. Client-only reads
@@ -178,10 +232,37 @@ export default function HomePage() {
     })
   const openCount = filtered.filter(r => r.is_open).length
 
+  // While redirecting, render a minimal shell so we don't briefly flash
+  // the home feed to an approved vendor.
+  if (redirecting) {
+    return (
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center">
+        <div className="skeleton h-6 w-40" />
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-surface">
 
       <TopNav cta={{ label: t('nav.join'), href: '/join' }} />
+
+      {/* Pending-orders banner for vendors who returned to the home page
+          after their initial redirect. Tap to go straight to the
+          dashboard. Hidden when there's nothing pending. */}
+      {pendingOrders > 0 && (
+        <Link
+          href="/dashboard"
+          className="block bg-brand text-white border-b border-brand-dark hover:bg-brand-dark transition-colors"
+        >
+          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold">
+              🔔 Vous avez {pendingOrders} commande{pendingOrders > 1 ? 's' : ''} en attente / You have {pendingOrders} pending order{pendingOrders > 1 ? 's' : ''}
+            </span>
+            <span aria-hidden="true" className="text-sm font-semibold">→</span>
+          </div>
+        </Link>
+      )}
 
       {/* Welcome banner */}
       {!authLoading && !user && !bannerDismissed && (
