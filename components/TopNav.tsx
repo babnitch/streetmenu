@@ -1,10 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useCart } from '@/lib/cartContext'
-import LanguageToggle from './LanguageToggle'
 import CityDropdown from './CityDropdown'
 
 interface TopNavProps {
@@ -30,10 +29,12 @@ type VendorState =
 
 export default function TopNav({ cta }: TopNavProps = {}) {
   const pathname = usePathname() ?? ''
+  const router = useRouter()
   const { totalItems } = useCart()
 
   const [me, setMe] = useState<SessionUser | null>(null)
   const [vendor, setVendor] = useState<VendorState>({ kind: 'none' })
+  const [searchDraft, setSearchDraft] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -79,9 +80,34 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
         {/* City dropdown — shown on every viewport; this is the primary
             global filter for the restaurant list. */}
-        <div className="flex-1 flex justify-center sm:justify-start sm:ml-4">
+        <div className="flex-shrink-0">
           <CityDropdown />
         </div>
+
+        {/* Desktop-only inline search — submits to /?q=...#search so the
+            home page seeds its own search input. On pages other than /,
+            this is a jump-to-results shortcut. Hidden on mobile; the
+            home page search input + BottomNav Search tab cover mobile. */}
+        <form
+          onSubmit={e => {
+            e.preventDefault()
+            const q = searchDraft.trim()
+            router.push(q ? `/?q=${encodeURIComponent(q)}#search` : '/')
+          }}
+          className="hidden md:flex flex-1 max-w-md"
+          role="search"
+        >
+          <label className="relative block w-full">
+            <span className="absolute inset-y-0 left-3 flex items-center text-ink-tertiary pointer-events-none">🔍</span>
+            <input
+              type="search"
+              value={searchDraft}
+              onChange={e => setSearchDraft(e.target.value)}
+              placeholder="Rechercher un restaurant... / Search restaurants..."
+              className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
+            />
+          </label>
+        </form>
 
         {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these. */}
         <nav className="hidden md:flex items-center gap-1">
@@ -113,7 +139,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             <span aria-hidden="true">👤</span>
             <span className="truncate">{accountLabel}</span>
           </Link>
-          <span className="hidden sm:block"><LanguageToggle /></span>
+          {/* Language toggle removed from TopNav entirely — moved to the
+              /account profile tab "Langue / Language" section. */}
 
           {/* Secondary Join CTA on desktop only when the page passed one
               AND the visitor isn't already a vendor. */}

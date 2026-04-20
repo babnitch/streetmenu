@@ -37,8 +37,11 @@ function RestaurantCard({
   const heroImage = restaurant.image_url || restaurant.logo_url
 
   return (
-    <Link href={`/restaurant/${restaurant.id}`} className="group block">
-      <div className="relative aspect-[16/9] rounded-xl overflow-hidden mb-3 bg-surface-muted">
+    <Link
+      href={`/restaurant/${restaurant.id}`}
+      className="group block bg-surface border border-divider rounded-xl overflow-hidden hover:shadow-card transition-shadow"
+    >
+      <div className="relative aspect-[16/9] overflow-hidden bg-surface-muted">
         {heroImage ? (
           <Image
             src={heroImage}
@@ -56,7 +59,7 @@ function RestaurantCard({
         )}
       </div>
 
-      <div className="flex items-start justify-between gap-2">
+      <div className="p-3 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="font-bold text-brand-dark text-base leading-tight line-clamp-1">
             {restaurant.name}
@@ -84,10 +87,12 @@ function RestaurantCard({
 
 function CardSkeleton() {
   return (
-    <div>
-      <div className="aspect-[16/9] skeleton rounded-xl mb-3" />
-      <div className="skeleton h-4 w-3/4 mb-2" />
-      <div className="skeleton h-3 w-1/2" />
+    <div className="bg-surface border border-divider rounded-xl overflow-hidden">
+      <div className="aspect-[16/9] skeleton rounded-none" />
+      <div className="p-3 space-y-2">
+        <div className="skeleton h-4 w-3/4" />
+        <div className="skeleton h-3 w-1/2" />
+      </div>
     </div>
   )
 }
@@ -103,6 +108,18 @@ export default function HomePage() {
   const { user, loading: authLoading } = useAuth()
   const { city } = useCity()
   const searchRef = useRef<HTMLInputElement>(null)
+
+  // TopNav desktop search submits to /?q=...#search. Seed the local query
+  // from the URL on mount + whenever history changes. Client-only reads
+  // keep this out of Next's static-prerender path (no Suspense boundary
+  // needed as we'd get with useSearchParams).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const read = () => setQuery(new URLSearchParams(window.location.search).get('q') ?? '')
+    read()
+    window.addEventListener('popstate', read)
+    return () => window.removeEventListener('popstate', read)
+  }, [])
 
   useEffect(() => {
     const dismissed = localStorage.getItem('banner_dismissed')

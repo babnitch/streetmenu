@@ -8,6 +8,7 @@ import dynamicLoad from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
+import LanguageToggle from '@/components/LanguageToggle'
 import VoucherCard from '@/components/VoucherCard'
 import AdminProfilePanel from '@/components/AdminProfilePanel'
 import { CustomerVoucher, Order } from '@/types'
@@ -885,6 +886,12 @@ export default function AccountPage() {
                               day: 'numeric', month: 'long', year: 'numeric',
                             })}
                           </p>
+                        </div>
+
+                        {/* Language toggle — lives here now instead of in TopNav. */}
+                        <div>
+                          <label className="block text-xs text-ink-tertiary mb-2">Langue / Language</label>
+                          <LanguageToggle />
                         </div>
 
                         {/* Suspension info */}
