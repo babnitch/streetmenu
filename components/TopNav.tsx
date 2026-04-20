@@ -7,7 +7,6 @@ import { useCart } from '@/lib/cartContext'
 import { useBi } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
-import ModeSwitcher from './ModeSwitcher'
 import { useMode } from '@/lib/modeContext'
 
 interface TopNavProps {
@@ -106,7 +105,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   }
 
   return (
-    <>
     <header className="sticky top-0 z-30 bg-surface border-b border-divider shadow-sm">
       <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
 
@@ -246,8 +244,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         </div>
       </div>
     </header>
-    <ModeSwitcher />
-    </>
   )
 }
 

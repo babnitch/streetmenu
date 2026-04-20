@@ -14,6 +14,7 @@ import TopNav from '@/components/TopNav'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
+import { useMode } from '@/lib/modeContext'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
@@ -81,9 +82,9 @@ function RestaurantCard({
           )}
         </div>
         <span className={`flex-shrink-0 text-xs font-semibold whitespace-nowrap ${
-          restaurant.is_open ? 'text-brand-darker' : 'text-danger'
+          restaurant.is_open ? 'text-green-600' : 'text-red-600'
         }`}>
-          {restaurant.is_open ? bi('● Ouvert', '● Open') : bi('● Fermé', '● Closed')}
+          {restaurant.is_open ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
         </span>
       </div>
     </Link>
@@ -116,57 +117,34 @@ export default function HomePage() {
   const { t } = useLanguage()
   const { user, loading: authLoading } = useAuth()
   const { city } = useCity()
+  const { mode, hasRestaurantRole, loading: modeLoading } = useMode()
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Vendor auto-redirect + pending-orders banner.
-  //
-  // - On a fresh app open (no nt_hasVisitedHome flag in sessionStorage),
-  //   an approved vendor lands on /dashboard instead of the home page.
-  //   Pending-only vendors (all restaurants still awaiting approval)
-  //   stay on / — they have nothing to manage yet.
-  // - Once the flag is set, subsequent visits to / (e.g. tapping the
-  //   Home tab from the dashboard) don't redirect. The user explicitly
-  //   asked for the home feed.
-  // - Whether or not the redirect fires, we populate pendingOrders so
-  //   a vendor who returns to / can see the banner CTA.
+  // Mode-driven redirect. Restaurant mode sends vendors straight to the
+  // dashboard; client mode keeps them on the public home feed. We wait for
+  // the mode probe to finish so a flash of the wrong surface is avoided.
+  useEffect(() => {
+    if (modeLoading) return
+    if (hasRestaurantRole && mode === 'restaurant') {
+      setRedirecting(true)
+      router.replace('/dashboard')
+    }
+  }, [modeLoading, hasRestaurantRole, mode, router])
+
+  // Pending-orders banner for vendors currently in Client mode. Populated
+  // lazily so the home feed renders fast — the banner only shows when there
+  // is something to see.
   useEffect(() => {
     let cancelled = false
-    const hasVisited = typeof window !== 'undefined'
-      ? sessionStorage.getItem('nt_hasVisitedHome') === '1'
-      : false
-    // Mark visited synchronously — subsequent mounts in the same session
-    // skip the redirect regardless of whether the async probe has finished.
-    try { sessionStorage.setItem('nt_hasVisitedHome', '1') } catch {}
-
     ;(async () => {
       try {
-        const meRes = await fetch('/api/auth/me', { cache: 'no-store' })
-        const me = await meRes.json()
-        if (cancelled) return
-        if (!me?.user) return
-        if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) return
-
-        const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
-        const v = await vRes.json()
-        if (cancelled) return
-        const list: Array<{ status?: string }> = v.restaurants ?? []
-        const hasApproved = list.some(r => r.status && r.status !== 'pending')
-        if (!hasApproved) return
-
-        if (!hasVisited) {
-          setRedirecting(true)
-          router.replace('/dashboard')
-          return
-        }
-
-        // User explicitly came back to home — show the pending banner.
         const pRes = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
         const p = await pRes.json()
         if (!cancelled) setPendingOrders(Number(p?.count ?? 0))
-      } catch { /* fail open: just show the home feed */ }
+      } catch { /* transient failure — no banner */ }
     })()
     return () => { cancelled = true }
-  }, [router])
+  }, [])
 
   // TopNav desktop search submits to /?q=...#search. Seed the local query
   // from the URL on mount + whenever history changes. Client-only reads

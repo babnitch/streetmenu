@@ -367,13 +367,13 @@ export default function DashboardPage() {
             </div>
             <button
               onClick={toggleOpen}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors border ${
                 selectedRestaurant.is_open
-                  ? 'bg-brand-light text-brand-darker hover:bg-brand-light'
-                  : 'bg-surface-muted text-ink-secondary hover:bg-divider'
+                  ? 'bg-white border-green-200 text-green-600 hover:bg-green-50'
+                  : 'bg-white border-red-200 text-red-600 hover:bg-red-50'
               }`}
             >
-              {selectedRestaurant.is_open ? t('dash.openBtn') : t('dash.closedBtn')}
+              {selectedRestaurant.is_open ? `🟢 ${t('dash.openBtn')}` : `🔴 ${t('dash.closedBtn')}`}
             </button>
           </div>
 

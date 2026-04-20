@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import LanguageToggle from '@/components/LanguageToggle'
+import ModeToggle from '@/components/ModeToggle'
 import VoucherCard from '@/components/VoucherCard'
 import AdminProfilePanel from '@/components/AdminProfilePanel'
 import { CustomerVoucher, Order } from '@/types'
@@ -802,6 +803,10 @@ export default function AccountPage() {
         {/* ── Dashboard ── */}
         {step === 'dashboard' && user && (
           <div>
+            {/* Mode banner — only renders for users with a team role.
+                Primary entry point for the Client ⇄ Restaurant switch. */}
+            <ModeToggle variant="banner" />
+
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -1016,6 +1021,13 @@ export default function AccountPage() {
                         <div>
                           <label className="block text-xs text-ink-tertiary mb-2">{bi('Langue', 'Language')}</label>
                           <LanguageToggle />
+                        </div>
+
+                        {/* Mode toggle — shown only to users with a team role
+                            (see ModeContext.hasRestaurantRole). */}
+                        <div>
+                          <label className="block text-xs text-ink-tertiary mb-2">{bi('Mode', 'Mode')}</label>
+                          <ModeToggle variant="compact" />
                         </div>
 
                         {/* Suspension info */}

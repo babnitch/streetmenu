@@ -36,12 +36,10 @@ export default function RestaurantSidebar({ restaurant, onClose }: Props) {
           ✕
         </button>
         <div className="absolute bottom-3 left-3">
-          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-            restaurant.is_open
-              ? 'bg-brand text-white'
-              : 'bg-surface-muted0 text-white'
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full bg-white ${
+            restaurant.is_open ? 'text-green-600' : 'text-red-600'
           }`}>
-            {restaurant.is_open ? t('sidebar.openNow') : t('sidebar.closed')}
+            {restaurant.is_open ? `🟢 ${t('sidebar.openNow')}` : `🔴 ${t('sidebar.closed')}`}
           </span>
         </div>
       </div>

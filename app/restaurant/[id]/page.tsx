@@ -126,10 +126,10 @@ export default function MenuPage() {
               {[restaurant.cuisine_type, restaurant.neighborhood, restaurant.city].filter(Boolean).join(' · ')}
             </p>
           </div>
-          <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${
-            restaurant.is_open ? 'bg-brand-light text-brand-darker' : 'bg-ink-primary text-white'
+          <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full bg-white ${
+            restaurant.is_open ? 'text-green-600' : 'text-red-600'
           }`}>
-            {restaurant.is_open ? bi('🟢 Ouvert', 'Open') : bi('🔴 Fermé', 'Closed')}
+            {restaurant.is_open ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
           </span>
         </div>
       </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
@@ -18,7 +18,8 @@ import { useMode } from '@/lib/modeContext'
 interface TabSpec {
   href:   string
   icon:   string
-  label:  string            // used for aria-label + title only (not rendered)
+  /** Short label displayed beneath the icon (also used for aria-label). */
+  label:  string
   match:  (path: string) => boolean
   onClick?: () => void      // Search uses this instead of href-nav
   badge?: number            // red pill on icon top-right when > 0
@@ -26,7 +27,6 @@ interface TabSpec {
 
 export default function BottomNav() {
   const pathname = usePathname() ?? ''
-  const router = useRouter()
   const bi = useBi()
   const { mode, hasRestaurantRole, topRole } = useMode()
 
@@ -86,10 +86,6 @@ export default function BottomNav() {
 
   if (hideOnRoute) return null
 
-  // Search tab routes to home with a #search anchor. The home page reads
-  // the hash on mount and focuses the search input.
-  const goSearch = () => router.push('/#search')
-
   // Effective mode: only honor "restaurant" when the user actually has a
   // team role. Prevents a stale localStorage flag from showing vendor
   // tabs to a logged-out user.
@@ -103,19 +99,21 @@ export default function BottomNav() {
     : 'orders'
 
   const clientTabs: TabSpec[] = [
-    { href: '/',          icon: '🏠', label: bi('Accueil', 'Home'),      match: p => p === '/' || p.startsWith('/restaurant') },
-    { href: '/#search',   icon: '🔍', label: bi('Recherche', 'Search'),  match: () => false, onClick: goSearch },
-    { href: '/events',    icon: '🎉', label: bi('Événements', 'Events'), match: p => p.startsWith('/events') },
+    { href: '/',          icon: '🏠', label: bi('Restaurants', 'Restaurants'), match: p => p === '/' || p.startsWith('/restaurant') },
+    { href: '/events',    icon: '🎉', label: bi('Événements', 'Events'),       match: p => p.startsWith('/events') },
     ...(isLoggedIn ? [
       { href: '/account?tab=orders', icon: '📦', label: bi('Commandes', 'Orders'),
         match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) }
     ] : []),
-    { href: '/account',   icon: '👤', label: bi('Compte', 'Account'),    match: p => p === '/account' && !(typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
+    { href: '/account',   icon: '👤', label: bi('Compte', 'Account'),
+      match: p => p === '/account' && !(typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
   ]
 
   const isOwner   = topRole === 'owner'
   const isManager = topRole === 'manager'
 
+  // Short single-word labels. "Réglages" fits 10px on 375px; "Paramètres"
+  // would wrap next to 4 other tabs.
   const restaurantTabs: TabSpec[] = [
     { href: '/dashboard?tab=orders',   icon: '📦', label: bi('Commandes', 'Orders'),
       match: p => p.startsWith('/dashboard') && (dashTab === 'orders' || !['menu','team','settings'].includes(dashTab)),
@@ -127,7 +125,7 @@ export default function BottomNav() {
     ...(isOwner ? [
       { href: '/dashboard?tab=team',   icon: '👥', label: bi('Équipe', 'Team'),
         match: (p: string) => p.startsWith('/dashboard') && dashTab === 'team' },
-      { href: '/dashboard?tab=settings', icon: '⚙️', label: bi('Paramètres', 'Settings'),
+      { href: '/dashboard?tab=settings', icon: '⚙️', label: bi('Réglages', 'Settings'),
         match: (p: string) => p.startsWith('/dashboard') && dashTab === 'settings' },
     ] : []),
     { href: '/account',                icon: '👤', label: bi('Compte', 'Account'),
@@ -148,13 +146,12 @@ export default function BottomNav() {
       >
         {tabs.map((tab, i) => {
           const active = tab.match(pathname)
-          // Active icon: full-opacity, with a subtle brand-light bubble
-          // + brand-dot underline for clear selection. Inactive: slight
-          // grayscale so the active tab pops.
-          const iconCls = active
-            ? 'opacity-100 scale-110'
-            : 'opacity-60 grayscale'
-          const sharedClass = 'relative flex items-center justify-center min-h-[56px] min-w-[44px] px-2'
+          // Active tab: brand orange for both icon (full-opacity) and label.
+          // Inactive: grayscale icon + tertiary label. The label layer sits
+          // below the icon at 10px so it never wraps.
+          const iconCls  = active ? 'opacity-100 scale-105'     : 'opacity-60 grayscale'
+          const labelCls = active ? 'text-brand font-semibold'  : 'text-ink-tertiary'
+          const sharedClass = 'relative flex flex-col items-center justify-center min-h-[60px] min-w-[44px] px-1 pt-1.5 pb-1 gap-0.5'
 
           const body = (
             <>
@@ -164,9 +161,12 @@ export default function BottomNav() {
               >
                 {tab.icon}
               </span>
-              {active && (
-                <span className="absolute bottom-2 h-1 w-1 rounded-full bg-brand" aria-hidden="true" />
-              )}
+              <span
+                aria-hidden="true"
+                className={`text-[10px] leading-none tracking-tight transition-colors ${labelCls}`}
+              >
+                {tab.label}
+              </span>
               {tab.badge != null && tab.badge > 0 && (
                 <span
                   aria-label={`${tab.badge} ${tab.label} pending`}
