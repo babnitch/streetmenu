@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage } from '@/lib/languageContext'
-import { useAuth } from '@/lib/authContext'
 import LanguageToggle from './LanguageToggle'
 
 interface TopNavProps {
@@ -14,58 +13,69 @@ interface TopNavProps {
 
 // When the page hands us the "+ Join Us" CTA, we may need to swap it:
 //   - logged-out users or customers with no restaurant → keep it
-//   - customers with ≥1 restaurant → "Mon restaurant / My Restaurant" → /account,
-//     with a Pending pill if every linked restaurant is still pending
+//   - customers with ≥1 restaurant → "Mon restaurant / My Restaurant" →
+//     /dashboard for approved owners, /account for pending-only
 //   - admins / moderators → hide entirely (they have their own dashboard)
 type JoinSwap =
   | { kind: 'join' }                                    // show incoming CTA unchanged
   | { kind: 'myRestaurant'; pending: boolean }          // customer owns at least one
   | { kind: 'hidden' }                                  // admin role or still resolving
 
+// Session user fetched via /api/auth/me (the real customer/admin JWT flow).
+// lib/authContext is Supabase-auth backed and always null for this app —
+// reading /api/auth/me directly is what every other page does.
+interface SessionUser { id: string; name: string; role: string }
+
+// Pick the first space-delimited token; if long, it's still readable on
+// mobile (~10 chars). Keeps the nav compact for people with full names.
+function firstName(full: string): string {
+  const t = full.trim()
+  if (!t) return ''
+  return t.split(/\s+/)[0]
+}
+
 export default function TopNav({ cta }: TopNavProps = {}) {
   const pathname = usePathname()
   const { totalItems } = useCart()
   const { t } = useLanguage()
-  const { user } = useAuth()
 
   const isRestaurants = pathname === '/' || pathname.startsWith('/restaurant')
   const isEvents      = pathname.startsWith('/events')
 
   const isJoinCta = cta?.href === '/join'
   const [swap, setSwap] = useState<JoinSwap>({ kind: 'join' })
-  // Separate from swap: whether to show the persistent Dashboard pill in
-  // the nav. True when the session owns/manages ≥1 non-pending restaurant,
-  // regardless of whether the page passes a Join CTA.
-  const [showDashboard, setShowDashboard] = useState(false)
+  const [me, setMe] = useState<SessionUser | null>(null)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
         const meRes = await fetch('/api/auth/me', { cache: 'no-store' })
-        const me = await meRes.json()
+        const data = await meRes.json()
         if (cancelled) return
-        if (!me.user) { setSwap({ kind: 'join' }); setShowDashboard(false); return }
-        if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
+        const sessionUser = (data?.user ?? null) as SessionUser | null
+        setMe(sessionUser)
+        if (!sessionUser) { setSwap({ kind: 'join' }); return }
+        if (['super_admin', 'admin', 'moderator'].includes(sessionUser.role)) {
           setSwap({ kind: 'hidden' })
-          setShowDashboard(false)
           return
         }
         const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
         const v = await vRes.json()
         if (cancelled) return
         const list: Array<{ status?: string }> = v.restaurants ?? []
-        if (!list.length) { setSwap({ kind: 'join' }); setShowDashboard(false); return }
+        if (!list.length) { setSwap({ kind: 'join' }); return }
         const pending = list.every(r => r.status === 'pending')
         if (isJoinCta) setSwap({ kind: 'myRestaurant', pending })
-        // Dashboard is only useful once ≥1 restaurant is actually approved.
-        setShowDashboard(!pending)
       } catch {
-        if (!cancelled) { setSwap({ kind: 'join' }); setShowDashboard(false) }
+        if (!cancelled) { setSwap({ kind: 'join' }); setMe(null) }
       }
     })()
     return () => { cancelled = true }
   }, [isJoinCta])
+
+  // Account pill label: first name when logged in, "Connexion / Login" otherwise.
+  const accountLabel = me ? firstName(me.name) || me.name : 'Connexion / Login'
 
   return (
     <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur-sm border-b border-divider">
@@ -77,7 +87,9 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <span className="font-bold text-ink-primary text-base hidden sm:inline">Ndjoka &amp; Tchop</span>
         </Link>
 
-        {/* Nav — underline-indicator pattern, not filled pills */}
+        {/* Nav — underline-indicator pattern. No Dashboard link here; the
+            single entry point for vendors is the "Mon restaurant" CTA on
+            the right, which routes to /dashboard for approved owners. */}
         <nav className="flex items-center gap-1 sm:gap-2">
           <NavLink href="/" active={isRestaurants}>
             {t('nav.restaurants')}
@@ -85,11 +97,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <NavLink href="/events" active={isEvents}>
             {t('nav.events')}
           </NavLink>
-          {showDashboard && (
-            <NavLink href="/dashboard" active={pathname?.startsWith('/dashboard') ?? false}>
-              Dashboard
-            </NavLink>
-          )}
         </nav>
 
         {/* Right cluster */}
@@ -104,11 +111,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           )}
           <Link
             href="/account"
-            className="text-ink-secondary hover:text-ink-primary hover:bg-surface-muted px-2.5 py-1.5 rounded-full text-sm font-semibold transition-colors flex items-center gap-1"
-            title={t('nav.account')}
+            className="text-ink-secondary hover:text-ink-primary hover:bg-surface-muted px-2.5 py-1.5 rounded-full text-sm font-semibold transition-colors flex items-center gap-1 max-w-[10rem]"
+            title={me?.name ?? 'Connexion / Login'}
           >
-            {user ? '👤' : <span className="hidden sm:inline">{t('nav.account')}</span>}
-            {!user && <span className="sm:hidden">👤</span>}
+            <span aria-hidden="true">👤</span>
+            <span className="hidden sm:inline truncate">{accountLabel}</span>
           </Link>
           <LanguageToggle />
           {cta && isJoinCta && swap.kind === 'myRestaurant' && (
@@ -116,7 +123,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               href={swap.pending ? '/account' : '/dashboard'}
               className="hidden sm:flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
             >
-              Mon restaurant / My Restaurant
+              🏪 Mon restaurant / My Restaurant
               {swap.pending && (
                 <span className="bg-white/25 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                   En attente / Pending

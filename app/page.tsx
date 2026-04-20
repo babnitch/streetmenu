@@ -265,12 +265,13 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Floating Map button — primary brand */}
+      {/* Floating Map button — primary brand. t('list.viewMap') already
+          contains the 🗺 glyph, so no prefix. */}
       <button
         onClick={() => setShowMap(true)}
         className="fixed bottom-6 right-4 z-30 bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"
       >
-        🗺️ {t('list.viewMap')}
+        {t('list.viewMap')}
       </button>
 
       {/* Map overlay */}
