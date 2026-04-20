@@ -44,3 +44,23 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 export function useLanguage() {
   return useContext(LanguageContext)
 }
+
+// Bilingual picker. Use `bi(fr, en)` where a string is language-dependent
+// but not worth adding to the translations dictionary (one-offs, dynamic
+// labels, short phrases). Prefer adding entries to lib/translations.ts +
+// t('key') for UI copy that's reused across pages.
+export function useBi() {
+  const { locale } = useContext(LanguageContext)
+  return (fr: string, en: string) => (locale === 'fr' ? fr : en)
+}
+
+// Splits a "FR / EN" string at runtime and returns the side that matches
+// the current locale. Useful when the bilingual string lives in a
+// module-scope map or external data — places `useBi` (a hook) can't reach.
+// Strings without " / " pass through unchanged.
+export function pickBi(str: string | null | undefined, locale: Locale): string {
+  if (!str) return ''
+  const i = str.indexOf(' / ')
+  if (i === -1) return str
+  return locale === 'fr' ? str.slice(0, i) : str.slice(i + 3)
+}

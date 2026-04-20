@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
+import { useBi } from '@/lib/languageContext'
 
 interface TeamMember {
   id: string
@@ -16,6 +17,7 @@ interface TeamMember {
 const INPUT = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand'
 
 export default function AdminPlatformTeamPage() {
+  const bi = useBi()
   const [team, setTeam] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
   const [currentAdminId, setCurrentAdminId] = useState<string | undefined>()
@@ -82,7 +84,7 @@ export default function AdminPlatformTeamPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-ink-primary">Équipe plateforme / Platform Team</h1>
+          <h1 className="text-2xl font-bold text-ink-primary">{bi('Équipe plateforme', 'Platform Team')}</h1>
           <p className="text-sm text-ink-secondary mt-0.5">{team.length} membre{team.length !== 1 ? 's' : ''}</p>
         </div>
         <button
@@ -95,10 +97,10 @@ export default function AdminPlatformTeamPage() {
 
       {showForm && (
         <div className="bg-white rounded-2xl shadow-sm border border-brand-light p-6 mb-6">
-          <h2 className="font-bold text-ink-primary mb-4">Nouveau membre / New member</h2>
+          <h2 className="font-bold text-ink-primary mb-4">{bi('Nouveau membre', 'New member')}</h2>
           <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-ink-secondary font-medium mb-1.5">Nom / Name *</label>
+              <label className="block text-xs text-ink-secondary font-medium mb-1.5">{bi('Nom', 'Name *')}</label>
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="Marie Dupont" className={INPUT} required />
             </div>
@@ -108,23 +110,23 @@ export default function AdminPlatformTeamPage() {
                 placeholder="marie@example.com" className={INPUT} required />
             </div>
             <div>
-              <label className="block text-xs text-ink-secondary font-medium mb-1.5">Mot de passe / Password *</label>
+              <label className="block text-xs text-ink-secondary font-medium mb-1.5">{bi('Mot de passe', 'Password *')}</label>
               <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 placeholder="Min. 8 caractères" className={INPUT} required minLength={8} />
             </div>
             <div>
-              <label className="block text-xs text-ink-secondary font-medium mb-1.5">Rôle / Role *</label>
+              <label className="block text-xs text-ink-secondary font-medium mb-1.5">{bi('Rôle', 'Role *')}</label>
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                 className={INPUT + ' bg-white'}>
                 <option value="admin">Admin</option>
-                <option value="moderator">Modérateur / Moderator</option>
+                <option value="moderator">{bi('Modérateur', 'Moderator')}</option>
               </select>
             </div>
             {error && <p className="sm:col-span-2 text-xs text-danger">{error}</p>}
             <div className="sm:col-span-2 flex gap-3 mt-1">
               <button type="submit" disabled={saving}
                 className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors">
-                {saving ? 'Enregistrement…' : 'Ajouter / Add'}
+                {saving ? 'Enregistrement…' : bi('Ajouter', 'Add')}
               </button>
               <button type="button" onClick={() => setShowForm(false)}
                 className="text-sm text-ink-secondary hover:text-ink-primary px-4">
@@ -184,7 +186,7 @@ export default function AdminPlatformTeamPage() {
                 </div>
               )}
               {member.id === currentAdminId && (
-                <span className="text-xs text-ink-tertiary italic">Vous / You</span>
+                <span className="text-xs text-ink-tertiary italic">{bi('Vous', 'You')}</span>
               )}
             </div>
           ))}

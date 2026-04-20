@@ -16,7 +16,7 @@ const CITIES = [
 
 const CUISINE_TYPES = [
   'Africain traditionnel',
-  'Braisé / Grillades',
+  'Braisé / Grillades',      // cuisine name, NOT a bilingual pair
   'Poulet DG / Poulet braisé',
   'Cuisine camerounaise',
   'Cuisine ivoirienne',

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useBi } from '@/lib/languageContext'
 
 export interface AdminProfile {
   id: string
@@ -14,7 +15,7 @@ export interface AdminProfile {
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
   admin:       'Admin',
-  moderator:   'Modérateur / Moderator',
+  moderator: 'Modérateur / Moderator',
 }
 
 function useToast() {
@@ -27,6 +28,7 @@ function useToast() {
 }
 
 export default function AdminProfilePanel() {
+  const bi = useBi()
   const { toast, show: showToast } = useToast()
 
   const [profile, setProfile] = useState<AdminProfile | null>(null)
@@ -55,7 +57,7 @@ export default function AdminProfilePanel() {
   }, [])
 
   async function handleSaveName() {
-    if (!name.trim()) { showToast('Nom requis / Name required', false); return }
+    if (!name.trim()) { showToast(bi('Nom requis', 'Name required'), false); return }
     setSaving(true)
     try {
       const res = await fetch('/api/auth/admin-update-profile', {
@@ -67,9 +69,9 @@ export default function AdminProfilePanel() {
       if (res.ok) {
         setProfile(p => (p ? { ...p, name: data.profile?.name ?? name } : p))
         setEditing(false)
-        showToast('✅ Profil mis à jour / Profile updated')
+        showToast(bi('✅ Profil mis à jour', 'Profile updated'))
       } else {
-        showToast(data.error ?? 'Erreur / Error', false)
+        showToast(data.error ?? bi('Erreur', 'Error'), false)
       }
     } finally {
       setSaving(false)
@@ -81,11 +83,11 @@ export default function AdminProfilePanel() {
     setPwError('')
 
     if (newPw.length < 8) {
-      setPwError('Le nouveau mot de passe doit contenir au moins 8 caractères / New password must be at least 8 characters')
+      setPwError(bi('Le nouveau mot de passe doit contenir au moins 8 caractères', 'New password must be at least 8 characters'))
       return
     }
     if (newPw !== confirmPw) {
-      setPwError('Les mots de passe ne correspondent pas / Passwords do not match')
+      setPwError(bi('Les mots de passe ne correspondent pas', 'Passwords do not match'))
       return
     }
 
@@ -99,9 +101,9 @@ export default function AdminProfilePanel() {
       const data = await res.json()
       if (res.ok) {
         setCurrentPw(''); setNewPw(''); setConfirmPw('')
-        showToast('✅ Mot de passe mis à jour / Password updated')
+        showToast(bi('✅ Mot de passe mis à jour', 'Password updated'))
       } else {
-        setPwError(data.error ?? 'Erreur / Error')
+        setPwError(data.error ?? bi('Erreur', 'Error'))
       }
     } finally {
       setPwSaving(false)
@@ -109,11 +111,11 @@ export default function AdminProfilePanel() {
   }
 
   if (loading) {
-    return <div className="text-center py-16 text-ink-tertiary">Chargement… / Loading…</div>
+    return <div className="text-center py-16 text-ink-tertiary">{bi('Chargement…', 'Loading…')}</div>
   }
 
   if (!profile) {
-    return <div className="text-center py-16 text-ink-tertiary">Profil introuvable / Profile not found</div>
+    return <div className="text-center py-16 text-ink-tertiary">{bi('Profil introuvable', 'Profile not found')}</div>
   }
 
   return (
@@ -124,7 +126,7 @@ export default function AdminProfilePanel() {
         </div>
       )}
 
-      <h2 className="text-xl font-bold text-ink-primary">👤 Mon profil / My Profile</h2>
+      <h2 className="text-xl font-bold text-ink-primary">{bi('👤 Mon profil', 'My Profile')}</h2>
 
       {/* Profile card */}
       <div className="bg-white rounded-2xl shadow-sm p-6 space-y-5">
@@ -140,7 +142,7 @@ export default function AdminProfilePanel() {
                 disabled={saving}
                 className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
               >
-                {saving ? '…' : 'Enregistrer / Save'}
+                {saving ? '…' : bi('Enregistrer', 'Save')}
               </button>
               <button
                 onClick={() => { setEditing(false); setName(profile.name) }}
@@ -160,7 +162,7 @@ export default function AdminProfilePanel() {
         </div>
 
         <div>
-          <label className="block text-xs text-ink-tertiary mb-1">Nom / Name</label>
+          <label className="block text-xs text-ink-tertiary mb-1">{bi('Nom', 'Name')}</label>
           {editing ? (
             <input
               value={name}
@@ -180,7 +182,7 @@ export default function AdminProfilePanel() {
         </div>
 
         <div>
-          <label className="block text-xs text-ink-tertiary mb-1">Membre depuis / Member since</label>
+          <label className="block text-xs text-ink-tertiary mb-1">{bi('Membre depuis', 'Member since')}</label>
           <p className="text-ink-primary text-sm">
             {new Date(profile.created_at).toLocaleDateString('fr-FR', {
               day: 'numeric', month: 'long', year: 'numeric',
@@ -191,10 +193,10 @@ export default function AdminProfilePanel() {
 
       {/* Change password card */}
       <form onSubmit={handleChangePassword} className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
-        <h3 className="font-bold text-ink-primary">🔐 Changer le mot de passe / Change password</h3>
+        <h3 className="font-bold text-ink-primary">{bi('🔐 Changer le mot de passe', 'Change password')}</h3>
 
         <div>
-          <label className="block text-xs text-ink-tertiary mb-1">Mot de passe actuel / Current password</label>
+          <label className="block text-xs text-ink-tertiary mb-1">{bi('Mot de passe actuel', 'Current password')}</label>
           <input
             type="password"
             value={currentPw}
@@ -205,7 +207,7 @@ export default function AdminProfilePanel() {
         </div>
 
         <div>
-          <label className="block text-xs text-ink-tertiary mb-1">Nouveau mot de passe / New password <span className="text-ink-tertiary">· min 8</span></label>
+          <label className="block text-xs text-ink-tertiary mb-1">{bi('Nouveau mot de passe', 'New password')}<span className="text-ink-tertiary">· min 8</span></label>
           <input
             type="password"
             value={newPw}
@@ -217,7 +219,7 @@ export default function AdminProfilePanel() {
         </div>
 
         <div>
-          <label className="block text-xs text-ink-tertiary mb-1">Confirmer / Confirm</label>
+          <label className="block text-xs text-ink-tertiary mb-1">{bi('Confirmer', 'Confirm')}</label>
           <input
             type="password"
             value={confirmPw}
@@ -234,7 +236,7 @@ export default function AdminProfilePanel() {
           disabled={pwSaving || !currentPw || !newPw || !confirmPw}
           className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors"
         >
-          {pwSaving ? '…' : 'Mettre à jour / Update'}
+          {pwSaving ? '…' : bi('Mettre à jour', 'Update')}
         </button>
       </form>
     </div>
@@ -251,7 +253,8 @@ function RoleBadge({ role }: { role: AdminProfile['role'] }) {
 }
 
 function StatusBadge({ status }: { status: AdminProfile['status'] }) {
+  const bi = useBi()
   const cls = status === 'active' ? 'bg-brand-light text-brand-darker' : 'bg-brand-light text-warning'
-  const label = status === 'active' ? 'Actif / Active' : 'Suspendu / Suspended'
+  const label = status === 'active' ? bi('Actif', 'Active') : bi('Suspendu', 'Suspended')
   return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cls}`}>{label}</span>
 }

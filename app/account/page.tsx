@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import dynamicLoad from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import LanguageToggle from '@/components/LanguageToggle'
 import VoucherCard from '@/components/VoucherCard'
@@ -34,12 +34,12 @@ type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'vouchers' | 'accounts'
 // rendered raw in the UI.
 const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
   restaurants:  'Restaurants',
-  orders:       'Commandes / Orders',
-  events:       'Événements / Events',
-  vouchers:     'Bons / Vouchers',
-  accounts:     'Comptes / Accounts',
+  orders: 'Commandes / Orders',
+  events: 'Événements / Events',
+  vouchers: 'Bons / Vouchers',
+  accounts: 'Comptes / Accounts',
   platformteam: 'Équipe plateforme / Platform Team',
-  profile:      'Mon profil / My Profile',
+  profile: 'Mon profil / My Profile',
 }
 
 interface SessionUser {
@@ -75,7 +75,8 @@ interface TeamMember {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function AccountPage() {
-  const { t } = useLanguage()
+  const bi = useBi()
+  const { t, locale } = useLanguage()
 
   // Login form state
   const [loginTab,    setLoginTab]    = useState<LoginTab>('customer')
@@ -230,7 +231,7 @@ export default function AccountPage() {
       )
       const check = await checkRes.json()
       console.log('[login-flow] check-phone status =', checkRes.status, 'body =', check)
-      if (!checkRes.ok) { setError(check.error || 'Erreur / Error'); return }
+      if (!checkRes.ok) { setError(check.error || bi('Erreur', 'Error')); return }
 
       if (check.exists) {
         console.log('[login-flow] existing customer — skipping register form, sending code')
@@ -242,7 +243,7 @@ export default function AccountPage() {
         })
         const sendData = await sendRes.json()
         console.log('[login-flow] send-code status =', sendRes.status, 'body =', sendData)
-        if (!sendRes.ok) { setError(sendData.error || 'Erreur / Error'); return }
+        if (!sendRes.ok) { setError(sendData.error || bi('Erreur', 'Error')); return }
         setStep('otp')
         return
       }
@@ -268,7 +269,7 @@ export default function AccountPage() {
         body: JSON.stringify({ phone: phone.trim(), name: name.trim(), city }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Erreur / Error'); return }
+      if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
       setStep('otp')
     } finally {
       setSending(false)
@@ -292,7 +293,7 @@ export default function AccountPage() {
         }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Erreur / Error'); return }
+      if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
       const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
       setUser(u)
       setStep('dashboard')
@@ -354,13 +355,13 @@ export default function AccountPage() {
           suspend: '⏸️ Restaurant suspendu / suspended',
           reactivate: '✅ Restaurant réactivé / reactivated',
           delete: '🗑️ Restaurant supprimé / deleted',
-          'undo-delete': '↩️ Suppression annulée / Deletion undone',
+          'undo-delete': bi('↩️ Suppression annulée', 'Deletion undone'),
         }
-        showToast(labels[action] ?? '✅ Fait / Done')
+        showToast(labels[action] ?? bi('✅ Fait', 'Done'))
         setModalReason('')
         await loadMyRestaurants()
       } else {
-        showToast(data.error ?? 'Erreur / Error', false)
+        showToast(data.error ?? bi('Erreur', 'Error'), false)
       }
     } finally {
       setRestActionLoading('')
@@ -374,10 +375,10 @@ export default function AccountPage() {
     const res = await fetch(`/api/accounts/${user.id}/delete`, { method: 'POST' })
     const data = await res.json()
     if (res.ok) {
-      showToast('🗑️ Compte supprimé / Account deleted')
+      showToast(bi('🗑️ Compte supprimé', 'Account deleted'))
       setAccountDeletedAt(new Date().toISOString())
     } else {
-      showToast(data.error ?? 'Erreur / Error', false)
+      showToast(data.error ?? bi('Erreur', 'Error'), false)
     }
   }
 
@@ -386,10 +387,10 @@ export default function AccountPage() {
     const res = await fetch(`/api/accounts/${user.id}/undo-delete`, { method: 'POST' })
     const data = await res.json()
     if (res.ok) {
-      showToast('↩️ Suppression annulée / Deletion undone')
+      showToast(bi('↩️ Suppression annulée', 'Deletion undone'))
       setAccountDeletedAt(null)
     } else {
-      showToast(data.error ?? 'Erreur / Error', false)
+      showToast(data.error ?? bi('Erreur', 'Error'), false)
     }
   }
 
@@ -425,11 +426,11 @@ export default function AccountPage() {
       body: JSON.stringify({ role }),
     })
     if (res.ok) {
-      showToast('✅ Rôle mis à jour / Role updated')
+      showToast(bi('✅ Rôle mis à jour', 'Role updated'))
       await loadTeam(activeRestId)
     } else {
       const d = await res.json()
-      showToast(d.error ?? 'Erreur / Error', false)
+      showToast(d.error ?? bi('Erreur', 'Error'), false)
     }
   }
 
@@ -458,9 +459,9 @@ export default function AccountPage() {
       if (res.ok) {
         setProfile(p => (p ? { ...p, name: profileName, city: profileCity } : p))
         setProfileEditing(false)
-        showToast('✅ Profil mis à jour / Profile updated')
+        showToast(bi('✅ Profil mis à jour', 'Profile updated'))
       } else {
-        showToast(data.error ?? 'Erreur / Error', false)
+        showToast(data.error ?? bi('Erreur', 'Error'), false)
       }
     } finally {
       setSavingProfile(false)
@@ -474,7 +475,7 @@ export default function AccountPage() {
     try {
       const path = `restaurants/${Date.now()}-${file.name.replace(/\s+/g, '-')}`
       const { error: upErr } = await supabase.storage.from('photos').upload(path, file)
-      if (upErr) { showToast('Erreur upload / Upload error', false); return }
+      if (upErr) { showToast(bi('Erreur upload', 'Upload error'), false); return }
       const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path)
       const res = await fetch(`/api/restaurants/${activeRestId}/image`, {
         method: 'POST',
@@ -482,11 +483,11 @@ export default function AccountPage() {
         body: JSON.stringify({ image_url: urlData.publicUrl }),
       })
       if (res.ok) {
-        showToast('✅ Photo mise à jour / Photo updated')
+        showToast(bi('✅ Photo mise à jour', 'Photo updated'))
         await loadMyRestaurants()
       } else {
         const d = await res.json()
-        showToast(d.error ?? 'Erreur / Error', false)
+        showToast(d.error ?? bi('Erreur', 'Error'), false)
       }
     } finally {
       setUploadingPhoto(false)
@@ -634,10 +635,10 @@ export default function AccountPage() {
                   className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand" />
               </div>
               <div>
-                <label className="block text-xs text-ink-secondary mb-1">Ville / City</label>
+                <label className="block text-xs text-ink-secondary mb-1">{bi('Ville', 'City')}</label>
                 <select value={city} onChange={e => setCity(e.target.value)}
                   className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand bg-white">
-                  <option value="">Choisir / Select…</option>
+                  <option value="">{bi('Choisir', 'Select…')}</option>
                   <option value="Yaoundé">Yaoundé</option>
                   <option value="Abidjan">Abidjan</option>
                   <option value="Dakar">Dakar</option>
@@ -725,7 +726,7 @@ export default function AccountPage() {
                           adminSubTab === sub ? 'bg-ink-primary text-white' : 'bg-white text-ink-secondary shadow-sm hover:text-ink-primary'
                         }`}
                       >
-                        {ADMIN_TAB_LABELS[sub]}
+                        {pickBi(ADMIN_TAB_LABELS[sub], locale)}
                       </button>
                     ))}
                 </div>
@@ -818,7 +819,7 @@ export default function AccountPage() {
                               disabled={savingProfile}
                               className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
                             >
-                              {savingProfile ? '…' : 'Enregistrer / Save'}
+                              {savingProfile ? '…' : bi('Enregistrer', 'Save')}
                             </button>
                             <button
                               onClick={() => {
@@ -853,7 +854,7 @@ export default function AccountPage() {
 
                         {/* Name */}
                         <div>
-                          <label className="block text-xs text-ink-tertiary mb-1">Nom / Name</label>
+                          <label className="block text-xs text-ink-tertiary mb-1">{bi('Nom', 'Name')}</label>
                           {profileEditing ? (
                             <input
                               value={profileName}
@@ -875,7 +876,7 @@ export default function AccountPage() {
 
                         {/* City */}
                         <div>
-                          <label className="block text-xs text-ink-tertiary mb-1">Ville / City</label>
+                          <label className="block text-xs text-ink-tertiary mb-1">{bi('Ville', 'City')}</label>
                           {profileEditing ? (
                             <select
                               value={profileCity}
@@ -892,7 +893,7 @@ export default function AccountPage() {
 
                         {/* Member since */}
                         <div>
-                          <label className="block text-xs text-ink-tertiary mb-1">Membre depuis / Member since</label>
+                          <label className="block text-xs text-ink-tertiary mb-1">{bi('Membre depuis', 'Member since')}</label>
                           <p className="text-ink-primary text-sm">
                             {new Date(profile.created_at).toLocaleDateString('fr-FR', {
                               day: 'numeric', month: 'long', year: 'numeric',
@@ -902,7 +903,7 @@ export default function AccountPage() {
 
                         {/* Language toggle — lives here now instead of in TopNav. */}
                         <div>
-                          <label className="block text-xs text-ink-tertiary mb-2">Langue / Language</label>
+                          <label className="block text-xs text-ink-tertiary mb-2">{bi('Langue', 'Language')}</label>
                           <LanguageToggle />
                         </div>
 
@@ -918,7 +919,7 @@ export default function AccountPage() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-sm text-ink-tertiary">Chargement… / Loading…</p>
+                      <p className="text-sm text-ink-tertiary">{bi('Chargement…', 'Loading…')}</p>
                     )}
 
                     {/* Restaurant summary */}
@@ -948,7 +949,7 @@ export default function AccountPage() {
                     {/* Register a new restaurant via WhatsApp */}
                     {!accountDeletedAt && myRestaurants.length === 0 && (
                       <div className="pt-4 border-t border-divider">
-                        <p className="text-xs text-ink-tertiary mb-3">Inscrire un restaurant / Register a restaurant</p>
+                        <p className="text-xs text-ink-tertiary mb-3">{bi('Inscrire un restaurant', 'Register a restaurant')}</p>
                         <a href="https://wa.me/your-number?text=restaurant" target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
                           🏪 {t('account.registerRest')} via WhatsApp
@@ -1010,7 +1011,7 @@ export default function AccountPage() {
                         <div className="flex items-center gap-3">
                           <div className="text-3xl">📦</div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-bold text-sm">Tableau de bord / Restaurant Dashboard</p>
+                            <p className="font-bold text-sm">{bi('Tableau de bord', 'Restaurant Dashboard')}</p>
                             <p className="text-xs text-white/80 mt-0.5">
                               Gérer commandes, menu et bons / Manage orders, menu and vouchers
                             </p>
@@ -1074,7 +1075,7 @@ export default function AccountPage() {
                         {/* Actions (owner only) */}
                         {activeRest.teamRole === 'owner' && (
                           <div className="border-t border-divider pt-4 space-y-3">
-                            <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide">Paramètres / Settings</p>
+                            <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide">{bi('Paramètres', 'Settings')}</p>
 
                             <div className="flex gap-3 flex-wrap">
                               {activeRest.deleted_at ? (
@@ -1104,7 +1105,7 @@ export default function AccountPage() {
                                         {restActionLoading === 'reactivate' ? '…' : `✅ ${t('account.reactivate')}`}
                                       </button>
                                     ) : (
-                                      <p className="text-xs text-warning py-1">Suspendu par l&apos;administration — contactez le support / Suspended by admin — contact support</p>
+                                      <p className="text-xs text-warning py-1">{bi('Suspendu par l&apos;administration — contactez le support', 'Suspended by admin — contact support')}</p>
                                     )
                                   )}
                                   <button
@@ -1192,7 +1193,7 @@ export default function AccountPage() {
                             </div>
                           </div>
                         ))}
-                        {teamMembers.length === 0 && <p className="text-ink-tertiary text-sm text-center py-4">Équipe vide / Empty team</p>}
+                        {teamMembers.length === 0 && <p className="text-ink-tertiary text-sm text-center py-4">{bi('Équipe vide', 'Empty team')}</p>}
                       </div>
                     )}
                   </div>
@@ -1206,12 +1207,12 @@ export default function AccountPage() {
             {vendorModal === 'suspend-rest' && activeRest && (
               <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                  <h3 className="font-bold text-ink-primary mb-1">⏸️ Suspendre le restaurant / Suspend restaurant</h3>
+                  <h3 className="font-bold text-ink-primary mb-1">{bi('⏸️ Suspendre le restaurant', 'Suspend restaurant')}</h3>
                   <p className="text-sm text-ink-secondary mb-3">{activeRest.name}</p>
                   <textarea
                     value={modalReason}
                     onChange={e => setModalReason(e.target.value)}
-                    placeholder="Raison (optionnel) / Reason (optional)"
+                    placeholder={bi('Raison (optionnel)', 'Reason (optional)')}
                     rows={3}
                     className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand mb-4"
                   />
@@ -1221,7 +1222,7 @@ export default function AccountPage() {
                       disabled={restActionLoading === 'suspend'}
                       className="flex-1 bg-warning hover:bg-warning/90 disabled:bg-warning/50 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
                     >
-                      {restActionLoading === 'suspend' ? '…' : 'Suspendre / Suspend'}
+                      {restActionLoading === 'suspend' ? '…' : bi('Suspendre', 'Suspend')}
                     </button>
                     <button onClick={() => setVendorModal(null)}
                       className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
@@ -1236,7 +1237,7 @@ export default function AccountPage() {
             {vendorModal === 'delete-rest' && activeRest && (
               <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                  <h3 className="font-bold text-ink-primary mb-1">🗑️ Supprimer le restaurant / Delete restaurant</h3>
+                  <h3 className="font-bold text-ink-primary mb-1">{bi('🗑️ Supprimer le restaurant', 'Delete restaurant')}</h3>
                   <p className="text-sm text-ink-secondary mb-3">{activeRest.name}</p>
                   <p className="text-sm text-ink-secondary mb-4 bg-surface-muted border border-divider rounded-xl p-3">
                     ⚠️ Les données seront supprimées après 30 jours. Vous pouvez annuler dans ce délai.<br/><br/>
@@ -1248,7 +1249,7 @@ export default function AccountPage() {
                       disabled={restActionLoading === 'delete'}
                       className="flex-1 bg-danger hover:bg-danger disabled:bg-danger/50 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
                     >
-                      {restActionLoading === 'delete' ? '…' : 'Supprimer / Delete'}
+                      {restActionLoading === 'delete' ? '…' : bi('Supprimer', 'Delete')}
                     </button>
                     <button onClick={() => setVendorModal(null)}
                       className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
@@ -1263,7 +1264,7 @@ export default function AccountPage() {
             {vendorModal === 'delete-account' && (
               <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                  <h3 className="font-bold text-ink-primary mb-1">🗑️ Supprimer mon compte / Delete my account</h3>
+                  <h3 className="font-bold text-ink-primary mb-1">{bi('🗑️ Supprimer mon compte', 'Delete my account')}</h3>
                   <p className="text-sm text-ink-secondary mb-4 bg-brand-light border border-divider rounded-xl p-3">
                     ⚠️ Votre compte et tous vos restaurants seront supprimés après 30 jours. Vous pourrez annuler dans ce délai.<br/><br/>
                     Your account and all your restaurants will be deleted after 30 days. You can undo within that period.
@@ -1295,6 +1296,7 @@ export default function AccountPage() {
 // Claim-a-code input rendered at the top of the Vouchers tab. Successful
 // claim re-runs loadCustomerData so the new claim appears without refresh.
 function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
+  const bi = useBi()
   const [code, setCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -1313,7 +1315,7 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
         body: JSON.stringify({ code: trimmed }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Erreur / Error'); return }
+      if (!res.ok) { setError(data.error ?? bi('Erreur', 'Error')); return }
       setSuccess(`✅ ${trimmed} ajouté / added`)
       setCode('')
       onClaimed()
@@ -1340,7 +1342,7 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
           disabled={submitting || !code.trim()}
           className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
         >
-          {submitting ? '…' : 'Ajouter / Add'}
+          {submitting ? '…' : bi('Ajouter', 'Add')}
         </button>
       </div>
       {error && <p className="text-xs text-danger mt-2">{error}</p>}
@@ -1376,15 +1378,16 @@ function TabBtn({
 }
 
 function ProfileRoleBadges({ restaurants }: { restaurants: VendorRestaurant[] }) {
+  const bi = useBi()
   const labels: Record<string, string> = {
-    owner:   'Vendeur Propriétaire / Vendor Owner',
-    manager: 'Vendeur Manager / Vendor Manager',
-    staff:   'Vendeur Staff / Vendor Staff',
+    owner:   bi('Vendeur Propriétaire', 'Vendor Owner'),
+    manager: bi('Vendeur Manager',      'Vendor Manager'),
+    staff:   bi('Vendeur Staff',        'Vendor Staff'),
   }
   const uniqueRoles = Array.from(new Set(restaurants.map(r => r.teamRole)))
   const badges: React.ReactNode[] = [
     <span key="client" className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker">
-      Client / Customer
+      {bi('Client', 'Customer')}
     </span>,
   ]
   for (const role of uniqueRoles) {
@@ -1422,10 +1425,11 @@ const ORDER_STATUS_STYLES: Record<string, { cls: string; label: string }> = {
 }
 
 function OrderStatusBadge({ status }: { status: string }) {
+  const { locale } = useLanguage()
   const s = ORDER_STATUS_STYLES[status] ?? { cls: 'bg-surface-muted text-ink-secondary', label: status }
   return (
     <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${s.cls}`}>
-      {s.label}
+      {pickBi(s.label, locale)}
     </span>
   )
 }
@@ -1435,6 +1439,7 @@ function orderShortId(id: string): string {
 }
 
 function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string }) {
+  const bi = useBi()
   const [expanded, setExpanded] = useState(false)
   const items: Array<{ name: string; quantity: number; price?: number }> = Array.isArray(order.items) ? order.items : []
   const itemsSummary = items.map(i => `${i.quantity}× ${i.name}`).join(', ')
@@ -1465,7 +1470,7 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
       {expanded && (
         <div className="mt-3 pt-3 border-t border-divider space-y-2">
           {items.length === 0 ? (
-            <p className="text-xs text-ink-tertiary">Aucun détail d&apos;article / No item details</p>
+            <p className="text-xs text-ink-tertiary">{bi('Aucun détail d&apos;article', 'No item details')}</p>
           ) : (
             <ul className="space-y-1">
               {items.map((it, idx) => (

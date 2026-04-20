@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useCart } from '@/lib/cartContext'
+import { useBi } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 
 interface TopNavProps {
@@ -31,6 +32,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const { totalItems } = useCart()
+  const bi = useBi()
 
   const [me, setMe] = useState<SessionUser | null>(null)
   const [vendor, setVendor] = useState<VendorState>({ kind: 'none' })
@@ -64,7 +66,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     return () => { cancelled = true }
   }, [])
 
-  const accountLabel = me ? firstName(me.name) || me.name : 'Connexion / Login'
+  const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
   const isOrdersPage = pathname === '/account'
   const isDashboard  = pathname.startsWith('/dashboard')
   const isHome       = pathname === '/'
@@ -116,7 +118,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               type="search"
               value={searchDraft}
               onChange={e => setSearchDraft(e.target.value)}
-              placeholder="Rechercher un restaurant... / Search restaurants..."
+              placeholder={bi('Rechercher un restaurant…', 'Search restaurants…')}
               className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
             />
           </label>
@@ -125,7 +127,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these. */}
         <nav className="hidden md:flex items-center gap-1">
           <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
-            📦 Commandes
+            📦 {bi('Commandes', 'Orders')}
           </TopNavLink>
           {vendor.kind === 'approved' && (
             <TopNavLink href="/dashboard" active={isDashboard}>
@@ -149,7 +151,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <Link
             href="/account"
             className="hidden md:flex text-ink-secondary hover:text-ink-primary text-sm font-semibold transition-colors items-center gap-1 max-w-[10rem] px-2"
-            title={me?.name ?? 'Connexion / Login'}
+            title={me?.name ?? bi('Connexion', 'Login')}
           >
             <span aria-hidden="true">👤</span>
             <span className="truncate">{accountLabel}</span>
@@ -174,8 +176,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             <button
               type="button"
               onClick={toggleMap}
-              aria-label="Carte / Map"
-              title="Carte / Map"
+              aria-label={bi('Carte', 'Map')}
+              title={bi('Carte', 'Map')}
               className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors"
             >
               🗺

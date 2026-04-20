@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { useBi } from '@/lib/languageContext'
 
 // Mobile-only fixed bottom tab bar. Slots (up to 6):
 //   🏠 Home · 🔍 Search · 🎉 Events · 📦 Orders · 🏪 Restaurant (vendor) · 👤 Account
@@ -28,6 +29,7 @@ interface TabSpec {
 export default function BottomNav() {
   const pathname = usePathname() ?? ''
   const router = useRouter()
+  const bi = useBi()
 
   const [showVendorTab, setShowVendorTab] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -90,20 +92,20 @@ export default function BottomNav() {
   const goSearch = () => router.push('/#search')
 
   const tabs: TabSpec[] = [
-    { href: '/',                    icon: '🏠', label: 'Accueil / Home',     match: p => p === '/' || p.startsWith('/restaurant') },
-    { href: '/#search',             icon: '🔍', label: 'Recherche / Search', match: () => false, onClick: goSearch },
-    { href: '/events',              icon: '🎉', label: 'Événements / Events', match: p => p.startsWith('/events') },
-    { href: '/account?tab=orders',  icon: '📦', label: 'Commandes / Orders', match: p => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
+    { href: '/',                    icon: '🏠', label: bi('Accueil', 'Home'),     match: p => p === '/' || p.startsWith('/restaurant') },
+    { href: '/#search',             icon: '🔍', label: bi('Recherche', 'Search'), match: () => false, onClick: goSearch },
+    { href: '/events',              icon: '🎉', label: bi('Événements', 'Events'), match: p => p.startsWith('/events') },
+    { href: '/account?tab=orders',  icon: '📦', label: bi('Commandes', 'Orders'), match: p => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
     ...(showVendorTab ? [
       {
         href: '/dashboard',
         icon: '🏪',
-        label: 'Restaurant',
+        label: 'Restaurant',  // same word in both locales
         match: (p: string) => p.startsWith('/dashboard'),
         badge: pendingCount,
       }
     ] : []),
-    { href: '/account',             icon: '👤', label: 'Compte / Account',   match: p => p === '/account' },
+    { href: '/account',             icon: '👤', label: bi('Compte', 'Account'),   match: p => p === '/account' },
   ]
 
   return (

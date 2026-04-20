@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem, Order } from '@/types'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
@@ -26,10 +26,10 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  pending:   '⏳ En attente / Pending',
+  pending: '⏳ En attente / Pending',
   confirmed: '✅ Confirmée / Confirmed',
   preparing: '🍳 En préparation / Preparing',
-  ready:     '🎉 Prête / Ready',
+  ready: '🎉 Prête / Ready',
   delivered: '✅ Livrée / Delivered',
   completed: '✅ Terminée / Completed',     // legacy
   cancelled: '❌ Annulée / Cancelled',
@@ -64,10 +64,10 @@ const STATUS_ACTIONS: Record<string, ActionButton[]> = {
 }
 
 const FILTER_LABEL: Record<OrderFilter, string> = {
-  pending:   'En attente / Pending',
-  active:    'En cours / Active',
+  pending: 'En attente / Pending',
+  active: 'En cours / Active',
   completed: 'Terminées / Completed',
-  all:       'Toutes / All',
+  all: 'Toutes / All',
 }
 const FILTER_STATUSES: Record<OrderFilter, string[] | null> = {
   pending:   ['pending'],
@@ -104,7 +104,8 @@ function playNewOrderBeep() {
 interface SessionUser { id: string; name: string; role: string }
 
 export default function DashboardPage() {
-  const { t } = useLanguage()
+  const bi = useBi()
+  const { t, locale } = useLanguage()
   const router = useRouter()
   const [me, setMe] = useState<SessionUser | null>(null)
   const [loadingAuth, setLoadingAuth] = useState(true)
@@ -272,7 +273,7 @@ export default function DashboardPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setUpdateError(data.error ?? 'Erreur / Error')
+        setUpdateError(data.error ?? bi('Erreur', 'Error'))
         return
       }
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: status as Order['status'] } : o))
@@ -424,7 +425,7 @@ export default function DashboardPage() {
                         active ? 'bg-ink-primary text-white' : 'bg-white text-ink-secondary shadow-sm hover:text-ink-primary'
                       }`}
                     >
-                      {FILTER_LABEL[f]} ({count})
+                      {pickBi(FILTER_LABEL[f], locale)} ({count})
                     </button>
                   )
                 })}
@@ -444,7 +445,7 @@ export default function DashboardPage() {
                   return (
                     <div className="text-center py-12 text-ink-tertiary">
                       <div className="text-4xl mb-3">📋</div>
-                      <p className="text-sm">Aucune commande / No orders</p>
+                      <p className="text-sm">{bi('Aucune commande', 'No orders')}</p>
                     </div>
                   )
                 }
@@ -480,7 +481,7 @@ export default function DashboardPage() {
                               <p className="text-xs text-ink-tertiary mt-0.5">{dateStr} · {timeStr}</p>
                             </div>
                             <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${STATUS_COLORS[order.status] ?? 'bg-surface-muted text-ink-secondary'}`}>
-                              {STATUS_LABEL[order.status] ?? order.status}
+                              {pickBi(STATUS_LABEL[order.status] ?? order.status, locale)}
                             </span>
                           </div>
 

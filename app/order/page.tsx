@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useCart } from '@/lib/cartContext'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi } from '@/lib/languageContext'
 import { supabase } from '@/lib/supabase'
 import TopNav from '@/components/TopNav'
 import { Voucher, CustomerVoucher } from '@/types'
@@ -19,6 +19,7 @@ import { Voucher, CustomerVoucher } from '@/types'
 interface SessionUser { id: string; name: string; phone: string; role: string }
 
 export default function OrderPage() {
+  const bi = useBi()
   const { items, totalPrice, totalItems, restaurantId, updateQuantity, clearCart } = useCart()
   const router = useRouter()
   const { t } = useLanguage()
@@ -91,7 +92,7 @@ export default function OrderPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setVoucherError(data.error ?? 'Code invalide / Invalid code')
+        setVoucherError(data.error ?? bi('Code invalide', 'Invalid code'))
         return
       }
       // Only id/code/discount_type/discount_value are used for display

@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { Restaurant } from '@/types'
 import RestaurantSidebar from '@/components/RestaurantSidebar'
 import TopNav from '@/components/TopNav'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi } from '@/lib/languageContext'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
 
@@ -99,6 +99,7 @@ function CardSkeleton() {
 }
 
 export default function HomePage() {
+  const bi = useBi()
   const router = useRouter()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
@@ -292,7 +293,7 @@ export default function HomePage() {
               type="search"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Rechercher un restaurant... / Search restaurants..."
+              placeholder={bi('Rechercher un restaurant...', 'Search restaurants...')}
               className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-3 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
             />
           </label>
@@ -335,7 +336,7 @@ export default function HomePage() {
               {query ? '🔍' : '🏪'}
             </div>
             <h2 className="text-xl font-bold text-ink-primary mb-2">
-              {query ? 'Aucun résultat / No matches' : t('list.emptyTitle')}
+              {query ? bi('Aucun résultat', 'No matches') : t('list.emptyTitle')}
             </h2>
             <p className="text-ink-secondary text-sm mb-1 max-w-xs">
               {query

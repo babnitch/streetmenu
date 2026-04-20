@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi } from '@/lib/languageContext'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
 interface RestaurantRow {
@@ -61,6 +61,7 @@ function useToast() {
 }
 
 export default function AdminRestaurantsPage() {
+  const bi = useBi()
   const { t } = useLanguage()
   const { toast, show: showToast } = useToast()
 
@@ -105,7 +106,7 @@ export default function AdminRestaurantsPage() {
       setRestaurants(prev => prev.map(x => x.id === r.id ? data as RestaurantRow : x))
       showToast(`✅ ${r.name} approuvé / approved`)
     } else {
-      showToast('Erreur / Error', false)
+      showToast(bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -122,7 +123,7 @@ export default function AdminRestaurantsPage() {
       setRestaurants(prev => prev.filter(x => x.id !== r.id))
       showToast(`🗑️ ${r.name} rejeté / rejected`)
     } else {
-      showToast('Erreur / Error', false)
+      showToast(bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -145,7 +146,7 @@ export default function AdminRestaurantsPage() {
       await fetchRestaurants()
     } else {
       const d = await res.json()
-      showToast(d.error ?? 'Erreur / Error', false)
+      showToast(d.error ?? bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -159,7 +160,7 @@ export default function AdminRestaurantsPage() {
       await fetchRestaurants()
     } else {
       const d = await res.json()
-      showToast(d.error ?? 'Erreur / Error', false)
+      showToast(d.error ?? bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -177,7 +178,7 @@ export default function AdminRestaurantsPage() {
       await fetchRestaurants()
     } else {
       const d = await res.json()
-      showToast(d.error ?? 'Erreur / Error', false)
+      showToast(d.error ?? bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -191,7 +192,7 @@ export default function AdminRestaurantsPage() {
       await fetchRestaurants()
     } else {
       const d = await res.json()
-      showToast(d.error ?? 'Erreur / Error', false)
+      showToast(d.error ?? bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -212,7 +213,7 @@ export default function AdminRestaurantsPage() {
 
   async function handleSave() {
     if (!form.name || !form.city || !form.lat || !form.lng) {
-      showToast('Nom, ville, lat et lng requis / Name, city, lat and lng required', false)
+      showToast(bi('Nom, ville, lat et lng requis', 'Name, city, lat and lng required'), false)
       return
     }
     setSaving(true)
@@ -230,7 +231,7 @@ export default function AdminRestaurantsPage() {
       setShowForm(false)
       showToast('✅ Restaurant ajouté / added')
     } else {
-      showToast(error?.message ?? 'Erreur / Error', false)
+      showToast(error?.message ?? bi('Erreur', 'Error'), false)
     }
   }
 
@@ -281,8 +282,8 @@ export default function AdminRestaurantsPage() {
       <div className="flex gap-1 mb-5 bg-surface-muted rounded-xl p-1 w-fit overflow-x-auto">
         {([ ['all', t('admin.allTab'), active.length],
             ['pending', t('admin.pendingTab'), pending.length],
-            ['suspended', 'Suspendus / Suspended', suspended.length],
-            ['deleted', 'Supprimés / Deleted', deleted.length],
+            ['suspended', bi('Suspendus', 'Suspended'), suspended.length],
+            ['deleted', bi('Supprimés', 'Deleted'), deleted.length],
           ] as [Tab, string, number][]).map(([key, label, count]) => (
           <button
             key={key}
@@ -308,9 +309,9 @@ export default function AdminRestaurantsPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-brand-light p-6 mb-6">
           <h2 className="font-bold text-ink-primary mb-4">{t('admin.newRest')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Nom / Name *"><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Chez Mama Afrika" className={INPUT} /></Field>
-            <Field label="Ville / City *"><input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Yaoundé" className={INPUT} /></Field>
-            <Field label="Adresse / Address"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Rue…" className={INPUT} /></Field>
+            <Field label={bi('Nom', 'Name *')}><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Chez Mama Afrika" className={INPUT} /></Field>
+            <Field label={bi('Ville', 'City *')}><input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Yaoundé" className={INPUT} /></Field>
+            <Field label={bi('Adresse', 'Address')}><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Rue…" className={INPUT} /></Field>
             <Field label="Description"><input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Cuisine camerounaise…" className={INPUT} /></Field>
             <Field label="Latitude *"><input type="number" step="any" value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="3.8667" className={INPUT} /></Field>
             <Field label="Longitude *"><input type="number" step="any" value={form.lng} onChange={e => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="11.5167" className={INPUT} /></Field>
@@ -379,7 +380,7 @@ export default function AdminRestaurantsPage() {
       {modal?.type === 'suspend' && (
         <ConfirmModal
           title={`Suspendre "${modal.restaurant.name}" / Suspend`}
-          confirmLabel="Suspendre / Suspend"
+          confirmLabel={bi('Suspendre', 'Suspend')}
           confirmClass="bg-warning hover:bg-warning/90 text-white"
           onCancel={() => setModal(null)}
           onConfirm={() => confirmSuspend(modal.restaurant)}
@@ -387,7 +388,7 @@ export default function AdminRestaurantsPage() {
           <textarea
             value={modalReason}
             onChange={e => setModalReason(e.target.value)}
-            placeholder="Raison (optionnel) / Reason (optional)"
+            placeholder={bi('Raison (optionnel)', 'Reason (optional)')}
             rows={3}
             className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
@@ -397,7 +398,7 @@ export default function AdminRestaurantsPage() {
       {modal?.type === 'delete' && (
         <ConfirmModal
           title={`Supprimer "${modal.restaurant.name}" / Delete`}
-          confirmLabel="Supprimer / Delete"
+          confirmLabel={bi('Supprimer', 'Delete')}
           confirmClass="bg-danger hover:bg-danger text-white"
           onCancel={() => setModal(null)}
           onConfirm={() => confirmDelete(modal.restaurant)}
@@ -412,7 +413,7 @@ export default function AdminRestaurantsPage() {
       {modal?.type === 'reject' && (
         <ConfirmModal
           title={`Rejeter "${modal.restaurant.name}" / Reject`}
-          confirmLabel="Rejeter / Reject"
+          confirmLabel={bi('Rejeter', 'Reject')}
           confirmClass="bg-danger hover:bg-danger text-white"
           onCancel={() => setModal(null)}
           onConfirm={() => confirmReject(modal.restaurant)}
@@ -444,6 +445,7 @@ function RestaurantCard({
   onDelete:     (r: RestaurantRow) => void
   onUndoDelete: (r: RestaurantRow) => void
 }) {
+  const bi = useBi()
   const within30Days = r.deleted_at
     ? new Date(r.deleted_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     : false
@@ -487,7 +489,7 @@ function RestaurantCard({
               <span className="font-mono text-ink-tertiary"> · {r.owner.phone}</span>
             </p>
           ) : (
-            <p className="text-xs text-warning mt-1">👤 Non lié / Unlinked</p>
+            <p className="text-xs text-warning mt-1">{bi('👤 Non lié', 'Unlinked')}</p>
           )}
           {r.suspension_reason && (
             <p className="text-xs text-warning mt-1">Raison: {r.suspension_reason}</p>
@@ -507,13 +509,13 @@ function RestaurantCard({
         {tab === 'pending' && (
           <>
             <ActionBtn
-              label="✅ Approuver / Approve"
+              label={bi('✅ Approuver', 'Approve')}
               className="bg-brand hover:bg-brand-dark text-white"
               loading={actionLoading === r.id + '-approve'}
               onClick={() => onApprove(r)}
             />
             <ActionBtn
-              label="❌ Rejeter / Reject"
+              label={bi('❌ Rejeter', 'Reject')}
               className="bg-white hover:bg-brand-light text-danger border border-divider"
               loading={actionLoading === r.id + '-reject'}
               onClick={() => onReject(r)}
@@ -525,13 +527,13 @@ function RestaurantCard({
         {tab === 'all' && !r.deleted_at && r.status !== 'suspended' && (
           <>
             <ActionBtn
-              label="⏸️ Suspendre / Suspend"
+              label={bi('⏸️ Suspendre', 'Suspend')}
               className="bg-white hover:bg-brand-light text-warning border border-divider"
               loading={actionLoading === r.id + '-suspend'}
               onClick={() => onSuspend(r)}
             />
             <ActionBtn
-              label="🗑️ Supprimer / Delete"
+              label={bi('🗑️ Supprimer', 'Delete')}
               className="bg-white hover:bg-brand-light text-danger border border-divider"
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
@@ -547,13 +549,13 @@ function RestaurantCard({
         {tab === 'suspended' && (
           <>
             <ActionBtn
-              label="✅ Réactiver / Reactivate"
+              label={bi('✅ Réactiver', 'Reactivate')}
               className="bg-brand hover:bg-brand-dark text-white"
               loading={actionLoading === r.id + '-reactivate'}
               onClick={() => onReactivate(r)}
             />
             <ActionBtn
-              label="🗑️ Supprimer / Delete"
+              label={bi('🗑️ Supprimer', 'Delete')}
               className="bg-white hover:bg-brand-light text-danger border border-divider"
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
@@ -564,14 +566,14 @@ function RestaurantCard({
         {/* Deleted → undo */}
         {tab === 'deleted' && within30Days && (
           <ActionBtn
-            label="↩️ Annuler suppression / Undo delete"
+            label={bi('↩️ Annuler suppression', 'Undo delete')}
             className="bg-brand hover:bg-brand-dark text-white"
             loading={actionLoading === r.id + '-undo'}
             onClick={() => onUndoDelete(r)}
           />
         )}
         {tab === 'deleted' && !within30Days && (
-          <span className="text-xs text-ink-tertiary italic py-1.5">Supprimé définitivement / Permanently deleted</span>
+          <span className="text-xs text-ink-tertiary italic py-1.5">{bi('Supprimé définitivement', 'Permanently deleted')}</span>
         )}
       </div>
     </div>
@@ -594,11 +596,12 @@ function ActionBtn({ label, className, loading, onClick }: {
 }
 
 function StatusBadge({ r }: { r: RestaurantRow }) {
-  if (r.deleted_at) return <Badge label="Supprimé / Deleted" cls="bg-brand-light text-danger" />
-  if (r.status === 'suspended') return <Badge label="Suspendu / Suspended" cls="bg-brand-light text-warning" />
-  if (!r.is_active) return <Badge label="En attente / Pending" cls="bg-surface-muted text-ink-secondary" />
-  if (r.is_open) return <Badge label="Ouvert / Open" cls="bg-brand-light text-brand-darker" />
-  return <Badge label="Actif / Active" cls="bg-brand-light text-brand-darker" />
+  const bi = useBi()
+  if (r.deleted_at) return <Badge label={bi('Supprimé', 'Deleted')} cls="bg-brand-light text-danger" />
+  if (r.status === 'suspended') return <Badge label={bi('Suspendu', 'Suspended')} cls="bg-brand-light text-warning" />
+  if (!r.is_active) return <Badge label={bi('En attente', 'Pending')} cls="bg-surface-muted text-ink-secondary" />
+  if (r.is_open) return <Badge label={bi('Ouvert', 'Open')} cls="bg-brand-light text-brand-darker" />
+  return <Badge label={bi('Actif', 'Active')} cls="bg-brand-light text-brand-darker" />
 }
 
 function Badge({ label, cls }: { label: string; cls: string }) {

@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useBi } from '@/lib/languageContext'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface ReusedFrom {
@@ -73,6 +74,7 @@ function useToast() {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function AdminAccountsPage() {
+  const bi = useBi()
   const { toast, show: showToast } = useToast()
 
   // Core data
@@ -176,7 +178,7 @@ export default function AdminAccountsPage() {
           'undo-delete':    `↩️ ${account.name} restauré${data.restaurantsReactivated ? ` (+${data.restaurantsReactivated} restaurant(s))` : ''}`,
           'release-number': `🔓 Numéro libéré`,
         }
-        showToast(labels[action] ?? '✅ Fait / Done')
+        showToast(labels[action] ?? bi('✅ Fait', 'Done'))
         if (action === 'delete')        setStatusFilter('deleted')
         if (action === 'suspend')       setStatusFilter('suspended')
         if (action === 'reactivate' || action === 'undo-delete') setStatusFilter('active')
@@ -184,7 +186,7 @@ export default function AdminAccountsPage() {
         if (expandedIds.has(account.id)) loadRestaurantsForAccount(account.id)
         await fetchAccounts()
       } else {
-        showToast(data.error ?? 'Erreur / Error', false)
+        showToast(data.error ?? bi('Erreur', 'Error'), false)
       }
     } finally {
       setAccountActionLoading(null)
@@ -211,11 +213,11 @@ export default function AdminAccountsPage() {
           delete:       `🗑️ ${restName} supprimé`,
           'undo-delete': `↩️ ${restName} restauré`,
         }
-        showToast(labels[action] ?? '✅ Fait / Done')
+        showToast(labels[action] ?? bi('✅ Fait', 'Done'))
         loadRestaurantsForAccount(accountId)
         await fetchAccounts()
       } else {
-        showToast(data.error ?? 'Erreur / Error', false)
+        showToast(data.error ?? bi('Erreur', 'Error'), false)
       }
     } finally {
       setRestActionLoading(null)
@@ -262,7 +264,7 @@ export default function AdminAccountsPage() {
     })
     const data = await res.json()
     if (res.ok) {
-      showToast('🔗 Restaurant lié / Linked')
+      showToast(bi('🔗 Restaurant lié', 'Linked'))
       setLinkSelections(prev => { const n = { ...prev }; delete n[restaurantId]; return n })
       await Promise.all([fetchOrphaned(), fetchAccounts()])
     } else {
@@ -331,7 +333,7 @@ export default function AdminAccountsPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-5 gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-ink-primary">Comptes / Accounts</h1>
+          <h1 className="text-2xl font-bold text-ink-primary">{bi('Comptes', 'Accounts')}</h1>
           <p className="text-sm text-ink-secondary mt-0.5">
             {accounts.length} comptes / accounts
             {totalInDb !== null && totalInDb !== accounts.length && (
@@ -343,7 +345,7 @@ export default function AdminAccountsPage() {
           {currentRole === 'super_admin' && (
             <button onClick={runCleanup} disabled={cleanupLoading}
               className="text-xs bg-brand-light text-brand-darker border border-divider px-3 py-2 rounded-xl font-medium hover:bg-brand-light disabled:opacity-50 whitespace-nowrap">
-              {cleanupLoading ? '…' : '🧹 Nettoyer expirés / Clean expired'}
+              {cleanupLoading ? '…' : bi('🧹 Nettoyer expirés', 'Clean expired')}
             </button>
           )}
           <button
@@ -358,16 +360,16 @@ export default function AdminAccountsPage() {
       {showOrphaned && (
         <div className="mb-6 bg-brand-light border border-brand-badge rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h2 className="font-bold text-brand-darker text-sm">🔗 Restaurants non liés / Unlinked restaurants</h2>
+            <h2 className="font-bold text-brand-darker text-sm">{bi('🔗 Restaurants non liés', 'Unlinked restaurants')}</h2>
             <button onClick={autoLinkOrphaned} disabled={autoLinking}
               className="text-xs bg-brand hover:bg-brand-dark text-white px-3 py-1.5 rounded-lg font-medium disabled:opacity-50">
-              {autoLinking ? '…' : '⚡ Auto-lier par téléphone / Auto-link by phone'}
+              {autoLinking ? '…' : bi('⚡ Auto-lier par téléphone', 'Auto-link by phone')}
             </button>
           </div>
           {loadingOrphaned ? (
             <p className="text-sm text-brand-dark">Chargement…</p>
           ) : orphaned.length === 0 ? (
-            <p className="text-sm text-brand-dark">Aucun restaurant non lié / No unlinked restaurants</p>
+            <p className="text-sm text-brand-dark">{bi('Aucun restaurant non lié', 'No unlinked restaurants')}</p>
           ) : (
             <div className="space-y-2">
               {orphaned.map(r => (
@@ -382,7 +384,7 @@ export default function AdminAccountsPage() {
                       onChange={e => setLinkSelections(prev => ({ ...prev, [r.id]: e.target.value }))}
                       className="text-xs border border-divider rounded-lg px-2 py-1.5 outline-none focus:border-brand bg-white"
                     >
-                      <option value="">Choisir un compte / Select account…</option>
+                      <option value="">{bi('Choisir un compte', 'Select account…')}</option>
                       {orphanCustomers.map(c => (
                         <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>
                       ))}
@@ -392,7 +394,7 @@ export default function AdminAccountsPage() {
                       disabled={!linkSelections[r.id] || linkingId === r.id}
                       className="text-xs bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-3 py-1.5 rounded-lg font-medium"
                     >
-                      {linkingId === r.id ? '…' : '🔗 Lier / Link'}
+                      {linkingId === r.id ? '…' : bi('🔗 Lier', 'Link')}
                     </button>
                   </div>
                 </div>
@@ -409,7 +411,7 @@ export default function AdminAccountsPage() {
           {(['all', 'active', 'suspended', 'deleted'] as StatusFilter[]).map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${statusFilter === s ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'}`}>
-              {s === 'all' ? 'Tous / All' : s === 'active' ? 'Actifs' : s === 'suspended' ? 'Suspendus' : 'Supprimés'}
+              {s === 'all' ? bi('Tous', 'All') : s === 'active' ? 'Actifs' : s === 'suspended' ? 'Suspendus' : 'Supprimés'}
               <span className={`text-xs font-bold px-1.5 rounded-full ${statusFilter === s ? 'bg-brand text-white' : 'bg-divider text-ink-secondary'}`}>{counts[s]}</span>
             </button>
           ))}
@@ -417,16 +419,16 @@ export default function AdminAccountsPage() {
         {/* Sort */}
         <select value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)}
           className="text-xs border border-divider rounded-xl px-3 py-2 outline-none focus:border-brand bg-white">
-          <option value="date">Trier: date / Sort: date</option>
-          <option value="name">Trier: nom / Sort: name</option>
-          <option value="status">Trier: statut / Sort: status</option>
+          <option value="date">{bi('Trier: date', 'Sort: date')}</option>
+          <option value="name">{bi('Trier: nom', 'Sort: name')}</option>
+          <option value="status">{bi('Trier: statut', 'Sort: status')}</option>
         </select>
       </div>
 
       {/* Search */}
       <input
         value={search} onChange={e => setSearch(e.target.value)}
-        placeholder="Rechercher nom ou téléphone / Search name or phone…"
+        placeholder={bi('Rechercher nom ou téléphone', 'Search name or phone…')}
         className="w-full border border-divider rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand mb-4"
       />
 
@@ -439,7 +441,7 @@ export default function AdminAccountsPage() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-ink-tertiary">
           <div className="text-4xl mb-3">👤</div>
-          <p>Aucun compte / No accounts</p>
+          <p>{bi('Aucun compte', 'No accounts')}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -471,7 +473,7 @@ export default function AdminAccountsPage() {
                       {a.reusedFrom && (
                         <button
                           onClick={e => { e.stopPropagation(); setReuseModal(a) }}
-                          title="Numéro réutilisé — voir historique / Reused number — view history"
+                          title={bi('Numéro réutilisé — voir historique', 'Reused number — view history')}
                           className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker hover:bg-brand-light transition-colors flex items-center gap-1"
                         >
                           🕓 Numéro réutilisé / Reused
@@ -499,11 +501,11 @@ export default function AdminAccountsPage() {
                         {' · '}
                         {(daysLeft ?? 0) > 0
                           ? `${daysLeft}j avant libération / ${daysLeft}d before release`
-                          : 'À libérer / Pending release'}
+                          : bi('À libérer', 'Pending release')}
                       </p>
                     )}
                     {alreadyReleased && (
-                      <p className="text-xs text-ink-tertiary mt-0.5 italic">Numéro libéré / Number released</p>
+                      <p className="text-xs text-ink-tertiary mt-0.5 italic">{bi('Numéro libéré', 'Number released')}</p>
                     )}
                   </div>
 
@@ -545,7 +547,7 @@ export default function AdminAccountsPage() {
                       <>
                         {within30 && (
                           <ActionBtn
-                            label="↩️ Annuler / Undo"
+                            label={bi('↩️ Annuler', 'Undo')}
                             cls="orange"
                             loading={accountActionLoading === a.id + '-undo-delete'}
                             onClick={() => doAccountAction(a, 'undo-delete')}
@@ -553,7 +555,7 @@ export default function AdminAccountsPage() {
                         )}
                         {currentRole === 'super_admin' && !alreadyReleased && (
                           <ActionBtn
-                            label="🔓 Libérer / Release"
+                            label={bi('🔓 Libérer', 'Release')}
                             cls="red"
                             loading={accountActionLoading === a.id + '-release-number'}
                             onClick={() => setAccountModal({ type: 'release', account: a })}
@@ -573,7 +575,7 @@ export default function AdminAccountsPage() {
                     {loadingRests ? (
                       <p className="text-sm text-ink-tertiary pb-3">Chargement…</p>
                     ) : !rests || rests.length === 0 ? (
-                      <p className="text-sm text-ink-tertiary pb-3">Aucun restaurant / No restaurants</p>
+                      <p className="text-sm text-ink-tertiary pb-3">{bi('Aucun restaurant', 'No restaurants')}</p>
                     ) : (
                       <div className="space-y-2 pb-2">
                         {rests.map(r => (
@@ -603,13 +605,13 @@ export default function AdminAccountsPage() {
 
       {accountModal?.type === 'suspend' && (
         <Modal onClose={() => setAccountModal(null)}>
-          <h3 className="font-bold text-ink-primary mb-1">⏸️ Suspendre le compte / Suspend account</h3>
+          <h3 className="font-bold text-ink-primary mb-1">{bi('⏸️ Suspendre le compte', 'Suspend account')}</h3>
           <p className="text-sm text-ink-secondary mb-3">{accountModal.account.name} · {accountModal.account.phone}</p>
           <textarea value={modalReason} onChange={e => setModalReason(e.target.value)}
-            placeholder="Raison (optionnel) / Reason (optional)" rows={3}
+            placeholder={bi('Raison (optionnel)', 'Reason (optional)')} rows={3}
             className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand mb-4" />
           <ModalButtons
-            confirmLabel="⏸️ Suspendre / Suspend" confirmCls="bg-warning hover:bg-warning/90"
+            confirmLabel={bi('⏸️ Suspendre', 'Suspend')} confirmCls="bg-warning hover:bg-warning/90"
             onConfirm={() => doAccountAction(accountModal.account, 'suspend', modalReason)}
             onCancel={() => setAccountModal(null)} />
         </Modal>
@@ -617,14 +619,14 @@ export default function AdminAccountsPage() {
 
       {accountModal?.type === 'reactivate' && (
         <Modal onClose={() => setAccountModal(null)}>
-          <h3 className="font-bold text-ink-primary mb-1">✅ Réactiver le compte / Reactivate account</h3>
+          <h3 className="font-bold text-ink-primary mb-1">{bi('✅ Réactiver le compte', 'Reactivate account')}</h3>
           <p className="text-sm text-ink-secondary mb-3">{accountModal.account.name} · {accountModal.account.phone}</p>
           <p className="text-sm text-ink-secondary mb-4 bg-brand-light border border-divider rounded-xl p-3">
             Ce compte et ses restaurants suspendus automatiquement seront réactivés.<br/>
             This account and its auto-suspended restaurants will be reactivated.
           </p>
           <ModalButtons
-            confirmLabel="✅ Réactiver / Reactivate" confirmCls="bg-brand hover:bg-brand-dark"
+            confirmLabel={bi('✅ Réactiver', 'Reactivate')} confirmCls="bg-brand hover:bg-brand-dark"
             onConfirm={() => doAccountAction(accountModal.account, 'reactivate')}
             onCancel={() => setAccountModal(null)} />
         </Modal>
@@ -632,14 +634,14 @@ export default function AdminAccountsPage() {
 
       {accountModal?.type === 'delete' && (
         <Modal onClose={() => setAccountModal(null)}>
-          <h3 className="font-bold text-ink-primary mb-1">🗑️ Supprimer le compte / Delete account</h3>
+          <h3 className="font-bold text-ink-primary mb-1">{bi('🗑️ Supprimer le compte', 'Delete account')}</h3>
           <p className="text-sm text-ink-secondary mb-3">{accountModal.account.name} · {accountModal.account.phone}</p>
           <p className="text-sm text-ink-secondary mb-4 bg-brand-light border border-divider rounded-xl p-3">
             ⚠️ Les données seront supprimées après 30 jours. Les restaurants actifs seront suspendus automatiquement.<br/><br/>
             Data will be deleted after 30 days. Active restaurants will be auto-suspended.
           </p>
           <ModalButtons
-            confirmLabel="🗑️ Supprimer / Delete" confirmCls="bg-danger hover:bg-danger"
+            confirmLabel={bi('🗑️ Supprimer', 'Delete')} confirmCls="bg-danger hover:bg-danger"
             onConfirm={() => doAccountAction(accountModal.account, 'delete')}
             onCancel={() => setAccountModal(null)} />
         </Modal>
@@ -647,14 +649,14 @@ export default function AdminAccountsPage() {
 
       {accountModal?.type === 'release' && (
         <Modal onClose={() => setAccountModal(null)}>
-          <h3 className="font-bold text-ink-primary mb-1">🔓 Libérer le numéro / Release number</h3>
+          <h3 className="font-bold text-ink-primary mb-1">{bi('🔓 Libérer le numéro', 'Release number')}</h3>
           <p className="text-sm text-ink-secondary mb-3">{accountModal.account.name} · {accountModal.account.phone}</p>
           <p className="text-sm text-danger mb-4 bg-brand-light border border-divider rounded-xl p-3">
             ⚠️ Cette action est définitive. Le numéro sera libéré et les données anonymisées. Continuer?<br/><br/>
             This is permanent. The number will be released and data anonymized. Continue?
           </p>
           <ModalButtons
-            confirmLabel="🔓 Confirmer / Confirm" confirmCls="bg-danger hover:bg-danger"
+            confirmLabel={bi('🔓 Confirmer', 'Confirm')} confirmCls="bg-danger hover:bg-danger"
             onConfirm={() => doAccountAction(accountModal.account, 'release-number')}
             onCancel={() => setAccountModal(null)} />
         </Modal>
@@ -664,13 +666,13 @@ export default function AdminAccountsPage() {
 
       {restModal?.type === 'suspend' && (
         <Modal onClose={() => setRestModal(null)}>
-          <h3 className="font-bold text-ink-primary mb-1">⏸️ Suspendre le restaurant / Suspend restaurant</h3>
+          <h3 className="font-bold text-ink-primary mb-1">{bi('⏸️ Suspendre le restaurant', 'Suspend restaurant')}</h3>
           <p className="text-sm text-ink-secondary mb-3">{restModal.rest.name}</p>
           <textarea value={restModalReason} onChange={e => setRestModalReason(e.target.value)}
-            placeholder="Raison (optionnel) / Reason (optional)" rows={3}
+            placeholder={bi('Raison (optionnel)', 'Reason (optional)')} rows={3}
             className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand mb-4" />
           <ModalButtons
-            confirmLabel="⏸️ Suspendre / Suspend" confirmCls="bg-warning hover:bg-warning/90"
+            confirmLabel={bi('⏸️ Suspendre', 'Suspend')} confirmCls="bg-warning hover:bg-warning/90"
             onConfirm={() => doRestaurantAction(restModal.accountId, restModal.rest.id, 'suspend', restModalReason)}
             onCancel={() => setRestModal(null)} />
         </Modal>
@@ -678,7 +680,7 @@ export default function AdminAccountsPage() {
 
       {reuseModal?.reusedFrom && (
         <Modal onClose={() => setReuseModal(null)}>
-          <h3 className="font-bold text-ink-primary mb-1">🕓 Historique du numéro / Number history</h3>
+          <h3 className="font-bold text-ink-primary mb-1">{bi('🕓 Historique du numéro', 'Number history')}</h3>
           <p className="text-sm text-ink-secondary mb-3 font-mono">{reuseModal.phone}</p>
           <div className="bg-brand-light border border-divider rounded-xl p-3 mb-4 space-y-2 text-sm">
             <p className="text-ink-primary">
@@ -686,14 +688,14 @@ export default function AdminAccountsPage() {
               This number belonged to another, released account.
             </p>
             <div className="text-xs text-brand-darker space-y-1">
-              <p><span className="font-semibold">Ancien nom / Previous name:</span> {reuseModal.reusedFrom.previous_name ?? '—'}</p>
-              <p><span className="font-semibold">Ville / City:</span> {reuseModal.reusedFrom.previous_city ?? '—'}</p>
+              <p><span className="font-semibold">{bi('Ancien nom', 'Previous name:')}</span> {reuseModal.reusedFrom.previous_name ?? '—'}</p>
+              <p><span className="font-semibold">{bi('Ville', 'City:')}</span> {reuseModal.reusedFrom.previous_city ?? '—'}</p>
               {reuseModal.reusedFrom.previous_signup && (
-                <p><span className="font-semibold">Inscription initiale / Original signup:</span>{' '}
+                <p><span className="font-semibold">{bi('Inscription initiale', 'Original signup:')}</span>{' '}
                   {new Date(reuseModal.reusedFrom.previous_signup).toLocaleDateString('fr-FR')}
                 </p>
               )}
-              <p><span className="font-semibold">Libéré le / Released on:</span>{' '}
+              <p><span className="font-semibold">{bi('Libéré le', 'Released on:')}</span>{' '}
                 {new Date(reuseModal.reusedFrom.released_at).toLocaleDateString('fr-FR')}
               </p>
             </div>
@@ -727,13 +729,13 @@ export default function AdminAccountsPage() {
 
       {restModal?.type === 'delete' && (
         <Modal onClose={() => setRestModal(null)}>
-          <h3 className="font-bold text-ink-primary mb-1">🗑️ Supprimer le restaurant / Delete restaurant</h3>
+          <h3 className="font-bold text-ink-primary mb-1">{bi('🗑️ Supprimer le restaurant', 'Delete restaurant')}</h3>
           <p className="text-sm text-ink-secondary mb-3">{restModal.rest.name}</p>
           <p className="text-sm text-ink-secondary mb-4 bg-brand-light border border-divider rounded-xl p-3">
             ⚠️ Annulable dans 30 jours. / Reversible within 30 days.
           </p>
           <ModalButtons
-            confirmLabel="🗑️ Supprimer / Delete" confirmCls="bg-danger hover:bg-danger"
+            confirmLabel={bi('🗑️ Supprimer', 'Delete')} confirmCls="bg-danger hover:bg-danger"
             onConfirm={() => doRestaurantAction(restModal.accountId, restModal.rest.id, 'delete')}
             onCancel={() => setRestModal(null)} />
         </Modal>
@@ -843,11 +845,12 @@ function ModalButtons({ confirmLabel, confirmCls, onConfirm, onCancel }: {
 }
 
 function RoleBadges({ roles }: { roles: string[] }) {
-  if (!roles.length) return <Badge label="Client / Customer" cls="bg-brand-light text-brand-darker" />
+  const bi = useBi()
+  if (!roles.length) return <Badge label={bi('Client', 'Customer')} cls="bg-brand-light text-brand-darker" />
   const map: Record<string, string> = {
-    owner:   'Vendeur Owner / Vendor Owner',
-    manager: 'Vendeur Manager / Vendor Manager',
-    staff:   'Vendeur Staff / Vendor Staff',
+    owner:   bi('Vendeur Owner',   'Vendor Owner'),
+    manager: bi('Vendeur Manager', 'Vendor Manager'),
+    staff:   bi('Vendeur Staff',   'Vendor Staff'),
   }
   return (
     <>
@@ -859,9 +862,10 @@ function RoleBadges({ roles }: { roles: string[] }) {
 }
 
 function AccountStatusBadge({ a }: { a: EnrichedCustomer }) {
-  if (a.deleted_at)          return <Badge label="Supprimé / Deleted"   cls="bg-brand-light text-danger" />
-  if (a.status === 'suspended') return <Badge label="Suspendu / Suspended" cls="bg-brand-light text-warning" />
-  return <Badge label="Actif / Active" cls="bg-brand-light text-brand-darker" />
+  const bi = useBi()
+  if (a.deleted_at)             return <Badge label={bi('Supprimé', 'Deleted')}   cls="bg-brand-light text-danger" />
+  if (a.status === 'suspended') return <Badge label={bi('Suspendu', 'Suspended')} cls="bg-brand-light text-warning" />
+  return <Badge label={bi('Actif', 'Active')} cls="bg-brand-light text-brand-darker" />
 }
 
 function RestaurantStatusBadge({ r }: { r: RestaurantRow }) {

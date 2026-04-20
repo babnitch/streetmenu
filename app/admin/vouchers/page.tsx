@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi } from '@/lib/languageContext'
 
 // Enriched voucher row returned by GET /api/admin/vouchers — includes the
 // server-derived status and the joined restaurant name.
@@ -29,6 +29,7 @@ interface VoucherWithStatus {
 interface RestaurantLite { id: string; name: string }
 
 export default function AdminVouchersPage() {
+  const bi = useBi()
   const { t } = useLanguage()
   const [vouchers, setVouchers] = useState<VoucherWithStatus[]>([])
   const [restaurants, setRestaurants] = useState<RestaurantLite[]>([])
@@ -111,7 +112,7 @@ export default function AdminVouchersPage() {
     const res = await fetch(`/api/admin/vouchers/${v.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.error ?? 'Erreur / Error')
+      alert(data.error ?? bi('Erreur', 'Error'))
       return
     }
     fetchVouchers()
@@ -189,7 +190,7 @@ export default function AdminVouchersPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-ink-secondary mb-1">Max utilisations / Max uses</label>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Max utilisations', 'Max uses')}</label>
               <input
                 type="number"
                 value={maxUses}
@@ -200,7 +201,7 @@ export default function AdminVouchersPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-ink-secondary mb-1">Par client / Per customer</label>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Par client', 'Per customer')}</label>
               <input
                 type="number"
                 value={perCustomerMax}
@@ -221,13 +222,13 @@ export default function AdminVouchersPage() {
             </div>
 
             <div className="col-span-2">
-              <label className="block text-xs text-ink-secondary mb-1">Portée / Scope</label>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Portée', 'Scope')}</label>
               <select
                 value={restaurantId}
                 onChange={e => setRestaurantId(e.target.value)}
                 className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white"
               >
-                <option value="">Plateforme / Platform-wide</option>
+                <option value="">{bi('Plateforme', 'Platform-wide')}</option>
                 {restaurants.map(r => (
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
@@ -235,7 +236,7 @@ export default function AdminVouchersPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-ink-secondary mb-1">Ville / City</label>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Ville', 'City')}</label>
               <input
                 value={city}
                 onChange={e => setCity(e.target.value)}
@@ -282,7 +283,7 @@ export default function AdminVouchersPage() {
                 <tr>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchCode')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchValue')}</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">Portée / Scope</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{bi('Portée', 'Scope')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchUseCount')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchExpiry')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{t('admin.vchStatus')}</th>
@@ -346,11 +347,12 @@ function VoucherStatusBadge({
   isActive: boolean
   onToggle: () => void
 }) {
+  const bi = useBi()
   const STYLES: Record<typeof status, { cls: string; label: string }> = {
     active:    { cls: 'bg-brand-light text-brand-darker hover:bg-brand-badge', label: '✅ Active' },
-    inactive:  { cls: 'bg-surface-muted text-ink-secondary hover:bg-divider',    label: 'Inactif / Inactive' },
-    expired:   { cls: 'bg-brand-light text-danger',                         label: '⏰ Expiré / Expired' },
-    exhausted: { cls: 'bg-brand-light text-warning',                     label: '🪫 Épuisé / Exhausted' },
+    inactive:  { cls: 'bg-surface-muted text-ink-secondary hover:bg-divider',    label: bi('Inactif', 'Inactive') },
+    expired:   { cls: 'bg-brand-light text-danger',                         label: bi('⏰ Expiré', 'Expired') },
+    exhausted: { cls: 'bg-brand-light text-warning',                     label: bi('🪫 Épuisé', 'Exhausted') },
   }
   const s = STYLES[status]
   const clickable = status === 'active' || status === 'inactive'
@@ -359,7 +361,7 @@ function VoucherStatusBadge({
       onClick={clickable ? onToggle : undefined}
       disabled={!clickable}
       className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${s.cls} ${clickable ? '' : 'cursor-default opacity-80'}`}
-      title={clickable ? (isActive ? 'Désactiver / Deactivate' : 'Activer / Activate') : s.label}
+      title={clickable ? (isActive ? bi('Désactiver', 'Deactivate') : bi('Activer', 'Activate')) : s.label}
     >
       {s.label}
     </button>
