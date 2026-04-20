@@ -42,7 +42,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const isRestaurants = pathname === '/' || pathname.startsWith('/restaurant')
   const isEvents      = pathname.startsWith('/events')
 
-  const isJoinCta = cta?.href === '/join'
   const [swap, setSwap] = useState<JoinSwap>({ kind: 'join' })
   const [me, setMe] = useState<SessionUser | null>(null)
 
@@ -60,19 +59,22 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           setSwap({ kind: 'hidden' })
           return
         }
+        // Swap kicks in on every page (not just Join-CTA pages) so vendors
+        // see their "Mon restaurant" entry in the nav on /events,
+        // /restaurant/[id], /order, etc.
         const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
         const v = await vRes.json()
         if (cancelled) return
         const list: Array<{ status?: string }> = v.restaurants ?? []
         if (!list.length) { setSwap({ kind: 'join' }); return }
         const pending = list.every(r => r.status === 'pending')
-        if (isJoinCta) setSwap({ kind: 'myRestaurant', pending })
+        setSwap({ kind: 'myRestaurant', pending })
       } catch {
         if (!cancelled) { setSwap({ kind: 'join' }); setMe(null) }
       }
     })()
     return () => { cancelled = true }
-  }, [isJoinCta])
+  }, [])
 
   // Account pill label: first name when logged in, "Connexion / Login" otherwise.
   const accountLabel = me ? firstName(me.name) || me.name : 'Connexion / Login'
@@ -111,27 +113,38 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           )}
           <Link
             href="/account"
-            className="text-ink-secondary hover:text-ink-primary hover:bg-surface-muted px-2.5 py-1.5 rounded-full text-sm font-semibold transition-colors flex items-center gap-1 max-w-[10rem]"
+            className="text-ink-secondary hover:text-ink-primary hover:bg-surface-muted px-2.5 py-1.5 rounded-full text-sm font-semibold transition-colors flex items-center gap-1 max-w-[8rem] sm:max-w-[10rem]"
             title={me?.name ?? 'Connexion / Login'}
           >
             <span aria-hidden="true">👤</span>
-            <span className="hidden sm:inline truncate">{accountLabel}</span>
+            <span className="truncate">{accountLabel}</span>
           </Link>
           <LanguageToggle />
-          {cta && isJoinCta && swap.kind === 'myRestaurant' && (
+
+          {/* "Mon restaurant" vendor CTA — visible on every page (not
+              gated by isJoinCta anymore) and on every viewport. On mobile
+              it collapses to an icon-only pill so the 375px bar still
+              fits everything; sm+ shows the full bilingual label. */}
+          {swap.kind === 'myRestaurant' && (
             <Link
               href={swap.pending ? '/account' : '/dashboard'}
-              className="hidden sm:flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
+              className="flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-3 sm:px-4 py-2 rounded-full transition-colors"
+              title="Mon restaurant / My Restaurant"
             >
-              🏪 Mon restaurant / My Restaurant
+              <span>🏪</span>
+              <span className="hidden sm:inline">Mon restaurant / My Restaurant</span>
               {swap.pending && (
                 <span className="bg-white/25 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  En attente / Pending
+                  <span className="sm:hidden">⏳</span>
+                  <span className="hidden sm:inline">En attente / Pending</span>
                 </span>
               )}
             </Link>
           )}
-          {cta && (!isJoinCta || swap.kind === 'join') && (
+
+          {/* Incoming page CTA (e.g. "Join us" from the home page) — only
+              shown when we haven't swapped it for the vendor CTA above. */}
+          {cta && swap.kind !== 'myRestaurant' && swap.kind !== 'hidden' && (
             <Link
               href={cta.href}
               className="hidden sm:block bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-2 rounded-full transition-colors"
@@ -139,7 +152,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               {cta.label}
             </Link>
           )}
-          {/* swap.kind === 'hidden' renders nothing */}
         </div>
 
       </div>
