@@ -37,11 +37,20 @@ export default function MenuPage() {
     fetchData()
   }, [id])
 
-  const categories = ['all', ...Array.from(new Set(menuItems.map(m => m.category))).filter(Boolean)]
+  // Category pills come from the non-special items only — daily specials
+  // have their own section at the top when viewing "All", so a category
+  // that only contains specials would render an empty tab. Hide the tab
+  // bar entirely when the menu has 0–1 distinct filterable categories.
   const specials = menuItems.filter(m => m.is_daily_special)
+  const nonSpecials = menuItems.filter(m => !m.is_daily_special)
+  const uniqueCategories = Array.from(
+    new Set(nonSpecials.map(m => m.category).filter(Boolean) as string[])
+  )
+  const showCategoryTabs = uniqueCategories.length >= 2
+  const categories = showCategoryTabs ? ['all', ...uniqueCategories] : []
   const filtered = activeCategory === 'all'
-    ? menuItems.filter(m => !m.is_daily_special)
-    : menuItems.filter(m => m.category === activeCategory && !m.is_daily_special)
+    ? nonSpecials
+    : nonSpecials.filter(m => m.category === activeCategory)
 
   const getItemQty = (itemId: string) => items.find(i => i.id === itemId)?.quantity ?? 0
 
@@ -125,27 +134,30 @@ export default function MenuPage() {
         </div>
       </div>
 
-      {/* Sticky category tabs */}
-      <div className="sticky top-0 z-10 bg-surface border-b border-divider">
-        <div className="max-w-2xl mx-auto flex gap-2 px-4 py-3 overflow-x-auto">
-          {categories.map(cat => {
-            const active = activeCategory === cat
-            return (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
-                  active
-                    ? 'bg-ink-primary text-white'
-                    : 'bg-surface-muted text-ink-secondary hover:text-ink-primary'
-                }`}
-              >
-                {cat === 'all' ? t('menu.all') : cat.charAt(0).toUpperCase() + cat.slice(1)}
-              </button>
-            )
-          })}
+      {/* Sticky category tabs — only rendered when the menu spans ≥2
+          categories; single-category menus skip the bar entirely. */}
+      {showCategoryTabs && (
+        <div className="sticky top-0 z-10 bg-surface border-b border-divider">
+          <div className="max-w-2xl mx-auto flex gap-2 px-4 py-3 overflow-x-auto">
+            {categories.map(cat => {
+              const active = activeCategory === cat
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+                    active
+                      ? 'bg-ink-primary text-white'
+                      : 'bg-surface-muted text-ink-secondary hover:text-ink-primary'
+                  }`}
+                >
+                  {cat === 'all' ? t('menu.all') : cat.charAt(0).toUpperCase() + cat.slice(1)}
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="px-4 pb-40 md:pb-32 max-w-2xl mx-auto">
         {/* Daily Specials */}
