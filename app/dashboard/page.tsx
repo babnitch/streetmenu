@@ -114,7 +114,21 @@ export default function DashboardPage() {
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [tab, setTab] = useState<'orders' | 'menu' | 'validate'>('orders')
+  // `team` + `settings` land via the Restaurant-mode TopNav/BottomNav. Full
+  // UI for them arrives in a follow-up; for now they show a stub so the
+  // tab bar has something sensible to display instead of the default.
+  const [tab, setTab] = useState<'orders' | 'menu' | 'validate' | 'team' | 'settings'>('orders')
+
+  // Honor the ?tab= query param so deep links from the nav land on the
+  // requested tab. Only accept known tab values to avoid arbitrary strings.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search).get('tab')
+    const allowed = ['orders', 'menu', 'validate', 'team', 'settings'] as const
+    if (q && (allowed as readonly string[]).includes(q)) {
+      setTab(q as typeof allowed[number])
+    }
+  }, [])
   const [validateInput, setValidateInput] = useState('')
   const [validating, setValidating] = useState(false)
   const [validateResult, setValidateResult] = useState<null | 'ok' | 'used' | 'invalid'>(null)
@@ -713,6 +727,47 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Team tab — full pending-invitations + invite UI lands in the
+              follow-up commit. For now the empty-state points vendors to
+              /account where the existing team roster lives. */}
+          {tab === 'team' && (
+            <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
+              <div className="text-4xl mb-3">👥</div>
+              <h3 className="font-bold text-ink-primary mb-1">{bi('Équipe', 'Team')}</h3>
+              <p className="text-sm text-ink-secondary mb-4">
+                {bi(
+                  'Gérez les membres de votre équipe depuis Compte → Équipe.',
+                  'Manage your team from Account → Team.',
+                )}
+              </p>
+              <Link
+                href="/account?tab=team"
+                className="inline-block bg-brand hover:bg-brand-dark text-white px-5 py-2 rounded-xl font-semibold text-sm transition-colors"
+              >
+                {bi('Aller à Compte', 'Go to Account')}
+              </Link>
+            </div>
+          )}
+
+          {tab === 'settings' && (
+            <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
+              <div className="text-4xl mb-3">⚙️</div>
+              <h3 className="font-bold text-ink-primary mb-1">{bi('Paramètres', 'Settings')}</h3>
+              <p className="text-sm text-ink-secondary mb-4">
+                {bi(
+                  'Modifiez les détails du restaurant depuis Compte → Restaurant.',
+                  'Edit restaurant details from Account → Restaurant.',
+                )}
+              </p>
+              <Link
+                href="/account?tab=restaurant"
+                className="inline-block bg-brand hover:bg-brand-dark text-white px-5 py-2 rounded-xl font-semibold text-sm transition-colors"
+              >
+                {bi('Aller à Compte', 'Go to Account')}
+              </Link>
             </div>
           )}
         </div>

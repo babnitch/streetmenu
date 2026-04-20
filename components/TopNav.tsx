@@ -7,6 +7,8 @@ import { useCart } from '@/lib/cartContext'
 import { useBi } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
+import ModeSwitcher from './ModeSwitcher'
+import { useMode } from '@/lib/modeContext'
 
 interface TopNavProps {
   // Retained for compatibility with pages that pass a Join CTA. New layout
@@ -67,12 +69,32 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     return () => { cancelled = true }
   }, [])
 
+  const { mode, hasRestaurantRole, topRole } = useMode()
+
   const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
   const isRestaurants = pathname === '/'
   const isOrdersPage  = pathname === '/account'
   const isDashboard   = pathname.startsWith('/dashboard')
   const isEvents      = pathname === '/events' || pathname.startsWith('/events/')
-  const showMapBtn    = pathname === '/' || pathname === '/events'
+  // Map icon only makes sense on the two map-bearing client-mode surfaces.
+  // In restaurant mode the TopNav shows operations links instead.
+  const showMapBtn    = (mode === 'client' || !hasRestaurantRole)
+                      && (pathname === '/' || pathname === '/events')
+  // Restaurant mode is only honored for users who actually have a team role
+  // — the provider's `hasRestaurantRole` gate + this fallback keep the
+  // restaurant UI out of the way for pure customers.
+  const effectiveMode: 'client' | 'restaurant' =
+    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
+  const isOwner   = topRole === 'owner'
+  const isManager = topRole === 'manager'
+  // Dashboard tab helpers — match the ?tab= query on /dashboard.
+  const dashTab = (typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('tab') ?? 'orders'
+    : 'orders')
+  const isDashOrders   = isDashboard && dashTab === 'orders'
+  const isDashMenu     = isDashboard && dashTab === 'menu'
+  const isDashTeam     = isDashboard && dashTab === 'team'
+  const isDashSettings = isDashboard && dashTab === 'settings'
 
   // Map toggle — rendered on the home and events pages. Dispatches a
   // custom event the page listens for; keeps TopNav decoupled from the
@@ -84,6 +106,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   }
 
   return (
+    <>
     <header className="sticky top-0 z-30 bg-surface border-b border-divider shadow-sm">
       <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
 
@@ -130,25 +153,46 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these.
             `flex-shrink-0` + `whitespace-nowrap` keep every link visible even
             when the search input tries to grow and squeeze the cluster.
-            Restaurants + Events are public; Orders + Mon restaurant only
-            render for signed-in / vendor users. Active link highlights in
-            brand via TopNavLink's `active` class. */}
+            The link set depends on the active mode: client-mode shows the
+            public browse surface; restaurant-mode shows operations tabs
+            gated by the user's highest team role. */}
         <nav className="hidden md:flex items-center gap-1 flex-shrink-0 whitespace-nowrap">
-          <TopNavLink href="/" active={isRestaurants}>
-            🏠 {bi('Restaurants', 'Restaurants')}
-          </TopNavLink>
-          <TopNavLink href="/events" active={isEvents}>
-            🎉 {bi('Événements', 'Events')}
-          </TopNavLink>
-          {me && (
-            <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
-              📦 {bi('Commandes', 'Orders')}
-            </TopNavLink>
+          {effectiveMode === 'client' && (
+            <>
+              <TopNavLink href="/" active={isRestaurants}>
+                🏠 {bi('Restaurants', 'Restaurants')}
+              </TopNavLink>
+              <TopNavLink href="/events" active={isEvents}>
+                🎉 {bi('Événements', 'Events')}
+              </TopNavLink>
+              {me && (
+                <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
+                  📦 {bi('Commandes', 'Orders')}
+                </TopNavLink>
+              )}
+            </>
           )}
-          {vendor.kind === 'approved' && (
-            <TopNavLink href="/dashboard" active={isDashboard}>
-              🏪 {bi('Mon restaurant', 'My Restaurant')}
-            </TopNavLink>
+          {effectiveMode === 'restaurant' && (
+            <>
+              <TopNavLink href="/dashboard?tab=orders" active={isDashOrders || (isDashboard && !isDashMenu && !isDashTeam && !isDashSettings)}>
+                📦 {bi('Commandes', 'Orders')}
+              </TopNavLink>
+              {(isOwner || isManager) && (
+                <TopNavLink href="/dashboard?tab=menu" active={isDashMenu}>
+                  🍽️ {bi('Menu', 'Menu')}
+                </TopNavLink>
+              )}
+              {isOwner && (
+                <>
+                  <TopNavLink href="/dashboard?tab=team" active={isDashTeam}>
+                    👥 {bi('Équipe', 'Team')}
+                  </TopNavLink>
+                  <TopNavLink href="/dashboard?tab=settings" active={isDashSettings}>
+                    ⚙️ {bi('Paramètres', 'Settings')}
+                  </TopNavLink>
+                </>
+              )}
+            </>
           )}
         </nav>
 
@@ -202,6 +246,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         </div>
       </div>
     </header>
+    <ModeSwitcher />
+    </>
   )
 }
 

@@ -4,6 +4,7 @@ import { CartProvider } from '@/lib/cartContext'
 import { LanguageProvider } from '@/lib/languageContext'
 import { AuthProvider } from '@/lib/authContext'
 import { CityProvider } from '@/lib/cityContext'
+import { ModeProvider } from '@/lib/modeContext'
 import BottomNav from '@/components/BottomNav'
 
 export const metadata: Metadata = {
@@ -22,8 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AuthProvider>
             <CartProvider>
               <CityProvider>
-                {children}
-                <BottomNav />
+                <ModeProvider>
+                  {children}
+                  <BottomNav />
+                </ModeProvider>
               </CityProvider>
             </CartProvider>
           </AuthProvider>

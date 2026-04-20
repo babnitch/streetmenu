@@ -4,18 +4,16 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
+import { useMode } from '@/lib/modeContext'
 
-// Mobile-only fixed bottom tab bar. Slots (up to 6):
-//   🏠 Home · 🔍 Search · 🎉 Events · 📦 Orders · 🏪 Restaurant (vendor) · 👤 Account
-// Hidden at md+ (≥768px) — the TopNav takes over there.
+// Mobile-only fixed bottom tab bar. Two variants:
 //
-// Icon-only, no labels: with 5–6 tabs the text overlapped on 375px
-// screens. Uber Eats follows the same pattern on small screens; the
-// aria-label keeps it accessible.
+// - Client mode:      🏠 Home · 🔍 Search · 🎉 Events · 📦 Orders · 👤 Account
+// - Restaurant mode:  📦 Orders · 🍽️ Menu (manager+) · 👥 Team (owner) · ⚙️ Settings (owner) · 👤 Account
 //
-// "Restaurant" slot only renders for customers with ≥1 non-pending
-// approved restaurant. Admins and pending-only vendors see a 5-tab bar
-// (Restaurant slot collapses).
+// Hidden at md+ (≥768px) — the TopNav takes over there. Icon-only, no labels:
+// with 5 tabs the text overlapped on 375px screens. aria-label keeps it
+// accessible. Pure customers (no team role) only ever see the client variant.
 
 interface TabSpec {
   href:   string
@@ -30,8 +28,8 @@ export default function BottomNav() {
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const bi = useBi()
+  const { mode, hasRestaurantRole, topRole } = useMode()
 
-  const [showVendorTab, setShowVendorTab] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
@@ -59,7 +57,6 @@ export default function BottomNav() {
         if (cancelled) return
         const list: Array<{ status?: string }> = v.restaurants ?? []
         const hasApproved = list.some(r => r.status && r.status !== 'pending')
-        setShowVendorTab(hasApproved)
 
         if (hasApproved) {
           const refreshCount = async () => {
@@ -93,24 +90,51 @@ export default function BottomNav() {
   // the hash on mount and focuses the search input.
   const goSearch = () => router.push('/#search')
 
-  const tabs: TabSpec[] = [
-    { href: '/',                    icon: '🏠', label: bi('Accueil', 'Home'),     match: p => p === '/' || p.startsWith('/restaurant') },
-    { href: '/#search',             icon: '🔍', label: bi('Recherche', 'Search'), match: () => false, onClick: goSearch },
-    { href: '/events',              icon: '🎉', label: bi('Événements', 'Events'), match: p => p.startsWith('/events') },
+  // Effective mode: only honor "restaurant" when the user actually has a
+  // team role. Prevents a stale localStorage flag from showing vendor
+  // tabs to a logged-out user.
+  const effectiveMode: 'client' | 'restaurant' =
+    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
+
+  // Which ?tab= is currently selected on /dashboard (read at render time
+  // from window.location so the active-tab highlight follows navigation).
+  const dashTab = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('tab') ?? 'orders'
+    : 'orders'
+
+  const clientTabs: TabSpec[] = [
+    { href: '/',          icon: '🏠', label: bi('Accueil', 'Home'),      match: p => p === '/' || p.startsWith('/restaurant') },
+    { href: '/#search',   icon: '🔍', label: bi('Recherche', 'Search'),  match: () => false, onClick: goSearch },
+    { href: '/events',    icon: '🎉', label: bi('Événements', 'Events'), match: p => p.startsWith('/events') },
     ...(isLoggedIn ? [
-      { href: '/account?tab=orders', icon: '📦', label: bi('Commandes', 'Orders'), match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) }
+      { href: '/account?tab=orders', icon: '📦', label: bi('Commandes', 'Orders'),
+        match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) }
     ] : []),
-    ...(showVendorTab ? [
-      {
-        href: '/dashboard',
-        icon: '🏪',
-        label: 'Restaurant',  // same word in both locales
-        match: (p: string) => p.startsWith('/dashboard'),
-        badge: pendingCount,
-      }
-    ] : []),
-    { href: '/account',             icon: '👤', label: bi('Compte', 'Account'),   match: p => p === '/account' },
+    { href: '/account',   icon: '👤', label: bi('Compte', 'Account'),    match: p => p === '/account' && !(typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
   ]
+
+  const isOwner   = topRole === 'owner'
+  const isManager = topRole === 'manager'
+
+  const restaurantTabs: TabSpec[] = [
+    { href: '/dashboard?tab=orders',   icon: '📦', label: bi('Commandes', 'Orders'),
+      match: p => p.startsWith('/dashboard') && (dashTab === 'orders' || !['menu','team','settings'].includes(dashTab)),
+      badge: pendingCount },
+    ...((isOwner || isManager) ? [
+      { href: '/dashboard?tab=menu',   icon: '🍽️', label: bi('Menu', 'Menu'),
+        match: (p: string) => p.startsWith('/dashboard') && dashTab === 'menu' }
+    ] : []),
+    ...(isOwner ? [
+      { href: '/dashboard?tab=team',   icon: '👥', label: bi('Équipe', 'Team'),
+        match: (p: string) => p.startsWith('/dashboard') && dashTab === 'team' },
+      { href: '/dashboard?tab=settings', icon: '⚙️', label: bi('Paramètres', 'Settings'),
+        match: (p: string) => p.startsWith('/dashboard') && dashTab === 'settings' },
+    ] : []),
+    { href: '/account',                icon: '👤', label: bi('Compte', 'Account'),
+      match: p => p === '/account' },
+  ]
+
+  const tabs: TabSpec[] = effectiveMode === 'restaurant' ? restaurantTabs : clientTabs
 
   return (
     <nav
