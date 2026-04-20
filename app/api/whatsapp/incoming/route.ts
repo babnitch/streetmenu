@@ -49,6 +49,60 @@ function sessionExpiry(minutes = 60): string {
   return new Date(Date.now() + minutes * 60 * 1000).toISOString()
 }
 
+// ── Menu categories ──────────────────────────────────────────────────────────
+// Canonical list shown to vendors on WhatsApp + the dashboard <select>. The
+// order here is also the numeric-reply order (1. Entrées, 2. Plats…).
+const MENU_CATEGORIES = [
+  'Entrées',
+  'Plats Principaux',
+  'Grillades',
+  'Boissons',
+  'Desserts',
+  'Accompagnements',
+  'Autre',
+] as const
+type MenuCategory = typeof MENU_CATEGORIES[number]
+const DEFAULT_CATEGORY: MenuCategory = 'Plats Principaux'
+
+// Loose keyword match for the "Name - Price - Category" shortcut and for a
+// typed category reply ("plats", "grilled", etc.). Keys are lowercased.
+const CATEGORY_KEYWORDS: Record<string, MenuCategory> = {
+  'entrée': 'Entrées', 'entrees': 'Entrées', 'entree': 'Entrées', 'entrées': 'Entrées',
+  'starter': 'Entrées', 'starters': 'Entrées',
+  'plat': 'Plats Principaux', 'plats': 'Plats Principaux',
+  'plats principaux': 'Plats Principaux', 'plat principal': 'Plats Principaux',
+  'main': 'Plats Principaux', 'main course': 'Plats Principaux', 'main courses': 'Plats Principaux',
+  'grillade': 'Grillades', 'grillades': 'Grillades', 'grilled': 'Grillades', 'grill': 'Grillades',
+  'boisson': 'Boissons', 'boissons': 'Boissons', 'drink': 'Boissons', 'drinks': 'Boissons',
+  'dessert': 'Desserts', 'desserts': 'Desserts',
+  'accompagnement': 'Accompagnements', 'accompagnements': 'Accompagnements',
+  'side': 'Accompagnements', 'sides': 'Accompagnements',
+  'autre': 'Autre', 'other': 'Autre',
+}
+
+function matchCategory(input: string): MenuCategory | null {
+  const s = input.trim().toLowerCase()
+  if (!s) return null
+  // Digit reply: "1".."7"
+  const n = parseInt(s, 10)
+  if (!isNaN(n) && n >= 1 && n <= MENU_CATEGORIES.length) return MENU_CATEGORIES[n - 1]
+  // "passer" / "skip" → default
+  if (s === 'passer' || s === 'skip') return DEFAULT_CATEGORY
+  return CATEGORY_KEYWORDS[s] ?? null
+}
+
+const CATEGORY_PROMPT =
+  '📂 Catégorie? / Category?\n' +
+  '1. Entrées / Starters\n' +
+  '2. Plats Principaux / Main Courses\n' +
+  '3. Grillades / Grilled\n' +
+  '4. Boissons / Drinks\n' +
+  '5. Desserts\n' +
+  '6. Accompagnements / Sides\n' +
+  '7. Autre / Other\n\n' +
+  'Envoyez le numéro / Send the number\n' +
+  '_(ou "passer" pour Plats Principaux / or "skip")_'
+
 const BASE_URL = 'https://streetmenu.vercel.app'
 
 // ── Media helpers ─────────────────────────────────────────────────────────────
@@ -577,6 +631,49 @@ async function handleSession(
     return ok()
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Menu-item category selection — set while a vendor has a pending dish
+  // awaiting its category. Expires in 5 min (see sessionExpiry(5)).
+  // ────────────────────────────────────────────────────────────────────────────
+  if (user_type === 'menu_category') {
+    const category = matchCategory(body)
+    if (!category) {
+      await sendWhatsApp(from,
+        '❓ Choix invalide. / Invalid choice.\n\n' + CATEGORY_PROMPT)
+      return ok()
+    }
+
+    const restaurantId: string | undefined = data.restaurant_id
+    const dishName:     string | undefined = data.name
+    const rawPrice:     string | undefined = data.price
+    const photoUrl:     string | null      = (data.photo_url as string | null | undefined) ?? null
+    const price = rawPrice ? parseInt(rawPrice, 10) : NaN
+
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+
+    if (!restaurantId || !dishName || isNaN(price) || price <= 0) {
+      await sendWhatsApp(from, '❌ Session invalide. Réessayez. / Invalid session. Retry.')
+      return ok()
+    }
+
+    const { error } = await supabaseAdmin.from('menu_items').insert({
+      restaurant_id: restaurantId, name: dishName, price,
+      photo_url: photoUrl, category,
+      is_available: true, is_daily_special: false, description: '',
+    })
+    if (error) {
+      console.error('[whatsapp] menu insert error:', error.message)
+      await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+      return ok()
+    }
+
+    await sendWhatsApp(from,
+      `✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}\n` +
+      `Prix: ${price.toLocaleString()} FCFA\n` +
+      `Catégorie: ${category}`)
+    return ok()
+  }
+
   // Unknown session state
   await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
   await sendWhatsApp(from, 'Session expirée. Envoyez "aide". / Session expired. Send "help".')
@@ -896,30 +993,64 @@ async function handleVendor(
   if (hasPhoto) {
     const caption = body.trim()
 
-    // Caption matches "Name - Price" → add new item with photo
-    const newItemMatch = caption.match(/^(.+?)\s*[-\u2013\u2014]\s*([\d\s]+)\s*$/)
-    if (newItemMatch) {
-      const dishName = newItemMatch[1].trim()
-      const price    = parseInt(newItemMatch[2].replace(/\s/g, ''), 10)
+    // 3-part shortcut "Name - Price - Category" → insert immediately.
+    // 2-part "Name - Price" → upload photo, stash pending item in session,
+    // then prompt vendor to pick a category.
+    const threePart = caption.match(/^(.+?)\s*[-\u2013\u2014]\s*([\d\s]+)\s*[-\u2013\u2014]\s*(.+?)\s*$/)
+    const twoPart   = threePart ? null
+      : caption.match(/^(.+?)\s*[-\u2013\u2014]\s*([\d\s]+)\s*$/)
+
+    if (threePart || twoPart) {
+      const match    = (threePart ?? twoPart) as RegExpMatchArray
+      const dishName = match[1].trim()
+      const price    = parseInt(match[2].replace(/\s/g, ''), 10)
       if (!dishName || isNaN(price) || price <= 0) {
         await sendWhatsApp(from, 'Format invalide. Ex: Ndolé - 2500')
         return ok()
       }
       const media    = await downloadTwilioMedia(mediaUrl)
       const photoUrl = media ? await uploadToStorage('menu-images', media.buffer, media.contentType) : null
-      const { error } = await supabaseAdmin.from('menu_items').insert({
-        restaurant_id: restaurant.id, name: dishName, price,
-        photo_url: photoUrl, category: 'Plats principaux',
-        is_available: true, is_daily_special: false, description: '',
-      })
-      if (error) {
-        console.error('[whatsapp] menu insert error:', error.message)
-        await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+
+      const category = threePart ? matchCategory(match[3]) : null
+      if (threePart && !category) {
+        await sendWhatsApp(from,
+          `❓ Catégorie "${match[3].trim()}" non reconnue. / Unknown category.\n\n` +
+          CATEGORY_PROMPT)
+        await supabaseAdmin.from('signup_sessions').upsert({
+          phone, user_type: 'menu_category', step: 1,
+          data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: photoUrl },
+          expires_at: sessionExpiry(5),
+        })
         return ok()
       }
+
+      if (category) {
+        const { error } = await supabaseAdmin.from('menu_items').insert({
+          restaurant_id: restaurant.id, name: dishName, price,
+          photo_url: photoUrl, category,
+          is_available: true, is_daily_special: false, description: '',
+        })
+        if (error) {
+          console.error('[whatsapp] menu insert error:', error.message)
+          await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+          return ok()
+        }
+        await sendWhatsApp(from,
+          `✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}\n` +
+          `Prix: ${price.toLocaleString()} FCFA\n` +
+          `Catégorie: ${category}`)
+        return ok()
+      }
+
+      // 2-part flow: photo uploaded, dish pending, ask for category.
+      await supabaseAdmin.from('signup_sessions').upsert({
+        phone, user_type: 'menu_category', step: 1,
+        data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: photoUrl },
+        expires_at: sessionExpiry(5),
+      })
       await sendWhatsApp(from,
-        `✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}\n` +
-        `Prix: ${price.toLocaleString()} FCFA`)
+        `✅ *${dishName}* (${price.toLocaleString()} FCFA)${photoUrl ? ' 📸' : ''}\n\n` +
+        CATEGORY_PROMPT)
       return ok()
     }
 
@@ -948,34 +1079,66 @@ async function handleVendor(
     return ok()
   }
 
-  // ── ADD ITEM (text only, no photo): "Ndolé - 2500" ──────────────────────
-  const textItemMatch = body.match(/^(.+?)\s*[-–—]\s*([\d\s]+)\s*$/)
-  if (textItemMatch && !canEditMenu) {
+  // ── ADD ITEM (text only, no photo) ───────────────────────────────────────
+  // 3-part "Ndolé - 2500 - Plats" → insert directly.
+  // 2-part "Ndolé - 2500"         → prompt for category.
+  const textThreePart = body.match(/^(.+?)\s*[-–—]\s*([\d\s]+)\s*[-–—]\s*(.+?)\s*$/)
+  const textTwoPart   = textThreePart ? null
+    : body.match(/^(.+?)\s*[-–—]\s*([\d\s]+)\s*$/)
+  if ((textThreePart || textTwoPart) && !canEditMenu) {
     await sendWhatsApp(from, 'Vous n\'avez pas la permission de modifier le menu. / You don\'t have permission.')
     return ok()
   }
-  if (textItemMatch) {
-    const dishName = textItemMatch[1].trim()
-    const price    = parseInt(textItemMatch[2].replace(/\s/g, ''), 10)
+  if (textThreePart || textTwoPart) {
+    const match    = (textThreePart ?? textTwoPart) as RegExpMatchArray
+    const dishName = match[1].trim()
+    const price    = parseInt(match[2].replace(/\s/g, ''), 10)
     if (!dishName || isNaN(price) || price <= 0) {
       await sendWhatsApp(from, 'Format invalide. Ex: Ndolé - 2500')
       return ok()
     }
-    // Make sure it's not accidentally matched by price/dispo/etc. patterns above
-    const { error } = await supabaseAdmin.from('menu_items').insert({
-      restaurant_id: restaurant.id, name: dishName, price,
-      photo_url: null, category: 'Plats principaux',
-      is_available: true, is_daily_special: false, description: '',
-    })
-    if (error) {
-      console.error('[whatsapp] menu insert error:', error.message)
-      await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+    const category = textThreePart ? matchCategory(match[3]) : null
+
+    if (textThreePart && !category) {
+      await sendWhatsApp(from,
+        `❓ Catégorie "${match[3].trim()}" non reconnue. / Unknown category.\n\n` +
+        CATEGORY_PROMPT)
+      await supabaseAdmin.from('signup_sessions').upsert({
+        phone, user_type: 'menu_category', step: 1,
+        data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: null },
+        expires_at: sessionExpiry(5),
+      })
       return ok()
     }
+
+    if (category) {
+      const { error } = await supabaseAdmin.from('menu_items').insert({
+        restaurant_id: restaurant.id, name: dishName, price,
+        photo_url: null, category,
+        is_available: true, is_daily_special: false, description: '',
+      })
+      if (error) {
+        console.error('[whatsapp] menu insert error:', error.message)
+        await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+        return ok()
+      }
+      await sendWhatsApp(from,
+        `✅ *${dishName}* ajouté au menu\n` +
+        `Prix: ${price.toLocaleString()} FCFA\n` +
+        `Catégorie: ${category}\n\n` +
+        '📸 Envoyez une photo avec la même légende pour ajouter une image.\n' +
+        '📸 Send a photo with the same caption to add an image.')
+      return ok()
+    }
+
+    // 2-part flow: stash pending item + prompt for category.
+    await supabaseAdmin.from('signup_sessions').upsert({
+      phone, user_type: 'menu_category', step: 1,
+      data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: null },
+      expires_at: sessionExpiry(5),
+    })
     await sendWhatsApp(from,
-      `✅ *${dishName}* ajouté au menu\nPrix: ${price.toLocaleString()} FCFA\n\n` +
-      '📸 Envoyez une photo avec la même légende pour ajouter une image.\n' +
-      '📸 Send a photo with the same caption to add an image.')
+      `✅ *${dishName}* (${price.toLocaleString()} FCFA)\n\n` + CATEGORY_PROMPT)
     return ok()
   }
 

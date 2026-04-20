@@ -92,6 +92,11 @@ export default function AccountPage() {
   const [verifying,   setVerifying]   = useState(false)
   const [loggingIn,   setLoggingIn]   = useState(false)
   const [error,       setError]       = useState('')
+  // OTP resend — 30s cooldown, capped at 3 resends per session so a leaked
+  // verify-code endpoint can't be hammered via the UI.
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [resendCount,    setResendCount]    = useState(0)
+  const [resending,      setResending]      = useState(false)
 
   // Session / dashboard
   const [user,             setUser]             = useState<SessionUser | null>(null)
@@ -139,6 +144,39 @@ export default function AccountPage() {
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  // OTP resend cooldown tick — runs while there's time left on the clock.
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const t = setInterval(() => setResendCooldown(c => (c > 0 ? c - 1 : 0)), 1000)
+    return () => clearInterval(t)
+  }, [resendCooldown])
+
+  async function handleResendCode() {
+    if (resending || resendCooldown > 0 || resendCount >= 3) return
+    setResending(true)
+    try {
+      const res = await fetch('/api/auth/send-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: phone.trim(),
+          ...(name.trim() ? { name: name.trim() } : {}),
+          ...(city        ? { city }               : {}),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(data.error || bi('Erreur', 'Error'), false)
+        return
+      }
+      setResendCount(c => c + 1)
+      setResendCooldown(30)
+      showToast(bi('Code renvoyé!', 'Code resent!'))
+    } finally {
+      setResending(false)
+    }
   }
 
   // Honor the ?tab= query param — BottomNav links to /account?tab=orders,
@@ -244,6 +282,8 @@ export default function AccountPage() {
         const sendData = await sendRes.json()
         console.log('[login-flow] send-code status =', sendRes.status, 'body =', sendData)
         if (!sendRes.ok) { setError(sendData.error || bi('Erreur', 'Error')); return }
+        setResendCount(0)
+        setResendCooldown(30)
         setStep('otp')
         return
       }
@@ -270,6 +310,8 @@ export default function AccountPage() {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
+      setResendCount(0)
+      setResendCooldown(30)
       setStep('otp')
     } finally {
       setSending(false)
@@ -681,7 +723,28 @@ export default function AccountPage() {
               className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3">
               {verifying ? t('account.verifying') : t('account.verify')}
             </button>
-            <button onClick={() => { setStep('login'); setOtp(''); setError('') }}
+            {(() => {
+              const hitLimit = resendCount >= 3
+              const disabled = resending || resendCooldown > 0 || hitLimit
+              const label = hitLimit
+                ? bi('Limite atteinte', 'Limit reached')
+                : resendCooldown > 0
+                  ? bi(`Renvoyer dans ${resendCooldown}s`, `Resend in ${resendCooldown}s`)
+                  : resending
+                    ? bi('Envoi…', 'Sending…')
+                    : bi('Renvoyer le code', 'Resend code')
+              return (
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={disabled}
+                  className="w-full text-brand-darker hover:text-brand-dark disabled:text-ink-tertiary disabled:cursor-not-allowed text-sm font-semibold py-2 transition-colors"
+                >
+                  {label}
+                </button>
+              )
+            })()}
+            <button onClick={() => { setStep('login'); setOtp(''); setError(''); setResendCooldown(0); setResendCount(0) }}
               className="w-full text-ink-tertiary text-sm py-2 hover:text-ink-secondary transition-colors">
               {t('account.changePhone')}
             </button>

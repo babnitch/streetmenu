@@ -737,10 +737,15 @@ function MenuItemForm({
   setUploading: (v: boolean) => void
 }) {
   const { t } = useLanguage()
+  const bi = useBi()
   const [name, setName] = useState(item?.name ?? '')
   const [description, setDescription] = useState(item?.description ?? '')
   const [price, setPrice] = useState(item?.price?.toString() ?? '')
-  const [category, setCategory] = useState(item?.category ?? '')
+  // Fixed category list — must stay in sync with the WhatsApp incoming route
+  // (see MENU_CATEGORIES there). Default to "Plats Principaux" on new items;
+  // preserve the current value when editing (even if legacy data doesn't
+  // match one of the fixed options, the <select> falls back to default).
+  const [category, setCategory] = useState(item?.category ?? 'Plats Principaux')
   const [photoUrl, setPhotoUrl] = useState(item?.photo_url ?? '')
   const [isAvailable, setIsAvailable] = useState(item?.is_available ?? true)
   const [isSpecial, setIsSpecial] = useState(item?.is_daily_special ?? false)
@@ -811,12 +816,20 @@ function MenuItemForm({
             onChange={e => setPrice(e.target.value)}
             className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
           />
-          <input
-            placeholder={t('dash.itemCatPh')}
+          <select
             value={category}
             onChange={e => setCategory(e.target.value)}
-            className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
-          />
+            className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white"
+            aria-label={t('dash.itemCatPh')}
+          >
+            <option value="Entrées">{bi('Entrées', 'Starters')}</option>
+            <option value="Plats Principaux">{bi('Plats Principaux', 'Main Courses')}</option>
+            <option value="Grillades">{bi('Grillades', 'Grilled')}</option>
+            <option value="Boissons">{bi('Boissons', 'Drinks')}</option>
+            <option value="Desserts">Desserts</option>
+            <option value="Accompagnements">{bi('Accompagnements', 'Sides')}</option>
+            <option value="Autre">{bi('Autre', 'Other')}</option>
+          </select>
         </div>
 
         <div>
