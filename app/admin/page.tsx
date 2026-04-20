@@ -43,7 +43,7 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-light to-brand-light flex items-center justify-center px-4">
+    <div className="min-h-screen bg-surface flex items-center justify-center px-4">
       {/* Language toggle top-right */}
       <div className="absolute top-4 right-4">
         <LanguageToggle />

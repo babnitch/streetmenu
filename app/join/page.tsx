@@ -120,8 +120,8 @@ export default function JoinPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-brand-light flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-xl p-10 max-w-md w-full text-center">
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface-muted flex items-center justify-center p-4">
+        <div className="bg-surface border border-divider rounded-3xl shadow-card p-10 max-w-md w-full text-center">
           <div className="text-6xl mb-5">🎉</div>
           <h2 className="text-2xl font-bold text-ink-primary mb-2">{t('join.successTitle')}</h2>
           <p className="text-ink-secondary mb-1 font-medium">{t('join.successSub')}</p>
@@ -138,9 +138,9 @@ export default function JoinPage() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-light">
+    <div className="min-h-screen bg-surface-muted">
       {/* Nav */}
-      <div className="bg-white border-b border-brand-light sticky top-0 z-10">
+      <div className="bg-surface border-b border-divider sticky top-0 z-10">
         <div className="max-w-xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
@@ -155,7 +155,7 @@ export default function JoinPage() {
         </div>
       </div>
 
-      <div className="max-w-xl mx-auto px-4 py-10 pb-16">
+      <div className="max-w-xl mx-auto px-4 py-10 pb-32">
         {/* Hero */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 bg-brand-light rounded-3xl text-4xl mb-5">
