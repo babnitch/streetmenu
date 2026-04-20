@@ -373,16 +373,18 @@ export default function DashboardPage() {
                   : 'bg-white border-red-200 text-red-600 hover:bg-red-50'
               }`}
             >
-              {selectedRestaurant.is_open ? `🟢 ${t('dash.openBtn')}` : `🔴 ${t('dash.closedBtn')}`}
+              {selectedRestaurant.is_open ? t('dash.openBtn') : t('dash.closedBtn')}
             </button>
           </div>
 
-          {/* Tabs */}
+          {/* Tabs — desktop only. On mobile the BottomNav covers the same
+              switches, so rendering them here too would duplicate the
+              entire navigation row. */}
           {(() => {
             const TERMINAL = new Set(['delivered', 'completed', 'cancelled'])
             const activeCount = orders.filter(o => !TERMINAL.has(o.status)).length
             return (
-              <div className="flex bg-white rounded-2xl p-1 shadow-sm mb-4 gap-1">
+              <div className="hidden md:flex bg-white rounded-2xl p-1 shadow-sm mb-4 gap-1">
                 <button
                   onClick={() => setTab('orders')}
                   className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${

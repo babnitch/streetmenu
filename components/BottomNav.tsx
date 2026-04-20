@@ -8,12 +8,12 @@ import { useMode } from '@/lib/modeContext'
 
 // Mobile-only fixed bottom tab bar. Two variants:
 //
-// - Client mode:      🏠 Home · 🔍 Search · 🎉 Events · 📦 Orders · 👤 Account
-// - Restaurant mode:  📦 Orders · 🍽️ Menu (manager+) · 👥 Team (owner) · ⚙️ Settings (owner) · 👤 Account
+// - Client mode:      🏠 Home · 🎉 Events · 📦 Orders · 👤 Account
+// - Restaurant mode:  📦 Orders · 🍽️ Menu (manager+) · 🎫 Vouchers · 👤 Account
 //
-// Hidden at md+ (≥768px) — the TopNav takes over there. Icon-only, no labels:
-// with 5 tabs the text overlapped on 375px screens. aria-label keeps it
-// accessible. Pure customers (no team role) only ever see the client variant.
+// Team + Settings were removed from the restaurant bar — they now live
+// inside the Account page so the bar stays at 4 tabs on the smallest
+// phones. Hidden at md+ (≥768px) — the TopNav takes over there.
 
 interface TabSpec {
   href:   string
@@ -32,14 +32,17 @@ export default function BottomNav() {
 
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [pendingCount, setPendingCount] = useState(0)
+  const [pendingCount, setPendingCount] = useState(0)             // vendor-side
+  const [customerPendingCount, setCustomerPendingCount] = useState(0) // client-side
 
   // Initial vendor probe + start polling pending count. Poll interval 30s
   // per spec — light enough to not burn battery, frequent enough to feel
-  // near-real-time on the restaurant tab badge.
+  // near-real-time on the restaurant tab badge. Every logged-in customer
+  // also gets the customer-side poll so the client-mode 📦 badge tracks
+  // their own open orders.
   useEffect(() => {
     let cancelled = false
-    let pollTimer: ReturnType<typeof setInterval> | null = null
+    const timers: Array<ReturnType<typeof setInterval>> = []
 
     async function probe() {
       try {
@@ -52,6 +55,17 @@ export default function BottomNav() {
           setIsAdmin(true)
           return
         }
+
+        const refreshCustomerCount = async () => {
+          try {
+            const r = await fetch('/api/customer/pending-count', { cache: 'no-store' })
+            const d = await r.json()
+            if (!cancelled) setCustomerPendingCount(Number(d?.count ?? 0))
+          } catch { /* transient network; keep prior count */ }
+        }
+        refreshCustomerCount()
+        timers.push(setInterval(refreshCustomerCount, 30_000))
+
         const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
         const v = await vRes.json()
         if (cancelled) return
@@ -67,7 +81,7 @@ export default function BottomNav() {
             } catch { /* transient network; keep prior count */ }
           }
           refreshCount()
-          pollTimer = setInterval(refreshCount, 30_000)
+          timers.push(setInterval(refreshCount, 30_000))
         }
       } catch { /* swallow — show base tabs */ }
     }
@@ -75,7 +89,7 @@ export default function BottomNav() {
     probe()
     return () => {
       cancelled = true
-      if (pollTimer) clearInterval(pollTimer)
+      for (const t of timers) clearInterval(t)
     }
   }, [])
 
@@ -103,7 +117,8 @@ export default function BottomNav() {
     { href: '/events',    icon: '🎉', label: bi('Événements', 'Events'),       match: p => p.startsWith('/events') },
     ...(isLoggedIn ? [
       { href: '/account?tab=orders', icon: '📦', label: bi('Commandes', 'Orders'),
-        match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) }
+        match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')),
+        badge: customerPendingCount }
     ] : []),
     { href: '/account',   icon: '👤', label: bi('Compte', 'Account'),
       match: p => p === '/account' && !(typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
@@ -112,21 +127,20 @@ export default function BottomNav() {
   const isOwner   = topRole === 'owner'
   const isManager = topRole === 'manager'
 
-  // Short single-word labels. "Réglages" fits 10px on 375px; "Paramètres"
-  // would wrap next to 4 other tabs.
+  // 4 tabs max — Team + Settings live inside /account (Account page) so the
+  // bar stays legible on 375px screens. The `validate` dashboard tab backs
+  // the Vouchers entry for manager/owner; staff skip it (no voucher perms).
   const restaurantTabs: TabSpec[] = [
     { href: '/dashboard?tab=orders',   icon: '📦', label: bi('Commandes', 'Orders'),
-      match: p => p.startsWith('/dashboard') && (dashTab === 'orders' || !['menu','team','settings'].includes(dashTab)),
+      match: p => p.startsWith('/dashboard') && (dashTab === 'orders' || !['menu','validate'].includes(dashTab)),
       badge: pendingCount },
     ...((isOwner || isManager) ? [
       { href: '/dashboard?tab=menu',   icon: '🍽️', label: bi('Menu', 'Menu'),
         match: (p: string) => p.startsWith('/dashboard') && dashTab === 'menu' }
     ] : []),
-    ...(isOwner ? [
-      { href: '/dashboard?tab=team',   icon: '👥', label: bi('Équipe', 'Team'),
-        match: (p: string) => p.startsWith('/dashboard') && dashTab === 'team' },
-      { href: '/dashboard?tab=settings', icon: '⚙️', label: bi('Réglages', 'Settings'),
-        match: (p: string) => p.startsWith('/dashboard') && dashTab === 'settings' },
+    ...((isOwner || isManager) ? [
+      { href: '/dashboard?tab=validate', icon: '🎫', label: bi('Bons', 'Vouchers'),
+        match: (p: string) => p.startsWith('/dashboard') && dashTab === 'validate' }
     ] : []),
     { href: '/account',                icon: '👤', label: bi('Compte', 'Account'),
       match: p => p === '/account' },

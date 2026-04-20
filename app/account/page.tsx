@@ -102,7 +102,10 @@ export default function AccountPage() {
   // Session / dashboard
   const [user,             setUser]             = useState<SessionUser | null>(null)
   const [dashView,         setDashView]         = useState<DashView>('customer')
-  const [customerTab,      setCustomerTab]      = useState<CustomerTab>('orders')
+  // Default to Profile — Orders and Vouchers no longer render as tab
+  // buttons on this page (they live in the bottom nav), but deep links
+  // with ?tab=orders / ?tab=vouchers still work for backward compat.
+  const [customerTab,      setCustomerTab]      = useState<CustomerTab>('profile')
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   const [orders,           setOrders]           = useState<Order[]>([])
@@ -862,20 +865,19 @@ export default function AccountPage() {
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'customer' && (
               <>
-                {/* Tab bar — wraps to 2 rows on mobile (3 per row), single
-                    row on sm+ (5 per row). Never scrolls; every tab is
-                    always fully visible. On mobile each tab stacks its
-                    icon above the label; on sm+ they sit inline. */}
+                {/* Tab bar — Profile, Restaurant (settings), Team. Orders
+                    and Vouchers were removed: the BottomNav 📦 / 🎫 icons
+                    cover those surfaces, so a second entry point here
+                    just duplicated the nav. Deep links ?tab=orders /
+                    ?tab=vouchers still render the respective views. */}
                 <div className="flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
-                  <TabBtn icon="📋" label={t('account.ordersTab')}     active={customerTab === 'orders'}    onClick={() => setCustomerTab('orders')} />
-                  <TabBtn icon="🏷️" label={t('account.vouchersTab')}  active={customerTab === 'vouchers'}  onClick={() => setCustomerTab('vouchers')} />
+                  <TabBtn icon="👤" label={t('account.profileTab')}   active={customerTab === 'profile'}   onClick={() => setCustomerTab('profile')} />
                   {myRestaurants.length > 0 && (
                     <TabBtn icon="🏪" label={t('account.restaurantTab')} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
                   )}
                   {myRestaurants.length > 0 && activeRest?.teamRole === 'owner' && (
                     <TabBtn icon="👥" label={t('account.teamTab')} active={customerTab === 'team'} onClick={() => setCustomerTab('team')} />
                   )}
-                  <TabBtn icon="👤" label={t('account.profileTab')}   active={customerTab === 'profile'}   onClick={() => setCustomerTab('profile')} />
                 </div>
 
                 {/* Vouchers */}
@@ -1043,6 +1045,40 @@ export default function AccountPage() {
                       </div>
                     ) : (
                       <p className="text-sm text-ink-tertiary">{bi('Chargement…', 'Loading…')}</p>
+                    )}
+
+                    {/* Vendor shortcuts — Team and Settings used to live on
+                        the restaurant BottomNav but were moved here to keep
+                        the bar at 4 tabs. Owners see both; managers/staff
+                        only see Settings (their team view is read-only). */}
+                    {myRestaurants.length > 0 && (
+                      <div className="pt-4 border-t border-divider space-y-2">
+                        <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide mb-2">
+                          {bi('Gestion du restaurant', 'Restaurant management')}
+                        </p>
+                        {activeRest?.teamRole === 'owner' && (
+                          <button
+                            onClick={() => setCustomerTab('team')}
+                            className="w-full bg-surface-muted hover:bg-brand-light rounded-xl px-4 py-3 flex items-center justify-between gap-3 transition-colors text-left"
+                          >
+                            <span className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
+                              <span aria-hidden="true">👥</span>
+                              {bi("Gérer l'équipe", 'Manage team')}
+                            </span>
+                            <span className="text-ink-tertiary">→</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setCustomerTab('restaurant')}
+                          className="w-full bg-surface-muted hover:bg-brand-light rounded-xl px-4 py-3 flex items-center justify-between gap-3 transition-colors text-left"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
+                            <span aria-hidden="true">⚙️</span>
+                            {bi('Paramètres restaurant', 'Restaurant settings')}
+                          </span>
+                          <span className="text-ink-tertiary">→</span>
+                        </button>
+                      </div>
                     )}
 
                     {/* Restaurant summary */}
