@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { writeAudit } from '@/lib/audit'
 import {
   handleOrderCommand,
   handleOrderingSession,
@@ -151,6 +152,17 @@ async function handleInvitationReply(
       .update({ status: 'declined' })
       .in('id', pending.map(p => p.id))
 
+    for (const inv of pending) {
+      await writeAudit({
+        action: 'team_invitation_declined',
+        targetType: 'restaurant_team',
+        targetId: inv.id,
+        performedBy: null,
+        performedByType: 'customer',
+        metadata: { restaurant_id: inv.restaurant_id, phone, via: 'whatsapp' },
+      })
+    }
+
     // Notify inviting owners so they see the decline.
     for (const inv of pending) {
       const { data: owner } = await supabaseAdmin
@@ -210,6 +222,20 @@ async function acceptInvitationsForCustomer(
       .from('team_invitations')
       .update({ status: 'accepted', accepted_at: new Date().toISOString() })
       .eq('id', inv.id)
+
+    await writeAudit({
+      action: 'team_invitation_accepted',
+      targetType: 'restaurant_team',
+      targetId: inv.id,
+      performedBy: customerId,
+      performedByType: 'customer',
+      metadata: {
+        restaurant_id: inv.restaurant_id,
+        phone: customerPhone,
+        role: inv.role,
+        via: 'whatsapp',
+      },
+    })
 
     // Notify owner of the restaurant that accepted.
     const { data: owner } = await supabaseAdmin
@@ -924,7 +950,10 @@ async function handleVendor(
     const ownerCmds = isOwner
       ? `\n👥 Équipe / Team:\n` +
         `📋 "equipe" → Voir l'équipe / View team\n` +
-        `➕ "ajouter +XXX manager" → Ajouter membre / Add member\n` +
+        `➕ "ajouter +XXX manager" → Ajouter ou inviter / Add or invite\n` +
+        `💌 "inviter +XXX staff" → Inviter un nouveau numéro / Invite a new number\n` +
+        `📨 "invitations" → Invitations en attente / Pending invitations\n` +
+        `❌ "annuler invitation +XXX" → Annuler / Cancel\n` +
         `➖ "retirer +XXX" → Retirer membre / Remove member\n` +
         `🏪 "mes restaurants" → Voir tous mes restaurants\n` +
         `⏸️ "suspendre" → Suspendre le restaurant\n` +
@@ -1037,6 +1066,14 @@ async function handleVendor(
     }
     if (stale) {
       await supabaseAdmin.from('team_invitations').update({ status: 'expired' }).eq('id', stale.id)
+      await writeAudit({
+        action: 'team_invitation_expired',
+        targetType: 'restaurant_team',
+        targetId: stale.id,
+        performedBy: ownerCustomer?.id ?? null,
+        performedByType: 'system',
+        metadata: { restaurant_id: restaurant.id, phone: memberPhone, via: 'whatsapp-replace' },
+      })
     }
 
     const { data: invitation, error: invErr } = await supabaseAdmin
@@ -1051,6 +1088,21 @@ async function handleVendor(
       await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
       return ok()
     }
+
+    await writeAudit({
+      action: 'team_invitation_sent',
+      targetType: 'restaurant_team',
+      targetId: invitation.id,
+      performedBy: ownerCustomer?.id ?? null,
+      performedByType: 'vendor',
+      metadata: {
+        restaurant_id: restaurant.id,
+        restaurant_name: restaurant.name,
+        role: memberRole,
+        invited_phone: memberPhone,
+        via: 'whatsapp',
+      },
+    })
 
     await sendWhatsApp(memberPhone,
       `👋 *${ownerCustomer?.name ?? 'Quelqu\'un'}* vous invite comme *${memberRole}* chez *${restaurant.name}* sur Ndjoka & Tchop!\n\n` +
@@ -1113,6 +1165,19 @@ async function handleVendor(
       return ok()
     }
     await supabaseAdmin.from('team_invitations').update({ status: 'cancelled' }).eq('id', inv.id)
+
+    const { data: ownerRow } = await supabaseAdmin
+      .from('customers').select('id').eq('phone', phone).maybeSingle()
+
+    await writeAudit({
+      action: 'team_invitation_cancelled',
+      targetType: 'restaurant_team',
+      targetId: inv.id,
+      performedBy: ownerRow?.id ?? null,
+      performedByType: 'vendor',
+      metadata: { restaurant_id: restaurant.id, phone: targetPhone, via: 'whatsapp' },
+    })
+
     await sendWhatsApp(from, 'Invitation annulée. / Invitation cancelled.')
     return ok()
   }

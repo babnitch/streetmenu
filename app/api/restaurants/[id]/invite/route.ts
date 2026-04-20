@@ -113,6 +113,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .from('team_invitations')
       .update({ status: 'expired' })
       .eq('id', existingPending.id)
+    await writeAudit({
+      action: 'team_invitation_expired',
+      targetType: 'restaurant_team',
+      targetId: existingPending.id,
+      performedBy: session.id,
+      performedByType: 'system',
+      metadata: { restaurant_id: restaurant.id, phone, via: 'invite-endpoint-replace' },
+    })
   }
 
   const { data: invitation, error: invErr } = await supabaseAdmin

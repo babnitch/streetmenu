@@ -1,6 +1,6 @@
 # 🗺️ Ndjoka & Tchop — Project Roadmap
 
-**Last updated:** April 17, 2026
+**Last updated:** April 20, 2026
 **Status:** MVP Live — Pre-Launch Phase
 **Live URL:** https://streetmenu.vercel.app
 **Repo:** github.com/babnitch/streetmenu
@@ -95,6 +95,25 @@
 - [x] Message templates: new order, confirmed, ready
 - [ ] **TESTING**: Test end-to-end order notification flow
 - [ ] Hook into existing order submission flow
+
+### Team Invitations (NEW — April 2026)
+- [x] team_invitations table (supabase-team-invitations.sql)
+- [x] POST /api/restaurants/[id]/invite — owner creates invitation or adds direct
+- [x] GET /api/restaurants/[id]/invite — list pending invitations
+- [x] DELETE /api/restaurants/[id]/invite/[invitationId] — cancel pending
+- [x] WhatsApp: "ajouter/inviter +XXX role" falls back to invitation when number unregistered
+- [x] WhatsApp: "accepter" / "refuser" with auto-registration for new invitees
+- [x] WhatsApp: "invitations" lists pending; "annuler invitation +XXX" cancels
+- [x] Dashboard Team tab: pending invitations section + per-row Cancel
+- [x] Audit log: team_invitation_{sent, accepted, declined, cancelled, expired}
+- [x] 7-day lazy expiry — stale rows filtered at read time
+
+### Mode Switcher (NEW — April 2026)
+- [x] lib/modeContext.tsx — client/restaurant mode + topRole probe
+- [x] Slim mode bar below TopNav, only for users with a team role
+- [x] TopNav desktop: mode-aware link set (Restaurants/Events/Orders vs Orders/Menu/Team/Settings)
+- [x] BottomNav: mode-aware tab variants with role gating
+- [x] /dashboard ?tab= deep links + stubs for team/settings tabs
 
 ### WhatsApp Remaining
 - [ ] Production Twilio WhatsApp number (~$15/month)
