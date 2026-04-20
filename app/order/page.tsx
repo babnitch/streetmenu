@@ -215,7 +215,7 @@ export default function OrderPage() {
                 href="/account"
                 className="block bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold transition-colors w-full"
               >
-                📦 Voir mes commandes / View my orders
+                📦 {bi('Voir mes commandes', 'View my orders')}
               </Link>
               <button
                 onClick={() => router.push('/')}
@@ -419,7 +419,7 @@ export default function OrderPage() {
                   href="/account"
                   className="text-xs font-semibold bg-surface text-brand-darker px-3 py-1.5 rounded-full border border-brand-badge/60 hover:bg-brand-badge/20 transition-colors flex-shrink-0"
                 >
-                  Se connecter / Log in
+                  {bi('Se connecter', 'Log in')}
                 </Link>
               </div>
             </>

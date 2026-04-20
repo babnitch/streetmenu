@@ -379,7 +379,7 @@ export default function AdminRestaurantsPage() {
       {/* Modals */}
       {modal?.type === 'suspend' && (
         <ConfirmModal
-          title={`Suspendre "${modal.restaurant.name}" / Suspend`}
+          title={bi(`Suspendre "${modal.restaurant.name}"`, `Suspend "${modal.restaurant.name}"`)}
           confirmLabel={bi('Suspendre', 'Suspend')}
           confirmClass="bg-warning hover:bg-warning/90 text-white"
           onCancel={() => setModal(null)}
@@ -397,7 +397,7 @@ export default function AdminRestaurantsPage() {
 
       {modal?.type === 'delete' && (
         <ConfirmModal
-          title={`Supprimer "${modal.restaurant.name}" / Delete`}
+          title={bi(`Supprimer "${modal.restaurant.name}"`, `Delete "${modal.restaurant.name}"`)}
           confirmLabel={bi('Supprimer', 'Delete')}
           confirmClass="bg-danger hover:bg-danger text-white"
           onCancel={() => setModal(null)}
@@ -412,7 +412,7 @@ export default function AdminRestaurantsPage() {
 
       {modal?.type === 'reject' && (
         <ConfirmModal
-          title={`Rejeter "${modal.restaurant.name}" / Reject`}
+          title={bi(`Rejeter "${modal.restaurant.name}"`, `Reject "${modal.restaurant.name}"`)}
           confirmLabel={bi('Rejeter', 'Reject')}
           confirmClass="bg-danger hover:bg-danger text-white"
           onCancel={() => setModal(null)}
@@ -540,7 +540,7 @@ function RestaurantCard({
             />
             <a href={`/restaurant/${r.id}`} target="_blank" rel="noopener noreferrer"
               className="text-xs text-ink-tertiary hover:text-brand transition-colors px-2 py-1.5 ml-auto">
-              ↗ Voir / View
+              ↗ {bi('Voir', 'View')}
             </a>
           </>
         )}
@@ -621,6 +621,7 @@ function ConfirmModal({ title, confirmLabel, confirmClass, children, onCancel, o
   title: string; confirmLabel: string; confirmClass: string
   children: React.ReactNode; onCancel: () => void; onConfirm: () => void
 }) {
+  const bi = useBi()
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
@@ -631,7 +632,7 @@ function ConfirmModal({ title, confirmLabel, confirmClass, children, onCancel, o
             {confirmLabel}
           </button>
           <button onClick={onCancel} className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
-            Annuler / Cancel
+            {bi('Annuler', 'Cancel')}
           </button>
         </div>
       </div>

@@ -73,7 +73,7 @@ export default function AdminPlatformTeamPage() {
   }
 
   async function handleDelete(member: TeamMember) {
-    if (!confirm(`Supprimer ${member.name} ? / Delete ${member.name}?`)) return
+    if (!confirm(bi(`Supprimer ${member.name} ?`, `Delete ${member.name}?`))) return
     setActionLoading(member.id + '-delete')
     await fetch(`/api/admin/team/${member.id}`, { method: 'DELETE' })
     await fetchTeam()

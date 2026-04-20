@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const bi = useBi()
   const [authed, setAuthed] = useState(false)
   const [checking, setChecking] = useState(true)
   const router = useRouter()
@@ -80,7 +81,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-muted'
               }`}
             >
-              👤 Mon profil / My Profile
+              👤 {bi('Mon profil', 'My Profile')}
             </Link>
             <button
               onClick={logout}

@@ -323,7 +323,7 @@ export default function DashboardPage() {
       <div className="bg-surface border-b border-divider px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/account" className="text-ink-secondary hover:text-brand transition-colors text-sm whitespace-nowrap">
-            ← Mon compte / My account
+            ← {bi('Mon compte', 'My account')}
           </Link>
           <h1 className="text-lg font-bold text-ink-primary truncate">{t('dash.title')}</h1>
         </div>
@@ -396,7 +396,7 @@ export default function DashboardPage() {
                     tab === 'validate' ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
                   }`}
                 >
-                  🏷️ Bons / Vouchers
+                  🏷️ {bi('Bons', 'Vouchers')}
                 </button>
               </div>
             )
@@ -407,7 +407,7 @@ export default function DashboardPage() {
             <div>
               {newOrderFlash && (
                 <div className="bg-brand text-white rounded-2xl px-4 py-3 mb-3 text-sm font-semibold shadow-lg animate-pulse">
-                  🔔 Nouvelle commande! / New order!
+                  🔔 {bi('Nouvelle commande!', 'New order!')}
                 </div>
               )}
 
@@ -511,7 +511,7 @@ export default function DashboardPage() {
                                       : 'bg-brand text-white hover:bg-brand-dark'
                                   }`}
                                 >
-                                  {updatingOrderId === order.id ? '…' : a.label}
+                                  {updatingOrderId === order.id ? '…' : pickBi(a.label, locale)}
                                 </button>
                               ))}
                             </div>

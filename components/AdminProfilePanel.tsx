@@ -148,7 +148,7 @@ export default function AdminProfilePanel() {
                 onClick={() => { setEditing(false); setName(profile.name) }}
                 className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
               >
-                Annuler / Cancel
+                {bi('Annuler', 'Cancel')}
               </button>
             </div>
           ) : (
@@ -156,7 +156,7 @@ export default function AdminProfilePanel() {
               onClick={() => setEditing(true)}
               className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
             >
-              ✏️ Modifier / Edit
+              ✏️ {bi('Modifier', 'Edit')}
             </button>
           )}
         </div>

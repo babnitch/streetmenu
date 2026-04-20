@@ -351,7 +351,7 @@ export default function AdminAccountsPage() {
           <button
             onClick={() => { setShowOrphaned(v => !v); if (!orphaned.length) fetchOrphaned() }}
             className="text-xs bg-brand-light text-brand-darker border border-brand-badge px-3 py-2 rounded-xl font-medium hover:bg-brand-light whitespace-nowrap">
-            🔗 Non liés / Unlinked ({orphaned.length || '…'})
+            🔗 {bi('Non liés', 'Unlinked')} ({orphaned.length || '…'})
           </button>
         </div>
       </div>
@@ -476,7 +476,7 @@ export default function AdminAccountsPage() {
                           title={bi('Numéro réutilisé — voir historique', 'Reused number — view history')}
                           className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker hover:bg-brand-light transition-colors flex items-center gap-1"
                         >
-                          🕓 Numéro réutilisé / Reused
+                          🕓 {bi('Numéro réutilisé', 'Reused')}
                         </button>
                       )}
                     </div>
@@ -703,7 +703,7 @@ export default function AdminAccountsPage() {
           {reuseModal.reusedFrom.restaurants.length > 0 && (
             <div className="mb-4">
               <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide mb-2">
-                Anciens restaurants ({reuseModal.reusedFrom.restaurants.length}) / Previous restaurants
+                Anciens restaurants ({reuseModal.reusedFrom.restaurants.length}) / {bi('Anciens restaurants', 'Previous restaurants')}
               </p>
               <div className="space-y-1.5">
                 {reuseModal.reusedFrom.restaurants.map(r => (
@@ -718,11 +718,11 @@ export default function AdminAccountsPage() {
             </div>
           )}
           <p className="text-xs text-ink-tertiary italic mb-4">
-            Aucune donnée n&apos;a été restaurée automatiquement. / No data was automatically restored.
+            {bi('Aucune donnée n\u2019a été restaurée automatiquement.', 'No data was automatically restored.')}
           </p>
           <button onClick={() => setReuseModal(null)}
             className="w-full bg-surface-muted hover:bg-divider text-ink-primary py-2.5 rounded-xl font-semibold text-sm transition-colors">
-            Fermer / Close
+            {bi('Fermer', 'Close')}
           </button>
         </Modal>
       )}
@@ -732,7 +732,7 @@ export default function AdminAccountsPage() {
           <h3 className="font-bold text-ink-primary mb-1">{bi('🗑️ Supprimer le restaurant', 'Delete restaurant')}</h3>
           <p className="text-sm text-ink-secondary mb-3">{restModal.rest.name}</p>
           <p className="text-sm text-ink-secondary mb-4 bg-brand-light border border-divider rounded-xl p-3">
-            ⚠️ Annulable dans 30 jours. / Reversible within 30 days.
+            ⚠️ {bi('Annulable dans 30 jours.', 'Reversible within 30 days.')}
           </p>
           <ModalButtons
             confirmLabel={bi('🗑️ Supprimer', 'Delete')} confirmCls="bg-danger hover:bg-danger"
@@ -832,13 +832,14 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
 function ModalButtons({ confirmLabel, confirmCls, onConfirm, onCancel }: {
   confirmLabel: string; confirmCls: string; onConfirm: () => void; onCancel: () => void
 }) {
+  const bi = useBi()
   return (
     <div className="flex gap-3">
       <button onClick={onConfirm} className={`flex-1 text-white py-2.5 rounded-xl font-semibold text-sm transition-colors ${confirmCls}`}>
         {confirmLabel}
       </button>
       <button onClick={onCancel} className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
-        Annuler / Cancel
+        {bi('Annuler', 'Cancel')}
       </button>
     </div>
   )

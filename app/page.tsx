@@ -258,7 +258,7 @@ export default function HomePage() {
         >
           <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
             <span className="text-sm font-semibold">
-              🔔 Vous avez {pendingOrders} commande{pendingOrders > 1 ? 's' : ''} en attente / You have {pendingOrders} pending order{pendingOrders > 1 ? 's' : ''}
+              🔔 {bi(`Vous avez ${pendingOrders} commande${pendingOrders > 1 ? 's' : ''} en attente`, `You have ${pendingOrders} pending order${pendingOrders > 1 ? 's' : ''}`)}
             </span>
             <span aria-hidden="true" className="text-sm font-semibold">→</span>
           </div>
@@ -340,7 +340,7 @@ export default function HomePage() {
             </h2>
             <p className="text-ink-secondary text-sm mb-1 max-w-xs">
               {query
-                ? `Essayez un autre terme / Try another term`
+                ? bi('Essayez un autre terme', 'Try another term')
                 : t('list.emptySub')}
             </p>
             <p className="text-ink-tertiary text-xs mb-6">{city}</p>

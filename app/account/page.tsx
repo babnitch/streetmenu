@@ -829,7 +829,7 @@ export default function AccountPage() {
                               }}
                               className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
                             >
-                              Annuler / Cancel
+                              {bi('Annuler', 'Cancel')}
                             </button>
                           </div>
                         ) : (
@@ -837,7 +837,7 @@ export default function AccountPage() {
                             onClick={() => setProfileEditing(true)}
                             className="bg-surface-muted hover:bg-divider text-ink-primary text-sm font-semibold px-3 py-1.5 rounded-xl transition-colors"
                           >
-                            ✏️ Modifier / Edit
+                            ✏️ {bi('Modifier', 'Edit')}
                           </button>
                         )
                       )}
@@ -869,7 +869,7 @@ export default function AccountPage() {
                         {/* Phone — read-only */}
                         <div>
                           <label className="block text-xs text-ink-tertiary mb-1">
-                            Téléphone / Phone <span className="text-ink-tertiary">· non modifiable / not editable</span>
+                            {bi('Téléphone', 'Phone')} <span className="text-ink-tertiary">· {bi('non modifiable', 'not editable')}</span>
                           </label>
                           <p className="font-semibold text-ink-primary font-mono">{profile.phone}</p>
                         </div>
@@ -926,7 +926,7 @@ export default function AccountPage() {
                     {myRestaurants.length > 0 && (
                       <div className="pt-4 border-t border-divider">
                         <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide mb-3">
-                          Mes restaurants ({myRestaurants.length}) / My restaurants
+                          {bi(`Mes restaurants (${myRestaurants.length})`, `My restaurants (${myRestaurants.length})`)}
                         </p>
                         <div className="space-y-2">
                           {myRestaurants.map(r => (
@@ -969,7 +969,7 @@ export default function AccountPage() {
                             onClick={handleUndoDeleteAccount}
                             className="bg-brand hover:bg-brand-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
                           >
-                            ↩️ Annuler la suppression / Undo deletion
+                            ↩️ {bi('Annuler la suppression', 'Undo deletion')}
                           </button>
                         </div>
                       ) : (
@@ -977,7 +977,7 @@ export default function AccountPage() {
                           onClick={() => setVendorModal('delete-account')}
                           className="text-sm text-danger hover:text-danger font-medium hover:bg-brand-light px-3 py-2 rounded-xl transition-colors"
                         >
-                          🗑️ Supprimer mon compte / Delete my account
+                          🗑️ {bi('Supprimer mon compte', 'Delete my account')}
                         </button>
                       )}
                     </div>
@@ -1013,7 +1013,7 @@ export default function AccountPage() {
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-sm">{bi('Tableau de bord', 'Restaurant Dashboard')}</p>
                             <p className="text-xs text-white/80 mt-0.5">
-                              Gérer commandes, menu et bons / Manage orders, menu and vouchers
+                              {bi('Gérer commandes, menu et bons', 'Manage orders, menu and vouchers')}
                             </p>
                           </div>
                           <span className="text-xl">→</span>
@@ -1069,7 +1069,7 @@ export default function AccountPage() {
                         {/* Restaurant page link */}
                         <a href={`/restaurant/${activeRest.id}`} target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-1.5 text-sm text-brand hover:text-brand-dark font-semibold mb-5">
-                          ↗ Voir la page / View page
+                          ↗ {bi('Voir la page', 'View page')}
                         </a>
 
                         {/* Actions (owner only) */}
@@ -1170,7 +1170,7 @@ export default function AccountPage() {
                             <div className="flex items-center gap-2">
                               {m.role === 'owner' ? (
                                 <span className="text-xs font-medium px-2 py-1 rounded-full bg-brand-light text-brand-darker">
-                                  Propriétaire / Owner
+                                  {bi('Propriétaire', 'Owner')}
                                 </span>
                               ) : (
                                 <select
@@ -1226,7 +1226,7 @@ export default function AccountPage() {
                     </button>
                     <button onClick={() => setVendorModal(null)}
                       className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
-                      Annuler / Cancel
+                      {bi('Annuler', 'Cancel')}
                     </button>
                   </div>
                 </div>
@@ -1253,7 +1253,7 @@ export default function AccountPage() {
                     </button>
                     <button onClick={() => setVendorModal(null)}
                       className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
-                      Annuler / Cancel
+                      {bi('Annuler', 'Cancel')}
                     </button>
                   </div>
                 </div>
@@ -1274,11 +1274,11 @@ export default function AccountPage() {
                       onClick={handleDeleteAccount}
                       className="flex-1 bg-danger hover:bg-danger text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
                     >
-                      Confirmer / Confirm
+                      {bi('Confirmer', 'Confirm')}
                     </button>
                     <button onClick={() => setVendorModal(null)}
                       className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
-                      Annuler / Cancel
+                      {bi('Annuler', 'Cancel')}
                     </button>
                   </div>
                 </div>
@@ -1327,7 +1327,7 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
   return (
     <form onSubmit={handleClaim} className="bg-white rounded-2xl shadow-sm p-4 mb-4">
       <label className="block text-xs text-ink-secondary mb-2 font-semibold">
-        Ajouter un code / Add a code
+        {bi('Ajouter un code', 'Add a code')}
       </label>
       <div className="flex gap-2">
         <input

@@ -108,7 +108,7 @@ export default function AdminVouchersPage() {
   }
 
   async function deleteVoucher(v: VoucherWithStatus) {
-    if (!confirm(`Supprimer ${v.code}? / Delete ${v.code}?`)) return
+    if (!confirm(bi(`Supprimer ${v.code}?`, `Delete ${v.code}?`))) return
     const res = await fetch(`/api/admin/vouchers/${v.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
