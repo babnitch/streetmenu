@@ -71,8 +71,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const isOrdersPage = pathname === '/account'
   const isDashboard  = pathname.startsWith('/dashboard')
   const isHome       = pathname === '/'
-  const isEvents     = pathname === '/events'
-  const showMapBtn   = isHome || isEvents
+  const isEvents     = pathname === '/events' || pathname.startsWith('/events/')
+  const showMapBtn   = pathname === '/' || pathname === '/events'
 
   // Map toggle — rendered on the home and events pages. Dispatches a
   // custom event the page listens for; keeps TopNav decoupled from the
@@ -127,11 +127,18 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           </label>
         </form>
 
-        {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these. */}
+        {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these.
+            Orders + Restaurant only render for signed-in / vendor users; guests
+            see just the Events link. */}
         <nav className="hidden md:flex items-center gap-1">
-          <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
-            📦 {bi('Commandes', 'Orders')}
+          <TopNavLink href="/events" active={isEvents}>
+            🎉 {bi('Événements', 'Events')}
           </TopNavLink>
+          {me && (
+            <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
+              📦 {bi('Commandes', 'Orders')}
+            </TopNavLink>
+          )}
           {vendor.kind === 'approved' && (
             <TopNavLink href="/dashboard" active={isDashboard}>
               🏪 Restaurant

@@ -270,7 +270,7 @@ function MenuItemCard({
                   : 'bg-brand-light text-brand-darker hover:bg-brand-badge'
               }`}
             >
-              {qty > 0 ? `${qty} · ${addedLabel}` : `+ ${addLabel}`}
+              {qty > 0 ? `${qty} · ${addedLabel}` : addLabel}
             </button>
           </div>
         </div>

@@ -33,6 +33,7 @@ export default function BottomNav() {
 
   const [showVendorTab, setShowVendorTab] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
   // Initial vendor probe + start polling pending count. Poll interval 30s
@@ -48,6 +49,7 @@ export default function BottomNav() {
         const me = await meRes.json()
         if (cancelled) return
         if (!me?.user) return
+        setIsLoggedIn(true)
         if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
           setIsAdmin(true)
           return
@@ -95,7 +97,9 @@ export default function BottomNav() {
     { href: '/',                    icon: '🏠', label: bi('Accueil', 'Home'),     match: p => p === '/' || p.startsWith('/restaurant') },
     { href: '/#search',             icon: '🔍', label: bi('Recherche', 'Search'), match: () => false, onClick: goSearch },
     { href: '/events',              icon: '🎉', label: bi('Événements', 'Events'), match: p => p.startsWith('/events') },
-    { href: '/account?tab=orders',  icon: '📦', label: bi('Commandes', 'Orders'), match: p => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
+    ...(isLoggedIn ? [
+      { href: '/account?tab=orders', icon: '📦', label: bi('Commandes', 'Orders'), match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) }
+    ] : []),
     ...(showVendorTab ? [
       {
         href: '/dashboard',

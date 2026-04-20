@@ -32,11 +32,13 @@ function RestaurantCard({
   restaurant: Restaurant
 }) {
   const bi = useBi()
+  const [imgError, setImgError] = useState(false)
   const neighborhood = restaurant.neighborhood || restaurant.address
   const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
   const cuisine = restaurant.cuisine_type || restaurant.description
   const initial = (restaurant.name?.[0] ?? '?').toUpperCase()
   const heroImage = restaurant.image_url || restaurant.logo_url
+  const showImage = heroImage && !imgError
 
   return (
     <Link
@@ -44,11 +46,12 @@ function RestaurantCard({
       className="group block bg-surface border border-divider rounded-xl overflow-hidden hover:shadow-card transition-shadow"
     >
       <div className="relative aspect-[16/9] overflow-hidden bg-surface-muted">
-        {heroImage ? (
+        {showImage ? (
           <Image
-            src={heroImage}
+            src={heroImage!}
             alt={restaurant.name}
             fill
+            onError={() => setImgError(true)}
             className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           />
