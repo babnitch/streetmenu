@@ -296,7 +296,7 @@ export default function DashboardPage() {
 
   if (loadingAuth || !me) {
     return (
-      <div className="min-h-screen bg-brand-light flex items-center justify-center px-4">
+      <div className="min-h-screen bg-surface-muted flex items-center justify-center px-4">
         <div className="text-3xl animate-pulse text-ink-tertiary">…</div>
       </div>
     )
@@ -304,7 +304,7 @@ export default function DashboardPage() {
 
   if (restaurants.length === 0) {
     return (
-      <div className="min-h-screen bg-brand-light flex items-center justify-center px-4">
+      <div className="min-h-screen bg-surface-muted flex items-center justify-center px-4">
         <div className="text-center">
           <div className="text-5xl mb-4">🏪</div>
           <h2 className="text-xl font-bold text-ink-primary mb-2">{t('dash.noRest')}</h2>
@@ -316,10 +316,10 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-light">
+    <div className="min-h-screen bg-surface-muted">
       {/* Header — stacks on narrow viewports so the restaurant selector
           can take full width instead of colliding with the title */}
-      <div className="bg-white shadow-sm px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+      <div className="bg-surface border-b border-divider px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/account" className="text-ink-secondary hover:text-brand transition-colors text-sm whitespace-nowrap">
             ← Mon compte / My account
