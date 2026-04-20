@@ -140,6 +140,18 @@ export default function AccountPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
+  // Honor the ?tab= query param — BottomNav links to /account?tab=orders,
+  // and TopNav desktop nav does likewise. Only adopt known CustomerTab
+  // values to avoid arbitrary strings leaking into state.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search).get('tab')
+    const allowed: CustomerTab[] = ['vouchers', 'orders', 'profile', 'restaurant', 'team']
+    if (q && (allowed as string[]).includes(q)) {
+      setCustomerTab(q as CustomerTab)
+    }
+  }, [])
+
   // ── On mount: check JWT session ──
   useEffect(() => {
     fetch('/api/auth/me')
@@ -496,7 +508,7 @@ export default function AccountPage() {
   // ── Loading splash ──
   if (step === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface">
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen flex items-center justify-center bg-surface">
         <div className="text-4xl animate-bounce">👤</div>
       </div>
     )
