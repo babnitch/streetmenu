@@ -78,12 +78,10 @@ export default function BottomNav() {
     }
   }, [])
 
-  // Hide entirely on admin routes (admins navigate via the /account admin tabs).
-  // Also hide on /dashboard where the page's own tabs are the primary nav.
-  const hideOnRoute =
-    pathname.startsWith('/admin') ||
-    pathname.startsWith('/dashboard') ||
-    isAdmin
+  // Hide on /admin (admins navigate via /account admin tabs, the BottomNav
+  // isn't useful there). /dashboard keeps the bar so vendors can hop back
+  // out to Home / Events / Account without losing their place.
+  const hideOnRoute = pathname.startsWith('/admin') || isAdmin
 
   if (hideOnRoute) return null
 

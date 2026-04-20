@@ -343,7 +343,7 @@ export default function DashboardPage() {
       </div>
 
       {selectedRestaurant && (
-        <div className="max-w-2xl mx-auto px-4 py-4">
+        <div className="max-w-2xl mx-auto px-4 py-4 pb-20 md:pb-4">
           {/* Restaurant card */}
           <div className="bg-white rounded-2xl p-4 shadow-sm mb-4 flex items-center justify-between">
             <div>
