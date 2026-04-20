@@ -171,7 +171,7 @@ export default function OrderPage() {
 
   if (items.length === 0 && !success) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center px-4">
         <div className="text-center">
           <div className="text-5xl mb-4">🛒</div>
           <h2 className="text-xl font-bold text-ink-primary mb-2">{t('order.emptyTitle')}</h2>
@@ -191,7 +191,7 @@ export default function OrderPage() {
     // Confirmed-order phone: session value when logged in, form value otherwise.
     const confirmedPhone = me?.phone ?? phone
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center px-4">
         <div className="text-center max-w-sm">
           <div className="text-6xl mb-4">🎉</div>
           <h2 className="text-2xl font-bold text-ink-primary mb-2">{t('order.successTitle')}</h2>
