@@ -32,7 +32,7 @@ export default function EventDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface">
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen flex items-center justify-center bg-surface">
         <div className="text-4xl animate-bounce">🎉</div>
       </div>
     )
@@ -40,7 +40,7 @@ export default function EventDetailPage() {
 
   if (!event) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-surface">
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen flex flex-col items-center justify-center gap-4 bg-surface">
         <div className="text-5xl">😕</div>
         <p className="text-ink-secondary">{t('evt.notFound')}</p>
         <Link href="/events" className="text-brand underline text-sm">{t('evt.back')}</Link>

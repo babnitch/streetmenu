@@ -162,7 +162,7 @@ export default function EventsPage() {
       </div>
 
       {/* Main */}
-      <main className="max-w-5xl mx-auto px-4 py-5 pb-24">
+      <main className="max-w-5xl mx-auto px-4 py-5 pb-32">
 
         {/* Page title */}
         <div className="mb-4">
@@ -210,11 +210,13 @@ export default function EventsPage() {
 
       </main>
 
-      {/* Floating submit (mobile) */}
-      <div className="sm:hidden fixed bottom-6 right-4 z-30">
+      {/* Floating submit (mobile) — bottom-20 clears the 56px BottomNav
+          with breathing room; mobile-only since desktop has the inline
+          submit button inside the TopNav area. */}
+      <div className="sm:hidden fixed bottom-20 right-4 z-30">
         <Link
           href="/events/submit"
-          className="bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-2xl shadow-xl shadow-brand-badge flex items-center gap-2 text-sm font-semibold transition-colors"
+          className="bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"
         >
           {t('evt.submitBtn')}
         </Link>

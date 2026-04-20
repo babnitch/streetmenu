@@ -102,7 +102,7 @@ export default function SubmitEventPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center bg-surface">
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen flex flex-col items-center justify-center px-4 text-center bg-surface">
         <div className="w-20 h-20 bg-brand-light rounded-3xl flex items-center justify-center text-4xl mb-5">✅</div>
         <h1 className="text-2xl font-bold text-ink-primary mb-2">{t('evt.successTitle')}</h1>
         <p className="text-ink-secondary text-sm mb-6 max-w-xs">{t('evt.successSub')}</p>
