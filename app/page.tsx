@@ -218,7 +218,9 @@ export default function HomePage() {
     fetchRestaurants()
   }, [])
 
-  const handleMapSelect = useCallback((r: Restaurant) => setMapSelected(r), [])
+  const handleMapSelect = useCallback((m: { id: string }) => {
+    setMapSelected(restaurants.find(r => r.id === m.id) ?? null)
+  }, [restaurants])
 
   const cityData = CITY_CENTERS[city] ?? CITY_CENTERS['Yaoundé']
   const filtered = restaurants

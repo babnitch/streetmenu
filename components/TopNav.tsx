@@ -71,9 +71,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const isOrdersPage = pathname === '/account'
   const isDashboard  = pathname.startsWith('/dashboard')
   const isHome       = pathname === '/'
+  const isEvents     = pathname === '/events'
+  const showMapBtn   = isHome || isEvents
 
-  // Map toggle — only rendered on the home page. Dispatches a custom
-  // event the home page listens for; keeps TopNav decoupled from the
+  // Map toggle — rendered on the home and events pages. Dispatches a
+  // custom event the page listens for; keeps TopNav decoupled from the
   // page-local showMap state.
   const toggleMap = () => {
     if (typeof window !== 'undefined') {
@@ -168,8 +170,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             </Link>
           )}
 
-          {/* Map toggle — only on the home route. */}
-          {isHome && (
+          {/* Map toggle — home and events routes. */}
+          {showMapBtn && (
             <button
               type="button"
               onClick={toggleMap}

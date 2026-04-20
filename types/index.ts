@@ -100,4 +100,6 @@ export interface Event {
   organizer_name: string
   is_active: boolean
   created_at: string
+  lat?: number | null
+  lng?: number | null
 }

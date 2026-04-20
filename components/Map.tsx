@@ -3,11 +3,21 @@
 import { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import { Restaurant } from '@/types'
+
+// Minimal shape the Map needs from each item. Restaurants pass through as-is;
+// events adapt to this shape (is_open defaults to true so they render in the
+// "open" colour).
+export interface MapMarker {
+  id: string
+  name: string
+  lat: number
+  lng: number
+  is_open?: boolean
+}
 
 interface MapProps {
-  restaurants: Restaurant[]
-  onSelectRestaurant: (restaurant: Restaurant) => void
+  restaurants: MapMarker[]
+  onSelectRestaurant: (item: MapMarker) => void
   selectedId: string | null
   center?: [number, number] // [lng, lat] — Mapbox order
   zoom?: number
@@ -59,25 +69,26 @@ export default function Map({ restaurants, onSelectRestaurant, selectedId, cente
     Object.values(markersRef.current).forEach(m => m.remove())
     markersRef.current = {}
 
-    restaurants.forEach(restaurant => {
+    restaurants.forEach(item => {
+      const open = item.is_open ?? true
       const el = document.createElement('div')
       el.className = 'marker-container'
       el.innerHTML = `
-        <div class="marker ${restaurant.is_open ? 'marker-open' : 'marker-closed'} ${selectedId === restaurant.id ? 'marker-selected' : ''}">
+        <div class="marker ${open ? 'marker-open' : 'marker-closed'} ${selectedId === item.id ? 'marker-selected' : ''}">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
           </svg>
-          <span class="marker-dot ${restaurant.is_open ? 'dot-open' : 'dot-closed'}"></span>
+          <span class="marker-dot ${open ? 'dot-open' : 'dot-closed'}"></span>
         </div>
       `
 
-      el.addEventListener('click', () => onSelectRestaurant(restaurant))
+      el.addEventListener('click', () => onSelectRestaurant(item))
 
       const marker = new mapboxgl.Marker(el)
-        .setLngLat([restaurant.lng, restaurant.lat])
+        .setLngLat([item.lng, item.lat])
         .addTo(mapRef.current!)
 
-      markersRef.current[restaurant.id] = marker
+      markersRef.current[item.id] = marker
     })
   }, [restaurants, selectedId, onSelectRestaurant])
 
