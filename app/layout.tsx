@@ -3,6 +3,8 @@ import './globals.css'
 import { CartProvider } from '@/lib/cartContext'
 import { LanguageProvider } from '@/lib/languageContext'
 import { AuthProvider } from '@/lib/authContext'
+import { CityProvider } from '@/lib/cityContext'
+import BottomNav from '@/components/BottomNav'
 
 export const metadata: Metadata = {
   title: 'Ndjoka & Tchop',
@@ -12,11 +14,17 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr">
-      <body className="antialiased">
+      <body className="antialiased pb-16 md:pb-0">
+        {/* pb-16 on mobile reserves room for the fixed bottom nav so
+            content isn't hidden under it; desktop (md+) removes the pad
+            since BottomNav is hidden there. */}
         <LanguageProvider>
           <AuthProvider>
             <CartProvider>
-              {children}
+              <CityProvider>
+                {children}
+                <BottomNav />
+              </CityProvider>
             </CartProvider>
           </AuthProvider>
         </LanguageProvider>

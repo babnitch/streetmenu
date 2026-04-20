@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -12,18 +12,19 @@ import RestaurantSidebar from '@/components/RestaurantSidebar'
 import TopNav from '@/components/TopNav'
 import { useLanguage } from '@/lib/languageContext'
 import { useAuth } from '@/lib/authContext'
+import { useCity } from '@/lib/cityContext'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
-// City data — [lng, lat] for Mapbox
-const CITIES: { name: string; center: [number, number]; zoom: number }[] = [
-  { name: 'Yaoundé',  center: [11.5021, 3.848],    zoom: 13 },
-  { name: 'Abidjan',  center: [-4.0083, 5.36],      zoom: 13 },
-  { name: 'Dakar',    center: [-17.4441, 14.6937],  zoom: 13 },
-  { name: 'Lomé',     center: [1.2123, 6.1375],     zoom: 13 },
-]
+// City → Mapbox center + zoom. Order matches the CITIES list in cityContext.
+const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> = {
+  'Yaoundé': { center: [11.5021, 3.848],    zoom: 13 },
+  'Abidjan': { center: [-4.0083, 5.36],      zoom: 13 },
+  'Dakar':   { center: [-17.4441, 14.6937],  zoom: 13 },
+  'Lomé':    { center: [1.2123, 6.1375],     zoom: 13 },
+}
 
-// ─── Restaurant card — full-width 16:9 image, bold name, meta + cuisine pill ─
+// ─── Restaurant card ─────────────────────────────────────────────────────────
 function RestaurantCard({
   restaurant,
 }: {
@@ -37,8 +38,6 @@ function RestaurantCard({
 
   return (
     <Link href={`/restaurant/${restaurant.id}`} className="group block">
-      {/* Hero image — 16:9 rounded-xl. Falls back to a warm gradient with
-          the restaurant's initial when no profile photo exists. */}
       <div className="relative aspect-[16/9] rounded-xl overflow-hidden mb-3 bg-surface-muted">
         {heroImage ? (
           <Image
@@ -55,42 +54,34 @@ function RestaurantCard({
             </span>
           </div>
         )}
-
-        {/* Open / closed pill — top-left, dot prefix, bilingual. */}
-        <span className={`absolute top-3 left-3 text-xs font-semibold px-2.5 py-1 rounded-full ${
-          restaurant.is_open
-            ? 'bg-white/95 text-ink-primary'
-            : 'bg-ink-primary/85 text-white backdrop-blur-sm'
-        }`}>
-          {restaurant.is_open ? '🟢 Ouvert / Open' : '🔴 Fermé / Closed'}
-        </span>
       </div>
 
-      {/* Body — restaurant name + location both ride the brand-dark orange,
-          matching the project-wide rule that restaurant identity reads in
-          brand color rather than black. */}
-      <div>
-        <p className="font-bold text-brand-dark text-base leading-tight line-clamp-1">
-          {restaurant.name}
-        </p>
-
-        {location && (
-          <p className="text-sm text-brand-dark mt-0.5 line-clamp-1">
-            {location}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-brand-dark text-base leading-tight line-clamp-1">
+            {restaurant.name}
           </p>
-        )}
-
-        {cuisine && (
-          <span className="inline-block mt-2 bg-brand-light text-brand-darker text-xs font-semibold px-2 py-0.5 rounded-full">
-            {cuisine}
-          </span>
-        )}
+          {location && (
+            <p className="text-sm text-brand-dark mt-0.5 line-clamp-1">
+              {location}
+            </p>
+          )}
+          {cuisine && (
+            <span className="inline-block mt-2 bg-brand-light text-brand-darker text-xs font-semibold px-2 py-0.5 rounded-full border border-brand-badge/60">
+              {cuisine}
+            </span>
+          )}
+        </div>
+        <span className={`flex-shrink-0 text-xs font-semibold whitespace-nowrap ${
+          restaurant.is_open ? 'text-brand-darker' : 'text-danger'
+        }`}>
+          {restaurant.is_open ? '● Ouvert' : '● Fermé'}
+        </span>
       </div>
     </Link>
   )
 }
 
-// ─── Skeleton loader ─────────────────────────────────────────────────────────
 function CardSkeleton() {
   return (
     <div>
@@ -101,40 +92,35 @@ function CardSkeleton() {
   )
 }
 
-// ─── Page ────────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedCity, setSelectedCity] = useState('Yaoundé')
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Restaurant | null>(null)
   const [bannerDismissed, setBannerDismissed] = useState(true)
+  const [query, setQuery] = useState('')
   const { t } = useLanguage()
   const { user, loading: authLoading } = useAuth()
+  const { city } = useCity()
+  const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const dismissed = localStorage.getItem('banner_dismissed')
     if (!dismissed) setBannerDismissed(false)
   }, [])
 
-  // Hide the mobile floating "Join" for users who already own a restaurant
-  // (or any admin). Same logic as <TopNav>.
-  const [hideJoinCta, setHideJoinCta] = useState(false)
+  // #search hash (from BottomNav search tab) focuses the search input.
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const me = await (await fetch('/api/auth/me', { cache: 'no-store' })).json()
-        if (cancelled || !me.user) return
-        if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
-          setHideJoinCta(true); return
-        }
-        const v = await (await fetch('/api/vendor/restaurants', { cache: 'no-store' })).json()
-        if (cancelled) return
-        if ((v.restaurants ?? []).length > 0) setHideJoinCta(true)
-      } catch { /* fail open: keep showing Join */ }
-    })()
-    return () => { cancelled = true }
+    if (typeof window === 'undefined') return
+    const handle = () => {
+      if (window.location.hash === '#search' && searchRef.current) {
+        searchRef.current.focus()
+        searchRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
+    handle()
+    window.addEventListener('hashchange', handle)
+    return () => window.removeEventListener('hashchange', handle)
   }, [])
 
   useEffect(() => {
@@ -154,8 +140,18 @@ export default function HomePage() {
 
   const handleMapSelect = useCallback((r: Restaurant) => setMapSelected(r), [])
 
-  const cityData = CITIES.find(c => c.name === selectedCity) ?? CITIES[0]
-  const filtered = restaurants.filter(r => r.city === selectedCity)
+  const cityData = CITY_CENTERS[city] ?? CITY_CENTERS['Yaoundé']
+  const filtered = restaurants
+    .filter(r => r.city === city)
+    .filter(r => {
+      if (!query.trim()) return true
+      const q = query.trim().toLowerCase()
+      return (
+        r.name.toLowerCase().includes(q) ||
+        (r.cuisine_type?.toLowerCase().includes(q) ?? false) ||
+        (r.neighborhood?.toLowerCase().includes(q) ?? false)
+      )
+    })
   const openCount = filtered.filter(r => r.is_open).length
 
   return (
@@ -163,7 +159,7 @@ export default function HomePage() {
 
       <TopNav cta={{ label: t('nav.join'), href: '/join' }} />
 
-      {/* Welcome banner — muted brand-light surface, not a shouting orange */}
+      {/* Welcome banner */}
       {!authLoading && !user && !bannerDismissed && (
         <div className="bg-brand-light text-brand-darker border-b border-divider">
           <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
@@ -181,45 +177,39 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* City selector — pill row, selected city filled in black (Uber style) */}
-      <div className="bg-surface border-b border-divider">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex gap-2 overflow-x-auto">
-          {CITIES.map(city => {
-            const active = selectedCity === city.name
-            return (
-              <button
-                key={city.name}
-                onClick={() => setSelectedCity(city.name)}
-                className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
-                  active
-                    ? 'bg-ink-primary text-white'
-                    : 'bg-surface-muted text-ink-secondary hover:text-ink-primary'
-                }`}
-              >
-                {city.name}
-              </button>
-            )
-          })}
+      {/* Search bar */}
+      <div id="search" className="bg-surface">
+        <div className="max-w-6xl mx-auto px-4 pt-4 pb-2">
+          <label className="relative block">
+            <span className="absolute inset-y-0 left-3 flex items-center text-ink-tertiary pointer-events-none">🔍</span>
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Rechercher un restaurant... / Search restaurants..."
+              className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-3 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
+            />
+          </label>
         </div>
       </div>
 
       {/* Main grid */}
-      <main className="max-w-6xl mx-auto px-4 py-6 pb-28">
+      <main className="max-w-6xl mx-auto px-4 pt-4 pb-28">
 
         {!loading && filtered.length > 0 && (
-          <h1 className="text-2xl sm:text-3xl font-bold text-ink-primary mb-1">
-            Restaurants à {selectedCity}
-          </h1>
-        )}
-
-        {!loading && filtered.length > 0 && (
-          <p className="text-sm text-ink-secondary mb-6">
-            <span className="font-semibold text-ink-primary">{filtered.length}</span>
-            {' '}{t('list.count')}
-            {openCount > 0 && (
-              <> · <span className="text-brand-darker font-semibold">{openCount}</span> {t('list.openCount')}</>
-            )}
-          </p>
+          <>
+            <h1 className="text-2xl sm:text-3xl font-bold text-ink-primary mb-1">
+              Restaurants à {city}
+            </h1>
+            <p className="text-sm text-ink-secondary mb-6">
+              <span className="font-semibold text-ink-primary">{filtered.length}</span>
+              {' '}{t('list.count')}
+              {openCount > 0 && (
+                <> · <span className="text-brand-darker font-semibold">{openCount}</span> {t('list.openCount')}</>
+              )}
+            </p>
+          </>
         )}
 
         {loading && (
@@ -235,43 +225,40 @@ export default function HomePage() {
         )}
 
         {!loading && filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-24 text-center px-4">
+          <div className="flex flex-col items-center justify-center py-20 text-center px-4">
             <div className="w-20 h-20 bg-surface-muted rounded-full flex items-center justify-center text-4xl mb-5">
-              🏪
+              {query ? '🔍' : '🏪'}
             </div>
-            <h2 className="text-xl font-bold text-ink-primary mb-2">{t('list.emptyTitle')}</h2>
-            <p className="text-ink-secondary text-sm mb-1 max-w-xs">{t('list.emptySub')}</p>
-            <p className="text-ink-tertiary text-xs mb-6">{selectedCity}</p>
-            <Link
-              href="/join"
-              className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold text-sm transition-colors"
-            >
-              {t('list.joinBtn')}
-            </Link>
+            <h2 className="text-xl font-bold text-ink-primary mb-2">
+              {query ? 'Aucun résultat / No matches' : t('list.emptyTitle')}
+            </h2>
+            <p className="text-ink-secondary text-sm mb-1 max-w-xs">
+              {query
+                ? `Essayez un autre terme / Try another term`
+                : t('list.emptySub')}
+            </p>
+            <p className="text-ink-tertiary text-xs mb-6">{city}</p>
+            {!query && (
+              <Link
+                href="/join"
+                className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold text-sm transition-colors"
+              >
+                {t('list.joinBtn')}
+              </Link>
+            )}
           </div>
         )}
 
       </main>
 
-      {/* Mobile "Join us" pill — discreet, bottom-left */}
-      {!hideJoinCta && (
-        <div className="sm:hidden fixed bottom-6 left-4 z-30">
-          <Link
-            href="/join"
-            className="bg-surface border border-divider text-ink-primary text-sm font-semibold px-4 py-2.5 rounded-full shadow-card flex items-center gap-1.5"
-          >
-            {t('nav.join')}
-          </Link>
-        </div>
-      )}
-
-      {/* Floating Map button — primary brand. t('list.viewMap') already
-          contains the 🗺 glyph, so no prefix. */}
+      {/* Floating map FAB — bottom-right, above mobile bottom nav.
+          On md+ (no bottom nav) the offset adjusts to sit at the edge. */}
       <button
         onClick={() => setShowMap(true)}
-        className="fixed bottom-6 right-4 z-30 bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"
+        aria-label="Voir la carte / View map"
+        className="fixed right-4 z-30 w-12 h-12 bottom-20 md:bottom-6 bg-brand hover:bg-brand-dark text-white rounded-full shadow-card flex items-center justify-center text-xl transition-colors"
       >
-        {t('list.viewMap')}
+        🗺
       </button>
 
       {/* Map overlay */}
@@ -279,7 +266,7 @@ export default function HomePage() {
         <div className="fixed inset-0 z-50 flex flex-col bg-surface">
           <div className="h-14 flex-shrink-0 bg-surface border-b border-divider flex items-center justify-between px-4">
             <span className="font-semibold text-ink-primary text-sm">
-              {t('list.mapIn')} {selectedCity}
+              {t('list.mapIn')} {city}
             </span>
             <button
               onClick={() => { setShowMap(false); setMapSelected(null) }}
