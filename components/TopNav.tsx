@@ -70,7 +70,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
   const isOrdersPage = pathname === '/account'
   const isDashboard  = pathname.startsWith('/dashboard')
-  const isHome       = pathname === '/'
   const isEvents     = pathname === '/events' || pathname.startsWith('/events/')
   const showMapBtn   = pathname === '/' || pathname === '/events'
 
