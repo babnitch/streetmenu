@@ -88,20 +88,13 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <span className="hidden lg:inline font-bold text-ink-primary text-sm">Ndjoka &amp; Tchop</span>
         </Link>
 
-        {/* City dropdown + map toggle (map only on home). */}
-        <div className="flex items-center gap-1 flex-shrink-0">
+        {/* City dropdown — primary global filter. On mobile this row is
+            Logo | (centered city) | Map, so the wrapper grows + centers
+            its content. On desktop the search input takes the flex-1
+            role (just below), so the city collapses to its natural
+            width and sits next to the logo. */}
+        <div className="flex-1 md:flex-none flex justify-center md:justify-start">
           <CityDropdown />
-          {isHome && (
-            <button
-              type="button"
-              onClick={toggleMap}
-              aria-label="Carte / Map"
-              title="Carte / Map"
-              className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors"
-            >
-              🗺
-            </button>
-          )}
         </div>
 
         {/* Desktop-only inline search — submits to /?q=...#search so the
@@ -173,6 +166,20 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             >
               {cta.label}
             </Link>
+          )}
+
+          {/* Map toggle — last in the cluster so it lands at the far
+              right on mobile. Only rendered on the home route. */}
+          {isHome && (
+            <button
+              type="button"
+              onClick={toggleMap}
+              aria-label="Carte / Map"
+              title="Carte / Map"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors"
+            >
+              🗺
+            </button>
           )}
         </div>
       </div>
