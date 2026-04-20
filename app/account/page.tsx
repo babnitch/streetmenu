@@ -111,6 +111,15 @@ export default function AccountPage() {
   const [myRestaurants,    setMyRestaurants]    = useState<VendorRestaurant[]>([])
   const [activeRestId,     setActiveRestId]     = useState<string>('')
   const [teamMembers,      setTeamMembers]      = useState<TeamMember[]>([])
+  // Pending team invitations — phone is not yet a customer; they'll be added
+  // to restaurant_team once they WhatsApp-reply "accepter". Kept per-active-
+  // restaurant; reloaded alongside team members when the Team tab opens.
+  const [pendingInvitations, setPendingInvitations] = useState<Array<{
+    id: string; phone: string; role: string; status: string;
+    created_at: string; expires_at: string;
+  }>>([])
+  const [loadingInvitations, setLoadingInvitations] = useState(false)
+  const [cancellingInvId,    setCancellingInvId]    = useState<string | null>(null)
   const [loadingTeam,      setLoadingTeam]      = useState(false)
   const [teamPhone,        setTeamPhone]        = useState('')
   const [teamRole,         setTeamRole]         = useState('staff')
@@ -242,9 +251,41 @@ export default function AccountPage() {
     setLoadingTeam(false)
   }
 
+  // Pending invitations live in team_invitations (see the SQL migration).
+  // Loaded in parallel with the team list when the Team tab opens.
+  async function loadInvitations(restaurantId: string) {
+    setLoadingInvitations(true)
+    try {
+      const res = await fetch(`/api/restaurants/${restaurantId}/invite`)
+      const data = await res.json()
+      setPendingInvitations(data.invitations ?? [])
+    } finally {
+      setLoadingInvitations(false)
+    }
+  }
+
+  async function handleCancelInvitation(invitationId: string) {
+    if (!activeRestId) return
+    setCancellingInvId(invitationId)
+    try {
+      const res = await fetch(`/api/restaurants/${activeRestId}/invite/${invitationId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        showToast(d.error ?? bi('Erreur', 'Error'), false)
+        return
+      }
+      showToast(bi('Invitation annulée', 'Invitation cancelled'))
+      await loadInvitations(activeRestId)
+    } finally {
+      setCancellingInvId(null)
+    }
+  }
+
   // Load team when switching to team tab
   useEffect(() => {
-    if (customerTab === 'team' && activeRestId) loadTeam(activeRestId)
+    if (customerTab === 'team' && activeRestId) { loadTeam(activeRestId); loadInvitations(activeRestId) }
     if (customerTab === 'profile' && !profile) loadProfile()
   }, [customerTab, activeRestId, profile])
 
@@ -436,13 +477,15 @@ export default function AccountPage() {
     }
   }
 
-  // ── Vendor: add team member ──
+  // ── Vendor: add or invite team member ──
+  // Always go through /invite — known numbers get added directly, unknown
+  // ones get a pending invitation that completes via WhatsApp accept/decline.
   async function handleAddTeamMember(e: React.FormEvent) {
     e.preventDefault()
     setTeamError('')
     setAddingMember(true)
     try {
-      const res = await fetch(`/api/restaurants/${activeRestId}/team`, {
+      const res = await fetch(`/api/restaurants/${activeRestId}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: teamPhone.trim(), role: teamRole }),
@@ -450,7 +493,12 @@ export default function AccountPage() {
       const data = await res.json()
       if (!res.ok) { setTeamError(data.error ?? 'Erreur'); return }
       setTeamPhone('')
-      await loadTeam(activeRestId)
+      if (data.mode === 'invited') {
+        showToast(bi('📨 Invitation envoyée', 'Invitation sent'))
+      } else {
+        showToast(bi('✅ Membre ajouté', 'Member added'))
+      }
+      await Promise.all([loadTeam(activeRestId), loadInvitations(activeRestId)])
     } finally {
       setAddingMember(false)
     }
@@ -1259,6 +1307,60 @@ export default function AccountPage() {
                         {teamMembers.length === 0 && <p className="text-ink-tertiary text-sm text-center py-4">{bi('Équipe vide', 'Empty team')}</p>}
                       </div>
                     )}
+
+                    {/* Pending invitations — users who received a WhatsApp
+                        invite but haven't replied yet. Owner can cancel. */}
+                    <div className="mt-6 pt-5 border-t border-divider">
+                      <h3 className="font-bold text-ink-primary mb-3 text-sm">
+                        📨 {bi('Invitations en attente', 'Pending invitations')}
+                        {pendingInvitations.length > 0 && (
+                          <span className="ml-2 text-xs font-medium text-ink-tertiary">
+                            ({pendingInvitations.length})
+                          </span>
+                        )}
+                      </h3>
+                      {loadingInvitations ? (
+                        <div className="text-center py-4 text-ink-tertiary text-sm">Chargement…</div>
+                      ) : pendingInvitations.length === 0 ? (
+                        <p className="text-ink-tertiary text-sm text-center py-3">
+                          {bi('Aucune invitation en attente', 'No pending invitations')}
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {pendingInvitations.map(inv => {
+                            const created = new Date(inv.created_at)
+                            const expires = new Date(inv.expires_at)
+                            const now     = new Date()
+                            const daysAgo = Math.max(0, Math.floor((now.getTime() - created.getTime()) / 86_400_000))
+                            const daysLeft = Math.max(0, Math.ceil((expires.getTime() - now.getTime()) / 86_400_000))
+                            const expired = daysLeft === 0
+                            return (
+                              <div key={inv.id} className="flex items-center justify-between py-2.5 border-b border-divider last:border-0 gap-2 flex-wrap">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-ink-primary font-mono truncate">{inv.phone}</p>
+                                  <p className="text-xs text-ink-tertiary">
+                                    <span className="capitalize">{inv.role}</span>
+                                    {' · '}
+                                    {bi(`envoyée il y a ${daysAgo}j`, `sent ${daysAgo}d ago`)}
+                                    {' · '}
+                                    {expired
+                                      ? bi('expirée', 'expired')
+                                      : bi(`expire dans ${daysLeft}j`, `expires in ${daysLeft}d`)}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => handleCancelInvitation(inv.id)}
+                                  disabled={cancellingInvId === inv.id}
+                                  className="text-xs text-danger hover:text-danger font-medium px-2 py-1 hover:bg-brand-light rounded-lg transition-colors"
+                                >
+                                  {cancellingInvId === inv.id ? '…' : bi('Annuler', 'Cancel')}
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </>

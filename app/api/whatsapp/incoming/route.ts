@@ -91,6 +91,148 @@ function matchCategory(input: string): MenuCategory | null {
   return CATEGORY_KEYWORDS[s] ?? null
 }
 
+// ── Team invitations ─────────────────────────────────────────────────────────
+// Lazy expiry — an invitation is treated as dead once `expires_at` is past,
+// even if the row still says status='pending'. The cancel/invite flow in
+// handleVendor flips the row to 'expired' when it lands on one.
+
+interface PendingInvitation {
+  id:             string
+  restaurant_id:  string
+  role:           'manager' | 'staff'
+  expires_at:     string
+  restaurants?: { name: string | null } | null
+  inviter?: { name: string | null } | null
+}
+
+async function loadPendingInvitationsForPhone(phone: string): Promise<PendingInvitation[]> {
+  const { data } = await supabaseAdmin
+    .from('team_invitations')
+    .select('id, restaurant_id, role, expires_at, restaurants(name), inviter:customers!invited_by(name)')
+    .eq('phone', phone).eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  const nowMs = Date.now()
+  return ((data ?? []) as unknown as PendingInvitation[])
+    .filter(r => new Date(r.expires_at).getTime() > nowMs)
+}
+
+// Kick off the WhatsApp registration flow for an invitee who doesn't yet
+// have a customer record. Invitation IDs ride along in the session's data
+// blob and are consumed once the customer row is created.
+async function startInviteAcceptSignup(phone: string, invitationIds: string[]): Promise<void> {
+  await supabaseAdmin.from('signup_sessions').upsert({
+    phone,
+    user_type: 'invite_accept',
+    step: 1,
+    data: { invitation_ids: invitationIds },
+    expires_at: sessionExpiry(),
+  })
+}
+
+// Called from the top-level router when body is accept/decline. Returns
+// NextResponse on success (including the "no pending invitations" reply),
+// or null if a caller needs to fall through. For the current wiring we
+// always return — the top-level just calls `return ok()` either way.
+async function handleInvitationReply(
+  from: string,
+  phone: string,
+  decision: 'accept' | 'decline',
+): Promise<NextResponse | null> {
+  const pending = await loadPendingInvitationsForPhone(phone)
+  if (!pending.length) {
+    await sendWhatsApp(from,
+      'Aucune invitation en attente pour votre numéro. / No pending invitation for your number.')
+    return ok()
+  }
+
+  if (decision === 'decline') {
+    await supabaseAdmin
+      .from('team_invitations')
+      .update({ status: 'declined' })
+      .in('id', pending.map(p => p.id))
+
+    // Notify inviting owners so they see the decline.
+    for (const inv of pending) {
+      const { data: owner } = await supabaseAdmin
+        .from('restaurant_team')
+        .select('customers(phone)')
+        .eq('restaurant_id', inv.restaurant_id).eq('role', 'owner').eq('status', 'active')
+        .maybeSingle()
+      const ownerPhone = (owner?.customers as unknown as { phone?: string } | null)?.phone
+      if (ownerPhone) {
+        await sendWhatsApp(ownerPhone,
+          `❌ ${phone} a décliné l'invitation (${inv.restaurants?.name ?? 'restaurant'}).\n` +
+          `${phone} declined the invitation.`)
+      }
+    }
+
+    await sendWhatsApp(from, 'OK, invitation déclinée. / Invitation declined.')
+    return ok()
+  }
+
+  // Accept path. If the invitee isn't a customer yet, start a quick
+  // registration session; the handler will complete team-insertion once
+  // name + city are provided.
+  const { data: customer } = await supabaseAdmin
+    .from('customers').select('id, name, phone, status')
+    .eq('phone', phone).maybeSingle()
+
+  if (!customer || customer.status !== 'active') {
+    await startInviteAcceptSignup(phone, pending.map(p => p.id))
+    await sendWhatsApp(from,
+      `🎉 Super! Finalisons votre inscription.\nQuel est votre prénom?\n\n` +
+      `Let's finish your registration.\nWhat's your first name?`)
+    return ok()
+  }
+
+  // Already a customer → accept immediately.
+  await acceptInvitationsForCustomer(customer.id, customer.phone, customer.name, pending)
+  return ok()
+}
+
+// Shared between the "already a customer" accept path and the post-signup
+// completion: insert team rows + flip invitation statuses + notify owners.
+async function acceptInvitationsForCustomer(
+  customerId: string,
+  customerPhone: string,
+  customerName: string,
+  pending: PendingInvitation[],
+): Promise<void> {
+  for (const inv of pending) {
+    await supabaseAdmin.from('restaurant_team').upsert({
+      restaurant_id: inv.restaurant_id,
+      customer_id:   customerId,
+      role:          inv.role,
+      status:        'active',
+    }, { onConflict: 'restaurant_id,customer_id' })
+
+    await supabaseAdmin
+      .from('team_invitations')
+      .update({ status: 'accepted', accepted_at: new Date().toISOString() })
+      .eq('id', inv.id)
+
+    // Notify owner of the restaurant that accepted.
+    const { data: owner } = await supabaseAdmin
+      .from('restaurant_team')
+      .select('customers(phone)')
+      .eq('restaurant_id', inv.restaurant_id).eq('role', 'owner').eq('status', 'active')
+      .maybeSingle()
+    const ownerPhone = (owner?.customers as unknown as { phone?: string } | null)?.phone
+    if (ownerPhone) {
+      await sendWhatsApp(ownerPhone,
+        `✅ ${customerPhone} a accepté l'invitation (${inv.restaurants?.name ?? 'restaurant'})!\n` +
+        `${customerPhone} accepted the invitation!`)
+    }
+
+    // Welcome the invitee.
+    await sendWhatsApp(customerPhone,
+      `✅ Vous êtes maintenant *${inv.role}* chez *${inv.restaurants?.name ?? 'restaurant'}*, ${customerName}!\n` +
+      `Envoyez *aide* pour les commandes.\n\n` +
+      `You are now *${inv.role}* at *${inv.restaurants?.name ?? 'restaurant'}*!\n` +
+      `Send *help* for commands.`)
+  }
+}
+
 const CATEGORY_PROMPT =
   '📂 Catégorie? / Category?\n' +
   '1. Entrées / Starters\n' +
@@ -199,6 +341,20 @@ export async function POST(req: NextRequest) {
 
   if (session) {
     return handleSession(from, phone, body, cmd, session, hasPhoto, mediaUrl)
+  }
+
+  // ── INVITATION ACCEPT / DECLINE ──────────────────────────────────────────
+  // An invitee may or may not be a registered customer yet. Handle both
+  // replies before the customer lookup so a brand-new number can accept and
+  // flow straight into the registration/team-insert branch below.
+  if (cmd === 'accepter' || cmd === 'accept' || cmd === 'refuser' || cmd === 'refuse' || cmd === 'decline') {
+    const decision: 'accept' | 'decline' =
+      (cmd === 'accepter' || cmd === 'accept') ? 'accept' : 'decline'
+    const handled = await handleInvitationReply(from, phone, decision)
+    if (handled) return handled
+    // Fall through: no pending invitation exists for this phone — the bot
+    // told the user so; no need to dispatch further.
+    return ok()
   }
 
   // Look up registered customer (or check suspension)
@@ -443,6 +599,70 @@ async function handleSession(
         `🔑 Mon compte / My account: ${BASE_URL}/account\n\n` +
         `🏪 Vous avez un restaurant? Envoyez *restaurant*!\n` +
         `Own a restaurant? Send *restaurant*!`)
+      return ok()
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Invite-accept signup (name → city → customer row + team inserts)
+  // Reached when a non-registered number replied "accepter" to a pending
+  // team invitation. The invitation IDs ride in `data.invitation_ids`.
+  // ────────────────────────────────────────────────────────────────────────────
+  if (user_type === 'invite_accept') {
+    if (step === 1) {
+      const name = body.trim()
+      if (name.length < 2) {
+        await sendWhatsApp(from, 'Merci d\'entrer un prénom valide. / Please enter a valid name.')
+        return ok()
+      }
+      await supabaseAdmin.from('signup_sessions').update({
+        step: 2, data: { ...data, name }, expires_at: sessionExpiry(),
+      }).eq('phone', phone)
+      await sendWhatsApp(from,
+        `Bonjour *${name}*! 🎉\n\n` +
+        'Dans quelle *ville* êtes-vous? / Which *city* are you in?\n\n' +
+        '1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n' +
+        '_Tapez le nom ou le chiffre. / Type name or number._')
+      return ok()
+    }
+
+    if (step === 2) {
+      const city = parseCity(body)
+      if (!city) {
+        await sendWhatsApp(from, 'Choisissez / Choose:\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
+        return ok()
+      }
+      const name = data.name ?? 'Ami'
+      const invitationIds = (data.invitation_ids as unknown as string[] | undefined) ?? []
+
+      const { data: newCustomer, error } = await supabaseAdmin
+        .from('customers').insert({ phone, name, city }).select('id, phone, name').single()
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      if (error || !newCustomer) {
+        console.error('[whatsapp] invite-accept customer insert error:', error?.message)
+        await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Please retry.')
+        return ok()
+      }
+
+      // Reload the (still-pending) invitations by ID — guards against a row
+      // being cancelled while the user was typing their name/city.
+      const { data: stillPending } = await supabaseAdmin
+        .from('team_invitations')
+        .select('id, restaurant_id, role, expires_at, restaurants(name)')
+        .in('id', invitationIds).eq('status', 'pending')
+      const nowMs = Date.now()
+      const live = ((stillPending ?? []) as unknown as PendingInvitation[])
+        .filter(r => new Date(r.expires_at).getTime() > nowMs)
+
+      if (!live.length) {
+        await sendWhatsApp(from,
+          `✅ Inscription terminée, *${name}*!\n` +
+          `Mais les invitations ne sont plus valables.\n\n` +
+          `Registration complete, but the invitations are no longer valid.`)
+        return ok()
+      }
+
+      await acceptInvitationsForCustomer(newCustomer.id, newCustomer.phone, newCustomer.name, live)
       return ok()
     }
   }
@@ -766,41 +986,134 @@ async function handleVendor(
     return ok()
   }
 
-  // ── ADD TEAM MEMBER: "ajouter +237XXX manager" ────────────────────────────
-  const addMemberMatch = body.match(/^(?:ajouter|add)\s+(\+?\d[\d\s-]+)\s+(manager|staff)$/i)
+  // ── ADD / INVITE TEAM MEMBER: "ajouter +237XXX manager" or "inviter ..."
+  // If the number is already a customer → insert into restaurant_team
+  // immediately (existing behaviour). If not → create a pending row in
+  // team_invitations + fire a WhatsApp invite. Invitee replies accept/decline.
+  const addMemberMatch = body.match(/^(?:ajouter|add|inviter|invite)\s+(\+?\d[\d\s-]+)\s+(manager|staff)$/i)
   if (addMemberMatch) {
     if (!isOwner) {
       await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
       return ok()
     }
     const memberPhone = addMemberMatch[1].replace(/\s|-/g, '')
-    const memberRole  = addMemberMatch[2].toLowerCase()
+    const memberRole  = addMemberMatch[2].toLowerCase() as 'manager' | 'staff'
+
+    const { data: ownerCustomer } = await supabaseAdmin
+      .from('customers').select('id, name').eq('phone', phone).maybeSingle()
 
     const { data: newMember } = await supabaseAdmin
-      .from('customers').select('id, name, phone')
-      .eq('phone', memberPhone).eq('status', 'active').maybeSingle()
+      .from('customers').select('id, name, phone, status')
+      .eq('phone', memberPhone).maybeSingle()
 
-    if (!newMember) {
-      await sendWhatsApp(from, `❌ Ce numéro n'est pas inscrit sur Ndjoka & Tchop.\nThis number is not registered.`)
+    if (newMember && newMember.status === 'active') {
+      await supabaseAdmin.from('restaurant_team').upsert({
+        restaurant_id: restaurant.id, customer_id: newMember.id, role: memberRole,
+        added_by: ownerCustomer?.id ?? null, status: 'active',
+      }, { onConflict: 'restaurant_id,customer_id' })
+
+      await sendWhatsApp(newMember.phone,
+        `✅ *${ownerCustomer?.name ?? 'Le propriétaire'}* vous a ajouté comme *${memberRole}* chez *${restaurant.name}*!\n` +
+        `Connectez-vous pour voir votre restaurant.\n\n` +
+        `*${ownerCustomer?.name ?? 'The owner'}* added you as *${memberRole}* at *${restaurant.name}*.\n` +
+        `Log in to see your restaurant.`)
+
+      await sendWhatsApp(from, `✅ ${newMember.name} ajouté comme *${memberRole}*. / Added as *${memberRole}*.`)
       return ok()
     }
 
-    // Get owner's customer id
-    const { data: ownerCustomer } = await supabaseAdmin
-      .from('customers').select('id').eq('phone', phone).maybeSingle()
+    // Invitation path — the phone isn't a known customer. Clear any stale
+    // pending row so the partial unique index doesn't collide, then insert
+    // a fresh invitation and send the invite message.
+    const { data: stale } = await supabaseAdmin
+      .from('team_invitations').select('id, expires_at')
+      .eq('restaurant_id', restaurant.id).eq('phone', memberPhone).eq('status', 'pending')
+      .maybeSingle()
 
-    await supabaseAdmin.from('restaurant_team').upsert({
-      restaurant_id: restaurant.id, customer_id: newMember.id, role: memberRole,
-      added_by: ownerCustomer?.id ?? null, status: 'active',
-    }, { onConflict: 'restaurant_id,customer_id' })
+    if (stale && new Date(stale.expires_at) > new Date()) {
+      await sendWhatsApp(from,
+        `⏳ Une invitation est déjà en attente pour ${memberPhone}. / A pending invitation already exists.`)
+      return ok()
+    }
+    if (stale) {
+      await supabaseAdmin.from('team_invitations').update({ status: 'expired' }).eq('id', stale.id)
+    }
 
-    await sendWhatsApp(newMember.phone,
-      `👥 Vous avez été ajouté comme *${memberRole}* chez *${restaurant.name}*.\n` +
-      `Envoyez "aide" pour les commandes disponibles.\n\n` +
-      `You've been added as *${memberRole}* at *${restaurant.name}*.\n` +
-      `Send "help" for available commands.`)
+    const { data: invitation, error: invErr } = await supabaseAdmin
+      .from('team_invitations').insert({
+        restaurant_id: restaurant.id, phone: memberPhone, role: memberRole,
+        invited_by: ownerCustomer?.id ?? null, status: 'pending',
+      })
+      .select('id').single()
 
-    await sendWhatsApp(from, `✅ ${newMember.name} ajouté comme *${memberRole}*. / Added as *${memberRole}*.`)
+    if (invErr || !invitation) {
+      console.error('[whatsapp] invitation insert error:', invErr?.message)
+      await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+      return ok()
+    }
+
+    await sendWhatsApp(memberPhone,
+      `👋 *${ownerCustomer?.name ?? 'Quelqu\'un'}* vous invite comme *${memberRole}* chez *${restaurant.name}* sur Ndjoka & Tchop!\n\n` +
+      `Envoyez *accepter* pour rejoindre. Vous serez inscrit automatiquement.\n` +
+      `Envoyez *refuser* pour décliner.\n\n` +
+      `*${ownerCustomer?.name ?? 'Someone'}* invites you as *${memberRole}* at *${restaurant.name}* on Ndjoka & Tchop!\n` +
+      `Send *accept* to join — you'll be registered automatically.\n` +
+      `Send *decline* to decline.`)
+
+    await sendWhatsApp(from,
+      `📨 Invitation envoyée à ${memberPhone}. En attente d'acceptation.\n` +
+      `Invitation sent. Waiting for acceptance.`)
+    return ok()
+  }
+
+  // ── INVITATIONS: list pending ────────────────────────────────────────────
+  if (cmd === 'invitations' || cmd === 'invitation') {
+    if (!isOwner) {
+      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      return ok()
+    }
+    const { data: pending } = await supabaseAdmin
+      .from('team_invitations')
+      .select('phone, role, created_at, expires_at')
+      .eq('restaurant_id', restaurant.id).eq('status', 'pending')
+      .order('created_at', { ascending: false })
+
+    const nowMs = Date.now()
+    const live = (pending ?? []).filter(p => new Date(p.expires_at).getTime() > nowMs)
+    if (!live.length) {
+      await sendWhatsApp(from,
+        `📨 Aucune invitation en attente. / No pending invitations.\n\n` +
+        `Invitez avec: / Invite with:\n"inviter +237XXX manager"`)
+      return ok()
+    }
+    const lines = live.map((p, i) => {
+      const daysAgo = Math.max(0, Math.floor((nowMs - new Date(p.created_at).getTime()) / 86_400_000))
+      return `${i + 1}. ${p.phone} — ${p.role} — ${daysAgo}j / ${daysAgo}d`
+    })
+    await sendWhatsApp(from,
+      `📨 *Invitations en attente / Pending invitations*\n${lines.join('\n')}\n\n` +
+      `Annuler: / Cancel: "annuler invitation +237XXX"`)
+    return ok()
+  }
+
+  // ── CANCEL INVITATION: "annuler invitation +237XXX" ──────────────────────
+  const cancelInvMatch = body.match(/^(?:annuler\s+invitation|cancel\s+invitation)\s+(\+?\d[\d\s-]+)$/i)
+  if (cancelInvMatch) {
+    if (!isOwner) {
+      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      return ok()
+    }
+    const targetPhone = cancelInvMatch[1].replace(/\s|-/g, '')
+    const { data: inv } = await supabaseAdmin
+      .from('team_invitations').select('id')
+      .eq('restaurant_id', restaurant.id).eq('phone', targetPhone).eq('status', 'pending')
+      .maybeSingle()
+    if (!inv) {
+      await sendWhatsApp(from, '❌ Aucune invitation en attente pour ce numéro. / No pending invitation for this number.')
+      return ok()
+    }
+    await supabaseAdmin.from('team_invitations').update({ status: 'cancelled' }).eq('id', inv.id)
+    await sendWhatsApp(from, 'Invitation annulée. / Invitation cancelled.')
     return ok()
   }
 
