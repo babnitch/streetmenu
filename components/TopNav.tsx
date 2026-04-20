@@ -68,10 +68,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   }, [])
 
   const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
-  const isOrdersPage = pathname === '/account'
-  const isDashboard  = pathname.startsWith('/dashboard')
-  const isEvents     = pathname === '/events' || pathname.startsWith('/events/')
-  const showMapBtn   = pathname === '/' || pathname === '/events'
+  const isRestaurants = pathname === '/'
+  const isOrdersPage  = pathname === '/account'
+  const isDashboard   = pathname.startsWith('/dashboard')
+  const isEvents      = pathname === '/events' || pathname.startsWith('/events/')
+  const showMapBtn    = pathname === '/' || pathname === '/events'
 
   // Map toggle — rendered on the home and events pages. Dispatches a
   // custom event the page listens for; keeps TopNav decoupled from the
@@ -129,9 +130,13 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these.
             `flex-shrink-0` + `whitespace-nowrap` keep every link visible even
             when the search input tries to grow and squeeze the cluster.
-            Orders + Restaurant only render for signed-in / vendor users; guests
-            still see the Events link. */}
+            Restaurants + Events are public; Orders + Mon restaurant only
+            render for signed-in / vendor users. Active link highlights in
+            brand via TopNavLink's `active` class. */}
         <nav className="hidden md:flex items-center gap-1 flex-shrink-0 whitespace-nowrap">
+          <TopNavLink href="/" active={isRestaurants}>
+            🏠 {bi('Restaurants', 'Restaurants')}
+          </TopNavLink>
           <TopNavLink href="/events" active={isEvents}>
             🎉 {bi('Événements', 'Events')}
           </TopNavLink>
@@ -142,7 +147,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           )}
           {vendor.kind === 'approved' && (
             <TopNavLink href="/dashboard" active={isDashboard}>
-              🏪 Restaurant
+              🏪 {bi('Mon restaurant', 'My Restaurant')}
             </TopNavLink>
           )}
         </nav>
