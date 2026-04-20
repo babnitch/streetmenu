@@ -146,7 +146,7 @@ export default function MenuPage() {
         </div>
       </div>
 
-      <div className="px-4 pb-32 max-w-2xl mx-auto">
+      <div className="px-4 pb-40 md:pb-32 max-w-2xl mx-auto">
         {/* Daily Specials */}
         {specials.length > 0 && activeCategory === 'all' && (
           <div className="mt-6">
@@ -201,9 +201,11 @@ export default function MenuPage() {
         )}
       </div>
 
-      {/* Floating cart CTA — bottom-anchored, brand primary, full width */}
+      {/* Floating cart CTA — sits above the mobile BottomNav (56px) and
+          hugs the screen edge on desktop. z-20 so it stays below the
+          BottomNav (z-40) if they ever visually overlap. */}
       {totalItems > 0 && (
-        <div className="fixed bottom-4 left-4 right-4 max-w-xl mx-auto z-20">
+        <div className="fixed left-4 right-4 max-w-xl mx-auto z-20 bottom-20 md:bottom-4">
           <Link
             href="/order"
             className="flex items-center justify-between bg-brand hover:bg-brand-dark text-white px-5 py-4 rounded-full shadow-card transition-colors"
