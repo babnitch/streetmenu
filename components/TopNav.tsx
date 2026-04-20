@@ -67,6 +67,16 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const accountLabel = me ? firstName(me.name) || me.name : 'Connexion / Login'
   const isOrdersPage = pathname === '/account'
   const isDashboard  = pathname.startsWith('/dashboard')
+  const isHome       = pathname === '/'
+
+  // Map toggle — only rendered on the home page. Dispatches a custom
+  // event the home page listens for; keeps TopNav decoupled from the
+  // page-local showMap state.
+  const toggleMap = () => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nt-toggle-map'))
+    }
+  }
 
   return (
     <header className="sticky top-0 z-30 bg-surface border-b border-divider shadow-sm">
@@ -78,10 +88,20 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <span className="hidden lg:inline font-bold text-ink-primary text-sm">Ndjoka &amp; Tchop</span>
         </Link>
 
-        {/* City dropdown — shown on every viewport; this is the primary
-            global filter for the restaurant list. */}
-        <div className="flex-shrink-0">
+        {/* City dropdown + map toggle (map only on home). */}
+        <div className="flex items-center gap-1 flex-shrink-0">
           <CityDropdown />
+          {isHome && (
+            <button
+              type="button"
+              onClick={toggleMap}
+              aria-label="Carte / Map"
+              title="Carte / Map"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors"
+            >
+              🗺
+            </button>
+          )}
         </div>
 
         {/* Desktop-only inline search — submits to /?q=...#search so the
@@ -131,9 +151,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               🛒 {totalItems}
             </Link>
           )}
+          {/* Account pill — desktop only. Mobile has Account in BottomNav
+              so showing it here too created a duplicate entry point. */}
           <Link
             href="/account"
-            className="text-ink-secondary hover:text-ink-primary text-sm font-semibold transition-colors flex items-center gap-1 max-w-[7rem] sm:max-w-[10rem] px-1 sm:px-2"
+            className="hidden md:flex text-ink-secondary hover:text-ink-primary text-sm font-semibold transition-colors items-center gap-1 max-w-[10rem] px-2"
             title={me?.name ?? 'Connexion / Login'}
           >
             <span aria-hidden="true">👤</span>

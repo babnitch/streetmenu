@@ -4,19 +4,22 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
-// Mobile-only fixed bottom tab bar. 5 slots:
-//   Home | Search | Orders | Restaurant (vendor-gated) | Account
+// Mobile-only fixed bottom tab bar. Slots (up to 6):
+//   🏠 Home · 🔍 Search · 🎉 Events · 📦 Orders · 🏪 Restaurant (vendor) · 👤 Account
 // Hidden at md+ (≥768px) — the TopNav takes over there.
 //
+// Icon-only, no labels: with 5–6 tabs the text overlapped on 375px
+// screens. Uber Eats follows the same pattern on small screens; the
+// aria-label keeps it accessible.
+//
 // "Restaurant" slot only renders for customers with ≥1 non-pending
-// approved restaurant. Admins and pending-only vendors see a 4-tab bar
-// (Restaurant slot collapses). The session probe runs once on mount; no
-// network on every page change.
+// approved restaurant. Admins and pending-only vendors see a 5-tab bar
+// (Restaurant slot collapses).
 
 interface TabSpec {
   href:   string
   icon:   string
-  label:  string            // bilingual inline, short enough for a 4-tab row
+  label:  string            // used for aria-label + title only (not rendered)
   match:  (path: string) => boolean
   onClick?: () => void      // Search uses this instead of href-nav
 }
@@ -67,7 +70,8 @@ export default function BottomNav() {
   const tabs: TabSpec[] = [
     { href: '/',                    icon: '🏠', label: 'Accueil / Home',     match: p => p === '/' || p.startsWith('/restaurant') },
     { href: '/#search',             icon: '🔍', label: 'Recherche / Search', match: () => false, onClick: goSearch },
-    { href: '/account?tab=orders',  icon: '📦', label: 'Commandes / Orders', match: p => p === '/account' },
+    { href: '/events',              icon: '🎉', label: 'Événements / Events', match: p => p.startsWith('/events') },
+    { href: '/account?tab=orders',  icon: '📦', label: 'Commandes / Orders', match: p => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },
     ...(showVendorTab ? [
       { href: '/dashboard', icon: '🏪', label: 'Restaurant', match: (p: string) => p.startsWith('/dashboard') }
     ] : []),
@@ -86,28 +90,40 @@ export default function BottomNav() {
       >
         {tabs.map((tab, i) => {
           const active = tab.match(pathname)
-          const tint = active ? 'text-brand' : 'text-ink-secondary'
+          // Active icon: full-opacity, with a subtle brand-light bubble
+          // + brand-dot underline for clear selection. Inactive: slight
+          // grayscale so the active tab pops.
+          const iconCls = active
+            ? 'opacity-100 scale-110'
+            : 'opacity-60 grayscale'
+          const sharedClass = 'relative flex items-center justify-center min-h-[56px] min-w-[44px] px-2'
 
           const body = (
             <>
-              <span aria-hidden="true" className="text-xl leading-none">{tab.icon}</span>
-              <span className={`text-[10px] font-semibold leading-tight truncate ${tint}`}>{tab.label}</span>
+              <span
+                aria-hidden="true"
+                className={`text-2xl leading-none transition-transform ${iconCls}`}
+              >
+                {tab.icon}
+              </span>
+              {active && (
+                <span className="absolute bottom-2 h-1 w-1 rounded-full bg-brand" aria-hidden="true" />
+              )}
             </>
           )
-          const sharedClass = `flex flex-col items-center justify-center gap-1 min-h-[56px] px-1 ${tint}`
 
           // Search tab is a button (it focuses the home search rather than
           // doing a traditional route-change); the rest are Links so
           // prefetching still kicks in.
           if (tab.onClick) {
             return (
-              <button key={i} onClick={tab.onClick} className={sharedClass} aria-label={tab.label}>
+              <button key={i} onClick={tab.onClick} className={sharedClass} aria-label={tab.label} title={tab.label}>
                 {body}
               </button>
             )
           }
           return (
-            <Link key={i} href={tab.href} className={sharedClass} aria-label={tab.label}>
+            <Link key={i} href={tab.href} className={sharedClass} aria-label={tab.label} title={tab.label}>
               {body}
             </Link>
           )

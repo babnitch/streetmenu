@@ -121,6 +121,13 @@ export default function HomePage() {
     return () => window.removeEventListener('popstate', read)
   }, [])
 
+  // Map toggle now lives in TopNav; it dispatches this event on click.
+  useEffect(() => {
+    const onToggle = () => setShowMap(prev => !prev)
+    window.addEventListener('nt-toggle-map', onToggle)
+    return () => window.removeEventListener('nt-toggle-map', onToggle)
+  }, [])
+
   useEffect(() => {
     const dismissed = localStorage.getItem('banner_dismissed')
     if (!dismissed) setBannerDismissed(false)
@@ -194,8 +201,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Search bar */}
-      <div id="search" className="bg-surface">
+      {/* Search bar — mobile only. Desktop uses the inline TopNav search. */}
+      <div id="search" className="bg-surface md:hidden">
         <div className="max-w-6xl mx-auto px-4 pt-4 pb-2">
           <label className="relative block">
             <span className="absolute inset-y-0 left-3 flex items-center text-ink-tertiary pointer-events-none">🔍</span>
@@ -268,15 +275,9 @@ export default function HomePage() {
 
       </main>
 
-      {/* Floating map FAB — bottom-right, above mobile bottom nav.
-          On md+ (no bottom nav) the offset adjusts to sit at the edge. */}
-      <button
-        onClick={() => setShowMap(true)}
-        aria-label="Voir la carte / View map"
-        className="fixed right-4 z-30 w-12 h-12 bottom-20 md:bottom-6 bg-brand hover:bg-brand-dark text-white rounded-full shadow-card flex items-center justify-center text-xl transition-colors"
-      >
-        🗺
-      </button>
+      {/* Map toggle moved into TopNav (next to the city dropdown). The
+          overlay below still opens when showMap flips — triggered by the
+          nt-toggle-map custom event dispatched from the TopNav button. */}
 
       {/* Map overlay */}
       {showMap && (
