@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { useCart } from '@/lib/cartContext'
 import { useBi } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
+import LanguageToggle from './LanguageToggle'
 
 interface TopNavProps {
   // Retained for compatibility with pages that pass a Join CTA. New layout
@@ -156,9 +157,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             <span aria-hidden="true">👤</span>
             <span className="truncate">{accountLabel}</span>
           </Link>
-          {/* Language toggle removed from TopNav entirely — moved to the
-              /account profile tab "Langue / Language" section. */}
-
           {/* Secondary Join CTA on desktop only when the page passed one
               AND the visitor isn't already a vendor. */}
           {cta && vendor.kind === 'none' && me === null && (
@@ -170,8 +168,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             </Link>
           )}
 
-          {/* Map toggle — last in the cluster so it lands at the far
-              right on mobile. Only rendered on the home route. */}
+          {/* Map toggle — only on the home route. */}
           {isHome && (
             <button
               type="button"
@@ -183,6 +180,10 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               🗺
             </button>
           )}
+
+          {/* Language toggle — last in the cluster, visible on every page
+              and every breakpoint. Secondary copy lives in /account. */}
+          <LanguageToggle />
         </div>
       </div>
     </header>

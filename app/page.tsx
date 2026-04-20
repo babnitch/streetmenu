@@ -31,6 +31,7 @@ function RestaurantCard({
 }: {
   restaurant: Restaurant
 }) {
+  const bi = useBi()
   const neighborhood = restaurant.neighborhood || restaurant.address
   const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
   const cuisine = restaurant.cuisine_type || restaurant.description
@@ -79,7 +80,7 @@ function RestaurantCard({
         <span className={`flex-shrink-0 text-xs font-semibold whitespace-nowrap ${
           restaurant.is_open ? 'text-brand-darker' : 'text-danger'
         }`}>
-          {restaurant.is_open ? '● Ouvert' : '● Fermé'}
+          {restaurant.is_open ? bi('● Ouvert', '● Open') : bi('● Fermé', '● Closed')}
         </span>
       </div>
     </Link>
@@ -275,7 +276,7 @@ export default function HomePage() {
             <button
               onClick={() => { setBannerDismissed(true); localStorage.setItem('banner_dismissed', '1') }}
               className="text-brand-darker/60 hover:text-brand-darker text-lg leading-none"
-              aria-label="Fermer"
+              aria-label={bi('Fermer', 'Close')}
             >
               ✕
             </button>
@@ -306,7 +307,7 @@ export default function HomePage() {
         {!loading && filtered.length > 0 && (
           <>
             <h1 className="text-2xl sm:text-3xl font-bold text-ink-primary mb-1">
-              Restaurants à {city}
+              {t('list.mapIn')} {city}
             </h1>
             <p className="text-sm text-ink-secondary mb-6">
               <span className="font-semibold text-ink-primary">{filtered.length}</span>
