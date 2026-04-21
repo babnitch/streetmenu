@@ -151,7 +151,7 @@ export default function MenuPage() {
           categories; single-category menus skip the bar entirely. */}
       {showCategoryTabs && (
         <div className="sticky top-0 z-10 bg-surface border-b border-divider">
-          <div className="max-w-2xl mx-auto flex gap-2 px-4 py-3 overflow-x-auto">
+          <div className="max-w-7xl mx-auto flex gap-2 px-4 py-3 overflow-x-auto">
             {categories.map(cat => {
               const active = activeCategory === cat
               return (
@@ -172,7 +172,7 @@ export default function MenuPage() {
         </div>
       )}
 
-      <div className="px-4 pb-40 md:pb-32 max-w-2xl mx-auto">
+      <div className="px-4 pb-40 md:pb-32 max-w-7xl mx-auto">
         {/* Daily Specials */}
         {specials.length > 0 && activeCategory === 'all' && (
           <div className="mt-6">
