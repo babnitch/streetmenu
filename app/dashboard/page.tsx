@@ -199,7 +199,16 @@ export default function DashboardPage() {
         console.log('[dashboard] me=', me.id.slice(0, 8), 'restaurants=', list.length, 'roles=', rolesMap)
         // One-line open/closed snapshot so a vendor reporting "we're open but
         // it shows closed" can verify the actual DB value in devtools.
-        console.log('[dashboard] open-status=', list.map(r => `${r.name}:is_open=${r.is_open}`).join(', '))
+        // Includes id + is_active + status so we can compare against the
+        // public /restaurant/[id] page, which reads the same fields.
+        for (const r of list) {
+          console.log('[dashboard] loaded',
+            'id=', r.id,
+            'name=', r.name,
+            'is_open=', r.is_open,
+            'is_active=', r.is_active,
+            'status=', r.status)
+        }
         setRestaurants(list)
         setRolesByRestaurantId(rolesMap)
         setSelectedRestaurant(prev => prev ?? list[0] ?? null)

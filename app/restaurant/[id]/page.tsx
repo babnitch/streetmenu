@@ -30,7 +30,20 @@ export default function MenuPage() {
         supabase.from('restaurants').select('*').eq('id', id).single(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).order('is_daily_special', { ascending: false }),
       ])
-      if (rest) setRestaurant(rest)
+      if (rest) {
+        // Cross-check: we've seen the detail page render "Open" while the
+        // dashboard renders "Closed" for the same-named restaurant. This
+        // log prints the exact row the public page sees so we can confirm
+        // whether it's the same DB row as the vendor dashboard or a
+        // duplicate with a different id.
+        console.log('[restaurant] loaded',
+          'id=', rest.id,
+          'name=', rest.name,
+          'is_open=', rest.is_open,
+          'is_active=', rest.is_active,
+          'status=', rest.status)
+        setRestaurant(rest)
+      }
       if (menu) setMenuItems(menu)
       setLoading(false)
     }
