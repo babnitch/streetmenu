@@ -136,7 +136,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
   return (
     <header className="sticky top-0 z-30 bg-surface border-b border-divider shadow-sm">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
+      <div className="max-w-2xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
 
         {/* Logo — orange N&T text, never hidden. Compact on mobile. */}
         <Link href="/" className="flex items-center gap-1 flex-shrink-0" aria-label="Ndjoka &amp; Tchop — home">

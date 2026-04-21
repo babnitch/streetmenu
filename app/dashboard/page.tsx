@@ -365,7 +365,7 @@ export default function DashboardPage() {
           and the whole row would just be empty chrome. */}
       {restaurants.length > 1 && (
         <div className="bg-surface border-b border-divider">
-          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-end gap-2">
+          <div className="max-w-2xl mx-auto px-4 py-2 flex items-center justify-end gap-2">
             <select
               value={selectedRestaurant?.id}
               onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
@@ -380,7 +380,7 @@ export default function DashboardPage() {
       )}
 
       {selectedRestaurant && (
-        <div className="max-w-7xl mx-auto px-4 py-4 pb-20 md:pb-4">
+        <div className="max-w-2xl mx-auto px-4 py-4 pb-20 md:pb-4">
           {/* Restaurant card */}
           <div className="bg-white rounded-2xl p-4 shadow-sm mb-4 flex items-center justify-between">
             <div>

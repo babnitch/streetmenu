@@ -240,7 +240,7 @@ export default function HomePage() {
           href="/dashboard"
           className="block bg-brand text-white border-b border-brand-dark hover:bg-brand-dark transition-colors"
         >
-          <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
+          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
             <span className="text-sm font-semibold">
               🔔 {bi(`Vous avez ${pendingOrders} commande${pendingOrders > 1 ? 's' : ''} en attente`, `You have ${pendingOrders} pending order${pendingOrders > 1 ? 's' : ''}`)}
             </span>
@@ -252,7 +252,7 @@ export default function HomePage() {
       {/* Welcome banner */}
       {!authLoading && !user && !bannerDismissed && (
         <div className="bg-brand-light text-brand-darker border-b border-divider">
-          <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
+          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
             <Link href="/account" className="text-sm font-semibold flex-1 hover:underline">
               🎉 {t('banner.text')} — {t('banner.cta')}
             </Link>
@@ -269,7 +269,7 @@ export default function HomePage() {
 
       {/* Search bar — mobile only. Desktop uses the inline TopNav search. */}
       <div id="search" className="bg-surface md:hidden">
-        <div className="max-w-7xl mx-auto px-4 pt-4 pb-2">
+        <div className="max-w-6xl mx-auto px-4 pt-4 pb-2">
           <label className="relative block">
             <span className="absolute inset-y-0 left-3 flex items-center text-ink-tertiary pointer-events-none">🔍</span>
             <input
@@ -285,7 +285,7 @@ export default function HomePage() {
       </div>
 
       {/* Main grid */}
-      <main className="max-w-7xl mx-auto px-4 pt-4 pb-28">
+      <main className="max-w-6xl mx-auto px-4 pt-4 pb-28">
 
         {!loading && filtered.length > 0 && (
           <>
