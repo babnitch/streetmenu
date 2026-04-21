@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem, Order } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
+import { useMode, type DashboardTab } from '@/lib/modeContext'
 import LanguageToggle from '@/components/LanguageToggle'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
@@ -117,18 +118,22 @@ export default function DashboardPage() {
   // `team` + `settings` land via the Restaurant-mode TopNav/BottomNav. Full
   // UI for them arrives in a follow-up; for now they show a stub so the
   // tab bar has something sensible to display instead of the default.
-  const [tab, setTab] = useState<'orders' | 'menu' | 'validate' | 'team' | 'settings'>('orders')
+  //
+  // Tab state lives in ModeContext so BottomNav/TopNav can flip tabs
+  // without a route change — encoding it in ?tab= led to missed taps
+  // because Next.js skips re-render when only the query string moves.
+  const { dashboardTab: tab, setDashboardTab: setTab } = useMode()
 
   // Honor the ?tab= query param so deep links from the nav land on the
   // requested tab. Only accept known tab values to avoid arbitrary strings.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed = ['orders', 'menu', 'validate', 'team', 'settings'] as const
-    if (q && (allowed as readonly string[]).includes(q)) {
-      setTab(q as typeof allowed[number])
+    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'team', 'settings']
+    if (q && (allowed as string[]).includes(q)) {
+      setTab(q as DashboardTab)
     }
-  }, [])
+  }, [setTab])
   const [validateInput, setValidateInput] = useState('')
   const [validating, setValidating] = useState(false)
   const [validateResult, setValidateResult] = useState<null | 'ok' | 'used' | 'invalid'>(null)

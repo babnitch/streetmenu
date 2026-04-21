@@ -7,7 +7,7 @@ import { useCart } from '@/lib/cartContext'
 import { useBi } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
-import { useMode } from '@/lib/modeContext'
+import { useMode, type DashboardTab } from '@/lib/modeContext'
 
 interface TopNavProps {
   // Retained for compatibility with pages that pass a Join CTA. New layout
@@ -68,7 +68,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     return () => { cancelled = true }
   }, [])
 
-  const { mode, hasRestaurantRole, topRole } = useMode()
+  const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab } = useMode()
 
   const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
   const isRestaurants = pathname === '/'
@@ -86,14 +86,22 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
   const isOwner   = topRole === 'owner'
   const isManager = topRole === 'manager'
-  // Dashboard tab helpers — match the ?tab= query on /dashboard.
-  const dashTab = (typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('tab') ?? 'orders'
-    : 'orders')
-  const isDashOrders   = isDashboard && dashTab === 'orders'
-  const isDashMenu     = isDashboard && dashTab === 'menu'
-  const isDashTeam     = isDashboard && dashTab === 'team'
-  const isDashSettings = isDashboard && dashTab === 'settings'
+  // Dashboard tab helpers — source of truth is ModeContext, not
+  // window.location, because encoding the tab in ?tab= caused
+  // Next.js to treat /dashboard?tab=a and /dashboard?tab=b as the
+  // same route and skip re-render, leading to missed clicks.
+  const isDashOrders   = isDashboard && dashboardTab === 'orders'
+  const isDashMenu     = isDashboard && dashboardTab === 'menu'
+  const isDashTeam     = isDashboard && dashboardTab === 'team'
+  const isDashSettings = isDashboard && dashboardTab === 'settings'
+
+  // Tapping a dashboard-tab link flips context state and (if needed)
+  // routes to /dashboard. Navigating while already on /dashboard is a
+  // same-route no-op, so we just update state there.
+  const goToDashTab = (next: DashboardTab) => {
+    setDashboardTab(next)
+    if (!isDashboard) router.push('/dashboard')
+  }
 
   // Map toggle — rendered on the home and events pages. Dispatches a
   // custom event the page listens for; keeps TopNav decoupled from the
@@ -172,22 +180,22 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           )}
           {effectiveMode === 'restaurant' && (
             <>
-              <TopNavLink href="/dashboard?tab=orders" active={isDashOrders || (isDashboard && !isDashMenu && !isDashTeam && !isDashSettings)}>
+              <TopNavButton onClick={() => goToDashTab('orders')} active={isDashOrders || (isDashboard && !isDashMenu && !isDashTeam && !isDashSettings)}>
                 📦 {bi('Commandes', 'Orders')}
-              </TopNavLink>
+              </TopNavButton>
               {(isOwner || isManager) && (
-                <TopNavLink href="/dashboard?tab=menu" active={isDashMenu}>
+                <TopNavButton onClick={() => goToDashTab('menu')} active={isDashMenu}>
                   🍽️ {bi('Menu', 'Menu')}
-                </TopNavLink>
+                </TopNavButton>
               )}
               {isOwner && (
                 <>
-                  <TopNavLink href="/dashboard?tab=team" active={isDashTeam}>
+                  <TopNavButton onClick={() => goToDashTab('team')} active={isDashTeam}>
                     👥 {bi('Équipe', 'Team')}
-                  </TopNavLink>
-                  <TopNavLink href="/dashboard?tab=settings" active={isDashSettings}>
+                  </TopNavButton>
+                  <TopNavButton onClick={() => goToDashTab('settings')} active={isDashSettings}>
                     ⚙️ {bi('Paramètres', 'Settings')}
-                  </TopNavLink>
+                  </TopNavButton>
                 </>
               )}
             </>
@@ -267,5 +275,32 @@ function TopNavLink({
     >
       {children}
     </Link>
+  )
+}
+
+// Dashboard-tab variant — no href, flips ModeContext state. Keeps
+// dashboard tab switching instant instead of bouncing through the
+// router, which Next.js skips for same-route ?tab= changes.
+function TopNavButton({
+  onClick,
+  active,
+  children,
+}: {
+  onClick: () => void
+  active: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+        active
+          ? 'bg-brand-light text-brand-darker'
+          : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-muted'
+      }`}
+    >
+      {children}
+    </button>
   )
 }

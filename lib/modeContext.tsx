@@ -11,6 +11,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 
 export type Mode     = 'client' | 'restaurant'
 export type TeamRole = 'owner' | 'manager' | 'staff'
+export type DashboardTab = 'orders' | 'menu' | 'validate' | 'team' | 'settings'
 
 interface ModeContextValue {
   mode: Mode
@@ -24,6 +25,13 @@ interface ModeContextValue {
   /** `true` while the initial auth/team probe is in flight. UI should avoid
    *  flashing the switcher or nav variant during this window. */
   loading: boolean
+  /** Currently-selected tab on /dashboard. Lives here (not in the page)
+   *  so BottomNav/TopNav can flip it without a route change — tapping
+   *  a tab was unreliable when we encoded it in ?tab=… because Next.js
+   *  treats /dashboard?tab=a and /dashboard?tab=b as the same route
+   *  and skips re-render. */
+  dashboardTab: DashboardTab
+  setDashboardTab: (t: DashboardTab) => void
 }
 
 const STORAGE_KEY = 'nt_mode'
@@ -41,6 +49,8 @@ const ModeContext = createContext<ModeContextValue>({
   hasRestaurantRole: false,
   topRole: null,
   loading: true,
+  dashboardTab: 'orders',
+  setDashboardTab: () => {},
 })
 
 export function ModeProvider({ children }: { children: ReactNode }) {
@@ -48,6 +58,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const [hasRestaurantRole, setHasRestaurant] = useState(false)
   const [topRole, setTopRole]                 = useState<TeamRole | null>(null)
   const [loading, setLoading]                 = useState(true)
+  const [dashboardTab, setDashboardTab]      = useState<DashboardTab>('orders')
 
   // Restore the persisted mode choice on mount. Only the two known values
   // are accepted — guards against stale storage from a prior schema.
@@ -108,7 +119,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ModeContext.Provider value={{ mode, setMode, hasRestaurantRole, topRole, loading }}>
+    <ModeContext.Provider value={{ mode, setMode, hasRestaurantRole, topRole, loading, dashboardTab, setDashboardTab }}>
       {children}
     </ModeContext.Provider>
   )
