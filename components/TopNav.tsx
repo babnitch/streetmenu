@@ -39,9 +39,16 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const [me, setMe] = useState<SessionUser | null>(null)
   const [vendor, setVendor] = useState<VendorState>({ kind: 'none' })
   const [searchDraft, setSearchDraft] = useState('')
+  // Mirror of the mobile BottomNav's vendor pending count so the desktop
+  // Orders link can surface the same red badge. Polled every 30s to
+  // match the mobile cadence; poll is only started when the viewer
+  // actually owns/manages an approved restaurant.
+  const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+    const timers: Array<ReturnType<typeof setInterval>> = []
+
     ;(async () => {
       try {
         const meRes = await fetch('/api/auth/me', { cache: 'no-store' })
@@ -61,11 +68,26 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         if (!list.length) { setVendor({ kind: 'none' }); return }
         const allPending = list.every(r => r.status === 'pending')
         setVendor({ kind: allPending ? 'pending' : 'approved' })
+
+        if (!allPending) {
+          const refreshCount = async () => {
+            try {
+              const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
+              const d = await r.json()
+              if (!cancelled) setPendingCount(Number(d?.count ?? 0))
+            } catch { /* transient network; keep prior count */ }
+          }
+          refreshCount()
+          timers.push(setInterval(refreshCount, 30_000))
+        }
       } catch {
         if (!cancelled) { setVendor({ kind: 'none' }); setMe(null) }
       }
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      for (const t of timers) clearInterval(t)
+    }
   }, [])
 
   const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab } = useMode()
@@ -184,10 +206,14 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           )}
           {effectiveMode === 'restaurant' && (
             <>
-              {/* The Orders tab also catches the "no known tab" case so a
-                  freshly-loaded /dashboard with a default state still
-                  highlights correctly. */}
-              <TopNavButton onClick={() => goToDashTab('orders')} active={isDashOrders || (isDashboard && !isDashMenu && !isDashVouchers && !isDashTeam)}>
+              {/* Orders catches the "no known tab" case so a freshly
+                  loaded /dashboard still highlights it. Pending-count
+                  badge mirrors the BottomNav badge on mobile. */}
+              <TopNavButton
+                onClick={() => goToDashTab('orders')}
+                active={isDashOrders || (isDashboard && !isDashMenu && !isDashVouchers && !isDashTeam)}
+                badge={pendingCount}
+              >
                 📦 {bi('Commandes', 'Orders')}
               </TopNavButton>
               {(isOwner || isManager) && (
@@ -200,11 +226,9 @@ export default function TopNav({ cta }: TopNavProps = {}) {
                   🎫 {bi('Bons', 'Vouchers')}
                 </TopNavButton>
               )}
-              {isOwner && (
-                <TopNavButton onClick={() => goToDashTab('team')} active={isDashTeam}>
-                  👥 {bi('Équipe', 'Team')}
-                </TopNavButton>
-              )}
+              {/* Team management lives inside /account (Team tab) —
+                  removed from the header nav to avoid a second entry
+                  point for the same UI. */}
             </>
           )}
         </nav>
@@ -287,27 +311,44 @@ function TopNavLink({
 
 // Dashboard-tab variant — no href, flips ModeContext state. Keeps
 // dashboard tab switching instant instead of bouncing through the
-// router, which Next.js skips for same-route ?tab= changes.
+// router, which Next.js skips for same-route ?tab= changes. Supports
+// an optional badge that's absolutely-positioned over the top-right
+// corner of the pill, matching the BottomNav style.
 function TopNavButton({
   onClick,
   active,
+  badge,
   children,
 }: {
   onClick: () => void
   active: boolean
+  badge?: number
   children: React.ReactNode
 }) {
+  const hasBadge = badge != null && badge > 0
+  const twoDigit = hasBadge && (badge as number) > 9
+  const badgeSize = twoDigit
+    ? 'h-5 min-w-5 text-[10px] px-1'
+    : 'h-4 w-4 text-[10px]'
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+      className={`relative px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
         active
           ? 'bg-brand-light text-brand-darker'
           : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-muted'
       }`}
     >
       {children}
+      {hasBadge && (
+        <span
+          aria-label={`${badge} pending`}
+          className={`absolute -top-1 -right-1 ${badgeSize} rounded-full bg-danger text-white font-bold flex items-center justify-center leading-none ring-2 ring-surface`}
+        >
+          {(badge as number) > 99 ? '99+' : badge}
+        </span>
+      )}
     </button>
   )
 }
