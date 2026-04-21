@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { Restaurant } from '@/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,26 +24,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   }
 
+  // Select every column: the vendor dashboard renders `is_open`,
+  // `address`, `logo_url`, etc., and an explicit allow-list kept
+  // dropping fields (is_open was missing, which made "Closed" stick
+  // even when the DB said open). These rows are only ever returned
+  // to their own owner/team, so there is nothing to hide.
   const [teamRes, directRes] = await Promise.all([
     supabaseAdmin
       .from('restaurant_team')
-      .select('role, restaurants(id, name, city, neighborhood, cuisine_type, image_url, is_active, status, deleted_at, suspended_at, suspended_by, whatsapp, customer_id)')
+      .select('role, restaurants(*)')
       .eq('customer_id', session.id)
       .eq('status', 'active'),
     supabaseAdmin
       .from('restaurants')
-      .select('id, name, city, neighborhood, cuisine_type, image_url, is_active, status, deleted_at, suspended_at, suspended_by, whatsapp, customer_id')
+      .select('*')
       .eq('customer_id', session.id)
       .is('deleted_at', null)
       .neq('status', 'deleted'),
   ])
 
-  type RestaurantRow = {
-    id: string; name: string; city: string; neighborhood: string; cuisine_type: string;
-    image_url: string | null; is_active: boolean; status: string;
-    deleted_at: string | null; suspended_at: string | null; suspended_by: string | null;
-    whatsapp: string; customer_id: string | null;
-  }
+  type RestaurantRow = Restaurant & { customer_id: string | null }
 
   const merged = new Map<string, RestaurantRow & { teamRole: 'owner' | 'manager' | 'staff' }>()
 
