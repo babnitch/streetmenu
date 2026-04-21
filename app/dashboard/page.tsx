@@ -197,6 +197,9 @@ export default function DashboardPage() {
         const list = (data?.restaurants ?? []) as Restaurant[]
         const rolesMap = (data?.rolesByRestaurantId ?? {}) as Record<string, VendorRole>
         console.log('[dashboard] me=', me.id.slice(0, 8), 'restaurants=', list.length, 'roles=', rolesMap)
+        // One-line open/closed snapshot so a vendor reporting "we're open but
+        // it shows closed" can verify the actual DB value in devtools.
+        console.log('[dashboard] open-status=', list.map(r => `${r.name}:is_open=${r.is_open}`).join(', '))
         setRestaurants(list)
         setRolesByRestaurantId(rolesMap)
         setSelectedRestaurant(prev => prev ?? list[0] ?? null)
@@ -269,12 +272,18 @@ export default function DashboardPage() {
 
   async function toggleOpen() {
     if (!selectedRestaurant) return
-    const { data } = await supabase
+    const next = !selectedRestaurant.is_open
+    const { data, error } = await supabase
       .from('restaurants')
-      .update({ is_open: !selectedRestaurant.is_open })
+      .update({ is_open: next })
       .eq('id', selectedRestaurant.id)
       .select()
       .single()
+    console.log('[dashboard] toggleOpen', selectedRestaurant.name, 'from=', selectedRestaurant.is_open, 'to=', next, 'returned=', data?.is_open, 'error=', error)
+    if (error) {
+      setUpdateError(error.message)
+      return
+    }
     if (data) {
       setSelectedRestaurant(data)
       setRestaurants(prev => prev.map(r => r.id === data.id ? data : r))
@@ -341,9 +350,6 @@ export default function DashboardPage() {
           can take full width instead of colliding with the title */}
       <div className="bg-surface border-b border-divider px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href="/account" className="text-ink-secondary hover:text-brand transition-colors text-sm whitespace-nowrap">
-            ← {bi('Mon compte', 'My account')}
-          </Link>
           <h1 className="text-lg font-bold text-ink-primary truncate">{t('dash.title')}</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
