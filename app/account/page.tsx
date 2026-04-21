@@ -609,9 +609,13 @@ export default function AccountPage() {
     )
   }
 
+  // Admin dashboard widens to 7xl for the data-heavy tabs (restaurants,
+  // orders, accounts). Form surfaces (sign-in, sign-up, profile edit)
+  // stay at max-w-md — single-column forms get unreadable past ~600px
+  // and that's what max-w-md already caps them at.
   const containerClass =
     step === 'dashboard' && dashView === 'admin'
-      ? 'max-w-5xl mx-auto px-4 py-8'
+      ? 'max-w-7xl mx-auto px-4 py-8'
       : 'max-w-md mx-auto px-4 py-8'
 
   return (

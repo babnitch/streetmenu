@@ -152,7 +152,7 @@ export default function EventsPage() {
 
       {/* Category filter */}
       <div className="bg-white border-b border-divider">
-        <div className="max-w-5xl mx-auto px-4 py-2.5 flex gap-2 overflow-x-auto scrollbar-hide">
+        <div className="max-w-7xl mx-auto px-4 py-2.5 flex gap-2 overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setSelectedCategory('all')}
             className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
@@ -180,7 +180,7 @@ export default function EventsPage() {
       </div>
 
       {/* Main */}
-      <main className="max-w-5xl mx-auto px-4 py-5 pb-32">
+      <main className="max-w-7xl mx-auto px-4 py-5 pb-32">
 
         {/* Page title */}
         <div className="mb-4">

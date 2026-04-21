@@ -364,21 +364,23 @@ export default function DashboardPage() {
           restaurants; a single-restaurant vendor has nothing to pick
           and the whole row would just be empty chrome. */}
       {restaurants.length > 1 && (
-        <div className="bg-surface border-b border-divider px-4 py-2 flex items-center justify-end gap-2">
-          <select
-            value={selectedRestaurant?.id}
-            onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
-            className="text-sm border border-divider rounded-xl px-3 py-1.5 outline-none focus:border-brand max-w-[60vw]"
-          >
-            {restaurants.map(r => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
+        <div className="bg-surface border-b border-divider">
+          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-end gap-2">
+            <select
+              value={selectedRestaurant?.id}
+              onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
+              className="text-sm border border-divider rounded-xl px-3 py-1.5 outline-none focus:border-brand max-w-[60vw]"
+            >
+              {restaurants.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 
       {selectedRestaurant && (
-        <div className="max-w-2xl mx-auto px-4 py-4 pb-20 md:pb-4">
+        <div className="max-w-7xl mx-auto px-4 py-4 pb-20 md:pb-4">
           {/* Restaurant card */}
           <div className="bg-white rounded-2xl p-4 shadow-sm mb-4 flex items-center justify-between">
             <div>
