@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem, Order } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
-import LanguageToggle from '@/components/LanguageToggle'
+import TopNav from '@/components/TopNav'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
 type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
@@ -129,7 +129,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'team', 'settings']
+    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'team']
     if (q && (allowed as string[]).includes(q)) {
       setTab(q as DashboardTab)
     }
@@ -355,27 +355,27 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-surface-muted">
-      {/* Header — stacks on narrow viewports so the restaurant selector
-          can take full width instead of colliding with the title */}
-      <div className="bg-surface border-b border-divider px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-lg font-bold text-ink-primary truncate">{t('dash.title')}</h1>
+      {/* Global nav stays sticky on every dashboard tab — in restaurant
+          mode the TopNav surfaces the Orders/Menu/Vouchers/Team links
+          that drive tab state via ModeContext. */}
+      <TopNav />
+
+      {/* Sub-header only renders when a vendor owns/manages multiple
+          restaurants; a single-restaurant vendor has nothing to pick
+          and the whole row would just be empty chrome. */}
+      {restaurants.length > 1 && (
+        <div className="bg-surface border-b border-divider px-4 py-2 flex items-center justify-end gap-2">
+          <select
+            value={selectedRestaurant?.id}
+            onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
+            className="text-sm border border-divider rounded-xl px-3 py-1.5 outline-none focus:border-brand max-w-[60vw]"
+          >
+            {restaurants.map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {restaurants.length > 1 && (
-            <select
-              value={selectedRestaurant?.id}
-              onChange={e => setSelectedRestaurant(restaurants.find(r => r.id === e.target.value) ?? null)}
-              className="text-sm border border-divider rounded-xl px-3 py-1.5 outline-none focus:border-brand max-w-[60vw]"
-            >
-              {restaurants.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          )}
-          <LanguageToggle />
-        </div>
-      </div>
+      )}
 
       {selectedRestaurant && (
         <div className="max-w-2xl mx-auto px-4 py-4 pb-20 md:pb-4">
@@ -397,46 +397,10 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          {/* Tabs — desktop only. On mobile the BottomNav covers the same
-              switches, so rendering them here too would duplicate the
-              entire navigation row. */}
-          {(() => {
-            const TERMINAL = new Set(['delivered', 'completed', 'cancelled'])
-            const activeCount = orders.filter(o => !TERMINAL.has(o.status)).length
-            return (
-              <div className="hidden md:flex bg-white rounded-2xl p-1 shadow-sm mb-4 gap-1">
-                <button
-                  onClick={() => setTab('orders')}
-                  className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
-                    tab === 'orders' ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
-                  }`}
-                >
-                  📦 {t('dash.ordersTab')}
-                  {activeCount > 0 && (
-                    <span className="ml-1.5 bg-brand text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                      {activeCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setTab('menu')}
-                  className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
-                    tab === 'menu' ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
-                  }`}
-                >
-                  🍽️ {t('dash.menuTab')}
-                </button>
-                <button
-                  onClick={() => { setTab('validate'); setValidateResult(null); setValidateDetails(null); setValidateDone(false); setValidateInput('') }}
-                  className={`flex-1 min-w-0 py-2 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors truncate ${
-                    tab === 'validate' ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
-                  }`}
-                >
-                  🏷️ {bi('Bons', 'Vouchers')}
-                </button>
-              </div>
-            )
-          })()}
+          {/* Inline tab bar removed — tab switching lives in the TopNav
+              (desktop) and BottomNav (mobile). Rendering it here as well
+              was triplicate navigation and still forced the user's eye
+              to move twice per tab change. */}
 
           {/* Orders Tab */}
           {tab === 'orders' && (
@@ -774,24 +738,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {tab === 'settings' && (
-            <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
-              <div className="text-4xl mb-3">⚙️</div>
-              <h3 className="font-bold text-ink-primary mb-1">{bi('Paramètres', 'Settings')}</h3>
-              <p className="text-sm text-ink-secondary mb-4">
-                {bi(
-                  'Modifiez les détails du restaurant depuis Compte → Restaurant.',
-                  'Edit restaurant details from Account → Restaurant.',
-                )}
-              </p>
-              <Link
-                href="/account?tab=restaurant"
-                className="inline-block bg-brand hover:bg-brand-dark text-white px-5 py-2 rounded-xl font-semibold text-sm transition-colors"
-              >
-                {bi('Aller à Compte', 'Go to Account')}
-              </Link>
-            </div>
-          )}
         </div>
       )}
     </div>

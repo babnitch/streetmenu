@@ -92,8 +92,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // same route and skip re-render, leading to missed clicks.
   const isDashOrders   = isDashboard && dashboardTab === 'orders'
   const isDashMenu     = isDashboard && dashboardTab === 'menu'
+  const isDashVouchers = isDashboard && dashboardTab === 'validate'
   const isDashTeam     = isDashboard && dashboardTab === 'team'
-  const isDashSettings = isDashboard && dashboardTab === 'settings'
 
   // Tapping a dashboard-tab link flips context state and (if needed)
   // routes to /dashboard. Navigating while already on /dashboard is a
@@ -134,27 +134,31 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         {/* Desktop-only inline search — submits to /?q=...#search so the
             home page seeds its own search input. On pages other than /,
             this is a jump-to-results shortcut. Hidden on mobile; the
-            home page search input + BottomNav Search tab cover mobile. */}
-        <form
-          onSubmit={e => {
-            e.preventDefault()
-            const q = searchDraft.trim()
-            router.push(q ? `/?q=${encodeURIComponent(q)}#search` : '/')
-          }}
-          className="hidden md:flex flex-1 max-w-md"
-          role="search"
-        >
-          <label className="relative block w-full">
-            <span className="absolute inset-y-0 left-3 flex items-center text-ink-tertiary pointer-events-none">🔍</span>
-            <input
-              type="search"
-              value={searchDraft}
-              onChange={e => setSearchDraft(e.target.value)}
-              placeholder={bi('Rechercher un restaurant…', 'Search restaurants…')}
-              className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
-            />
-          </label>
-        </form>
+            home page search input + BottomNav Search tab cover mobile.
+            Also hidden in restaurant mode — vendors manage their own
+            restaurant and don't discover other venues from here. */}
+        {effectiveMode === 'client' && (
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              const q = searchDraft.trim()
+              router.push(q ? `/?q=${encodeURIComponent(q)}#search` : '/')
+            }}
+            className="hidden md:flex flex-1 max-w-md"
+            role="search"
+          >
+            <label className="relative block w-full">
+              <span className="absolute inset-y-0 left-3 flex items-center text-ink-tertiary pointer-events-none">🔍</span>
+              <input
+                type="search"
+                value={searchDraft}
+                onChange={e => setSearchDraft(e.target.value)}
+                placeholder={bi('Rechercher un restaurant…', 'Search restaurants…')}
+                className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
+              />
+            </label>
+          </form>
+        )}
 
         {/* Desktop-only nav links. Hidden on mobile — BottomNav covers these.
             `flex-shrink-0` + `whitespace-nowrap` keep every link visible even
@@ -180,7 +184,10 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           )}
           {effectiveMode === 'restaurant' && (
             <>
-              <TopNavButton onClick={() => goToDashTab('orders')} active={isDashOrders || (isDashboard && !isDashMenu && !isDashTeam && !isDashSettings)}>
+              {/* The Orders tab also catches the "no known tab" case so a
+                  freshly-loaded /dashboard with a default state still
+                  highlights correctly. */}
+              <TopNavButton onClick={() => goToDashTab('orders')} active={isDashOrders || (isDashboard && !isDashMenu && !isDashVouchers && !isDashTeam)}>
                 📦 {bi('Commandes', 'Orders')}
               </TopNavButton>
               {(isOwner || isManager) && (
@@ -188,15 +195,15 @@ export default function TopNav({ cta }: TopNavProps = {}) {
                   🍽️ {bi('Menu', 'Menu')}
                 </TopNavButton>
               )}
+              {(isOwner || isManager) && (
+                <TopNavButton onClick={() => goToDashTab('validate')} active={isDashVouchers}>
+                  🎫 {bi('Bons', 'Vouchers')}
+                </TopNavButton>
+              )}
               {isOwner && (
-                <>
-                  <TopNavButton onClick={() => goToDashTab('team')} active={isDashTeam}>
-                    👥 {bi('Équipe', 'Team')}
-                  </TopNavButton>
-                  <TopNavButton onClick={() => goToDashTab('settings')} active={isDashSettings}>
-                    ⚙️ {bi('Paramètres', 'Settings')}
-                  </TopNavButton>
-                </>
+                <TopNavButton onClick={() => goToDashTab('team')} active={isDashTeam}>
+                  👥 {bi('Équipe', 'Team')}
+                </TopNavButton>
               )}
             </>
           )}

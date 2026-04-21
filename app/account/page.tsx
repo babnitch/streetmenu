@@ -806,9 +806,10 @@ export default function AccountPage() {
         {/* ── Dashboard ── */}
         {step === 'dashboard' && user && (
           <div>
-            {/* Mode banner — only renders for users with a team role.
-                Primary entry point for the Client ⇄ Restaurant switch. */}
-            <ModeToggle variant="banner" />
+            {/* Mode switcher previously lived in a banner at the very top
+                of this view; it now only renders inside the Profile tab
+                (see ModeToggle further down) so it stops competing with
+                the main content for attention. */}
 
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
@@ -1025,12 +1026,13 @@ export default function AccountPage() {
                           <LanguageToggle />
                         </div>
 
-                        {/* Mode toggle — shown only to users with a team role
-                            (see ModeContext.hasRestaurantRole). */}
-                        <div>
-                          <label className="block text-xs text-ink-tertiary mb-2">{bi('Mode', 'Mode')}</label>
-                          <ModeToggle variant="compact" />
-                        </div>
+                        {/* Mode toggle — the single entry point for the
+                            Client ⇄ Restaurant switch, now that the header
+                            banner has been retired. Uses the "banner"
+                            variant so the switch + its explanatory copy
+                            stay findable inside the profile tab. Returns
+                            null for users with no team role. */}
+                        <ModeToggle variant="banner" />
 
                         {/* Suspension info */}
                         {profile.status === 'suspended' && profile.suspended_by && (
