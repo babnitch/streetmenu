@@ -22,6 +22,9 @@ export interface Restaurant {
   suspended_at?: string | null
   suspended_by?: string | null
   image_url?: string | null
+  // Payments (added via supabase-payments.sql)
+  payment_enabled?: boolean
+  pawapay_merchant_id?: string | null
 }
 
 export interface MenuItem {
@@ -51,6 +54,13 @@ export interface Order {
   voucher_code?: string
   discount_amount?: number
   restaurants?: { name: string; city: string }
+  // Payments (added via supabase-payments.sql)
+  order_type?: 'reservation' | 'paid_order'
+  payment_status?: 'not_required' | 'pending' | 'paid' | 'failed' | 'refunded'
+  payment_id?: string | null
+  payment_method?: string | null
+  payment_amount?: number | null
+  payment_at?: string | null
 }
 
 export interface Voucher {
