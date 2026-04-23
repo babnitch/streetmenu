@@ -11,7 +11,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 
 export type Mode     = 'client' | 'restaurant'
 export type TeamRole = 'owner' | 'manager' | 'staff'
-export type DashboardTab = 'orders' | 'menu' | 'validate' | 'team'
+export type DashboardTab = 'orders' | 'menu' | 'validate' | 'team' | 'settings'
 
 interface ModeContextValue {
   mode: Mode

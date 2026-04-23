@@ -11,6 +11,7 @@ import { Restaurant, MenuItem, Order } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import TopNav from '@/components/TopNav'
+import PaymentBadge from '@/components/PaymentBadge'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
 type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
@@ -129,7 +130,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'team']
+    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'team', 'settings']
     if (q && (allowed as string[]).includes(q)) {
       setTab(q as DashboardTab)
     }
@@ -482,9 +483,12 @@ export default function DashboardPage() {
                               )}
                               <p className="text-xs text-ink-tertiary mt-0.5">{dateStr} · {timeStr}</p>
                             </div>
-                            <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${STATUS_COLORS[order.status] ?? 'bg-surface-muted text-ink-secondary'}`}>
-                              {pickBi(STATUS_LABEL[order.status] ?? order.status, locale)}
-                            </span>
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLORS[order.status] ?? 'bg-surface-muted text-ink-secondary'}`}>
+                                {pickBi(STATUS_LABEL[order.status] ?? order.status, locale)}
+                              </span>
+                              <PaymentBadge order={order} locale={locale} />
+                            </div>
                           </div>
 
                           <ul className="text-sm text-ink-primary space-y-0.5 mb-3">
@@ -740,6 +744,205 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {tab === 'settings' && effectiveRole === 'owner' && (
+            <PaymentSettingsPanel
+              restaurant={selectedRestaurant}
+              onChange={updated => {
+                setSelectedRestaurant(updated)
+                setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+              }}
+            />
+          )}
+          {tab === 'settings' && effectiveRole !== 'owner' && (
+            <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
+              <div className="text-4xl mb-3">🔒</div>
+              <p className="text-sm text-ink-secondary">
+                {bi(
+                  'Réservé au propriétaire du restaurant.',
+                  'Restricted to the restaurant owner.',
+                )}
+              </p>
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Payment settings panel ───────────────────────────────────────────────────
+// Owner-only view rendered under the Settings tab. Toggles
+// restaurants.payment_enabled and exposes the payout phone number (defaulted
+// to the restaurant's WhatsApp number, since most vendors register their
+// MoMo wallet on the same line).
+function PaymentSettingsPanel({
+  restaurant,
+  onChange,
+}: {
+  restaurant: Restaurant
+  onChange: (next: Restaurant) => void
+}) {
+  const bi = useBi()
+  const [enabled, setEnabled] = useState(Boolean((restaurant as Restaurant & { payment_enabled?: boolean }).payment_enabled))
+  const [payoutPhone, setPayoutPhone] = useState(restaurant.whatsapp ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState('')
+  const [savedFlash, setSavedFlash] = useState(false)
+
+  // Detect MNO from the payout phone — same lightweight heuristic the
+  // checkout flow uses, kept inline so the dashboard doesn't need to
+  // import the server-only PawaPay module.
+  const mno = (() => {
+    const digits = payoutPhone.replace(/[^\d+]/g, '')
+    if (digits.startsWith('+237')) {
+      const p = digits.slice(4, 6)
+      if (['65', '67', '68'].includes(p)) return 'MTN MoMo'
+      if (p === '69')                     return 'Orange Money'
+    }
+    if (digits.startsWith('+225')) {
+      const p = digits.slice(4, 6)
+      if (['07', '08', '09'].includes(p)) return 'MTN MoMo'
+      if (['05', '06'].includes(p))       return 'Orange Money'
+      if (p === '01')                     return 'Moov Money'
+    }
+    if (digits.startsWith('+221')) {
+      const p = digits.slice(4, 6)
+      if (['77', '78'].includes(p)) return 'Orange Money'
+      if (p === '76')               return 'Free Money'
+    }
+    if (digits.startsWith('+229')) {
+      const p = digits.slice(4, 6)
+      if (['96', '97'].includes(p)) return 'MTN MoMo'
+      if (['94', '95'].includes(p)) return 'Moov Money'
+    }
+    return null
+  })()
+
+  async function save(nextEnabled: boolean) {
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/restaurants/${restaurant.id}/payment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_enabled: nextEnabled }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? bi('Erreur', 'Error'))
+        setEnabled(!nextEnabled) // roll back optimistic flip
+        return
+      }
+      setEnabled(nextEnabled)
+      onChange({ ...restaurant, ...(data as { payment_enabled?: boolean }) } as Restaurant)
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function testPayment() {
+    setSaving(true)
+    setError('')
+    try {
+      // 100 FCFA sandbox payout to the configured number.
+      const res = await fetch('/api/payments/payout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantId: restaurant.id, amount: 100, phoneNumber: payoutPhone, description: 'Test' }),
+      })
+      const data = await res.json()
+      if (!res.ok) setError(data.error ?? bi('Test échoué', 'Test failed'))
+      else setSavedFlash(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="font-bold text-ink-primary">
+              💳 {bi('Paiement en ligne', 'Online Payment')}
+            </h3>
+            <p className="text-xs text-ink-tertiary mt-1">
+              {bi(
+                'Acceptez les paiements mobile money via PawaPay (MTN MoMo, Orange Money, etc.).',
+                'Accept mobile money payments via PawaPay (MTN MoMo, Orange Money, etc.).',
+              )}
+            </p>
+          </div>
+          <button
+            onClick={() => save(!enabled)}
+            disabled={saving}
+            role="switch"
+            aria-checked={enabled}
+            className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+              enabled ? 'bg-brand' : 'bg-divider'
+            } ${saving ? 'opacity-60' : ''}`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform ${
+                enabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {savedFlash && (
+          <p className="text-xs text-brand-darker mt-3">✓ {bi('Enregistré', 'Saved')}</p>
+        )}
+        {error && <p className="text-xs text-danger mt-3">{error}</p>}
+      </div>
+
+      {enabled && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-ink-secondary mb-1">
+              {bi('Numéro pour recevoir les paiements', 'Phone number for payouts')}
+            </label>
+            <input
+              type="tel"
+              value={payoutPhone}
+              onChange={e => setPayoutPhone(e.target.value)}
+              placeholder="+237 6XX XXX XXX"
+              className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand font-mono"
+            />
+            <p className="text-xs text-ink-tertiary mt-1">
+              {mno
+                ? `${bi('Opérateur détecté', 'Detected operator')}: ${mno}`
+                : bi("Numéro non reconnu pour le paiement mobile.", 'Phone not recognised for mobile payment.')}
+            </p>
+          </div>
+
+          <button
+            onClick={testPayment}
+            disabled={saving || !mno}
+            className="w-full bg-brand-light text-brand-darker hover:bg-brand-badge disabled:opacity-50 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+          >
+            🧪 {bi('Tester le paiement (100 FCFA)', 'Test payment (100 FCFA)')}
+          </button>
+          <p className="text-[10px] text-ink-tertiary text-center">
+            {bi(
+              'Sandbox uniquement. En production, contactez le support pour activer les payouts.',
+              'Sandbox only. In production, contact support to enable payouts.',
+            )}
+          </p>
+        </div>
+      )}
+
+      {!enabled && (
+        <div className="bg-surface-muted border border-divider rounded-2xl p-5">
+          <p className="text-sm text-ink-secondary">
+            📋 {bi(
+              'Les clients peuvent réserver mais le paiement se fait sur place.',
+              'Customers can reserve but payment happens on-site.',
+            )}
+          </p>
         </div>
       )}
     </div>

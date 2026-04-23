@@ -12,6 +12,7 @@ import LanguageToggle from '@/components/LanguageToggle'
 import ModeToggle from '@/components/ModeToggle'
 import VoucherCard from '@/components/VoucherCard'
 import AdminProfilePanel from '@/components/AdminProfilePanel'
+import PaymentBadge from '@/components/PaymentBadge'
 import { CustomerVoucher, Order } from '@/types'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
@@ -1659,6 +1660,7 @@ function orderShortId(id: string): string {
 
 function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string }) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const [expanded, setExpanded] = useState(false)
   const items: Array<{ name: string; quantity: number; price?: number }> = Array.isArray(order.items) ? order.items : []
   const itemsSummary = items.map(i => `${i.quantity}× ${i.name}`).join(', ')
@@ -1679,8 +1681,9 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
         <p className="text-xs text-ink-tertiary mb-2 truncate">{itemsSummary}</p>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <span className="font-bold text-brand text-sm">{Number(order.total_price).toLocaleString()} FCFA</span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <OrderStatusBadge status={order.status} />
+            <PaymentBadge order={order} locale={locale} showRef />
             <span className="text-ink-tertiary text-sm">{expanded ? '▾' : '▸'}</span>
           </div>
         </div>

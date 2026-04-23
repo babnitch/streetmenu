@@ -116,6 +116,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const isDashMenu     = isDashboard && dashboardTab === 'menu'
   const isDashVouchers = isDashboard && dashboardTab === 'validate'
   const isDashTeam     = isDashboard && dashboardTab === 'team'
+  const isDashSettings = isDashboard && dashboardTab === 'settings'
 
   // Tapping a dashboard-tab link flips context state and (if needed)
   // routes to /dashboard. Navigating while already on /dashboard is a
@@ -224,6 +225,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               {(isOwner || isManager) && (
                 <TopNavButton onClick={() => goToDashTab('validate')} active={isDashVouchers}>
                   🎫 {bi('Bons', 'Vouchers')}
+                </TopNavButton>
+              )}
+              {isOwner && (
+                <TopNavButton onClick={() => goToDashTab('settings')} active={isDashSettings}>
+                  ⚙️ {bi('Paramètres', 'Settings')}
                 </TopNavButton>
               )}
               {/* Team management lives inside /account (Team tab) —

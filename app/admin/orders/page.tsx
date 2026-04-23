@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Order, Restaurant } from '@/types'
 import { useLanguage } from '@/lib/languageContext'
+import PaymentBadge from '@/components/PaymentBadge'
 
 const STATUS_STYLES: Record<string, string> = {
   pending:   'bg-brand-light text-warning',
@@ -18,13 +19,14 @@ const STATUS_STYLES: Record<string, string> = {
 type OrderWithRestaurant = Order & { restaurants: { name: string; city: string } | null }
 
 export default function AdminOrdersPage() {
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
   const [orders, setOrders] = useState<OrderWithRestaurant[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
 
   const [restaurantFilter, setRestaurantFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'reservation' | 'pending' | 'failed'>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
@@ -36,13 +38,17 @@ export default function AdminOrdersPage() {
 
     if (restaurantFilter !== 'all') query = query.eq('restaurant_id', restaurantFilter)
     if (statusFilter !== 'all') query = query.eq('status', statusFilter)
+    if (paymentFilter === 'paid')        query = query.eq('payment_status', 'paid')
+    else if (paymentFilter === 'pending') query = query.eq('payment_status', 'pending')
+    else if (paymentFilter === 'failed')  query = query.eq('payment_status', 'failed')
+    else if (paymentFilter === 'reservation') query = query.eq('order_type', 'reservation')
     if (dateFrom) query = query.gte('created_at', dateFrom + 'T00:00:00')
     if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59')
 
     const { data } = await query
     if (data) setOrders(data as OrderWithRestaurant[])
     setLoading(false)
-  }, [restaurantFilter, statusFilter, dateFrom, dateTo])
+  }, [restaurantFilter, statusFilter, paymentFilter, dateFrom, dateTo])
 
   useEffect(() => {
     supabase.from('restaurants').select('id, name, city').order('name').then(({ data }) => {
@@ -75,7 +81,7 @@ export default function AdminOrdersPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl shadow-sm p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="bg-white rounded-2xl shadow-sm p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div>
           <label className="block text-xs text-ink-secondary mb-1">Restaurant</label>
           <select
@@ -105,6 +111,16 @@ export default function AdminOrdersPage() {
         <div>
           <label className="block text-xs text-ink-secondary mb-1">{t('admin.ordToDate')}</label>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={SELECT} />
+        </div>
+        <div>
+          <label className="block text-xs text-ink-secondary mb-1">Paiement / Payment</label>
+          <select value={paymentFilter} onChange={e => setPaymentFilter(e.target.value as typeof paymentFilter)} className={SELECT}>
+            <option value="all">Tous / All</option>
+            <option value="paid">Payé / Paid</option>
+            <option value="pending">En attente / Pending</option>
+            <option value="failed">Échoué / Failed</option>
+            <option value="reservation">Réservations / Reservations</option>
+          </select>
         </div>
       </div>
 
@@ -137,14 +153,17 @@ export default function AdminOrdersPage() {
             >
               {/* Mobile layout */}
               <div className="lg:hidden space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-ink-primary text-sm">{order.restaurants?.name ?? '—'}</p>
                     <p className="text-xs text-ink-tertiary">{order.restaurants?.city}</p>
                   </div>
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[order.status]}`}>
-                    {t(`status.${order.status}` as Parameters<typeof t>[0])}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[order.status]}`}>
+                      {t(`status.${order.status}` as Parameters<typeof t>[0])}
+                    </span>
+                    <PaymentBadge order={order} locale={locale} />
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="font-medium text-ink-primary">{order.customer_name}</span>
@@ -169,11 +188,12 @@ export default function AdminOrdersPage() {
                   {formatItems(order.items)}
                 </p>
                 <p className="font-bold text-brand text-sm">CHF {Number(order.total_price).toFixed(2)}</p>
-                <div>
+                <div className="space-y-1">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[order.status]}`}>
                     {t(`status.${order.status}` as Parameters<typeof t>[0])}
                   </span>
-                  <p className="text-xs text-ink-tertiary mt-1">{formatDate(order.created_at)}</p>
+                  <PaymentBadge order={order} locale={locale} />
+                  <p className="text-xs text-ink-tertiary">{formatDate(order.created_at)}</p>
                 </div>
               </div>
             </div>
