@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -17,6 +17,41 @@ import { Voucher, CustomerVoucher } from '@/types'
 // for customers — so it always returns null here. Fetching /api/auth/me
 // directly is the pattern already used by app/page.tsx and TopNav.
 interface SessionUser { id: string; name: string; phone: string; role: string }
+
+// Local guess for which MNO label to show before the server confirms it.
+// Mirrors lib/pawapay.ts detectMNO but keeps the lookup client-side so the
+// order page can preview the wallet logo without a roundtrip.
+function previewMNO(phone: string): { label: string; logo: string } | null {
+  const digits = phone.replace(/[^\d+]/g, '')
+  if (digits.startsWith('+237')) {
+    const local = digits.slice(4)
+    const p = local.slice(0, 2)
+    if (['65', '67', '68'].includes(p)) return { label: 'MTN MoMo',     logo: '🟡' }
+    if (p === '69')                     return { label: 'Orange Money', logo: '🟠' }
+  }
+  if (digits.startsWith('+225')) {
+    const local = digits.slice(4)
+    const p = local.slice(0, 2)
+    if (['07', '08', '09'].includes(p)) return { label: 'MTN MoMo',     logo: '🟡' }
+    if (['05', '06'].includes(p))       return { label: 'Orange Money', logo: '🟠' }
+    if (p === '01')                     return { label: 'Moov Money',   logo: '🔵' }
+  }
+  if (digits.startsWith('+221')) {
+    const local = digits.slice(4)
+    const p = local.slice(0, 2)
+    if (['77', '78'].includes(p)) return { label: 'Orange Money', logo: '🟠' }
+    if (p === '76')               return { label: 'Free Money',   logo: '⚫' }
+  }
+  if (digits.startsWith('+229')) {
+    const local = digits.slice(4)
+    const p = local.slice(0, 2)
+    if (['96', '97'].includes(p)) return { label: 'MTN MoMo',   logo: '🟡' }
+    if (['94', '95'].includes(p)) return { label: 'Moov Money', logo: '🔵' }
+  }
+  return null
+}
+
+type PayPhase = 'idle' | 'waiting' | 'paid' | 'failed' | 'timeout'
 
 export default function OrderPage() {
   const bi = useBi()
@@ -40,6 +75,15 @@ export default function OrderPage() {
   const [applyingVoucher, setApplyingVoucher] = useState(false)
   const [myVouchers, setMyVouchers] = useState<CustomerVoucher[]>([])
 
+  // Payment flow state
+  const [paymentEnabled, setPaymentEnabled] = useState(false)
+  const [payPhase, setPayPhase] = useState<PayPhase>('idle')
+  const [payError, setPayError] = useState('')
+  const [activeDepositId, setActiveDepositId] = useState<string | null>(null)
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Pull session on mount; only treat role='customer' as "logged in" for the
   // purposes of this page (admins and vendors don't have customer-ordering
   // UX needs here).
@@ -56,6 +100,22 @@ export default function OrderPage() {
     return () => { cancelled = true }
   }, [])
 
+  // Resolve the restaurant's payment_enabled flag — anonymous reads work
+  // because RLS already exposes restaurants for public browsing.
+  useEffect(() => {
+    if (!restaurantId) return
+    let cancelled = false
+    supabase
+      .from('restaurants')
+      .select('payment_enabled')
+      .eq('id', restaurantId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setPaymentEnabled(Boolean(data?.payment_enabled))
+      })
+    return () => { cancelled = true }
+  }, [restaurantId])
+
   useEffect(() => {
     if (!me) return
     supabase
@@ -68,12 +128,24 @@ export default function OrderPage() {
       })
   }, [me])
 
+  // Cleanup on unmount — stale poll/timeout would keep firing after the
+  // user navigates away and trigger setState-on-unmounted warnings.
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [])
+
   const discountAmount = appliedVoucher
     ? appliedVoucher.discount_type === 'percent'
       ? Math.round(totalPrice * appliedVoucher.discount_value / 100)
       : Math.min(appliedVoucher.discount_value, totalPrice)
     : 0
   const finalPrice = totalPrice - discountAmount
+
+  const customerPhoneInput = me?.phone ?? phone
+  const mnoPreview = customerPhoneInput ? previewMNO(customerPhoneInput) : null
 
   async function applyVoucher() {
     const code = voucherInput.trim().toUpperCase()
@@ -82,9 +154,6 @@ export default function OrderPage() {
     setVoucherError('')
 
     try {
-      // Server-side validation — enforces scope, expiry, exhaustion,
-      // per-customer limit, and min-order through the same library used
-      // by the WhatsApp ordering flow.
       const res = await fetch('/api/customer/vouchers/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -95,8 +164,6 @@ export default function OrderPage() {
         setVoucherError(data.error ?? bi('Code invalide', 'Invalid code'))
         return
       }
-      // Only id/code/discount_type/discount_value are used for display
-      // and for linking the voucher on the order row.
       setAppliedVoucher({
         id:             data.voucher.id,
         code:           data.voucher.code,
@@ -123,17 +190,15 @@ export default function OrderPage() {
     setVoucherError('')
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!restaurantId || items.length === 0) return
+  // Inserts the order row. Returns the new order id, or null on failure.
+  // Used by both the reservation and paid-order paths so cart/voucher
+  // bookkeeping happens in one place.
+  async function createOrderRow(orderType: 'reservation' | 'paid_order'): Promise<string | null> {
+    if (!restaurantId || items.length === 0) return null
 
-    // Logged-in customers use their session identity; guests use form input.
-    // Source of truth matters: if the user edited the form then logged in
-    // mid-flow, we still trust the session over stale form state.
     const customerName  = me?.name  ?? name.trim()
     const customerPhone = me?.phone ?? phone.trim()
 
-    setSubmitting(true)
     const { data, error } = await supabase.from('orders').insert({
       restaurant_id: restaurantId,
       customer_name: customerName,
@@ -144,30 +209,130 @@ export default function OrderPage() {
       customer_id: me?.id ?? null,
       voucher_code: appliedVoucher?.code ?? null,
       discount_amount: discountAmount > 0 ? discountAmount : null,
+      order_type: orderType,
+      payment_status: orderType === 'paid_order' ? 'pending' : 'not_required',
     }).select().single()
 
-    if (!error && data) {
-      if (appliedVoucher) {
-        // Server-side consumption: atomic current_uses bump + claim mark.
-        fetch('/api/customer/vouchers/consume', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ voucherId: appliedVoucher.id, orderId: data.id }),
-        }).catch(() => null)
-      }
-      // Fire-and-forget WhatsApp notification to vendor
+    if (error || !data) return null
+
+    if (appliedVoucher) {
+      fetch('/api/customer/vouchers/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voucherId: appliedVoucher.id, orderId: data.id }),
+      }).catch(() => null)
+    }
+
+    return data.id
+  }
+
+  // Reservation path: insert row, fire vendor notification, jump to success.
+  async function handleReservation(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    const id = await createOrderRow('reservation')
+    if (id) {
       fetch('/api/whatsapp/notify-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: data.id }),
+        body: JSON.stringify({ orderId: id }),
       }).catch(() => null)
-      setOrderId(data.id)
+      setOrderId(id)
       setSuccess(true)
       clearCart()
     } else {
       alert(t('order.failed'))
     }
     setSubmitting(false)
+  }
+
+  // Paid path: insert row first (so we have an orderId for PawaPay's
+  // statementDescription), then call /api/payments/initiate, then poll.
+  // The vendor WhatsApp ping is deferred until the webhook reports success —
+  // a pending payment shouldn't wake up the kitchen.
+  async function handlePay(e: React.FormEvent) {
+    e.preventDefault()
+    if (!customerPhoneInput) return
+    setSubmitting(true)
+    setPayError('')
+
+    const id = pendingOrderId ?? await createOrderRow('paid_order')
+    if (!id) {
+      setSubmitting(false)
+      alert(t('order.failed'))
+      return
+    }
+    setPendingOrderId(id)
+
+    const res = await fetch('/api/payments/initiate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: id, phoneNumber: customerPhoneInput }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setPayError(data.error ?? bi('Erreur de paiement', 'Payment error'))
+      setPayPhase('failed')
+      setSubmitting(false)
+      return
+    }
+
+    setActiveDepositId(data.depositId)
+    setPayPhase('waiting')
+    setSubmitting(false)
+    startPolling(data.depositId, id)
+  }
+
+  function stopPolling() {
+    if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null }
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null }
+  }
+
+  function startPolling(depositId: string, orderRowId: string) {
+    stopPolling()
+
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/payments/status/${depositId}`, { cache: 'no-store' })
+        const d = await r.json()
+        if (d.phase === 'paid') {
+          stopPolling()
+          // Vendor + customer notifications fire from the webhook; trigger
+          // the existing notify-order route too as a safety net (it sends
+          // the order summary, separate from the paid receipt).
+          fetch('/api/whatsapp/notify-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: orderRowId }),
+          }).catch(() => null)
+          setPayPhase('paid')
+          setOrderId(orderRowId)
+          setSuccess(true)
+          clearCart()
+        } else if (d.phase === 'failed') {
+          stopPolling()
+          setPayError(d.failureReason ?? bi('Paiement refusé', 'Payment refused'))
+          setPayPhase('failed')
+        }
+      } catch {
+        // Transient — keep polling. The 2-min timeout below is the failsafe.
+      }
+    }
+
+    tick()
+    pollTimerRef.current = setInterval(tick, 3000)
+    timeoutRef.current = setTimeout(() => {
+      stopPolling()
+      setPayPhase(prev => prev === 'waiting' ? 'timeout' : prev)
+    }, 120_000)
+  }
+
+  function retryPayment() {
+    setPayError('')
+    setPayPhase('idle')
+    setActiveDepositId(null)
+    // pendingOrderId stays — we re-use the same orders row on retry so we
+    // don't accumulate ghost rows when the customer fumbles the prompt.
   }
 
   if (items.length === 0 && !success) {
@@ -189,26 +354,36 @@ export default function OrderPage() {
   }
 
   if (success) {
-    // Confirmed-order phone: session value when logged in, form value otherwise.
     const confirmedPhone = me?.phone ?? phone
+    const wasPaid = payPhase === 'paid'
     return (
       <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center px-4">
         <div className="text-center max-w-sm">
-          <div className="text-6xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold text-ink-primary mb-2">{t('order.successTitle')}</h2>
-          <p className="text-ink-secondary mb-2">{t('order.successSub')}</p>
+          <div className="text-6xl mb-4">{wasPaid ? '✅' : '📋'}</div>
+          <h2 className="text-2xl font-bold text-ink-primary mb-2">
+            {wasPaid
+              ? bi('Paiement confirmé!', 'Payment confirmed!')
+              : bi('Commande réservée!', 'Order reserved!')}
+          </h2>
+          <p className="text-ink-secondary mb-2">
+            {wasPaid
+              ? bi('Votre commande a été payée et envoyée au restaurant.', 'Your order was paid and sent to the restaurant.')
+              : bi('Le restaurant vous contactera pour confirmer.', 'The restaurant will contact you to confirm.')}
+          </p>
           {orderId && (
             <p className="text-xs text-ink-tertiary mb-6 font-mono">
               Order #{orderId.slice(0, 8).toUpperCase()}
             </p>
           )}
-          <div className="bg-surface rounded-2xl p-4 mb-6 shadow-card border border-divider text-left">
-            <p className="text-sm text-ink-secondary">
-              {t('order.contactPre')}{' '}
-              <strong className="text-ink-primary">{confirmedPhone}</strong>{' '}
-              {t('order.contactPost')}
-            </p>
-          </div>
+          {!wasPaid && (
+            <div className="bg-surface rounded-2xl p-4 mb-6 shadow-card border border-divider text-left">
+              <p className="text-sm text-ink-secondary">
+                {t('order.contactPre')}{' '}
+                <strong className="text-ink-primary">{confirmedPhone}</strong>{' '}
+                {t('order.contactPost')}
+              </p>
+            </div>
+          )}
           {me ? (
             <div className="space-y-2">
               <Link
@@ -232,6 +407,87 @@ export default function OrderPage() {
               {t('order.backToMap')}
             </button>
           )}
+        </div>
+      </div>
+    )
+  }
+
+  // Payment-waiting overlay — full-screen so the customer focuses on the
+  // USSD prompt on their phone and can't accidentally re-trigger another
+  // deposit while one is in flight.
+  if (payPhase === 'waiting') {
+    return (
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center px-4">
+        <div className="text-center max-w-sm">
+          <div className="text-6xl mb-6 animate-pulse">📱</div>
+          <h2 className="text-xl font-bold text-ink-primary mb-3">
+            {bi('En attente de confirmation…', 'Waiting for confirmation…')}
+          </h2>
+          <p className="text-sm text-ink-secondary mb-2">
+            {bi('Validez le paiement sur votre téléphone.', 'Confirm the payment on your phone.')}
+          </p>
+          <p className="text-xs text-ink-tertiary mb-6 font-mono">
+            {finalPrice.toLocaleString()} FCFA · {mnoPreview?.label ?? 'mobile money'}
+          </p>
+          <div className="flex justify-center mb-4">
+            <div className="w-3 h-3 bg-brand rounded-full mx-1 animate-bounce" style={{ animationDelay: '0s' }} />
+            <div className="w-3 h-3 bg-brand rounded-full mx-1 animate-bounce" style={{ animationDelay: '0.2s' }} />
+            <div className="w-3 h-3 bg-brand rounded-full mx-1 animate-bounce" style={{ animationDelay: '0.4s' }} />
+          </div>
+          {activeDepositId && (
+            <p className="text-[10px] text-ink-tertiary font-mono">ref: {activeDepositId.slice(0, 12)}…</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (payPhase === 'failed') {
+    return (
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center px-4">
+        <div className="text-center max-w-sm">
+          <div className="text-6xl mb-4">❌</div>
+          <h2 className="text-xl font-bold text-ink-primary mb-3">
+            {bi('Paiement échoué.', 'Payment failed.')}
+          </h2>
+          {payError && <p className="text-sm text-danger mb-4">{payError}</p>}
+          <p className="text-sm text-ink-secondary mb-6">
+            {bi('Réessayez ou changez de méthode.', 'Try again or use a different method.')}
+          </p>
+          <button
+            onClick={retryPayment}
+            className="w-full bg-brand hover:bg-brand-dark text-white py-3 rounded-full font-bold transition-colors mb-2"
+          >
+            {bi('Réessayer / Retry', 'Retry / Réessayer')}
+          </button>
+          <button
+            onClick={() => router.push('/')}
+            className="text-ink-secondary text-sm py-2 hover:text-ink-primary transition-colors"
+          >
+            {t('order.backToMap')}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (payPhase === 'timeout') {
+    return (
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center px-4">
+        <div className="text-center max-w-sm">
+          <div className="text-6xl mb-4">⏱️</div>
+          <h2 className="text-xl font-bold text-ink-primary mb-3">
+            {bi('Paiement expiré.', 'Payment expired.')}
+          </h2>
+          <p className="text-sm text-ink-secondary mb-6">
+            {bi("Vous n'avez pas confirmé à temps. Réessayez.", "You didn't confirm in time. Try again.")}
+          </p>
+          <button
+            onClick={retryPayment}
+            className="w-full bg-brand hover:bg-brand-dark text-white py-3 rounded-full font-bold transition-colors"
+          >
+            {bi('Réessayer / Retry', 'Retry / Réessayer')}
+          </button>
         </div>
       </div>
     )
@@ -360,7 +616,7 @@ export default function OrderPage() {
         </div>
 
         {/* Customer identity — session if logged in, inputs otherwise */}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={paymentEnabled ? handlePay : handleReservation}>
           <h2 className="text-base font-bold text-ink-primary mb-3">{t('order.detailsTitle')}</h2>
 
           {loadingMe ? (
@@ -368,7 +624,6 @@ export default function OrderPage() {
               <div className="skeleton h-4 w-40" />
             </div>
           ) : me ? (
-            // Logged-in: read-only identity, no inputs
             <div className="bg-surface rounded-2xl shadow-card border border-divider overflow-hidden mb-4">
               <div className="px-4 py-3 bg-brand-light border-b border-divider">
                 <p className="text-sm font-semibold text-ink-primary">👋 Bonjour {me.name}!</p>
@@ -384,7 +639,6 @@ export default function OrderPage() {
               </div>
             </div>
           ) : (
-            // Guest: inputs + "log in to track" banner
             <>
               <div className="bg-surface rounded-2xl shadow-card border border-divider overflow-hidden mb-4">
                 <div className="px-4 py-3 border-b border-divider">
@@ -425,12 +679,61 @@ export default function OrderPage() {
             </>
           )}
 
+          {/* Payment section — only when restaurant accepts online payment.
+              Shows the auto-detected MNO so the customer knows which wallet
+              the deposit will hit before they tap Pay. */}
+          {paymentEnabled && (
+            <div className="bg-surface rounded-2xl shadow-card border border-divider p-4 mb-4">
+              <p className="text-sm font-bold text-ink-primary mb-2">
+                💳 {bi('Paiement mobile money', 'Mobile money payment')}
+              </p>
+              {mnoPreview ? (
+                <div className="flex items-center gap-2 text-sm text-ink-secondary">
+                  <span className="text-2xl">{mnoPreview.logo}</span>
+                  <span>{mnoPreview.label}</span>
+                </div>
+              ) : (
+                <p className="text-xs text-ink-tertiary">
+                  {customerPhoneInput
+                    ? bi('Numéro non reconnu pour le paiement mobile.', 'Phone not recognised for mobile payment.')
+                    : bi('Saisissez votre numéro pour détecter votre opérateur.', 'Enter your phone to detect your operator.')}
+                </p>
+              )}
+            </div>
+          )}
+
+          {!paymentEnabled && (
+            <div className="bg-surface-muted border border-divider rounded-2xl px-4 py-3 mb-4">
+              <p className="text-xs text-ink-secondary">
+                📋 {bi(
+                  'Ce restaurant accepte les réservations. Le paiement se fait sur place.',
+                  'This restaurant accepts reservations. Payment happens on-site.',
+                )}
+              </p>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={submitting || loadingMe || (!me && (!name || !phone))}
-            className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-4 rounded-full font-bold text-base shadow-card transition-colors"
+            disabled={
+              submitting
+              || loadingMe
+              || (!me && (!name || !phone))
+              || (paymentEnabled && !mnoPreview)
+            }
+            className={`w-full ${
+              paymentEnabled
+                ? 'bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300'
+                : 'bg-brand hover:bg-brand-dark disabled:bg-brand-badge'
+            } text-white py-4 rounded-full font-bold text-base shadow-card transition-colors`}
           >
-            {submitting ? t('order.placing') : `${t('order.placeBtn')} · ${finalPrice.toLocaleString()} FCFA`}
+            {submitting
+              ? (paymentEnabled
+                  ? bi('Initialisation du paiement…', 'Starting payment…')
+                  : t('order.placing'))
+              : paymentEnabled
+                ? `${bi('Payer', 'Pay')} ${finalPrice.toLocaleString()} FCFA`
+                : `📋 ${bi('Réserver la commande', 'Reserve order')} · ${finalPrice.toLocaleString()} FCFA`}
           </button>
         </form>
       </div>

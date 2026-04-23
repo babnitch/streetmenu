@@ -11,6 +11,7 @@ import {
   notifyCustomerOrderCancelled,
 } from '@/lib/whatsapp'
 import { validateVoucher, consumeVoucherForOrder } from '@/lib/vouchers'
+import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
 
 // ── TwiML ack ────────────────────────────────────────────────────────────────
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
@@ -267,6 +268,123 @@ export async function notifyVendorsOfNewOrder(
   })
 }
 
+// ── Payment helpers ──────────────────────────────────────────────────────────
+// Internal: kicks off a PawaPay deposit for a paid_order WhatsApp order and
+// tells the customer to confirm on their phone. The caller is expected to
+// have already inserted the order row with payment_status='pending'. The
+// final success/failure messaging is dispatched by the webhook, which is
+// the source of truth for terminal payment status.
+async function initiateWhatsappPayment(
+  from:           string,
+  orderId:        string,
+  customerPhone:  string,
+  total:          number,
+  restaurantName: string,
+  restaurantCity: string,
+): Promise<boolean> {
+  const country = countryFromCity(restaurantCity)
+  const mno = detectMNO(customerPhone, country ?? undefined)
+  if (!mno) {
+    await sendWhatsApp(from,
+      `❌ Numéro non supporté pour le paiement mobile.\n` +
+      `Phone not supported for mobile payment.`)
+    return false
+  }
+
+  let result
+  try {
+    result = await createDeposit({
+      amount:      total,
+      currency:    mno.currency,
+      phoneNumber: customerPhone,
+      orderId,
+      description: `${restaurantName} ${orderId.slice(0, 6)}`,
+    })
+  } catch (e) {
+    console.error('[ordering] createDeposit failed:', (e as Error).message)
+    return false
+  }
+
+  await supabaseAdmin
+    .from('orders')
+    .update({
+      payment_id:     result.depositId,
+      payment_method: result.correspondent,
+      payment_amount: total,
+    })
+    .eq('id', orderId)
+
+  await writeAudit({
+    action:     'payment_initiated',
+    targetType: 'order',
+    targetId:   orderId,
+    metadata: {
+      deposit_id:    result.depositId,
+      correspondent: result.correspondent,
+      amount:        total,
+      currency:      mno.currency,
+      via:           'whatsapp',
+    },
+  })
+
+  await sendWhatsApp(from, [
+    `💰 *Commande de ${total.toLocaleString()} FCFA*`,
+    ``,
+    `Un prompt de paiement va apparaître sur votre téléphone. Confirmez le paiement avec votre code PIN mobile money.`,
+    ``,
+    `A payment prompt will appear on your phone. Confirm the payment with your mobile money PIN.`,
+    ``,
+    `_Si rien n'apparaît dans 30s, envoyez "payer" pour réessayer._`,
+    `_If nothing appears in 30s, send "pay" to retry._`,
+  ].join('\n'))
+
+  return true
+}
+
+// Public: customer typed "payer" / "pay" — find their most recent unpaid
+// paid_order and re-trigger a PawaPay deposit. Returns null if no such
+// order exists, so the caller can fall through to other intents.
+export async function handlePaymentRetry(
+  from: string,
+  cmd: string,
+  customer: OrderingCustomer,
+): Promise<NextResponse | null> {
+  if (cmd !== 'payer' && cmd !== 'pay') return null
+
+  const { data: order } = await supabaseAdmin
+    .from('orders')
+    .select('id, restaurant_id, total_price, payment_status, restaurants(name, city)')
+    .eq('customer_id', customer.id)
+    .eq('order_type', 'paid_order')
+    .in('payment_status', ['pending', 'failed'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!order) {
+    await sendWhatsApp(from,
+      `Aucune commande en attente de paiement. Envoyez "commander" pour en créer une.\n` +
+      `No order awaiting payment. Send "commander" to create one.`)
+    return ok()
+  }
+
+  const rest = order.restaurants as unknown as { name?: string; city?: string } | null
+  const initiated = await initiateWhatsappPayment(
+    from,
+    order.id,
+    customer.phone,
+    Number(order.total_price),
+    rest?.name ?? '—',
+    rest?.city ?? '',
+  )
+  if (!initiated) {
+    await sendWhatsApp(from,
+      `⚠️ Paiement indisponible pour le moment. Réessayez plus tard.\n` +
+      `Payment unavailable right now. Try again later.`)
+  }
+  return ok()
+}
+
 // ── Public: handle a "commander" / "mes commandes" intent ────────────────────
 export async function handleOrderCommand(
   from: string,
@@ -396,6 +514,16 @@ export async function handleOrderingSession(
       const discount = data.voucher_discount ?? 0
       const total = Math.max(0, subtotal - discount)
 
+      // Resolve payment_enabled + city ahead of insert so the order row
+      // carries the right order_type from the start.
+      const { data: rest } = await supabaseAdmin
+        .from('restaurants')
+        .select('payment_enabled, city')
+        .eq('id', data.restaurant_id)
+        .maybeSingle()
+      const paymentEnabled = Boolean(rest?.payment_enabled)
+      const restaurantCity = rest?.city ?? ''
+
       const itemsJsonb = items.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))
       const { data: newOrder, error: orderErr } = await supabaseAdmin
         .from('orders')
@@ -409,6 +537,8 @@ export async function handleOrderingSession(
           status:          'pending',
           voucher_code:    data.voucher_code ?? null,
           discount_amount: discount > 0 ? discount : null,
+          order_type:      paymentEnabled ? 'paid_order'  : 'reservation',
+          payment_status:  paymentEnabled ? 'pending'     : 'not_required',
         })
         .select('id')
         .single()
@@ -450,9 +580,38 @@ export async function handleOrderingSession(
         targetId: newOrder.id,
         performedBy: customer.id,
         performedByType: 'customer',
-        metadata: { restaurant_id: data.restaurant_id, total_price: total, item_count: items.length, voucher_code: data.voucher_code ?? null, discount },
+        metadata: {
+          restaurant_id: data.restaurant_id,
+          total_price:   total,
+          item_count:    items.length,
+          voucher_code:  data.voucher_code ?? null,
+          discount,
+          order_type:    paymentEnabled ? 'paid_order' : 'reservation',
+        },
       })
 
+      // ── Paid path: ask for the wallet PIN, defer vendor ping to the
+      // payment webhook (a pending payment shouldn't wake up the kitchen).
+      if (paymentEnabled) {
+        const initiated = await initiateWhatsappPayment(
+          from,
+          newOrder.id,
+          customer.phone,
+          total,
+          data.restaurant_name,
+          restaurantCity,
+        )
+        if (!initiated) {
+          // Initiation failed — leave the order in payment_status='pending'
+          // so the customer can retry with "payer" once they fix the issue.
+          await sendWhatsApp(from,
+            `⚠️ Impossible de démarrer le paiement. Envoyez "payer" pour réessayer.\n` +
+            `Couldn't start payment. Send "pay" to retry.`)
+        }
+        return ok()
+      }
+
+      // ── Reservation path (default): notify vendors immediately. ───────────
       const id4 = last4(newOrder.id)
       const confirmLines = [
         `✅ *Commande confirmée!*`,

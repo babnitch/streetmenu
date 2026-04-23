@@ -6,6 +6,7 @@ import {
   handleOrderCommand,
   handleOrderingSession,
   handleVendorOrderAction,
+  handlePaymentRetry,
   type OrderingCustomer,
 } from '@/lib/whatsapp/ordering'
 
@@ -1559,12 +1560,18 @@ async function handleCustomer(
       `📋 *Commandes disponibles / Available commands:*\n` +
       `🍽️ "commander" → Passer une commande / Place an order\n` +
       `📦 "mes commandes" → Voir vos commandes / View your orders\n` +
+      `💳 "payer" → Payer une commande / Pay an order\n` +
       `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
       `❓ "aide" → Ce message / This message\n\n` +
       `🌍 Parcourez / Browse: ${BASE_URL}\n` +
       `🔑 Mon compte / My account: ${BASE_URL}/account`)
     return ok()
   }
+
+  // Payment retry — checked before ordering so "payer" doesn't get swallowed
+  // by a future menu intent that happens to match the same token.
+  const retry = await handlePaymentRetry(from, cmd, customer as OrderingCustomer)
+  if (retry) return retry
 
   // Customer ordering intents (commander / mes commandes)
   const ordering = await handleOrderCommand(from, phone, cmd, customer as OrderingCustomer)
