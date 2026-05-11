@@ -51,6 +51,16 @@ function previewMNO(phone: string): { label: string; logo: string } | null {
   return null
 }
 
+// PawaPay only routes to MTN MoMo / Orange Money in these four countries.
+// Customers paying from a non-supported country (e.g. a +41 Swiss number
+// stored on their account) need a separate mobile money number they
+// actually hold a wallet on.
+const SUPPORTED_MOMO_PREFIXES = ['+237', '+225', '+221', '+229'] as const
+function hasSupportedCountryPrefix(phone: string): boolean {
+  const cleaned = phone.replace(/[^\d+]/g, '')
+  return SUPPORTED_MOMO_PREFIXES.some(p => cleaned.startsWith(p))
+}
+
 type PayPhase = 'idle' | 'waiting' | 'paid' | 'failed' | 'timeout'
 
 export default function OrderPage() {
@@ -64,6 +74,10 @@ export default function OrderPage() {
 
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  // Separate from the contact phone above — the customer's account phone may
+  // be a non-African number (e.g. +41) which PawaPay can't route. We collect
+  // the MoMo number explicitly and never auto-fill it.
+  const [momoPhone, setMomoPhone] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
   const [orderId, setOrderId] = useState<string | null>(null)
@@ -144,8 +158,9 @@ export default function OrderPage() {
     : 0
   const finalPrice = totalPrice - discountAmount
 
-  const customerPhoneInput = me?.phone ?? phone
-  const mnoPreview = customerPhoneInput ? previewMNO(customerPhoneInput) : null
+  const trimmedMomoPhone = momoPhone.trim()
+  const momoPrefixValid = trimmedMomoPhone ? hasSupportedCountryPrefix(trimmedMomoPhone) : false
+  const mnoPreview = momoPrefixValid ? previewMNO(trimmedMomoPhone) : null
 
   async function applyVoucher() {
     const code = voucherInput.trim().toUpperCase()
@@ -252,7 +267,7 @@ export default function OrderPage() {
   // a pending payment shouldn't wake up the kitchen.
   async function handlePay(e: React.FormEvent) {
     e.preventDefault()
-    if (!customerPhoneInput) return
+    if (!trimmedMomoPhone || !momoPrefixValid) return
     setSubmitting(true)
     setPayError('')
 
@@ -267,7 +282,7 @@ export default function OrderPage() {
     const res = await fetch('/api/payments/initiate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: id, phoneNumber: customerPhoneInput }),
+      body: JSON.stringify({ orderId: id, phoneNumber: trimmedMomoPhone }),
     })
     const data = await res.json()
     if (!res.ok) {
@@ -680,25 +695,49 @@ export default function OrderPage() {
           )}
 
           {/* Payment section — only when restaurant accepts online payment.
-              Shows the auto-detected MNO so the customer knows which wallet
-              the deposit will hit before they tap Pay. */}
+              The MoMo number is collected separately from the account phone
+              because the wallet number may differ (and the account may even
+              be a non-African number). */}
           {paymentEnabled && (
             <div className="bg-surface rounded-2xl shadow-card border border-divider p-4 mb-4">
               <p className="text-sm font-bold text-ink-primary mb-2">
                 💳 {bi('Paiement mobile money', 'Mobile money payment')}
               </p>
-              {mnoPreview ? (
+              <label className="block text-xs text-ink-secondary mb-1">
+                {bi('Numéro Mobile Money', 'Mobile Money number')}
+              </label>
+              <input
+                type="tel"
+                inputMode="tel"
+                value={momoPhone}
+                onChange={e => setMomoPhone(e.target.value)}
+                placeholder="+237 6XX XXX XXX"
+                required
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none focus:border-brand bg-surface mb-1.5 font-mono"
+              />
+              <p className="text-[11px] text-ink-tertiary mb-2">
+                {bi(
+                  'Entrez votre numéro MTN MoMo ou Orange Money',
+                  'Enter your MTN MoMo or Orange Money number',
+                )}
+              </p>
+              {trimmedMomoPhone && !momoPrefixValid ? (
+                <p className="text-xs text-danger">
+                  {bi(
+                    'Numéro non supporté. Utilisez un numéro MTN ou Orange.',
+                    'Unsupported number. Use an MTN or Orange number.',
+                  )}
+                </p>
+              ) : mnoPreview ? (
                 <div className="flex items-center gap-2 text-sm text-ink-secondary">
                   <span className="text-2xl">{mnoPreview.logo}</span>
                   <span>{mnoPreview.label}</span>
                 </div>
-              ) : (
+              ) : trimmedMomoPhone && momoPrefixValid ? (
                 <p className="text-xs text-ink-tertiary">
-                  {customerPhoneInput
-                    ? bi('Numéro non reconnu pour le paiement mobile.', 'Phone not recognised for mobile payment.')
-                    : bi('Saisissez votre numéro pour détecter votre opérateur.', 'Enter your phone to detect your operator.')}
+                  {bi('Numéro non reconnu pour le paiement mobile.', 'Phone not recognised for mobile payment.')}
                 </p>
-              )}
+              ) : null}
             </div>
           )}
 
