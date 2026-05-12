@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('customers')
-    .select('id, name, phone, city, status, suspended_at, suspended_by, suspension_reason, deleted_at, created_at')
+    .select('id, name, phone, city, momo_phone, status, suspended_at, suspended_by, suspension_reason, deleted_at, created_at')
     .eq('id', session.id)
     .maybeSingle()
 

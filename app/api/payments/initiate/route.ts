@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, restaurant_id, total_price, payment_status, customer_phone')
+      .select('id, restaurant_id, total_price, payment_status, customer_phone, customer_id')
       .eq('id', orderId)
       .single()
     if (orderErr || !order) {
@@ -81,6 +81,16 @@ export async function POST(req: NextRequest) {
         payment_amount: amount,
       })
       .eq('id', order.id)
+
+    // Remember the MoMo wallet for this customer so we can pre-fill the
+    // field on their next order. Stored as the raw user input (E.164 with
+    // '+') so the UI can echo it back unchanged.
+    if (order.customer_id) {
+      await supabaseAdmin
+        .from('customers')
+        .update({ momo_phone: phoneNumber })
+        .eq('id', order.customer_id)
+    }
 
     await writeAudit({
       action:          'payment_initiated',

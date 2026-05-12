@@ -277,6 +277,7 @@ export async function notifyVendorsOfNewOrder(
 async function initiateWhatsappPayment(
   from:           string,
   orderId:        string,
+  customerId:     string,
   customerPhone:  string,
   total:          number,
   restaurantName: string,
@@ -313,6 +314,14 @@ async function initiateWhatsappPayment(
       payment_amount: total,
     })
     .eq('id', orderId)
+
+  // Remember the wallet used for the next order's pre-fill. On WhatsApp the
+  // customer's account phone is also their MoMo number (Twilio gave us the
+  // wallet number for free), so we save it the same way the web flow does.
+  await supabaseAdmin
+    .from('customers')
+    .update({ momo_phone: customerPhone })
+    .eq('id', customerId)
 
   await writeAudit({
     action:     'payment_initiated',
@@ -372,6 +381,7 @@ export async function handlePaymentRetry(
   const initiated = await initiateWhatsappPayment(
     from,
     order.id,
+    customer.id,
     customer.phone,
     Number(order.total_price),
     rest?.name ?? '—',
@@ -596,6 +606,7 @@ export async function handleOrderingSession(
         const initiated = await initiateWhatsappPayment(
           from,
           newOrder.id,
+          customer.id,
           customer.phone,
           total,
           data.restaurant_name,

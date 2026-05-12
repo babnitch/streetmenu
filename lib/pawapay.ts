@@ -77,8 +77,12 @@ export interface PayoutResult {
 
 export type CountryCode = 'CMR' | 'CIV' | 'SEN' | 'BEN'
 
-// PawaPay requires the local subscriber number WITHOUT the leading '+' or
-// country code in the `payer.address.value` field. Stripping helpers below.
+// PawaPay's `payer.address.value` (and `recipient.address.value` on payouts)
+// expects the full MSISDN as digits only — country code included, no '+',
+// no spaces, no dashes. e.g. "237670000000" for +237 67 00 00 00.
+//
+// `stripCountryCode` is still useful internally for MNO detection, which
+// matches on the operator prefix of the local subscriber number.
 function stripCountryCode(phone: string, dialCode: string): string {
   const digits = phone.replace(/[^\d+]/g, '')
   if (digits.startsWith('+' + dialCode)) return digits.slice(dialCode.length + 1)
@@ -100,7 +104,7 @@ function stripCountryCode(phone: string, dialCode: string): string {
 export function detectMNO(phoneNumber: string, country?: CountryCode): {
   correspondent: PawaPayCorrespondent
   currency:      PawaPayCurrency
-  localNumber:   string
+  msisdn:        string  // full E.164 digits without '+', for PawaPay's address.value
 } | null {
   const digits = phoneNumber.replace(/[^\d+]/g, '')
   if (!digits) return null
@@ -118,30 +122,34 @@ export function detectMNO(phoneNumber: string, country?: CountryCode): {
     const local = stripCountryCode(digits, '237')
     // Local Cameroonian numbers are 9 digits starting with 6.
     const prefix2 = local.slice(0, 2)
-    if (['65', '67', '68'].includes(prefix2)) return { correspondent: 'MTN_MOMO_CMR', currency: 'XAF', localNumber: local }
-    if (prefix2 === '69')                     return { correspondent: 'ORANGE_CMR',   currency: 'XAF', localNumber: local }
+    const msisdn = '237' + local
+    if (['65', '67', '68'].includes(prefix2)) return { correspondent: 'MTN_MOMO_CMR', currency: 'XAF', msisdn }
+    if (prefix2 === '69')                     return { correspondent: 'ORANGE_CMR',   currency: 'XAF', msisdn }
     return null
   }
   if (detected === 'CIV') {
     const local = stripCountryCode(digits, '225')
     const prefix2 = local.slice(0, 2)
-    if (['07', '08', '09'].includes(prefix2)) return { correspondent: 'MTN_MOMO_CIV', currency: 'XOF', localNumber: local }
-    if (['05', '06'].includes(prefix2))       return { correspondent: 'ORANGE_CIV',   currency: 'XOF', localNumber: local }
-    if (prefix2 === '01')                     return { correspondent: 'MOOV_CIV',     currency: 'XOF', localNumber: local }
+    const msisdn = '225' + local
+    if (['07', '08', '09'].includes(prefix2)) return { correspondent: 'MTN_MOMO_CIV', currency: 'XOF', msisdn }
+    if (['05', '06'].includes(prefix2))       return { correspondent: 'ORANGE_CIV',   currency: 'XOF', msisdn }
+    if (prefix2 === '01')                     return { correspondent: 'MOOV_CIV',     currency: 'XOF', msisdn }
     return null
   }
   if (detected === 'SEN') {
     const local = stripCountryCode(digits, '221')
     const prefix2 = local.slice(0, 2)
-    if (['77', '78'].includes(prefix2)) return { correspondent: 'ORANGE_SEN', currency: 'XOF', localNumber: local }
-    if (prefix2 === '76')               return { correspondent: 'FREE_SEN',   currency: 'XOF', localNumber: local }
+    const msisdn = '221' + local
+    if (['77', '78'].includes(prefix2)) return { correspondent: 'ORANGE_SEN', currency: 'XOF', msisdn }
+    if (prefix2 === '76')               return { correspondent: 'FREE_SEN',   currency: 'XOF', msisdn }
     return null
   }
   if (detected === 'BEN') {
     const local = stripCountryCode(digits, '229')
     const prefix2 = local.slice(0, 2)
-    if (['96', '97'].includes(prefix2)) return { correspondent: 'MTN_MOMO_BEN', currency: 'XOF', localNumber: local }
-    if (['94', '95'].includes(prefix2)) return { correspondent: 'MOOV_BEN',     currency: 'XOF', localNumber: local }
+    const msisdn = '229' + local
+    if (['96', '97'].includes(prefix2)) return { correspondent: 'MTN_MOMO_BEN', currency: 'XOF', msisdn }
+    if (['94', '95'].includes(prefix2)) return { correspondent: 'MOOV_BEN',     currency: 'XOF', msisdn }
     return null
   }
   return null
@@ -238,7 +246,7 @@ export async function createDeposit(params: DepositParams): Promise<DepositResul
     correspondent: mno.correspondent,
     payer: {
       type:    'MSISDN',
-      address: { value: mno.localNumber },
+      address: { value: mno.msisdn },
     },
     customerTimestamp:      new Date().toISOString(),
     statementDescription:   description,
@@ -307,7 +315,7 @@ export async function createPayout(params: PayoutParams): Promise<PayoutResult> 
     correspondent:        mno.correspondent,
     recipient: {
       type:    'MSISDN',
-      address: { value: mno.localNumber },
+      address: { value: mno.msisdn },
     },
     customerTimestamp:    new Date().toISOString(),
     statementDescription: description,

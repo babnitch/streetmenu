@@ -114,6 +114,23 @@ export default function OrderPage() {
     return () => { cancelled = true }
   }, [])
 
+  // Pre-fill the MoMo number from the customer's saved wallet, if any.
+  // /api/auth/profile is the same source the account page uses — the JWT
+  // session doesn't carry momo_phone so we read it from the customers row.
+  useEffect(() => {
+    if (!me) return
+    let cancelled = false
+    fetch('/api/auth/profile', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled) return
+        const saved = (data?.profile?.momo_phone ?? '') as string
+        if (saved) setMomoPhone(prev => prev || saved)
+      })
+      .catch(() => null)
+    return () => { cancelled = true }
+  }, [me])
+
   // Resolve the restaurant's payment_enabled flag — anonymous reads work
   // because RLS already exposes restaurants for public browsing.
   useEffect(() => {
