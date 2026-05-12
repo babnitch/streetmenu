@@ -975,10 +975,16 @@ async function handleVendor(
           `🍽️ "menu" → Voir votre menu / View your menu\n`
         : `🍽️ "menu" → Voir le menu / View menu\n`) +
       (canViewOrders
-        ? `📦 "commandes" → Voir les commandes / View orders\n` +
-          `✅ "ok XXXX" → Confirmer une commande / Confirm an order\n` +
-          `🎉 "pret XXXX" → Commande prête / Order ready\n` +
-          `❌ "annuler XXXX" → Annuler une commande / Cancel an order\n`
+        ? `📦 *Commandes / Orders:*\n` +
+          `📦 "commandes" → Voir les commandes / View orders\n` +
+          `✅ "ok XXXX" → Confirmer / Confirm\n` +
+          `🍳 "preparer XXXX" → En préparation / Start preparing\n` +
+          `🎉 "pret XXXX" → Prêt / Ready\n` +
+          `📦 "recupere XXXX" → Récupéré / Picked up\n` +
+          `❌ "annuler XXXX" → Annuler / Cancel\n` +
+          `💰 "paye XXXX cash" → Marquer payé en espèces / Mark paid cash\n` +
+          `💰 "paye XXXX mtn 237..." → Marquer payé MTN / Mark paid MTN\n` +
+          `💰 "paye XXXX orange 237..." → Marquer payé Orange / Mark paid Orange\n`
         : '') +
       `🔗 "restaurant" → Voir votre page / View your page\n` +
       ownerCmds +

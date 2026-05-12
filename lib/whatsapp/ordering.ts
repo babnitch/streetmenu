@@ -7,7 +7,9 @@ import { writeAudit } from '@/lib/audit'
 import {
   sendWhatsApp,
   notifyCustomerOrderConfirmed,
+  notifyCustomerOrderPreparing,
   notifyCustomerOrderReady,
+  notifyCustomerOrderDelivered,
   notifyCustomerOrderCancelled,
 } from '@/lib/whatsapp'
 import { validateVoucher, consumeVoucherForOrder } from '@/lib/vouchers'
@@ -429,7 +431,7 @@ export async function handleOrderCommand(
   if (cmd === 'mes commandes' || cmd === 'my orders') {
     const { data } = await supabaseAdmin
       .from('orders')
-      .select('id, status, total_price, created_at, restaurants(name)')
+      .select('id, status, total_price, created_at, order_type, payment_status, restaurants(name)')
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false })
       .limit(5)
@@ -443,15 +445,31 @@ export async function handleOrderCommand(
       confirmed:  '✅ Confirmée / Confirmed',
       preparing:  '👨‍🍳 En préparation / Preparing',
       ready:      '🎉 Prête / Ready',
+      delivered:  '📦 Récupérée / Picked up',
       completed:  '🏁 Terminée / Completed',
       cancelled:  '❌ Annulée / Cancelled',
     }
+    const payLabel: Record<string, string> = {
+      paid:         '💰 Payé',
+      pending:      '⏳ Paiement en attente',
+      failed:       '❌ Paiement échoué',
+      refunded:     '↩️ Remboursé',
+      not_required: '',  // reservations don't need a payment pill
+    }
+    let hasUnpaid = false
     const lines = data.map((o, i) => {
       const rest = (o.restaurants as unknown as { name: string } | null)?.name ?? '—'
       const label = statusLabel[o.status] ?? o.status
-      return `${i + 1}. #${last4(o.id)} - ${rest} - ${Number(o.total_price).toLocaleString()} FCFA - ${label}`
+      const pay   = payLabel[o.payment_status ?? 'not_required'] ?? ''
+      if (o.order_type === 'paid_order' && (o.payment_status === 'pending' || o.payment_status === 'failed')) {
+        hasUnpaid = true
+      }
+      return `${i + 1}. #${last4(o.id)} - ${rest} - ${Number(o.total_price).toLocaleString()} FCFA - ${label}${pay ? ` - ${pay}` : ''}`
     })
-    await sendWhatsApp(from, `📦 *Vos commandes / Your orders:*\n\n${lines.join('\n')}`)
+    const tail = hasUnpaid
+      ? `\n\n💳 Envoyez "payer" pour réessayer le paiement. / Send "pay" to retry payment.`
+      : ''
+    await sendWhatsApp(from, `📦 *Vos commandes / Your orders:*\n\n${lines.join('\n')}${tail}`)
     return ok()
   }
 
@@ -716,83 +734,254 @@ export async function handleOrderingSession(
   return ok()
 }
 
-// ── Public: vendor order actions (ok/pret/annuler XXXX) ──────────────────────
+// ── Public: vendor order actions ─────────────────────────────────────────────
+// Walks the order through the full kitchen lifecycle from WhatsApp, with the
+// same payment gate as the web dashboard:
+//   ok XXXX        → pending  → confirmed   (blocked if paid_order + not paid)
+//   preparer XXXX  → confirmed → preparing
+//   pret XXXX      → preparing → ready
+//   recupere XXXX  → ready    → delivered
+//   annuler XXXX   → * → cancelled
+//   paye XXXX cash|mtn <phone>|orange <phone> → manual mark-as-paid
+
+type ManualPaymentMethod = 'cash' | 'mtn_momo' | 'orange_money'
+const MANUAL_METHOD_LABEL: Record<ManualPaymentMethod, { fr: string; en: string }> = {
+  cash:         { fr: 'Espèces',      en: 'Cash' },
+  mtn_momo:     { fr: 'MTN MoMo',     en: 'MTN MoMo' },
+  orange_money: { fr: 'Orange Money', en: 'Orange Money' },
+}
+
+interface VendorIntent {
+  kind: 'status'  | 'cancel' | 'paye'
+  code4: string
+  target?: 'confirmed' | 'preparing' | 'ready' | 'delivered'
+  method?: ManualPaymentMethod
+  payerPhone?: string
+}
+
+// Returns null when the body isn't a recognised vendor verb — caller falls
+// through to other intents (menu, team, etc.). Returns a parsed intent when
+// the verb shape matches; the caller doesn't have to know the regex layout.
+function parseVendorIntent(body: string): VendorIntent | null {
+  // Status transitions — keep "pending → confirmed" first so "ok" wins
+  // ahead of any generic verb that could also start with "ok".
+  const okMatch       = body.match(/^ok\s+([0-9a-f]{4})$/i)
+  if (okMatch) return { kind: 'status', target: 'confirmed', code4: okMatch[1] }
+
+  const prepMatch     = body.match(/^(?:preparer|préparer|preparing)\s+([0-9a-f]{4})$/i)
+  if (prepMatch) return { kind: 'status', target: 'preparing', code4: prepMatch[1] }
+
+  const readyMatch    = body.match(/^(?:pret|prêt|ready)\s+([0-9a-f]{4})$/i)
+  if (readyMatch) return { kind: 'status', target: 'ready', code4: readyMatch[1] }
+
+  const deliverMatch  = body.match(/^(?:livre|livré|delivered|recupere|récupéré|picked\s*up)\s+([0-9a-f]{4})$/i)
+  if (deliverMatch) return { kind: 'status', target: 'delivered', code4: deliverMatch[1] }
+
+  const cancelMatch   = body.match(/^(?:annuler|cancel)\s+([0-9a-f]{4})$/i)
+  if (cancelMatch) return { kind: 'cancel', code4: cancelMatch[1] }
+
+  // paye XXXX <method> [phone]
+  const payeMatch = body.match(/^(?:paye|payé|paid)\s+([0-9a-f]{4})\s+(.+)$/i)
+  if (payeMatch) {
+    const code4 = payeMatch[1]
+    const rest  = payeMatch[2].trim()
+    if (/^(?:cash|esp[eè]ces)$/i.test(rest)) {
+      return { kind: 'paye', method: 'cash', code4 }
+    }
+    const mtn = rest.match(/^(?:mtn(?:_momo)?|mtn\s+momo|momo)\s+([\d+\s-]+)$/i)
+    if (mtn) return { kind: 'paye', method: 'mtn_momo', code4, payerPhone: mtn[1].trim() }
+    const orange = rest.match(/^(?:orange(?:_money)?|orange\s+money)\s+([\d+\s-]+)$/i)
+    if (orange) return { kind: 'paye', method: 'orange_money', code4, payerPhone: orange[1].trim() }
+  }
+
+  return null
+}
+
 export async function handleVendorOrderAction(
   from: string,
   body: string,
   restaurant: { id: string; name: string },
 ): Promise<NextResponse | null> {
-  const okMatch     = body.match(/^ok\s+([0-9a-f]{4})$/i)
-  const readyMatch  = body.match(/^(?:pret|prêt|ready)\s+([0-9a-f]{4})$/i)
-  const cancelMatch = body.match(/^(?:annuler|cancel)\s+([0-9a-f]{4})$/i)
+  const intent = parseVendorIntent(body)
+  if (!intent) return null
 
-  if (!okMatch && !readyMatch && !cancelMatch) return null
+  const code4 = intent.code4.toLowerCase()
+  const upper = code4.toUpperCase()
 
-  const code4 = (okMatch?.[1] ?? readyMatch?.[1] ?? cancelMatch?.[1] ?? '').toLowerCase()
-  const normalisedHex = code4
-
+  // Status filter: include 'delivered' in the search window even though it's
+  // terminal — the vendor may want to mark a just-delivered order as paid in
+  // cash. Truly closed orders ('completed' legacy + 'cancelled') stay out.
   const { data: orders } = await supabaseAdmin
     .from('orders')
-    .select('id, status, customer_phone, customer_name, total_price, created_at, items')
+    .select('id, status, customer_phone, customer_name, total_price, created_at, items, order_type, payment_status, payment_id')
     .eq('restaurant_id', restaurant.id)
     .not('status', 'in', '(completed,cancelled)')
     .order('created_at', { ascending: false })
     .limit(50)
 
-  const matching = (orders ?? []).filter(o => o.id.replace(/-/g, '').toLowerCase().endsWith(normalisedHex))
+  const matching = (orders ?? []).filter(o => o.id.replace(/-/g, '').toLowerCase().endsWith(code4))
 
   if (matching.length === 0) {
-    await sendWhatsApp(from, `❌ Commande #${code4.toUpperCase()} introuvable pour ${restaurant.name}. / Order not found.`)
+    await sendWhatsApp(from, `❌ Commande #${upper} introuvable pour ${restaurant.name}. / Order not found.`)
     return ok()
   }
   if (matching.length > 1) {
-    await sendWhatsApp(from, `⚠️ Plusieurs commandes correspondent à #${code4.toUpperCase()}. Contactez le support. / Multiple orders match.`)
+    await sendWhatsApp(from, `⚠️ Plusieurs commandes correspondent à #${upper}. Contactez le support. / Multiple orders match.`)
     return ok()
   }
 
   const order = matching[0]
   const payload = {
-    id: order.id,
-    customer_name: order.customer_name,
+    id:             order.id,
+    customer_name:  order.customer_name,
     customer_phone: order.customer_phone,
-    items: (order.items as Array<{ name: string; quantity: number; price: number }>) ?? [],
-    total_price: Number(order.total_price),
-    created_at: order.created_at,
+    items:          (order.items as Array<{ name: string; quantity: number; price: number }>) ?? [],
+    total_price:    Number(order.total_price),
+    created_at:     order.created_at,
   }
 
-  if (okMatch) {
-    if (!['pending', 'confirmed'].includes(order.status)) {
-      await sendWhatsApp(from, `Commande #${code4.toUpperCase()} déjà ${order.status}. / already ${order.status}.`)
+  // ── Manual mark-as-paid ────────────────────────────────────────────────────
+  if (intent.kind === 'paye') {
+    if (order.payment_id) {
+      await sendWhatsApp(from, `❌ Commande #${upper} déjà payée dans l'app. / Order already paid in-app.`)
       return ok()
     }
-    await supabaseAdmin.from('orders').update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', order.id)
-    await writeAudit({ action: 'order_confirmed', targetType: 'order', targetId: order.id, performedBy: restaurant.id, performedByType: 'vendor' })
-    await sendWhatsApp(from, `✅ Commande #${code4.toUpperCase()} confirmée. Le client est notifié. / confirmed, customer notified.`)
-    await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurant.name)
+    if (order.payment_status === 'paid') {
+      await sendWhatsApp(from, `Commande #${upper} déjà payée. / already paid.`)
+      return ok()
+    }
+
+    const method = intent.method!
+    const { error: updErr } = await supabaseAdmin.from('orders').update({
+      payment_status:       'paid',
+      payment_method:       method,
+      payment_at:           new Date().toISOString(),
+      payment_amount:       Math.round(Number(order.total_price)),
+      manual_payment_phone: intent.payerPhone ?? null,
+      updated_at:           new Date().toISOString(),
+    }).eq('id', order.id)
+
+    if (updErr) {
+      console.error('[ordering] mark-paid update failed:', updErr.message)
+      const hint = /manual_payment_phone|column .* does not exist/i.test(updErr.message)
+        ? ' (run supabase-manual-payment.sql)'
+        : ''
+      await sendWhatsApp(from, `⚠️ Impossible de marquer payé: ${updErr.message}${hint}. / Couldn't mark paid.`)
+      return ok()
+    }
+
+    await writeAudit({
+      action:          'payment_marked_paid',
+      targetType:      'order',
+      targetId:        order.id,
+      performedBy:     restaurant.id,
+      performedByType: 'vendor',
+      previousData:    { payment_status: order.payment_status },
+      metadata: {
+        method,
+        payer_phone: intent.payerPhone ?? null,
+        marked_by:   restaurant.id,
+        via:         'whatsapp',
+      },
+    })
+
+    const label = MANUAL_METHOD_LABEL[method]
+    await sendWhatsApp(from,
+      `💰 Paiement confirmé pour #${upper} (${label.fr}). Vous pouvez maintenant confirmer la commande.\n` +
+      `Payment confirmed for #${upper} (${label.en}). You can now confirm the order.`)
+
+    // Mirror the API route — let the customer know their tab is settled.
+    if (order.customer_phone) {
+      await sendWhatsApp(order.customer_phone, [
+        `💰 *Paiement confirmé par ${restaurant.name} / Payment confirmed by ${restaurant.name}*`,
+        ``,
+        `🧾 Commande #${upper}`,
+        `💳 ${label.fr} / ${label.en}`,
+        `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
+        ``,
+        `Merci! / Thank you!`,
+      ].join('\n'))
+    }
     return ok()
   }
 
-  if (readyMatch) {
-    if (!['confirmed', 'preparing', 'pending'].includes(order.status)) {
-      await sendWhatsApp(from, `Commande #${code4.toUpperCase()} déjà ${order.status}. / already ${order.status}.`)
+  // ── Cancellation — allowed from any non-terminal state ─────────────────────
+  if (intent.kind === 'cancel') {
+    const { error: updErr } = await supabaseAdmin.from('orders').update({
+      status: 'cancelled', updated_at: new Date().toISOString(),
+    }).eq('id', order.id)
+    if (updErr) {
+      console.error('[ordering] cancel update failed — migration likely not applied:', updErr.message)
+      await sendWhatsApp(from, `⚠️ Impossible d'annuler: migration manquante. Contactez le support. / Cannot cancel: migration not applied.`)
       return ok()
     }
-    await supabaseAdmin.from('orders').update({ status: 'ready', updated_at: new Date().toISOString() }).eq('id', order.id)
-    await writeAudit({ action: 'order_ready', targetType: 'order', targetId: order.id, performedBy: restaurant.id, performedByType: 'vendor' })
-    await sendWhatsApp(from, `🎉 Commande #${code4.toUpperCase()} prête. Le client est notifié. / ready, customer notified.`)
-    await notifyCustomerOrderReady(order.customer_phone, payload, restaurant.name)
+    await writeAudit({ action: 'order_cancelled', targetType: 'order', targetId: order.id, performedBy: restaurant.id, performedByType: 'vendor' })
+    await sendWhatsApp(from, `❌ Commande #${upper} annulée. Le client est notifié. / cancelled, customer notified.`)
+    await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurant.name)
     return ok()
   }
 
-  // cancelMatch
-  const { error: updErr } = await supabaseAdmin.from('orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', order.id)
+  // ── Status transitions ─────────────────────────────────────────────────────
+  // Payment gate on the very first transition out of 'pending' (confirm). A
+  // paid_order that still says payment_status='pending'/'failed' shouldn't
+  // wake up the kitchen — vendors must either wait for the deposit to land
+  // or mark the order paid (cash/MoMo) first.
+  if (intent.target === 'confirmed'
+      && order.order_type === 'paid_order'
+      && order.payment_status !== 'paid') {
+    await sendWhatsApp(from,
+      `⏳ Le paiement n'est pas encore confirmé pour la commande #${upper}.\n` +
+      `Payment has not been confirmed yet for order #${upper}.`)
+    return ok()
+  }
+
+  // Strict: each verb only progresses one step. This forces a paid_order
+  // through the confirm gate (where the payment check lives) rather than
+  // letting "preparer" skip straight ahead while the deposit is still
+  // pending.
+  const ALLOWED_FROM: Record<NonNullable<VendorIntent['target']>, string[]> = {
+    confirmed: ['pending'],
+    preparing: ['confirmed'],
+    ready:     ['preparing'],
+    delivered: ['ready'],
+  }
+  const target = intent.target!
+  if (!ALLOWED_FROM[target].includes(order.status)) {
+    await sendWhatsApp(from, `Commande #${upper} en statut ${order.status}, transition vers ${target} impossible. / cannot transition.`)
+    return ok()
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from('orders')
+    .update({ status: target, updated_at: new Date().toISOString() })
+    .eq('id', order.id)
   if (updErr) {
-    console.error('[ordering] cancel update failed — migration likely not applied:', updErr.message)
-    await sendWhatsApp(from, `⚠️ Impossible d'annuler: migration manquante. Contactez le support. / Cannot cancel: migration not applied.`)
+    console.error(`[ordering] status update to ${target} failed:`, updErr.message)
+    await sendWhatsApp(from, `⚠️ Impossible de mettre à jour: ${updErr.message}. / Couldn't update.`)
     return ok()
   }
-  await writeAudit({ action: 'order_cancelled', targetType: 'order', targetId: order.id, performedBy: restaurant.id, performedByType: 'vendor' })
-  await sendWhatsApp(from, `❌ Commande #${code4.toUpperCase()} annulée. Le client est notifié. / cancelled, customer notified.`)
-  await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurant.name)
+  await writeAudit({
+    action:          `order_${target}`,
+    targetType:      'order',
+    targetId:        order.id,
+    performedBy:     restaurant.id,
+    performedByType: 'vendor',
+    previousData:    { status: order.status },
+  })
+
+  // Vendor ack + customer ping per target.
+  if (target === 'confirmed') {
+    await sendWhatsApp(from, `✅ Commande #${upper} confirmée. Le client est notifié. / confirmed, customer notified.`)
+    await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurant.name)
+  } else if (target === 'preparing') {
+    await sendWhatsApp(from, `🍳 Commande #${upper} en préparation. Le client est notifié. / preparing, customer notified.`)
+    await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurant.name)
+  } else if (target === 'ready') {
+    await sendWhatsApp(from, `🎉 Commande #${upper} prête. Le client est notifié. / ready, customer notified.`)
+    await notifyCustomerOrderReady(order.customer_phone, payload, restaurant.name)
+  } else if (target === 'delivered') {
+    await sendWhatsApp(from, `📦 Commande #${upper} récupérée. Le client est notifié. / picked up, customer notified.`)
+    await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name)
+  }
   return ok()
 }
