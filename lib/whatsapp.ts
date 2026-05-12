@@ -116,10 +116,9 @@ export async function notifyCustomerOrderConfirmed(
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = [
-    `✅ Votre commande #${id4} a été confirmée par *${restaurantName}*!`,
-    `En cours de préparation.`,
+    `✅ Votre commande #${id4} a été confirmée! En attente de préparation.`,
     ``,
-    `/ Your order #${id4} has been confirmed! Being prepared.`,
+    `/ Your order #${id4} has been confirmed! Waiting to be prepared. — ${restaurantName}`,
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg)
@@ -132,9 +131,9 @@ export async function notifyCustomerOrderPreparing(
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = [
-    `🍳 Votre commande #${id4} chez *${restaurantName}* est en préparation!`,
+    `🍳 Votre commande #${id4} est en cours de préparation!`,
     ``,
-    `/ Your order #${id4} at *${restaurantName}* is being prepared!`,
+    `/ Your order #${id4} is being prepared! — ${restaurantName}`,
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg)
@@ -147,10 +146,9 @@ export async function notifyCustomerOrderReady(
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = [
-    `🎉 Votre commande #${id4} chez *${restaurantName}* est prête!`,
-    `Venez la récupérer.`,
+    `🎉 Votre commande #${id4} est prête! Venez la récupérer chez ${restaurantName}.`,
     ``,
-    `/ Your order #${id4} at *${restaurantName}* is ready! Come pick it up.`,
+    `/ Your order #${id4} is ready! Come pick it up at ${restaurantName}.`,
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg)
@@ -163,9 +161,9 @@ export async function notifyCustomerOrderDelivered(
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = [
-    `✅ Commande #${id4} livrée par *${restaurantName}*. Merci et bon appétit!`,
+    `✅ Commande #${id4} récupérée. Merci et bon appétit!`,
     ``,
-    `/ Order #${id4} delivered by *${restaurantName}*. Thank you and enjoy!`,
+    `/ Order #${id4} picked up. Thank you and enjoy! — ${restaurantName}`,
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg)

@@ -46,19 +46,19 @@ interface ActionButton {
 }
 const STATUS_ACTIONS: Record<string, ActionButton[]> = {
   pending: [
-    { label: '✅ Confirmer / Confirm',    target: 'confirmed', roles: ['owner', 'manager'] },
-    { label: '❌ Annuler / Cancel',        target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
+    { label: '✅ Confirmer / Confirm',                target: 'confirmed', roles: ['owner', 'manager'] },
+    { label: '❌ Annuler / Cancel',                    target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
   ],
   confirmed: [
-    { label: '🍳 Préparer / Start prep',   target: 'preparing', roles: ['owner', 'manager'] },
-    { label: '❌ Annuler / Cancel',        target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
+    { label: '🍳 En préparation / Start preparing',   target: 'preparing', roles: ['owner', 'manager'] },
+    { label: '❌ Annuler / Cancel',                    target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
   ],
   preparing: [
-    { label: '🎉 Prête / Mark ready',      target: 'ready',     roles: ['owner', 'manager', 'staff'] },
-    { label: '❌ Annuler / Cancel',        target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
+    { label: '🎉 Prêt / Ready for pickup',            target: 'ready',     roles: ['owner', 'manager', 'staff'] },
+    { label: '❌ Annuler / Cancel',                    target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
   ],
   ready: [
-    { label: '✅ Livrée / Mark delivered', target: 'delivered', roles: ['owner', 'manager', 'staff'] },
+    { label: '📦 Récupéré / Picked up',               target: 'delivered', roles: ['owner', 'manager', 'staff'] },
   ],
   delivered: [],
   completed: [],

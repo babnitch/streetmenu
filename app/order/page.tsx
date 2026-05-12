@@ -267,11 +267,18 @@ export default function OrderPage() {
     setSubmitting(true)
     const id = await createOrderRow('reservation')
     if (id) {
-      fetch('/api/whatsapp/notify-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: id }),
-      }).catch(() => null)
+      // Awaited so the response (with both Twilio sends) lands before we
+      // tear down the page — Vercel can otherwise cancel an in-flight
+      // fire-and-forget fetch from a navigating client.
+      try {
+        await fetch('/api/whatsapp/notify-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: id }),
+        })
+      } catch (err) {
+        console.warn('[order] notify-order failed (reservation):', err)
+      }
       setOrderId(id)
       setSuccess(true)
       clearCart()
@@ -332,14 +339,19 @@ export default function OrderPage() {
         const d = await r.json()
         if (d.phase === 'paid') {
           stopPolling()
-          // Vendor + customer notifications fire from the webhook; trigger
-          // the existing notify-order route too as a safety net (it sends
-          // the order summary, separate from the paid receipt).
-          fetch('/api/whatsapp/notify-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderId: orderRowId }),
-          }).catch(() => null)
+          // Awaited so we don't tear down the page mid-Twilio-fetch. The
+          // status endpoint also fires the short "payment received" receipt
+          // server-side; this route adds the full itemised order summary
+          // (customer-order-placed + vendor-new-order).
+          try {
+            await fetch('/api/whatsapp/notify-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderId: orderRowId }),
+            })
+          } catch (err) {
+            console.warn('[order] notify-order failed (paid):', err)
+          }
           setPayPhase('paid')
           setOrderId(orderRowId)
           setSuccess(true)

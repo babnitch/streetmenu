@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { checkDepositStatus } from '@/lib/pawapay'
+import { notifyPaidOrder } from '@/lib/payments-notify'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +27,11 @@ export async function GET(_req: NextRequest, { params }: { params: { depositId: 
   // Defensive sync: if the webhook has already marked the local row, keep
   // the DB as the source of truth. Otherwise, write through on terminal
   // statuses so the client poll alone is enough to confirm payment.
+  // We also fan out the customer + vendor WhatsApp from here so payment
+  // notifications don't depend on PawaPay's webhook reaching the app
+  // (the sandbox sometimes drops them, and self-hosted Twilio sandboxes
+  // need a public URL). Both writers guard on payment_status='pending'
+  // so only the first responder notifies.
   const { data: order } = await supabaseAdmin
     .from('orders')
     .select('id, payment_status')
@@ -37,6 +44,14 @@ export async function GET(_req: NextRequest, { params }: { params: { depositId: 
         .from('orders')
         .update({ payment_status: 'paid', payment_at: new Date().toISOString() })
         .eq('id', order.id)
+      await writeAudit({
+        action:     'payment_completed',
+        targetType: 'order',
+        targetId:   order.id,
+        metadata:   { deposit_id: depositId, via: 'status_poll', correspondent: info.correspondent },
+      })
+      console.log(`[payment] poll → paid: order=${order.id} deposit=${depositId}`)
+      await notifyPaidOrder(order.id, info.correspondent)
     } else if (info.status === 'FAILED' || info.status === 'REJECTED') {
       await supabaseAdmin
         .from('orders')
