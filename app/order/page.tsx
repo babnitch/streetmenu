@@ -337,18 +337,22 @@ export default function OrderPage() {
       try {
         const r = await fetch(`/api/payments/status/${depositId}`, { cache: 'no-store' })
         const d = await r.json()
+        console.log('[order] poll result:', { phase: d.phase, rawStatus: d.rawStatus })
         if (d.phase === 'paid') {
           stopPolling()
           // Awaited so we don't tear down the page mid-Twilio-fetch. The
           // status endpoint also fires the short "payment received" receipt
           // server-side; this route adds the full itemised order summary
           // (customer-order-placed + vendor-new-order).
+          console.log('[order] payment paid — POSTing /api/whatsapp/notify-order', { orderId: orderRowId })
           try {
-            await fetch('/api/whatsapp/notify-order', {
+            const notifyRes = await fetch('/api/whatsapp/notify-order', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ orderId: orderRowId }),
             })
+            const notifyJson = await notifyRes.json().catch(() => null)
+            console.log('[order] notify-order response', { ok: notifyRes.ok, status: notifyRes.status, body: notifyJson })
           } catch (err) {
             console.warn('[order] notify-order failed (paid):', err)
           }

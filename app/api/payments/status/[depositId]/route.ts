@@ -38,8 +38,11 @@ export async function GET(_req: NextRequest, { params }: { params: { depositId: 
     .eq('payment_id', depositId)
     .maybeSingle()
 
+  console.log(`[payment] poll tick: deposit=${depositId} pawapay.status=${info.status} db.order=${order?.id ?? '<none>'} db.payment_status=${order?.payment_status ?? '<none>'}`)
+
   if (order && order.payment_status === 'pending') {
     if (info.status === 'COMPLETED') {
+      console.log(`[payment] polling detected status: COMPLETED — order=${order.id} deposit=${depositId}`)
       await supabaseAdmin
         .from('orders')
         .update({ payment_status: 'paid', payment_at: new Date().toISOString() })
@@ -50,14 +53,20 @@ export async function GET(_req: NextRequest, { params }: { params: { depositId: 
         targetId:   order.id,
         metadata:   { deposit_id: depositId, via: 'status_poll', correspondent: info.correspondent },
       })
-      console.log(`[payment] poll → paid: order=${order.id} deposit=${depositId}`)
+      console.log(`[payment] poll → paid (db flipped): order=${order.id} deposit=${depositId}`)
       await notifyPaidOrder(order.id, info.correspondent)
+      console.log(`[payment] notifyPaidOrder complete: order=${order.id}`)
     } else if (info.status === 'FAILED' || info.status === 'REJECTED') {
+      console.log(`[payment] polling detected status: ${info.status} — order=${order.id} deposit=${depositId}`)
       await supabaseAdmin
         .from('orders')
         .update({ payment_status: 'failed' })
         .eq('id', order.id)
     }
+  } else if (order && info.status === 'COMPLETED' && order.payment_status === 'paid') {
+    // Already settled by the webhook or a previous poll — quiet skip, but
+    // log it once so we can confirm the guard is doing its job in dev.
+    console.log(`[payment] poll: order=${order.id} already paid — skipping notify (idempotent)`)
   }
 
   // Map PawaPay verbs to a simple lifecycle the client can switch on.

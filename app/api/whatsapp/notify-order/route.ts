@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
   try {
     const { orderId } = await req.json()
     if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 })
+    console.log(`[notify-order] received orderId=${orderId}`)
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
@@ -73,6 +74,8 @@ export async function POST(req: NextRequest) {
     if (vendorResult.status === 'rejected') {
       console.error('[notify-order] vendor fan-out failed:', String(vendorResult.reason))
     }
+
+    console.log(`[notify-order] done orderId=${orderId} customerStatus=${customerResult.status} vendorStatus=${vendorResult.status}`)
 
     return NextResponse.json({
       ok: true,

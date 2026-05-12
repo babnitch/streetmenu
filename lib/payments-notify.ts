@@ -37,23 +37,22 @@ export async function notifyPaidOrder(
   const id4 = order.id.replace(/-/g, '').slice(-4).toUpperCase()
   const total = Number(order.total_price)
 
+  console.log(`[payment] calling notifyPaidOrder for order: ${order.id} restaurant=${order.restaurant_id}`)
+
   // ── Customer confirmation ──────────────────────────────────────────────────
   if (order.customer_phone) {
     console.log(`[payment] sending customer confirmation: order=${order.id} to=${order.customer_phone}`)
-    try {
-      await sendWhatsApp(order.customer_phone, [
-        `✅ *Paiement confirmé! / Payment confirmed!*`,
-        ``,
-        `🧾 Commande #${id4}`,
-        `🏪 ${restName}`,
-        `💰 ${total.toLocaleString()} FCFA`,
-        ``,
-        `Votre commande est confirmée et le restaurant prépare votre repas.`,
-        `Your order is confirmed and the restaurant is preparing your meal.`,
-      ].join('\n'))
-    } catch (e) {
-      console.error('[payment] customer confirmation failed:', (e as Error).message)
-    }
+    const r = await sendWhatsApp(order.customer_phone, [
+      `✅ *Paiement confirmé! / Payment confirmed!*`,
+      ``,
+      `🧾 Commande #${id4}`,
+      `🏪 ${restName}`,
+      `💰 ${total.toLocaleString()} FCFA`,
+      ``,
+      `Votre commande est confirmée et le restaurant prépare votre repas.`,
+      `Your order is confirmed and the restaurant is preparing your meal.`,
+    ].join('\n'))
+    console.log(`[payment] customer notification result: ok=${r.ok} httpStatus=${r.status} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}${r.error ? ` error=${r.error.slice(0, 200)}` : ''}`)
   } else {
     console.warn(`[payment] notifyPaidOrder: order ${order.id} has no customer_phone — skipping customer ping`)
   }
@@ -62,7 +61,7 @@ export async function notifyPaidOrder(
   const recipients = await vendorRecipients(order.restaurant_id)
   console.log(`[payment] sending vendor notification: order=${order.id} restaurant=${order.restaurant_id} recipients=${JSON.stringify(recipients)}`)
   if (recipients.length === 0) {
-    console.warn(`[payment] notifyPaidOrder: no vendor recipients for restaurant ${order.restaurant_id}`)
+    console.warn(`[payment] notifyPaidOrder: no vendor recipients for restaurant ${order.restaurant_id}. Check restaurants.whatsapp and active owner/manager rows in restaurant_team.`)
     return
   }
 
@@ -82,8 +81,12 @@ export async function notifyPaidOrder(
 
   const results = await Promise.allSettled(recipients.map(p => sendWhatsApp(p, msg)))
   results.forEach((r, i) => {
+    const to = recipients[i]
     if (r.status === 'rejected') {
-      console.error(`[payment] vendor notify rejected to=${recipients[i]} reason=${String(r.reason)}`)
+      console.error(`[payment] vendor notification result: ok=false to=${to} reason=${String(r.reason)}`)
+    } else {
+      const v = r.value
+      console.log(`[payment] vendor notification result: ok=${v.ok} to=${to} httpStatus=${v.status} sid=${v.sid ?? '-'} twilioStatus=${v.twilioStatus ?? '-'}${v.error ? ` error=${v.error.slice(0, 200)}` : ''}`)
     }
   })
 }
