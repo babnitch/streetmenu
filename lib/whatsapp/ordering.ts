@@ -428,6 +428,102 @@ export async function handleOrderCommand(
     return ok()
   }
 
+  // ── Voucher commands ──────────────────────────────────────────────────────
+  if (cmd === 'mes bons' || cmd === 'my vouchers') {
+    const { data } = await supabaseAdmin
+      .from('customer_vouchers')
+      .select('id, used_at, vouchers(id, code, discount_type, discount_value, expires_at, min_order, is_active, restaurant_id, restaurants(name))')
+      .eq('customer_id', customer.id)
+      .order('claimed_at', { ascending: false })
+      .limit(10)
+
+    if (!data || data.length === 0) {
+      await sendWhatsApp(from,
+        `🎫 Aucun bon. Envoyez "bon CODE" pour en ajouter un (ex: bon BIENVENUE).\n` +
+        `No vouchers. Send "voucher CODE" to add one (e.g. voucher BIENVENUE).`)
+      return ok()
+    }
+    const now = Date.now()
+    const lines = data.map((cv, i) => {
+      const v = cv.vouchers as unknown as {
+        id: string; code: string; discount_type: 'percent' | 'fixed'; discount_value: number
+        expires_at: string | null; is_active: boolean; restaurants: { name: string } | null
+      } | null
+      if (!v) return ''
+      const value = v.discount_type === 'percent'
+        ? `-${v.discount_value}%`
+        : `-${Number(v.discount_value).toLocaleString()} FCFA`
+      const used    = !!cv.used_at
+      const expired = v.expires_at ? new Date(v.expires_at).getTime() < now : false
+      const status  = used ? '✅ Utilisé / Used'
+                    : expired ? '⏰ Expiré / Expired'
+                    : !v.is_active ? '⚪ Inactif / Inactive'
+                    : '🟢 Disponible / Available'
+      const scope = v.restaurants?.name ? ` · ${v.restaurants.name}` : ''
+      return `${i + 1}. *${v.code}* ${value}${scope}\n   ${status}`
+    }).filter(Boolean)
+
+    await sendWhatsApp(from, `🎫 *Vos bons / Your vouchers:*\n\n${lines.join('\n\n')}`)
+    return ok()
+  }
+
+  // bon CODE / voucher CODE — claim a code into the customer's wallet.
+  // Shape mirrors /api/customer/vouchers/claim so a successful claim makes
+  // the code immediately usable both on the web and via WhatsApp ordering.
+  const claimMatch = cmd.match(/^(?:bon|voucher)\s+([a-z0-9_-]+)$/i)
+  if (claimMatch) {
+    const code = claimMatch[1].toUpperCase()
+    const { data: v } = await supabaseAdmin
+      .from('vouchers')
+      .select('id, code, discount_type, discount_value, expires_at, is_active, max_uses, current_uses, per_customer_max')
+      .eq('code', code).maybeSingle()
+    if (!v) {
+      await sendWhatsApp(from, `❌ Code introuvable / Code not found: ${code}`)
+      return ok()
+    }
+    if (!v.is_active) {
+      await sendWhatsApp(from, `❌ Code désactivé / Code deactivated`)
+      return ok()
+    }
+    if (v.expires_at && new Date(v.expires_at).getTime() < Date.now()) {
+      await sendWhatsApp(from, `❌ Code expiré / Code expired`)
+      return ok()
+    }
+    if (v.max_uses != null && v.max_uses > 0 && (v.current_uses ?? 0) >= v.max_uses) {
+      await sendWhatsApp(from, `❌ Code épuisé / Code fully used`)
+      return ok()
+    }
+    const { data: prior } = await supabaseAdmin
+      .from('customer_vouchers').select('id')
+      .eq('customer_id', customer.id).eq('voucher_id', v.id)
+    const limit = (v.per_customer_max ?? 1)
+    if (limit > 0 && (prior?.length ?? 0) >= limit) {
+      await sendWhatsApp(from, `Déjà réclamé / Already claimed: ${code}`)
+      return ok()
+    }
+    const { data: inserted, error: insErr } = await supabaseAdmin
+      .from('customer_vouchers').insert({ customer_id: customer.id, voucher_id: v.id })
+      .select('id').single()
+    if (insErr) {
+      console.error('[whatsapp] voucher claim failed:', insErr.message)
+      await sendWhatsApp(from, `⚠️ Erreur / Error: ${insErr.message}`)
+      return ok()
+    }
+    await writeAudit({
+      action: 'voucher_claimed', targetType: 'voucher', targetId: v.id,
+      performedBy: customer.id, performedByType: 'customer',
+      metadata: { code, customer_voucher_id: inserted.id, via: 'whatsapp' },
+    })
+    const value = v.discount_type === 'percent'
+      ? `-${v.discount_value}%`
+      : `-${Number(v.discount_value).toLocaleString()} FCFA`
+    await sendWhatsApp(from,
+      `🎫 Code *${code}* ajouté (${value})!\n` +
+      `Voucher *${code}* added (${value})!\n\n` +
+      `Utilisez-le à votre prochaine commande. / Use it on your next order.`)
+    return ok()
+  }
+
   if (cmd === 'mes commandes' || cmd === 'my orders') {
     const { data } = await supabaseAdmin
       .from('orders')

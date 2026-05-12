@@ -146,7 +146,7 @@ export default function BottomNav() {
   // the Vouchers entry for manager/owner; staff skip it (no voucher perms).
   const restaurantTabs: TabSpec[] = [
     { href: '/dashboard', icon: '📦', label: bi('Commandes', 'Orders'),
-      match: p => p.startsWith('/dashboard') && (dashTab === 'orders' || !['menu','validate'].includes(dashTab)),
+      match: p => p.startsWith('/dashboard') && (dashTab === 'orders' || !['menu','validate','vouchers'].includes(dashTab)),
       onClick: () => goToDashTab('orders'),
       badge: pendingCount },
     ...((isOwner || isManager) ? [
@@ -156,8 +156,8 @@ export default function BottomNav() {
     ] : []),
     ...((isOwner || isManager) ? [
       { href: '/dashboard', icon: '🎫', label: bi('Bons', 'Vouchers'),
-        match: (p: string) => p.startsWith('/dashboard') && dashTab === 'validate',
-        onClick: () => goToDashTab('validate') }
+        match: (p: string) => p.startsWith('/dashboard') && (dashTab === 'vouchers' || dashTab === 'validate'),
+        onClick: () => goToDashTab('vouchers') }
     ] : []),
     { href: '/account',                icon: '👤', label: bi('Compte', 'Account'),
       match: p => p === '/account' },

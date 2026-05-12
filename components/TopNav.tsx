@@ -114,7 +114,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // same route and skip re-render, leading to missed clicks.
   const isDashOrders   = isDashboard && dashboardTab === 'orders'
   const isDashMenu     = isDashboard && dashboardTab === 'menu'
-  const isDashVouchers = isDashboard && dashboardTab === 'validate'
+  const isDashVouchers = isDashboard && (dashboardTab === 'vouchers' || dashboardTab === 'validate')
   const isDashTeam     = isDashboard && dashboardTab === 'team'
   const isDashSettings = isDashboard && dashboardTab === 'settings'
 
@@ -223,7 +223,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
                 </TopNavButton>
               )}
               {(isOwner || isManager) && (
-                <TopNavButton onClick={() => goToDashTab('validate')} active={isDashVouchers}>
+                <TopNavButton onClick={() => goToDashTab('vouchers')} active={isDashVouchers}>
                   🎫 {bi('Bons', 'Vouchers')}
                 </TopNavButton>
               )}

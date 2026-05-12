@@ -85,13 +85,16 @@ export async function POST(req: NextRequest) {
 
   const row: Record<string, unknown> = {
     code,
-    discount_type:  discountType,
-    discount_value: discountValue,
-    min_order:      Number(payload.min_order) || 0,
-    max_uses:       payload.max_uses != null && payload.max_uses !== '' ? parseInt(String(payload.max_uses), 10) : null,
-    expires_at:     payload.expires_at || null,
-    restaurant_id:  restaurantId,
-    is_active:      payload.is_active !== false,
+    discount_type:    discountType,
+    discount_value:   discountValue,
+    min_order:        Number(payload.min_order) || 0,
+    max_uses:         payload.max_uses != null && payload.max_uses !== '' ? parseInt(String(payload.max_uses), 10) : null,
+    per_customer_max: payload.per_customer_max != null && payload.per_customer_max !== ''
+      ? Math.max(0, parseInt(String(payload.per_customer_max), 10))
+      : 1,
+    expires_at:       payload.expires_at || null,
+    restaurant_id:    restaurantId,
+    is_active:        payload.is_active !== false,
   }
 
   const { data, error } = await supabaseAdmin

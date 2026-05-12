@@ -130,7 +130,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'team', 'settings']
+    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'vouchers', 'team', 'settings']
     if (q && (allowed as string[]).includes(q)) {
       setTab(q as DashboardTab)
     }
@@ -821,6 +821,13 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {tab === 'vouchers' && selectedRestaurant && (
+            <VendorVouchersPanel
+              restaurant={selectedRestaurant}
+              effectiveRole={effectiveRole}
+            />
+          )}
+
           {/* Team tab — full pending-invitations + invite UI lands in the
               follow-up commit. For now the empty-state points vendors to
               /account where the existing team roster lives. */}
@@ -1129,6 +1136,376 @@ function PaymentSettingsPanel({
         </div>
       )}
     </div>
+  )
+}
+
+// ── Vendor voucher panel ─────────────────────────────────────────────────────
+// Mirrors the admin voucher tab but scoped to a single restaurant:
+//   - GET /api/vendor/vouchers lists every voucher across the vendor's
+//     restaurants; we filter to the currently-selected one client-side.
+//   - POST /api/vendor/vouchers creates (scope locked to this restaurant).
+//   - PATCH /api/vendor/vouchers/[id] toggles is_active.
+//   - DELETE /api/vendor/vouchers/[id] removes a voucher that has never
+//     been used.
+// Staff can view but not mutate (UI hides write controls).
+interface VendorVoucherRow {
+  id: string
+  code: string
+  discount_type: 'percent' | 'fixed'
+  discount_value: number
+  min_order: number | null
+  max_uses: number | null
+  current_uses: number | null
+  per_customer_max?: number | null
+  is_active: boolean
+  expires_at: string | null
+  restaurant_id: string | null
+  restaurant_name: string | null
+  status: 'active' | 'inactive' | 'expired' | 'exhausted'
+  created_at: string
+}
+
+function VendorVouchersPanel({
+  restaurant, effectiveRole,
+}: {
+  restaurant: Restaurant
+  effectiveRole: VendorRole | null
+}) {
+  const bi = useBi()
+  const canWrite = effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin'
+
+  const [vouchers, setVouchers] = useState<VendorVoucherRow[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving]     = useState(false)
+  const [error, setError]       = useState('')
+
+  // Filters + search — same UX as the admin tab.
+  type FilterStatus = 'all' | 'active' | 'expiring' | 'expired' | 'inactive'
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+
+  const [code, setCode] = useState('')
+  const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
+  const [discountValue, setDiscountValue] = useState('')
+  const [minOrder, setMinOrder] = useState('0')
+  const [maxUses, setMaxUses] = useState('')
+  const [perCustomerMax, setPerCustomerMax] = useState('1')
+  const [expiresAt, setExpiresAt] = useState('')
+  const [isActive, setIsActive] = useState(true)
+
+  const fetchVouchers = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/vendor/vouchers', { cache: 'no-store' })
+      const data = await res.json()
+      if (res.ok && Array.isArray(data.vouchers)) {
+        setVouchers((data.vouchers as VendorVoucherRow[]).filter(v => v.restaurant_id === restaurant.id))
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [restaurant.id])
+
+  useEffect(() => { fetchVouchers() }, [fetchVouchers])
+
+  function resetForm() {
+    setCode(''); setDiscountType('percent'); setDiscountValue('')
+    setMinOrder('0'); setMaxUses(''); setPerCustomerMax('1')
+    setExpiresAt(''); setIsActive(true); setError('')
+  }
+
+  async function createVoucher() {
+    if (!discountValue) return
+    setSaving(true); setError('')
+    try {
+      const res = await fetch('/api/vendor/vouchers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: code.trim().toUpperCase() || undefined,
+          discount_type: discountType,
+          discount_value: parseFloat(discountValue),
+          min_order: parseFloat(minOrder) || 0,
+          max_uses: maxUses ? parseInt(maxUses, 10) : null,
+          per_customer_max: perCustomerMax ? parseInt(perCustomerMax, 10) : 1,
+          expires_at: expiresAt || null,
+          restaurant_id: restaurant.id,
+          is_active: isActive,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? bi('Erreur', 'Error')); return }
+      setShowForm(false)
+      resetForm()
+      fetchVouchers()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function toggleActive(v: VendorVoucherRow) {
+    await fetch(`/api/vendor/vouchers/${v.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !v.is_active }),
+    })
+    fetchVouchers()
+  }
+
+  async function deleteVoucher(v: VendorVoucherRow) {
+    if (!confirm(bi(`Supprimer ${v.code}?`, `Delete ${v.code}?`))) return
+    const res = await fetch(`/api/vendor/vouchers/${v.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(data.error ?? bi('Erreur', 'Error'))
+      return
+    }
+    fetchVouchers()
+  }
+
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+  function isExpiringSoon(v: VendorVoucherRow): boolean {
+    if (v.status !== 'active' || !v.expires_at) return false
+    const diff = new Date(v.expires_at).getTime() - Date.now()
+    return diff > 0 && diff <= sevenDaysMs
+  }
+
+  const filtered = vouchers.filter(v => {
+    if (searchQuery && !v.code.toLowerCase().includes(searchQuery.toLowerCase())) return false
+    if (filterStatus === 'all')      return true
+    if (filterStatus === 'expiring') return isExpiringSoon(v)
+    if (filterStatus === 'active')   return v.status === 'active' && !isExpiringSoon(v)
+    return v.status === filterStatus
+  })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 className="text-lg font-bold text-ink-primary">
+          🎫 {bi('Bons', 'Vouchers')} — {restaurant.name}
+        </h2>
+        {canWrite && (
+          <button
+            onClick={() => setShowForm(s => !s)}
+            className="bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+          >
+            {showForm ? bi('Annuler', 'Cancel') : bi('+ Créer un bon', '+ Create voucher')}
+          </button>
+        )}
+      </div>
+
+      {showForm && canWrite && (
+        <div className="bg-white rounded-2xl shadow-sm p-5 mb-6">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Code', 'Code')}</label>
+              <input
+                value={code}
+                onChange={e => setCode(e.target.value.toUpperCase())}
+                placeholder={bi('Laisser vide pour TCHOP-XXXX', 'Leave blank for TCHOP-XXXX')}
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand uppercase font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Type', 'Type')}</label>
+              <select
+                value={discountType}
+                onChange={e => setDiscountType(e.target.value as 'percent' | 'fixed')}
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
+              >
+                <option value="percent">{bi('Pourcentage / Percentage', 'Percentage')}</option>
+                <option value="fixed">{bi('Montant fixe / Fixed', 'Fixed amount')}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Valeur', 'Value')}</label>
+              <input
+                type="number"
+                value={discountValue}
+                onChange={e => setDiscountValue(e.target.value)}
+                placeholder={discountType === 'percent' ? '10' : '500'}
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Commande min. (FCFA)', 'Min order (FCFA)')}</label>
+              <input
+                type="number"
+                value={minOrder}
+                onChange={e => setMinOrder(e.target.value)}
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Usages max (0 = illimité)', 'Max uses (0 = unlimited)')}</label>
+              <input
+                type="number"
+                value={maxUses}
+                onChange={e => setMaxUses(e.target.value)}
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Par client (max)', 'Per customer (max)')}</label>
+              <input
+                type="number"
+                value={perCustomerMax}
+                onChange={e => setPerCustomerMax(e.target.value)}
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs text-ink-secondary mb-1">{bi('Expiration', 'Expiry')}</label>
+              <input
+                type="date"
+                value={expiresAt}
+                onChange={e => setExpiresAt(e.target.value)}
+                className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
+              />
+            </div>
+            <label className="col-span-2 flex items-center gap-2 text-sm text-ink-primary cursor-pointer">
+              <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} />
+              {bi('Actif à la création', 'Active on creation')}
+            </label>
+          </div>
+          {error && <p className="text-xs text-danger mt-3">{error}</p>}
+          <button
+            onClick={createVoucher}
+            disabled={saving || !discountValue}
+            className="w-full mt-4 bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
+          >
+            {saving ? '…' : bi('Créer', 'Create')}
+          </button>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl shadow-sm p-3 mb-4 flex items-center gap-3 flex-wrap">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder={bi('Rechercher un code…', 'Search a code…')}
+          className="flex-1 min-w-[160px] border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-surface"
+        />
+        <div className="flex items-center gap-1 flex-wrap">
+          {([
+            { id: 'all',      label: bi('Tous',     'All') },
+            { id: 'active',   label: bi('🟢 Actifs', '🟢 Active') },
+            { id: 'expiring', label: bi('🟡 Bientôt expiré', '🟡 Expiring') },
+            { id: 'expired',  label: bi('🔴 Expiré',  '🔴 Expired') },
+            { id: 'inactive', label: bi('⚪ Inactif', '⚪ Inactive') },
+          ] as { id: FilterStatus; label: string }[]).map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => setFilterStatus(opt.id)}
+              className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                filterStatus === opt.id
+                  ? 'bg-brand text-white'
+                  : 'bg-surface-muted text-ink-secondary hover:bg-divider'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-ink-tertiary">…</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12 text-ink-tertiary">
+          <div className="text-4xl mb-3">🎫</div>
+          <p>{vouchers.length === 0
+            ? bi('Aucun bon. Créez-en un!', 'No vouchers yet. Create one!')
+            : bi('Aucun résultat', 'No results')}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-surface-muted border-b border-divider">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{bi('Code', 'Code')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{bi('Valeur', 'Value')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{bi('Utilisations', 'Uses')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{bi('Expire', 'Expiry')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">{bi('Statut', 'Status')}</th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-divider">
+                {filtered.map(v => (
+                  <tr key={v.id} className="hover:bg-surface-muted transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-mono font-bold text-ink-primary">{v.code}</p>
+                    </td>
+                    <td className="px-4 py-3 text-brand-dark font-semibold">
+                      {v.discount_type === 'percent' ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
+                    </td>
+                    <td className="px-4 py-3 text-ink-secondary">
+                      {v.current_uses ?? 0}{v.max_uses ? `/${v.max_uses}` : ''}
+                    </td>
+                    <td className="px-4 py-3 text-ink-secondary text-xs">
+                      {v.expires_at
+                        ? new Date(v.expires_at).toLocaleDateString('fr-FR')
+                        : <span className="text-ink-tertiary">∞</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <VendorVoucherStatusBadge
+                        status={isExpiringSoon(v) ? 'expiring' : v.status}
+                        canToggle={canWrite}
+                        onToggle={() => toggleActive(v)}
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {canWrite && (v.current_uses ?? 0) === 0 && (
+                        <button
+                          onClick={() => deleteVoucher(v)}
+                          className="text-xs text-danger hover:text-danger font-semibold"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VendorVoucherStatusBadge({
+  status, canToggle, onToggle,
+}: {
+  status: 'active' | 'inactive' | 'expired' | 'exhausted' | 'expiring'
+  canToggle: boolean
+  onToggle: () => void
+}) {
+  const bi = useBi()
+  const STYLES: Record<typeof status, { cls: string; label: string }> = {
+    active:    { cls: 'bg-brand-light text-brand-darker hover:bg-brand-badge', label: '🟢 ' + bi('Active', 'Active') },
+    expiring:  { cls: 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100', label: bi('🟡 Bientôt expiré', '🟡 Expiring soon') },
+    inactive:  { cls: 'bg-surface-muted text-ink-secondary hover:bg-divider',    label: '⚪ ' + bi('Inactif', 'Inactive') },
+    expired:   { cls: 'bg-rose-50 text-rose-700 border border-rose-200',          label: bi('🔴 Expiré', '🔴 Expired') },
+    exhausted: { cls: 'bg-surface-muted text-ink-secondary',                      label: bi('⚫ Épuisé', '⚫ Exhausted') },
+  }
+  const s = STYLES[status]
+  const clickable = canToggle && (status === 'active' || status === 'inactive' || status === 'expiring')
+  return (
+    <button
+      onClick={clickable ? onToggle : undefined}
+      disabled={!clickable}
+      className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${s.cls} ${clickable ? '' : 'cursor-default opacity-80'}`}
+    >
+      {s.label}
+    </button>
   )
 }
 

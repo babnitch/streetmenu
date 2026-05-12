@@ -76,6 +76,10 @@ export interface Voucher {
   is_active: boolean
   city: string | null
   created_at: string
+  // Optional — set when the row was selected with a restaurants join.
+  // Drives the "applicable restaurant" line on customer voucher cards.
+  restaurant_id?: string | null
+  restaurants?: { name: string } | null
 }
 
 export interface CustomerVoucher {

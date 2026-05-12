@@ -37,6 +37,12 @@ export default function AdminVouchersPage() {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // List filters — query + status pill. 'expiring' isn't a real DB status,
+  // it's derived client-side from expires_at being within 7 days.
+  type FilterStatus = 'all' | 'active' | 'expiring' | 'expired' | 'inactive'
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+
   const [code, setCode] = useState('')
   const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
   const [discountValue, setDiscountValue] = useState('')
@@ -120,6 +126,23 @@ export default function AdminVouchersPage() {
 
   const totalUses = vouchers.reduce((s, v) => s + (v.current_uses ?? 0), 0)
   const activeCount = vouchers.filter(v => v.status === 'active').length
+
+  // Expiring-soon = active + has an expiry within 7 days. Computed once
+  // here so the filter, badge, and stat all agree.
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+  function isExpiringSoon(v: VoucherWithStatus): boolean {
+    if (v.status !== 'active' || !v.expires_at) return false
+    const diff = new Date(v.expires_at).getTime() - Date.now()
+    return diff > 0 && diff <= sevenDaysMs
+  }
+
+  const filteredVouchers = vouchers.filter(v => {
+    if (searchQuery && !v.code.toLowerCase().includes(searchQuery.toLowerCase())) return false
+    if (filterStatus === 'all')      return true
+    if (filterStatus === 'expiring') return isExpiringSoon(v)
+    if (filterStatus === 'active')   return v.status === 'active' && !isExpiringSoon(v)
+    return v.status === filterStatus
+  })
 
   return (
     <div>
@@ -267,13 +290,45 @@ export default function AdminVouchersPage() {
         </div>
       )}
 
+      {/* Filters + search */}
+      <div className="bg-white rounded-2xl shadow-sm p-3 mb-4 flex items-center gap-3 flex-wrap">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder={bi('Rechercher un code…', 'Search a code…')}
+          className="flex-1 min-w-[160px] border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-surface"
+        />
+        <div className="flex items-center gap-1 flex-wrap">
+          {([
+            { id: 'all',      label: bi('Tous',     'All') },
+            { id: 'active',   label: bi('🟢 Actifs', '🟢 Active') },
+            { id: 'expiring', label: bi('🟡 Bientôt expiré', '🟡 Expiring soon') },
+            { id: 'expired',  label: bi('🔴 Expiré',  '🔴 Expired') },
+            { id: 'inactive', label: bi('⚪ Inactif', '⚪ Inactive') },
+          ] as { id: FilterStatus; label: string }[]).map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => setFilterStatus(opt.id)}
+              className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                filterStatus === opt.id
+                  ? 'bg-brand text-white'
+                  : 'bg-surface-muted text-ink-secondary hover:bg-divider'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Table */}
       {loading ? (
         <div className="text-center py-12 text-ink-tertiary">{t('admin.vchLoading')}</div>
-      ) : vouchers.length === 0 ? (
+      ) : filteredVouchers.length === 0 ? (
         <div className="text-center py-12 text-ink-tertiary">
           <div className="text-4xl mb-3">🏷️</div>
-          <p>{t('admin.vchNoVouchers')}</p>
+          <p>{vouchers.length === 0 ? t('admin.vchNoVouchers') : bi('Aucun résultat', 'No results')}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -291,7 +346,7 @@ export default function AdminVouchersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-divider">
-                {vouchers.map(v => (
+                {filteredVouchers.map(v => (
                   <tr key={v.id} className="hover:bg-surface-muted transition-colors">
                     <td className="px-4 py-3">
                       <p className="font-mono font-bold text-ink-primary">{v.code}</p>
@@ -314,7 +369,11 @@ export default function AdminVouchersPage() {
                         : <span className="text-ink-tertiary">{t('admin.vchNoExpiry')}</span>}
                     </td>
                     <td className="px-4 py-3">
-                      <VoucherStatusBadge status={v.status} onToggle={() => toggleActive(v)} isActive={v.is_active} />
+                      <VoucherStatusBadge
+                        status={isExpiringSoon(v) ? 'expiring' : v.status}
+                        onToggle={() => toggleActive(v)}
+                        isActive={v.is_active}
+                      />
                     </td>
                     <td className="px-4 py-3 text-right">
                       {(v.current_uses ?? 0) === 0 && (
@@ -343,19 +402,22 @@ export default function AdminVouchersPage() {
 function VoucherStatusBadge({
   status, isActive, onToggle,
 }: {
-  status: 'active' | 'inactive' | 'expired' | 'exhausted'
+  status: 'active' | 'inactive' | 'expired' | 'exhausted' | 'expiring'
   isActive: boolean
   onToggle: () => void
 }) {
   const bi = useBi()
   const STYLES: Record<typeof status, { cls: string; label: string }> = {
-    active:    { cls: 'bg-brand-light text-brand-darker hover:bg-brand-badge', label: '✅ Active' },
-    inactive:  { cls: 'bg-surface-muted text-ink-secondary hover:bg-divider',    label: bi('Inactif', 'Inactive') },
-    expired:   { cls: 'bg-brand-light text-danger',                         label: bi('⏰ Expiré', 'Expired') },
-    exhausted: { cls: 'bg-brand-light text-warning',                     label: bi('🪫 Épuisé', 'Exhausted') },
+    active:    { cls: 'bg-brand-light text-brand-darker hover:bg-brand-badge', label: '🟢 ' + bi('Active', 'Active') },
+    expiring:  { cls: 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100', label: bi('🟡 Bientôt expiré', '🟡 Expiring soon') },
+    inactive:  { cls: 'bg-surface-muted text-ink-secondary hover:bg-divider',    label: '⚪ ' + bi('Inactif', 'Inactive') },
+    expired:   { cls: 'bg-rose-50 text-rose-700 border border-rose-200',          label: bi('🔴 Expiré', '🔴 Expired') },
+    exhausted: { cls: 'bg-surface-muted text-ink-secondary',                      label: bi('⚫ Épuisé', '⚫ Exhausted') },
   }
   const s = STYLES[status]
-  const clickable = status === 'active' || status === 'inactive'
+  // Both active variants (active + expiring) are togglable — the vendor
+  // might want to flip a "soon-to-expire" voucher off pre-emptively.
+  const clickable = status === 'active' || status === 'inactive' || status === 'expiring'
   return (
     <button
       onClick={clickable ? onToggle : undefined}

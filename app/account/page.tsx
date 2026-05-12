@@ -109,6 +109,10 @@ export default function AccountPage() {
   const [customerTab,      setCustomerTab]      = useState<CustomerTab>('profile')
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
+  // One-time welcome banner shown after a brand-new customer signs in for
+  // the first time. Set by verifyOtp when /api/auth/verify-code reports
+  // isNewAccount; dismissed by the user via the close button.
+  const [welcomeVoucherCode, setWelcomeVoucherCode] = useState<string | null>(null)
   const [orders,           setOrders]           = useState<Order[]>([])
   const [loadingData,      setLoadingData]      = useState(false)
 
@@ -231,7 +235,7 @@ export default function AccountPage() {
   const loadCustomerData = useCallback(async (customerId: string) => {
     setLoadingData(true)
     const [{ data: cvData }, { data: ordersData }] = await Promise.all([
-      supabase.from('customer_vouchers').select('*, vouchers(*)').eq('customer_id', customerId).order('claimed_at', { ascending: false }),
+      supabase.from('customer_vouchers').select('*, vouchers(*, restaurants(name))').eq('customer_id', customerId).order('claimed_at', { ascending: false }),
       supabase.from('orders').select('*, restaurants(name, city)').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(20),
     ])
     if (cvData) setCustomerVouchers(cvData)
@@ -386,6 +390,11 @@ export default function AccountPage() {
       setUser(u)
       setStep('dashboard')
       setDashView('customer')
+      if (data.isNewAccount && data.welcomeVoucherCode) {
+        setWelcomeVoucherCode(data.welcomeVoucherCode)
+        // Land on the Vouchers tab so the new BIENVENUE claim is right there.
+        setCustomerTab('vouchers')
+      }
       loadCustomerData(u.id)
       loadMyRestaurants()
     } finally {
@@ -871,6 +880,32 @@ export default function AccountPage() {
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'customer' && (
               <>
+                {welcomeVoucherCode && (
+                  <div className="bg-brand-light border border-brand-badge/40 rounded-2xl p-4 mb-4 flex items-start gap-3">
+                    <span className="text-2xl">🎉</span>
+                    <div className="flex-1 text-sm">
+                      <p className="font-bold text-brand-darker">
+                        {bi(
+                          `Bienvenue! Code ${welcomeVoucherCode} ajouté — 10% sur votre première commande!`,
+                          `Welcome! Code ${welcomeVoucherCode} added — 10% off your first order!`,
+                        )}
+                      </p>
+                      <p className="text-xs text-brand-dark mt-1">
+                        {bi(
+                          'Retrouvez-le dans l\'onglet Bons.',
+                          'Find it in the Vouchers tab.',
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setWelcomeVoucherCode(null)}
+                      aria-label="Close"
+                      className="text-brand-darker hover:text-ink-primary text-lg leading-none"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
                 {/* Tab bar — Profile, Restaurant (settings), Team. Orders
                     and Vouchers were removed: the BottomNav 📦 / 🎫 icons
                     cover those surfaces, so a second entry point here

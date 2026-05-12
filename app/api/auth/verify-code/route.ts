@@ -38,12 +38,15 @@ export async function POST(req: NextRequest) {
   // Consume the code
   await supabaseAdmin.from('verification_codes').update({ used: true }).eq('id', record.id)
 
-  // Get or create customer
+  // Get or create customer. Capture the pre-fetch state so we can tell the
+  // client whether this verification minted a new account (used to gate
+  // the welcome-voucher banner).
   let { data: customer } = await supabaseAdmin
     .from('customers')
     .select('id, phone, name, city')
     .eq('phone', phone)
     .maybeSingle()
+  const previousCustomer = customer
 
   if (!customer) {
     if (!name || !city) {
@@ -68,6 +71,10 @@ export async function POST(req: NextRequest) {
     await assignWelcomeVoucher(customer.id)
   }
 
+  // Treat first-time verification as a new account from the client's POV
+  // so /account can show the welcome-voucher banner exactly once.
+  const isNewAccount = previousCustomer === null
+
   const rememberMe = Boolean(body.rememberMe)
   const payload: SessionPayload = {
     id:    customer.id,
@@ -75,6 +82,6 @@ export async function POST(req: NextRequest) {
     name:  customer.name,
     role:  'customer',
   }
-  const res = NextResponse.json({ customer })
+  const res = NextResponse.json({ customer, isNewAccount, welcomeVoucherCode: isNewAccount ? 'BIENVENUE' : null })
   return setSessionCookie(res, payload, rememberMe)
 }
