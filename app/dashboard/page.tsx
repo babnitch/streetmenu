@@ -152,6 +152,63 @@ export default function DashboardPage() {
   const [updateError, setUpdateError] = useState<string>('')
   const lastSeenPendingRef = useRef<string | null | undefined>(undefined)
 
+  // Manual "mark as paid" modal — covers cash, MTN MoMo, Orange Money.
+  // PawaPay-paid orders are excluded at the trigger site (payment_id != null).
+  type ManualMethod = 'cash' | 'mtn_momo' | 'orange_money'
+  const [markPaidOrder, setMarkPaidOrder] = useState<Order | null>(null)
+  const [markPaidMethod, setMarkPaidMethod] = useState<ManualMethod>('cash')
+  const [markPaidPhone, setMarkPaidPhone] = useState('')
+  const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false)
+  const [markPaidError, setMarkPaidError] = useState('')
+
+  function openMarkPaid(order: Order) {
+    setMarkPaidOrder(order)
+    setMarkPaidMethod('cash')
+    setMarkPaidPhone('')
+    setMarkPaidError('')
+  }
+  function closeMarkPaid() {
+    if (markPaidSubmitting) return
+    setMarkPaidOrder(null)
+    setMarkPaidError('')
+  }
+  async function confirmMarkPaid() {
+    if (!markPaidOrder) return
+    const needsPhone = markPaidMethod !== 'cash'
+    if (needsPhone && !markPaidPhone.trim()) {
+      setMarkPaidError(bi('Numéro requis', 'Phone number required'))
+      return
+    }
+    setMarkPaidSubmitting(true)
+    setMarkPaidError('')
+    try {
+      const res = await fetch(`/api/orders/${markPaidOrder.id}/mark-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method:      markPaidMethod,
+          payer_phone: needsPhone ? markPaidPhone.trim() : undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setMarkPaidError(data.error ?? bi('Erreur', 'Error'))
+        return
+      }
+      setOrders(prev => prev.map(o => o.id === markPaidOrder.id ? {
+        ...o,
+        payment_status: 'paid' as Order['payment_status'],
+        payment_method: markPaidMethod,
+        manual_payment_phone: needsPhone ? markPaidPhone.trim() : null,
+      } : o))
+      setMarkPaidOrder(null)
+    } catch (e) {
+      setMarkPaidError((e as Error).message)
+    } finally {
+      setMarkPaidSubmitting(false)
+    }
+  }
+
   // Auth on mount
   useEffect(() => {
     let cancelled = false
@@ -468,6 +525,15 @@ export default function DashboardPage() {
                       const paymentPending = isPaidOrder && order.payment_status === 'pending'
                       const paymentFailed  = isPaidOrder && order.payment_status === 'failed'
 
+                      // "Mark as paid" eligibility — anything that hasn't
+                      // been settled through PawaPay yet. A non-null
+                      // payment_id means the order went through the in-app
+                      // deposit flow, so we never offer the manual override.
+                      const canMarkPaid =
+                        !order.payment_id
+                        && order.payment_status !== 'paid'
+                        && (effectiveRole === 'admin' || effectiveRole === 'owner' || effectiveRole === 'manager')
+
                       const roleFiltered = (STATUS_ACTIONS[order.status] ?? [])
                         .filter(a => effectiveRole === 'admin' || (effectiveRole && a.roles.includes(effectiveRole as 'owner' | 'manager' | 'staff')))
                       const actions = paymentFailed
@@ -527,8 +593,17 @@ export default function DashboardPage() {
                                   {bi('❌ Paiement échoué', '❌ Payment failed')}
                                 </span>
                               )}
-                              {!paymentPending && !paymentFailed && actions.length === 0 && (
+                              {!paymentPending && !paymentFailed && actions.length === 0 && !canMarkPaid && (
                                 <span className="text-xs text-ink-tertiary">— / —</span>
+                              )}
+                              {canMarkPaid && (
+                                <button
+                                  onClick={() => openMarkPaid(order)}
+                                  disabled={updatingOrderId === order.id}
+                                  className="text-xs px-3 py-1.5 rounded-full font-semibold transition-colors bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                                >
+                                  💰 {bi('Marquer payé', 'Mark as paid')}
+                                </button>
                               )}
                               {actions.map(a => (
                                 <button
@@ -789,6 +864,90 @@ export default function DashboardPage() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {markPaidOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={closeMarkPaid}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-ink-primary mb-1">
+              💰 {bi('Marquer payé', 'Mark as paid')}
+            </h3>
+            <p className="text-xs text-ink-tertiary mb-4 font-mono">
+              #{orderShortId(markPaidOrder.id)} · {Number(markPaidOrder.total_price).toLocaleString()} FCFA
+            </p>
+
+            <label className="block text-xs text-ink-secondary mb-1">
+              {bi('Méthode de paiement', 'Payment method')}
+            </label>
+            <div className="grid grid-cols-1 gap-2 mb-4">
+              {([
+                { value: 'cash' as const,         label: bi('💵 Espèces / Cash',        '💵 Cash / Espèces') },
+                { value: 'mtn_momo' as const,     label: bi('📱 MTN MoMo',              '📱 MTN MoMo') },
+                { value: 'orange_money' as const, label: bi('📱 Orange Money',          '📱 Orange Money') },
+              ]).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setMarkPaidMethod(opt.value)}
+                  className={`text-left px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                    markPaidMethod === opt.value
+                      ? 'border-brand bg-brand-light text-brand-darker'
+                      : 'border-divider bg-surface text-ink-primary hover:bg-surface-muted'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {markPaidMethod !== 'cash' && (
+              <div className="mb-4">
+                <label className="block text-xs text-ink-secondary mb-1">
+                  {bi('Numéro utilisé pour payer', 'Phone number used to pay')}
+                </label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={markPaidPhone}
+                  onChange={e => setMarkPaidPhone(e.target.value)}
+                  placeholder="Ex: 237670000000"
+                  className="w-full border border-divider rounded-xl px-3 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none focus:border-brand bg-surface font-mono"
+                />
+              </div>
+            )}
+
+            {markPaidError && (
+              <p className="text-xs text-danger mb-3">{markPaidError}</p>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={closeMarkPaid}
+                disabled={markPaidSubmitting}
+                className="flex-1 px-3 py-2 rounded-full text-sm font-semibold bg-surface-muted text-ink-secondary hover:bg-divider transition-colors disabled:opacity-50"
+              >
+                {bi('Annuler', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmMarkPaid}
+                disabled={markPaidSubmitting}
+                className="flex-1 px-3 py-2 rounded-full text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {markPaidSubmitting
+                  ? bi('Confirmation…', 'Confirming…')
+                  : bi('Confirmer le paiement', 'Confirm payment')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

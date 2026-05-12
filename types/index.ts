@@ -61,6 +61,7 @@ export interface Order {
   payment_method?: string | null
   payment_amount?: number | null
   payment_at?: string | null
+  manual_payment_phone?: string | null
 }
 
 export interface Voucher {

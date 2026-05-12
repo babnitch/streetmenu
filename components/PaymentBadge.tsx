@@ -17,15 +17,20 @@ interface PaymentBadgeProps {
 }
 
 const PM_LABELS: Record<string, string> = {
-  MTN_MOMO_CMR: 'MTN MoMo',
-  MTN_MOMO_CIV: 'MTN MoMo',
-  MTN_MOMO_BEN: 'MTN MoMo',
-  ORANGE_CMR:   'Orange Money',
-  ORANGE_CIV:   'Orange Money',
-  ORANGE_SEN:   'Orange Money',
-  MOOV_CIV:     'Moov Money',
-  MOOV_BEN:     'Moov Money',
-  FREE_SEN:     'Free Money',
+  // PawaPay correspondent codes
+  MTN_MOMO_CMR: '📱 MTN',
+  MTN_MOMO_CIV: '📱 MTN',
+  MTN_MOMO_BEN: '📱 MTN',
+  ORANGE_CMR:   '📱 Orange',
+  ORANGE_CIV:   '📱 Orange',
+  ORANGE_SEN:   '📱 Orange',
+  MOOV_CIV:     '📱 Moov',
+  MOOV_BEN:     '📱 Moov',
+  FREE_SEN:     '📱 Free',
+  // Manual vendor-recorded methods
+  cash:         '💵 Cash',
+  mtn_momo:     '📱 MTN',
+  orange_money: '📱 Orange',
 }
 
 export default function PaymentBadge({ order, locale, size = 'xs', showRef = false }: PaymentBadgeProps) {
@@ -42,10 +47,18 @@ export default function PaymentBadge({ order, locale, size = 'xs', showRef = fal
   const method = order.payment_method ? PM_LABELS[order.payment_method] ?? order.payment_method : null
 
   if (order.payment_status === 'paid') {
+    // For manual marks the method label already includes the icon, so we
+    // don't repeat the 💰 prefix. App-paid orders keep the generic prefix
+    // since the method may be missing on legacy rows.
+    const isManual = order.payment_method === 'cash'
+                  || order.payment_method === 'mtn_momo'
+                  || order.payment_method === 'orange_money'
     return (
       <div className="flex flex-col items-end gap-0.5">
         <Pill tone="success" size={size}>
-          💰 {pickBi('Payé / Paid', locale)}{method ? ` · ${method}` : ''}
+          {isManual
+            ? `${method} · ${pickBi('Payé / Paid', locale)}`
+            : `💰 ${pickBi('Payé / Paid', locale)}${method ? ` · ${method}` : ''}`}
         </Pill>
         {showRef && order.payment_id && (
           <span className="text-[10px] text-ink-tertiary font-mono">ref: {order.payment_id.slice(-6).toUpperCase()}</span>
