@@ -18,33 +18,36 @@ import { Voucher, CustomerVoucher } from '@/types'
 // directly is the pattern already used by app/page.tsx and TopNav.
 interface SessionUser { id: string; name: string; phone: string; role: string }
 
+// Strip everything except digits — PawaPay wants the MSISDN as digits only
+// (country code included, no '+', no spaces, no dashes). We accept user
+// input both with and without '+' and normalise here.
+function digitsOnly(phone: string): string {
+  return phone.replace(/[^\d]/g, '')
+}
+
 // Local guess for which MNO label to show before the server confirms it.
 // Mirrors lib/pawapay.ts detectMNO but keeps the lookup client-side so the
 // order page can preview the wallet logo without a roundtrip.
 function previewMNO(phone: string): { label: string; logo: string } | null {
-  const digits = phone.replace(/[^\d+]/g, '')
-  if (digits.startsWith('+237')) {
-    const local = digits.slice(4)
-    const p = local.slice(0, 2)
+  const digits = digitsOnly(phone)
+  if (digits.startsWith('237')) {
+    const p = digits.slice(3, 5)
     if (['65', '67', '68'].includes(p)) return { label: 'MTN MoMo',     logo: '🟡' }
     if (p === '69')                     return { label: 'Orange Money', logo: '🟠' }
   }
-  if (digits.startsWith('+225')) {
-    const local = digits.slice(4)
-    const p = local.slice(0, 2)
+  if (digits.startsWith('225')) {
+    const p = digits.slice(3, 5)
     if (['07', '08', '09'].includes(p)) return { label: 'MTN MoMo',     logo: '🟡' }
     if (['05', '06'].includes(p))       return { label: 'Orange Money', logo: '🟠' }
     if (p === '01')                     return { label: 'Moov Money',   logo: '🔵' }
   }
-  if (digits.startsWith('+221')) {
-    const local = digits.slice(4)
-    const p = local.slice(0, 2)
+  if (digits.startsWith('221')) {
+    const p = digits.slice(3, 5)
     if (['77', '78'].includes(p)) return { label: 'Orange Money', logo: '🟠' }
     if (p === '76')               return { label: 'Free Money',   logo: '⚫' }
   }
-  if (digits.startsWith('+229')) {
-    const local = digits.slice(4)
-    const p = local.slice(0, 2)
+  if (digits.startsWith('229')) {
+    const p = digits.slice(3, 5)
     if (['96', '97'].includes(p)) return { label: 'MTN MoMo',   logo: '🟡' }
     if (['94', '95'].includes(p)) return { label: 'Moov Money', logo: '🔵' }
   }
@@ -52,13 +55,13 @@ function previewMNO(phone: string): { label: string; logo: string } | null {
 }
 
 // PawaPay only routes to MTN MoMo / Orange Money in these four countries.
-// Customers paying from a non-supported country (e.g. a +41 Swiss number
-// stored on their account) need a separate mobile money number they
-// actually hold a wallet on.
-const SUPPORTED_MOMO_PREFIXES = ['+237', '+225', '+221', '+229'] as const
+// We accept the country code with OR without '+' so customers can type
+// "237670000000" or "+237670000000" — both are valid. A bare local number
+// like "670000000" is rejected because we can't infer the country.
+const SUPPORTED_COUNTRY_CODES = ['237', '225', '221', '229'] as const
 function hasSupportedCountryPrefix(phone: string): boolean {
-  const cleaned = phone.replace(/[^\d+]/g, '')
-  return SUPPORTED_MOMO_PREFIXES.some(p => cleaned.startsWith(p))
+  const digits = digitsOnly(phone)
+  return SUPPORTED_COUNTRY_CODES.some(p => digits.startsWith(p))
 }
 
 type PayPhase = 'idle' | 'waiting' | 'paid' | 'failed' | 'timeout'
@@ -725,24 +728,24 @@ export default function OrderPage() {
               </label>
               <input
                 type="tel"
-                inputMode="tel"
+                inputMode="numeric"
                 value={momoPhone}
                 onChange={e => setMomoPhone(e.target.value)}
-                placeholder="+237 6XX XXX XXX"
+                placeholder="Ex: 237670000000"
                 required
                 className="w-full border border-divider rounded-xl px-3 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none focus:border-brand bg-surface mb-1.5 font-mono"
               />
               <p className="text-[11px] text-ink-tertiary mb-2">
                 {bi(
-                  'Entrez votre numéro MTN MoMo ou Orange Money',
-                  'Enter your MTN MoMo or Orange Money number',
+                  'Ex: 237670000000',
+                  'e.g. 237670000000',
                 )}
               </p>
               {trimmedMomoPhone && !momoPrefixValid ? (
                 <p className="text-xs text-danger">
                   {bi(
-                    'Numéro non supporté. Utilisez un numéro MTN ou Orange.',
-                    'Unsupported number. Use an MTN or Orange number.',
+                    "Entrez un numéro MTN MoMo ou Orange Money avec l'indicatif pays (ex: 237670000000)",
+                    'Enter an MTN MoMo or Orange Money number with country code (e.g. 237670000000)',
                   )}
                 </p>
               ) : mnoPreview ? (

@@ -109,12 +109,15 @@ export function detectMNO(phoneNumber: string, country?: CountryCode): {
   const digits = phoneNumber.replace(/[^\d+]/g, '')
   if (!digits) return null
 
-  // Auto-detect country from the dial prefix if not passed explicitly.
+  // Accept the country code with OR without a leading '+'. We strip the
+  // '+' before prefix-matching so "237670000000" and "+237670000000"
+  // route to the same correspondent.
+  const bare = digits.replace(/^\+/, '')
   const detected: CountryCode | null =
-    digits.startsWith('+237') ? 'CMR' :
-    digits.startsWith('+225') ? 'CIV' :
-    digits.startsWith('+221') ? 'SEN' :
-    digits.startsWith('+229') ? 'BEN' :
+    bare.startsWith('237') ? 'CMR' :
+    bare.startsWith('225') ? 'CIV' :
+    bare.startsWith('221') ? 'SEN' :
+    bare.startsWith('229') ? 'BEN' :
     country ?? null
   if (!detected) return null
 
