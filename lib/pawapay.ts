@@ -315,28 +315,47 @@ export async function createPayout(params: PayoutParams): Promise<PayoutResult> 
 }
 
 // ── Webhook signature verification ───────────────────────────────────────────
-// PawaPay signs callbacks with HMAC-SHA256 using the webhook secret. The
-// signature lives in the `signature` header. Format: hex digest of the
-// raw request body. We accept any of the common header names PawaPay uses
-// so a sandbox/production header rename doesn't silently bypass the check.
-import { createHmac, timingSafeEqual } from 'crypto'
+// PawaPay uses RFC-9421 HTTP Message Signatures with an RFC-9530
+// Content-Digest header. The Content-Digest is a structured-field
+// sf-dictionary whose `sha-256` entry holds an sf-binary (base64) of the
+// SHA-256 hash of the raw request body, e.g.
+//   Content-Digest: sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:
+//
+// In sandbox we skip verification entirely — PawaPay sandbox callbacks are
+// unauthenticated by design, and the API token alone is enough to identify
+// the environment for dev work. In production we recompute the digest of
+// the raw body and compare against the header (constant-time).
+import { createHash, timingSafeEqual } from 'crypto'
 
-export function verifyWebhookSignature(rawBody: string, headerValue: string | null | undefined): boolean {
-  const secret = process.env.PAWAPAY_WEBHOOK_SECRET ?? ''
-  if (!secret) {
-    // No secret configured — accept in sandbox so dev unblocks, but log loudly.
-    if (ENVIRONMENT !== 'production') {
-      console.warn('[pawapay] PAWAPAY_WEBHOOK_SECRET not set — accepting webhook unverified (sandbox only)')
-      return true
-    }
+export function verifyWebhookSignature(
+  rawBody: string,
+  contentDigestHeader: string | null | undefined,
+): boolean {
+  if (ENVIRONMENT !== 'production') {
+    console.info('[pawapay] sandbox/dev mode — skipping webhook signature verification')
+    return true
+  }
+
+  if (!contentDigestHeader) {
+    console.warn('[pawapay] missing Content-Digest header on production webhook')
     return false
   }
-  if (!headerValue) return false
-  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')
+
+  // sf-dictionary: `sha-256=:<base64>:` possibly alongside other algos.
+  // We only care about sha-256.
+  const match = contentDigestHeader.match(/sha-256\s*=\s*:([^:]+):/i)
+  if (!match) {
+    console.warn('[pawapay] Content-Digest missing sha-256 entry:', contentDigestHeader)
+    return false
+  }
+
+  const providedB64 = match[1].trim()
+  const computedB64 = createHash('sha256').update(rawBody, 'utf8').digest('base64')
+
   try {
-    const a = Buffer.from(expected, 'hex')
-    const b = Buffer.from(headerValue.replace(/^sha256=/, ''), 'hex')
-    if (a.length !== b.length) return false
+    const a = Buffer.from(providedB64, 'base64')
+    const b = Buffer.from(computedB64, 'base64')
+    if (a.length === 0 || a.length !== b.length) return false
     return timingSafeEqual(a, b)
   } catch {
     return false

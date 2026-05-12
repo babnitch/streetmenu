@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic'
 //     correspondent, failureReason?: { failureMessage } }
 //
 // We:
-//   1. Verify the HMAC signature (rejects unsigned requests in production).
+//   1. Verify the RFC-9421 Content-Digest header in production; sandbox
+//      callbacks bypass verification (PawaPay sandbox is unsigned).
 //   2. Look up the order by orders.payment_id = depositId.
 //   3. Write the new status + audit row.
 //   4. Notify customer + vendors over WhatsApp on success/failure.
@@ -23,12 +24,10 @@ export const dynamic = 'force-dynamic'
 // no-op except for re-sending the notification (skipped — see early return).
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
-  const signature = req.headers.get('signature')
-                  ?? req.headers.get('x-pawapay-signature')
-                  ?? req.headers.get('x-signature')
+  const contentDigest = req.headers.get('content-digest')
 
-  if (!verifyWebhookSignature(rawBody, signature)) {
-    console.warn('[payments/webhook] signature verification failed')
+  if (!verifyWebhookSignature(rawBody, contentDigest)) {
+    console.warn('[payments/webhook] Content-Digest verification failed')
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 })
   }
 
