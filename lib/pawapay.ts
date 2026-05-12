@@ -12,9 +12,11 @@
 
 import { randomUUID } from 'crypto'
 
-const API_TOKEN   = process.env.PAWAPAY_API_TOKEN   ?? ''
-const BASE_URL    = process.env.PAWAPAY_BASE_URL    ?? 'https://api.sandbox.pawapay.io'
-const ENVIRONMENT = process.env.PAWAPAY_ENVIRONMENT ?? 'sandbox'
+// Trim defensively — copy/paste from dashboards sometimes lands with a
+// trailing newline or surrounding quotes which silently break Bearer auth.
+const API_TOKEN   = (process.env.PAWAPAY_API_TOKEN   ?? '').trim().replace(/^["']|["']$/g, '')
+const BASE_URL    = (process.env.PAWAPAY_BASE_URL    ?? 'https://api.sandbox.pawapay.io').trim().replace(/\/+$/, '')
+const ENVIRONMENT = (process.env.PAWAPAY_ENVIRONMENT ?? 'sandbox').trim()
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -170,6 +172,19 @@ export function countryFromCity(city: string): CountryCode | null {
 
 async function pawapayFetch(path: string, init: RequestInit): Promise<{ status: number; body: unknown }> {
   const url = `${BASE_URL}${path}`
+
+  // Debug — strip when 401s are resolved. Logs token shape (NOT the token)
+  // so we can catch UUID-vs-JWT confusion, trailing whitespace, accidental
+  // quoting, and base-URL drift without leaking the credential.
+  const tokenSample = API_TOKEN
+    ? `${API_TOKEN.slice(0, 6)}…${API_TOKEN.slice(-4)} (len=${API_TOKEN.length}, looksJWT=${API_TOKEN.startsWith('eyJ')})`
+    : '<empty>'
+  console.info('[pawapay] →', init.method ?? 'GET', url)
+  console.info('[pawapay]   auth: Bearer', tokenSample)
+  if (typeof init.body === 'string') {
+    console.info('[pawapay]   body:', init.body.slice(0, 600))
+  }
+
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -181,8 +196,10 @@ async function pawapayFetch(path: string, init: RequestInit): Promise<{ status: 
   const text = await res.text()
   let body: unknown = null
   try { body = text ? JSON.parse(text) : null } catch { body = text }
+
+  console.info(`[pawapay] ← ${init.method ?? 'GET'} ${path} → ${res.status}`)
   if (!res.ok) {
-    console.error(`[pawapay] ${init.method ?? 'GET'} ${path} → ${res.status} ${text.slice(0, 400)}`)
+    console.error(`[pawapay]   response: ${text.slice(0, 600)}`)
   }
   return { status: res.status, body }
 }
