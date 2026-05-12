@@ -53,12 +53,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Load the order to know the restaurant and prior status
   const { data: order, error: orderErr } = await supabaseAdmin
     .from('orders')
-    .select('id, status, restaurant_id, customer_name, customer_phone, items, total_price, created_at')
+    .select('id, status, restaurant_id, customer_name, customer_phone, items, total_price, created_at, order_type, payment_status')
     .eq('id', params.id)
     .maybeSingle()
 
   if (orderErr || !order) {
     return NextResponse.json({ error: 'Commande introuvable / Order not found' }, { status: 404 })
+  }
+
+  // Payment gate: a paid_order can only progress through the kitchen flow
+  // once PawaPay reports the deposit as paid. Cancellation is still allowed
+  // (the vendor may want to cancel a failed/abandoned attempt without
+  // chasing the customer). Reservations skip the check — they're
+  // payment_status='not_required' by construction.
+  if (
+    order.order_type === 'paid_order'
+    && order.payment_status !== 'paid'
+    && targetStatus !== 'cancelled'
+  ) {
+    return NextResponse.json({
+      error: "Le paiement n'est pas encore confirmé. / Payment has not been confirmed yet.",
+    }, { status: 400 })
   }
 
   // Resolve the role this session has for that restaurant.

@@ -459,8 +459,22 @@ export default function DashboardPage() {
                       const created = new Date(order.created_at)
                       const dateStr = created.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
                       const timeStr = created.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-                      const actions = (STATUS_ACTIONS[order.status] ?? [])
+
+                      // Payment gate. A paid_order can't move forward until
+                      // PawaPay confirms the deposit. Failed payments freeze
+                      // the order entirely — only the customer can unstick
+                      // it (by retrying payment), so we expose no actions.
+                      const isPaidOrder = order.order_type === 'paid_order'
+                      const paymentPending = isPaidOrder && order.payment_status === 'pending'
+                      const paymentFailed  = isPaidOrder && order.payment_status === 'failed'
+
+                      const roleFiltered = (STATUS_ACTIONS[order.status] ?? [])
                         .filter(a => effectiveRole === 'admin' || (effectiveRole && a.roles.includes(effectiveRole as 'owner' | 'manager' | 'staff')))
+                      const actions = paymentFailed
+                        ? []
+                        : paymentPending
+                          ? roleFiltered.filter(a => a.target === 'cancelled')
+                          : roleFiltered
                       return (
                         <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm">
                           <div className="flex items-start justify-between mb-2 gap-3 flex-wrap">
@@ -503,7 +517,17 @@ export default function DashboardPage() {
                           <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-divider">
                             <span className="font-bold text-brand">{Number(order.total_price).toLocaleString()} FCFA</span>
                             <div className="flex items-center gap-2 flex-wrap">
-                              {actions.length === 0 && (
+                              {paymentPending && (
+                                <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-brand-light text-warning">
+                                  {bi('⏳ En attente de paiement', '⏳ Waiting for payment')}
+                                </span>
+                              )}
+                              {paymentFailed && (
+                                <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-brand-light text-danger">
+                                  {bi('❌ Paiement échoué', '❌ Payment failed')}
+                                </span>
+                              )}
+                              {!paymentPending && !paymentFailed && actions.length === 0 && (
                                 <span className="text-xs text-ink-tertiary">— / —</span>
                               )}
                               {actions.map(a => (
