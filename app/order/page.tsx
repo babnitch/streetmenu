@@ -446,7 +446,7 @@ export default function OrderPage() {
           {me ? (
             <div className="space-y-2">
               <Link
-                href="/account"
+                href="/account?tab=orders"
                 className="block bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold transition-colors w-full"
               >
                 📦 {bi('Voir mes commandes', 'View my orders')}
