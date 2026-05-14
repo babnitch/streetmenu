@@ -11,6 +11,7 @@ import { Restaurant, MenuItem } from '@/types'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
+import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
 
 export default function MenuPage() {
   const bi = useBi()
@@ -225,6 +226,14 @@ export default function MenuPage() {
             <p className="text-sm">{t('menu.noItems')}</p>
           </div>
         )}
+
+        {/* Ratings — anchored after the menu so the cart CTA stays in
+            primary view but customers who scroll past the menu (looking
+            to rate, came from the WhatsApp prompt) land here. Honors
+            the #rate hash by auto-opening the rate modal. */}
+        <div id="rate" className="mt-8">
+          <RestaurantRatingPanel restaurantId={id} />
+        </div>
       </div>
 
       {/* Floating cart CTA — sits above the mobile BottomNav (56px) and

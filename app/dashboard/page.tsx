@@ -471,6 +471,9 @@ export default function DashboardPage() {
                   🔔 {bi('Nouvelle commande!', 'New order!')}
                 </div>
               )}
+              {selectedRestaurant && (
+                <VendorRatingsPanel restaurantId={selectedRestaurant.id} />
+              )}
 
               {/* Filter bar with counts */}
               <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
@@ -1171,6 +1174,115 @@ interface VendorVoucherRow {
   restaurant_name: string | null
   status: 'active' | 'inactive' | 'expired' | 'exhausted'
   created_at: string
+}
+
+// Aggregate ratings card shown above the orders list. Hidden when the
+// restaurant has zero ratings — keeps the vendor's first impression of an
+// empty dashboard clean. No individual ratings are surfaced (anonymous
+// per spec) and there's no reply or dispute affordance.
+function VendorRatingsPanel({ restaurantId }: { restaurantId: string }) {
+  const bi = useBi()
+  const { locale } = useLanguage()
+  const [data, setData] = useState<null | {
+    average: number; count: number
+    distribution: Record<1 | 2 | 3 | 4 | 5, number>
+    top_tags: Array<{ id: string; count: number }>
+    trend: 'up' | 'down' | 'flat'
+    recent_count: number
+  }>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/vendor/ratings/${restaurantId}`, { cache: 'no-store' })
+        const d = await res.json()
+        if (!cancelled) setData(d)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [restaurantId])
+
+  if (loading || !data) return null
+  if (data.count === 0) return null
+
+  const trendBadge = data.trend === 'up'
+    ? { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '↑ ' + bi('en hausse', 'trending up') }
+    : data.trend === 'down'
+      ? { cls: 'bg-rose-50 text-rose-700 border border-rose-200', label: '↓ ' + bi('en baisse', 'trending down') }
+      : null
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-baseline gap-2">
+          <p className="text-2xl font-black text-ink-primary leading-none">
+            ⭐ {data.average.toFixed(1)}
+          </p>
+          <p className="text-xs text-ink-tertiary">
+            ({data.count} {bi('avis', 'ratings')})
+          </p>
+        </div>
+        {trendBadge && (
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${trendBadge.cls}`}>
+            {trendBadge.label}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-1 mb-2">
+        {([5, 4, 3, 2, 1] as const).map(n => {
+          const c = data.distribution[n]
+          const pct = data.count > 0 ? Math.round((c / data.count) * 100) : 0
+          return (
+            <div key={n} className="flex items-center gap-2 text-xs text-ink-secondary">
+              <span className="w-3 text-right font-mono">{n}</span>
+              <span>⭐</span>
+              <div className="flex-1 h-2 bg-surface-muted rounded-full overflow-hidden">
+                <div className="h-full bg-amber-400" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="w-10 text-right font-mono text-ink-tertiary">{pct}%</span>
+            </div>
+          )
+        })}
+      </div>
+
+      {data.top_tags.length > 0 && (
+        <p className="text-xs text-ink-secondary leading-relaxed">
+          {data.top_tags.map(({ id, count }) => {
+            const t = TAG_LOOKUP[id]
+            if (!t) return null
+            const label = locale === 'fr' ? t.fr : t.en
+            return `${t.emoji} ${label} (${count})`
+          }).filter(Boolean).join(' · ')}
+        </p>
+      )}
+
+      <p className="text-[10px] text-ink-tertiary mt-2 italic">
+        {bi('Avis anonymes — aucun nom n\'est affiché.', 'Anonymous reviews — no names shown.')}
+      </p>
+    </div>
+  )
+}
+
+// Inline tag lookup so the dashboard doesn't import lib/ratings (the file
+// would otherwise pull POSITIVE_TAGS + NEGATIVE_TAGS into the bundle).
+// Keep this in sync with lib/ratings.ts.
+const TAG_LOOKUP: Record<string, { emoji: string; fr: string; en: string }> = {
+  good_food:          { emoji: '🍽️', fr: 'Bonne nourriture',          en: 'Good food' },
+  fast_service:       { emoji: '⚡', fr: 'Service rapide',             en: 'Fast service' },
+  correct_order:      { emoji: '✅', fr: 'Commande correcte',          en: 'Correct order' },
+  good_value:         { emoji: '💰', fr: 'Bon rapport qualité-prix',   en: 'Good value' },
+  good_presentation:  { emoji: '📦', fr: 'Bonne présentation',         en: 'Good presentation' },
+  friendly_staff:     { emoji: '😊', fr: 'Personnel aimable',          en: 'Friendly staff' },
+  too_slow:           { emoji: '🐌', fr: 'Trop lent',                  en: 'Too slow' },
+  wrong_order:        { emoji: '❌', fr: 'Commande incorrecte',        en: 'Wrong order' },
+  too_expensive:      { emoji: '💸', fr: 'Trop cher',                  en: 'Too expensive' },
+  poor_quality:       { emoji: '😞', fr: 'Mauvaise qualité',           en: 'Poor quality' },
+  poor_presentation:  { emoji: '📦', fr: 'Mauvaise présentation',      en: 'Poor presentation' },
 }
 
 function VendorVouchersPanel({

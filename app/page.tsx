@@ -27,10 +27,13 @@ const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> =
 }
 
 // ─── Restaurant card ─────────────────────────────────────────────────────────
+interface RatingSummary { average: number; count: number }
+
 function RestaurantCard({
-  restaurant,
+  restaurant, rating,
 }: {
   restaurant: Restaurant
+  rating?: RatingSummary
 }) {
   const bi = useBi()
   const [imgError, setImgError] = useState(false)
@@ -80,6 +83,11 @@ function RestaurantCard({
               {cuisine}
             </span>
           )}
+          {rating && rating.count > 0 && (
+            <p className="mt-1.5 text-xs text-amber-700 font-semibold">
+              ⭐ {rating.average.toFixed(1)} <span className="text-ink-tertiary font-normal">({rating.count})</span>
+            </p>
+          )}
         </div>
         <span className={`flex-shrink-0 text-xs font-semibold whitespace-nowrap ${
           restaurant.is_open ? 'text-green-600' : 'text-red-600'
@@ -107,6 +115,7 @@ export default function HomePage() {
   const bi = useBi()
   const router = useRouter()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
+  const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
   const [loading, setLoading] = useState(true)
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Restaurant | null>(null)
@@ -195,6 +204,17 @@ export default function HomePage() {
         .order('created_at', { ascending: false })
       if (data) setRestaurants(data)
       setLoading(false)
+
+      // Rating summary is a follow-up so the cards paint first. Failures
+      // are silent — the cards just don't show the ⭐ line.
+      if (data && data.length > 0) {
+        const ids = data.map(r => r.id).join(',')
+        try {
+          const res = await fetch(`/api/restaurants/ratings-summary?ids=${ids}`, { cache: 'no-store' })
+          const d = await res.json()
+          if (d?.summary && typeof d.summary === 'object') setRatingSummary(d.summary)
+        } catch { /* card just hides the rating line */ }
+      }
     }
     fetchRestaurants()
   }, [])
@@ -310,7 +330,7 @@ export default function HomePage() {
 
         {!loading && filtered.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-            {filtered.map(r => <RestaurantCard key={r.id} restaurant={r} />)}
+            {filtered.map(r => <RestaurantCard key={r.id} restaurant={r} rating={ratingSummary[r.id]} />)}
           </div>
         )}
 

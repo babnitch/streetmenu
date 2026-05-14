@@ -821,6 +821,32 @@ export async function handleOrderCommand(
     return startReserveFlow(from, phone, event.id)
   }
 
+  // "noter" / "rate" — when a customer has a recent delivered order, deep
+  // link straight to that restaurant's /#rate anchor; otherwise point them
+  // to their orders list so they can pick. The page itself enforces the
+  // delivered-order requirement, so this command stays a thin shortcut.
+  if (cmd === 'noter' || cmd === 'rate') {
+    const { data: lastDelivered } = await supabaseAdmin
+      .from('orders')
+      .select('restaurant_id, restaurants(name)')
+      .eq('customer_id', customer.id)
+      .in('status', ['delivered', 'completed'])
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (lastDelivered?.restaurant_id) {
+      const rest = lastDelivered.restaurants as unknown as { name: string } | null
+      await sendWhatsApp(from,
+        `⭐ Notez ${rest?.name ?? 'votre dernier restaurant'} ici / Rate ${rest?.name ?? 'your last restaurant'} here:\n` +
+        `${BASE_URL}/restaurant/${lastDelivered.restaurant_id}#rate`)
+    } else {
+      await sendWhatsApp(from,
+        `🍽️ Aucune commande livrée pour le moment. Commandez d'abord, puis revenez pour noter.\n` +
+        `No delivered orders yet. Order first, then come back to rate.`)
+    }
+    return ok()
+  }
+
   // "publier" / "publish" → deep-link to the in-app submission form. The
   // page itself handles the login gate, so we don't need to check trust
   // state here.

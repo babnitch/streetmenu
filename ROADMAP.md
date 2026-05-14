@@ -31,6 +31,16 @@
 - [x] **Light publisher trust model** — any logged-in customer submits; 3 admin approvals auto-grant `event_auto_approve`; admin can revoke
 - [x] **10% platform commission on paid events** — `commission_rate` per event, `commission_amount` stored per reservation; organizer panel surfaces gross / commission / net
 
+### Restaurant Ratings (Uber Eats style)
+- [x] **1-5 star ratings + predefined tag picker** — positive tag set when ≥4 stars, negative when ≤3, both at 3
+- [x] **Verified-buyer gate** — only customers with a delivered order at this restaurant can rate; one rating per order
+- [x] **Anonymous aggregate** — average, count, 1-5 distribution bars, top tags; no individual reviews visible
+- [x] **Card + detail page badges** — `⭐ N.N (count)` shown on home cards (bulk endpoint) and the restaurant detail page
+- [x] **Vendor dashboard panel** — aggregate + distribution + top tags + 30-day trend (up/down/flat). No reply, no dispute, no individual ratings
+- [x] **WhatsApp `noter` command + deep link** — `noter / rate` jumps to `/restaurant/[id]#rate`; the page auto-opens the rating modal from the hash
+- [ ] **Post-delivery WhatsApp prompt** — Cron job to fire 2h after order moves to `delivered` (deferred)
+- [ ] **Event likes + comments, nickname system, full reporting + admin moderation** — schemas ready in `supabase-reviews.sql` (event_likes / event_comments / reports), UI lands in follow-up batches
+
 ### Vendor System
 - [x] Vendor self-signup form (/join)
 - [x] Admin approval workflow
