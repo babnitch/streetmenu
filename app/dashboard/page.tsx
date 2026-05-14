@@ -633,6 +633,12 @@ export default function DashboardPage() {
           {/* Validate Tab */}
           {tab === 'validate' && (
             <div className="bg-white rounded-2xl shadow-sm p-5">
+              <button
+                onClick={() => setTab('vouchers')}
+                className="text-xs text-brand hover:text-brand-dark font-semibold mb-3"
+              >
+                ← {bi('Retour aux bons', 'Back to vouchers')}
+              </button>
               <h3 className="font-bold text-ink-primary mb-4">{t('dash.validateTitle')}</h3>
               <div className="flex gap-2 mb-4">
                 <input
@@ -825,6 +831,7 @@ export default function DashboardPage() {
             <VendorVouchersPanel
               restaurant={selectedRestaurant}
               effectiveRole={effectiveRole}
+              onValidate={() => setTab('validate')}
             />
           )}
 
@@ -1166,8 +1173,9 @@ interface VendorVoucherRow {
 }
 
 function VendorVouchersPanel({
-  restaurant, effectiveRole,
+  restaurant, effectiveRole, onValidate,
 }: {
+  onValidate: () => void
   restaurant: Restaurant
   effectiveRole: VendorRole | null
 }) {
@@ -1285,14 +1293,26 @@ function VendorVouchersPanel({
         <h2 className="text-lg font-bold text-ink-primary">
           🎫 {bi('Bons', 'Vouchers')} — {restaurant.name}
         </h2>
-        {canWrite && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Validate-by-code surface lives on the legacy 'validate' tab.
+              Staff use it at the counter to scan a customer's QR / type
+              their code. Kept reachable here now that the nav 🎫 icon
+              points at the management view. */}
           <button
-            onClick={() => setShowForm(s => !s)}
-            className="bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+            onClick={onValidate}
+            className="bg-surface-muted hover:bg-divider text-ink-primary px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
           >
-            {showForm ? bi('Annuler', 'Cancel') : bi('+ Créer un bon', '+ Create voucher')}
+            🔍 {bi('Valider un code', 'Validate a code')}
           </button>
-        )}
+          {canWrite && (
+            <button
+              onClick={() => setShowForm(s => !s)}
+              className="bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+            >
+              {showForm ? bi('Annuler', 'Cancel') : bi('+ Créer un bon', '+ Create voucher')}
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && canWrite && (
