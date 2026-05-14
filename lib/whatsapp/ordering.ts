@@ -569,6 +569,163 @@ export async function handleOrderCommand(
     return ok()
   }
 
+  // ── Event reservations ────────────────────────────────────────────────────
+  // "mes reservations" / "my reservations" → show upcoming + recent
+  // reservations with status + payment pill. Cancellations stay listed so
+  // customers can see what they cancelled in WhatsApp scrollback.
+  if (cmd === 'mes reservations' || cmd === 'mes réservations' || cmd === 'my reservations') {
+    const { data } = await supabaseAdmin
+      .from('event_reservations')
+      .select('id, quantity, total_price, payment_status, reservation_status, created_at, events(id, title, date, venue, event_status)')
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    if (!data || data.length === 0) {
+      await sendWhatsApp(from,
+        `🎟 Aucune réservation. Envoyez "reserver XXXX" pour réserver un événement.\n` +
+        `No reservations. Send "book XXXX" to reserve an event.`)
+      return ok()
+    }
+    const statusLabel: Record<string, string> = {
+      confirmed: '✅ Confirmée / Confirmed',
+      cancelled: '❌ Annulée / Cancelled',
+      attended:  '🎉 Participée / Attended',
+    }
+    const payLabel: Record<string, string> = {
+      paid:         '💰 Payé',
+      pending:      '⏳ Paiement en attente',
+      failed:       '❌ Paiement échoué',
+      not_required: '',
+    }
+    const lines = data.map((r, i) => {
+      const ev = r.events as unknown as { title: string; date: string; venue: string | null } | null
+      const dateStr = ev?.date
+        ? new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
+        : ''
+      const pay   = payLabel[r.payment_status ?? 'not_required'] ?? ''
+      const stat  = statusLabel[r.reservation_status] ?? r.reservation_status
+      return `${i + 1}. *${ev?.title ?? '—'}* (${dateStr})\n   🎟 ${r.quantity} place(s)${r.total_price > 0 ? ` · ${Number(r.total_price).toLocaleString()} FCFA` : ''}\n   ${stat}${pay ? ` · ${pay}` : ''}`
+    })
+    await sendWhatsApp(from, `🎟 *Vos réservations / Your reservations:*\n\n${lines.join('\n\n')}`)
+    return ok()
+  }
+
+  // "reserver XXXX" / "book XXXX" — quick reservation for a free event the
+  // customer already knows the short code for. Paid events still require
+  // the web flow (PawaPay USSD), so payment_enabled=true events route the
+  // customer back to the event page instead.
+  const reserveMatch = cmd.match(/^(?:reserver|réserver|book|reserve)\s+([0-9a-f]{4})$/i)
+  if (reserveMatch) {
+    const code4 = reserveMatch[1].toLowerCase()
+    // Find an upcoming event whose id ends in code4.
+    const { data: candidates } = await supabaseAdmin
+      .from('events')
+      .select('id, title, date, time, venue, whatsapp, organizer_id, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status')
+      .eq('is_active', true)
+      .gte('date', new Date().toISOString().slice(0, 10))
+      .order('date', { ascending: true })
+      .limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from,
+        `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      return ok()
+    }
+    if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
+      await sendWhatsApp(from,
+        `❌ Événement clôturé. / Event closed.`)
+      return ok()
+    }
+    if (event.payment_enabled) {
+      await sendWhatsApp(from,
+        `💰 Cet événement nécessite un paiement en ligne. Réservez sur le site:\n` +
+        `This event requires online payment. Reserve on the site:\n` +
+        `${BASE_URL}/events/${event.id}`)
+      return ok()
+    }
+    // Capacity check.
+    const sold = Number(event.tickets_sold ?? 0)
+    if (event.max_tickets && event.max_tickets > 0 && sold + 1 > event.max_tickets) {
+      await sendWhatsApp(from, `🎟 Complet. / Sold out.`)
+      return ok()
+    }
+
+    const ticketPrice = Number(event.ticket_price ?? 0) || 0
+    const { data: reservation, error: insErr } = await supabaseAdmin
+      .from('event_reservations')
+      .insert({
+        event_id:           event.id,
+        customer_id:        customer.id,
+        customer_name:      customer.name,
+        customer_phone:     customer.phone,
+        quantity:           1,
+        total_price:        ticketPrice,
+        payment_status:     'not_required',
+        reservation_status: 'confirmed',
+      })
+      .select('id')
+      .single()
+    if (insErr || !reservation) {
+      console.error('[ordering] reservation insert failed:', insErr?.message)
+      await sendWhatsApp(from, `⚠️ Erreur. / Error.`)
+      return ok()
+    }
+    await supabaseAdmin.from('events').update({ tickets_sold: sold + 1 }).eq('id', event.id)
+    await writeAudit({
+      action:          'event_reservation_created',
+      targetType:      'event_reservation',
+      targetId:        reservation.id,
+      performedBy:     customer.id,
+      performedByType: 'customer',
+      metadata: {
+        event_id:    event.id,
+        event_title: event.title,
+        quantity:    1,
+        total_price: ticketPrice,
+        paid:        false,
+        via:         'whatsapp',
+      },
+    })
+
+    const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
+      day: '2-digit', month: 'long', year: 'numeric',
+    })
+    const priceLine = ticketPrice > 0
+      ? `\n💰 Paiement sur place: ${ticketPrice.toLocaleString()} FCFA / Pay at the door`
+      : ''
+    await sendWhatsApp(from, [
+      `✅ *Réservation confirmée! / Reservation confirmed!*`,
+      ``,
+      `🎉 ${event.title}`,
+      `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+      event.venue ? `📍 ${event.venue}` : '',
+      `🎟 1 place(s) / ticket(s)`,
+      priceLine,
+    ].filter(Boolean).join('\n'))
+
+    // Organizer ping mirrors the /reserve API.
+    let organizerPhone: string | null = null
+    if (event.organizer_id) {
+      const { data: o } = await supabaseAdmin
+        .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
+      organizerPhone = o?.phone ?? null
+    }
+    if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
+    if (organizerPhone) {
+      await sendWhatsApp(organizerPhone, [
+        `🎟 *Nouvelle réservation / New reservation*`,
+        ``,
+        `🎉 ${event.title}`,
+        `📅 ${dateStr}`,
+        `👤 ${customer.name}`,
+        `📱 ${customer.phone}`,
+        `🎟 1 place(s)`,
+      ].join('\n')).catch(() => null)
+    }
+    return ok()
+  }
+
   return null
 }
 
@@ -839,6 +996,11 @@ export async function handleOrderingSession(
 //   recupere XXXX  → ready    → delivered
 //   annuler XXXX   → * → cancelled
 //   paye XXXX cash|mtn <phone>|orange <phone> → manual mark-as-paid
+
+// Public URL used in WhatsApp deep links. Mirrors the constant in
+// app/api/whatsapp/incoming/route.ts — kept local so this module is
+// self-contained.
+const BASE_URL = 'https://streetmenu.vercel.app'
 
 type ManualPaymentMethod = 'cash' | 'mtn_momo' | 'orange_money'
 const MANUAL_METHOD_LABEL: Record<ManualPaymentMethod, { fr: string; en: string }> = {

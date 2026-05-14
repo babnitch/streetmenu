@@ -1569,6 +1569,8 @@ async function handleCustomer(
       `💳 "payer" → Payer une commande / Pay an order\n` +
       `🎫 "mes bons" → Voir vos bons / View vouchers\n` +
       `🎫 "bon CODE" → Ajouter un bon / Claim a code\n` +
+      `🎟 "mes reservations" → Voir vos réservations / View reservations\n` +
+      `🎟 "reserver XXXX" → Réserver un événement / Book an event\n` +
       `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
       `❓ "aide" → Ce message / This message\n\n` +
       `🌍 Parcourez / Browse: ${BASE_URL}\n` +

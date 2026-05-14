@@ -993,7 +993,11 @@ export default function AccountPage() {
                             </h3>
                             <div className="space-y-3">
                               {eventReservations.map(r => (
-                                <EventReservationCard key={r.id} reservation={r} />
+                                <EventReservationCard
+                                  key={r.id}
+                                  reservation={r}
+                                  onCancelled={() => user && loadCustomerData(user.id)}
+                                />
                               ))}
                             </div>
                           </section>
@@ -2005,8 +2009,14 @@ function MyEventsPanel({ events, onChanged }: { events: MyEventsPanelEvent[]; on
   )
 }
 
-function EventReservationCard({ reservation }: { reservation: EventReservation }) {
+function EventReservationCard({
+  reservation, onCancelled,
+}: {
+  reservation: EventReservation
+  onCancelled?: () => void
+}) {
   const bi = useBi()
+  const [cancelling, setCancelling] = useState(false)
   const ev = reservation.events
   const dateStr = ev?.date
     ? new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -2017,31 +2027,73 @@ function EventReservationCard({ reservation }: { reservation: EventReservation }
     attended:  { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '🎉 ' + bi('Participée', 'Attended') },
   }
   const s = statusPill[reservation.reservation_status]
+
+  // Customer self-cancel is allowed only for upcoming, confirmed reservations
+  // — past events shouldn't surprise the organizer with a last-minute pull,
+  // and cancelled/attended rows can't be un-set from here. The cancel API
+  // performs its own checks too; this is a UI-side filter for clarity.
+  const isUpcoming = ev?.date ? new Date(ev.date) >= new Date(new Date().toDateString()) : false
+  const canCancel  = reservation.reservation_status === 'confirmed' && ev && isUpcoming
+
+  async function handleCancel(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!ev) return
+    const id4 = reservation.id.slice(-4).toUpperCase()
+    const warn = reservation.payment_status === 'paid'
+      ? bi(
+          `Annuler #${id4}? L'organisateur vous contactera pour le remboursement.`,
+          `Cancel #${id4}? The organizer will contact you for a refund.`,
+        )
+      : bi(`Annuler #${id4}?`, `Cancel #${id4}?`)
+    if (!confirm(warn)) return
+    setCancelling(true)
+    try {
+      const res = await fetch(`/api/events/${ev.id}/reservations/${reservation.id}/cancel`, { method: 'POST' })
+      if (res.ok) onCancelled?.()
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   return (
-    <Link
-      href={ev ? `/events/${ev.id}` : '#'}
-      className="block bg-white rounded-2xl shadow-sm p-3 hover:bg-surface-muted transition-colors"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-semibold text-ink-primary text-sm truncate">
-            🎉 {ev?.title ?? bi('Événement supprimé', 'Event removed')}
-          </p>
-          <p className="text-xs text-ink-tertiary mt-0.5">
-            {dateStr}{ev?.venue ? ` · ${ev.venue}` : ''}
-          </p>
-          <p className="text-xs text-ink-secondary mt-1">
-            🎟 {reservation.quantity} {bi('place(s)', 'ticket(s)')}
-            {reservation.total_price > 0 && (
-              <> · {Number(reservation.total_price).toLocaleString()} FCFA</>
-            )}
-          </p>
+    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+      <Link
+        href={ev ? `/events/${ev.id}` : '#'}
+        className="block p-3 hover:bg-surface-muted transition-colors"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-semibold text-ink-primary text-sm truncate">
+              🎉 {ev?.title ?? bi('Événement supprimé', 'Event removed')}
+            </p>
+            <p className="text-xs text-ink-tertiary mt-0.5">
+              {dateStr}{ev?.venue ? ` · ${ev.venue}` : ''}
+            </p>
+            <p className="text-xs text-ink-secondary mt-1">
+              🎟 {reservation.quantity} {bi('place(s)', 'ticket(s)')}
+              {reservation.total_price > 0 && (
+                <> · {Number(reservation.total_price).toLocaleString()} FCFA</>
+              )}
+            </p>
+          </div>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${s.cls}`}>
+            {s.label}
+          </span>
         </div>
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${s.cls}`}>
-          {s.label}
-        </span>
-      </div>
-    </Link>
+      </Link>
+      {canCancel && (
+        <div className="px-3 pb-3 pt-1 flex justify-end">
+          <button
+            onClick={handleCancel}
+            disabled={cancelling}
+            className="text-xs px-3 py-1.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors disabled:opacity-50"
+          >
+            {cancelling ? bi('Annulation…', 'Cancelling…') : `❌ ${bi('Annuler', 'Cancel')}`}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
