@@ -111,10 +111,10 @@ export default function AccountPage() {
   // The post-mount useEffect below keeps in-page URL changes (back/forward
   // nav, deep-linked toasts) in sync.
   const [customerTab,      setCustomerTab]      = useState<CustomerTab>(() => {
-    if (typeof window === 'undefined') return 'profile'
+    if (typeof window === 'undefined') return 'orders'
     const q = new URLSearchParams(window.location.search).get('tab')
     const allowed: CustomerTab[] = ['vouchers', 'orders', 'profile', 'restaurant', 'team']
-    const initial = q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'profile'
+    const initial = q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'orders'
     console.log('[account] initial customerTab from URL:', { rawQuery: q, initial })
     return initial
   })
@@ -920,13 +920,15 @@ export default function AccountPage() {
                     </button>
                   </div>
                 )}
-                {/* Tab bar — Profile, Restaurant (settings), Team. Orders
-                    and Vouchers were removed: the BottomNav 📦 / 🎫 icons
-                    cover those surfaces, so a second entry point here
-                    just duplicated the nav. Deep links ?tab=orders /
-                    ?tab=vouchers still render the respective views. */}
+                {/* Tab bar — Orders + Vouchers up front (the customer
+                    surfaces the user lands on from BottomNav 📦 / 🎫
+                    deep-links), Profile last, then optional Restaurant /
+                    Team for vendors. Mobile shows 3 per row (basis-1/3
+                    in TabBtn); sm+ collapses to a single row. */}
                 <div className="flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
-                  <TabBtn icon="👤" label={t('account.profileTab')}   active={customerTab === 'profile'}   onClick={() => setCustomerTab('profile')} />
+                  <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
+                  <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
+                  <TabBtn icon="👤" label={t('account.profileTab')}  active={customerTab === 'profile'}  onClick={() => setCustomerTab('profile')} />
                   {myRestaurants.length > 0 && (
                     <TabBtn icon="🏪" label={t('account.restaurantTab')} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
                   )}
