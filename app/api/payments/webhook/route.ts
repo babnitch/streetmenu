@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import { verifyWebhookSignature, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { sendWhatsApp } from '@/lib/whatsapp'
-import { notifyPaidOrder } from '@/lib/payments-notify'
+import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,58 +68,131 @@ export async function POST(req: NextRequest) {
     .eq('payment_id', depositId)
     .maybeSingle()
 
-  if (!order) {
-    console.warn(`[payments/webhook] no order matches depositId=${depositId}`)
-    return NextResponse.json({ ok: true, ignored: 'unknown deposit' })
+  if (order) {
+    if (order.payment_status === 'paid' || order.payment_status === 'failed') {
+      return NextResponse.json({ ok: true, ignored: 'already settled' })
+    }
+
+    if (payload.status === 'COMPLETED') {
+      await supabaseAdmin
+        .from('orders')
+        .update({ payment_status: 'paid', payment_at: new Date().toISOString() })
+        .eq('id', order.id)
+
+      await writeAudit({
+        action:     'payment_completed',
+        targetType: 'order',
+        targetId:   order.id,
+        metadata:   { deposit_id: depositId, amount: payload.amount, currency: payload.currency, correspondent: payload.correspondent },
+      })
+
+      console.log(`[payment] webhook → paid: order=${order.id} deposit=${depositId}`)
+      await notifyPaidOrder(order.id, payload.correspondent)
+    } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
+      await supabaseAdmin
+        .from('orders')
+        .update({ payment_status: 'failed' })
+        .eq('id', order.id)
+
+      await writeAudit({
+        action:     'payment_failed',
+        targetType: 'order',
+        targetId:   order.id,
+        metadata:   {
+          deposit_id: depositId,
+          reason:     payload.failureReason?.failureMessage ?? null,
+          amount:     payload.amount,
+          currency:   payload.currency,
+        },
+      })
+
+      if (order.customer_phone) {
+        await sendWhatsApp(order.customer_phone, [
+          `❌ *Paiement échoué / Payment failed*`,
+          ``,
+          `Votre paiement n'a pas abouti. Envoyez "payer" pour réessayer ou contactez le restaurant.`,
+          `Your payment didn't go through. Send "pay" to retry or contact the restaurant.`,
+        ].join('\n')).catch(() => null)
+      }
+    }
+
+    return NextResponse.json({ ok: true })
   }
 
-  // Already settled — make this idempotent so PawaPay retries don't double-notify.
-  if (order.payment_status === 'paid' || order.payment_status === 'failed') {
+  // ── Event-reservation fallback ─────────────────────────────────────────────
+  // Same idempotent guard + audit shape as orders, but with event_reservations
+  // as the row and notifyPaidReservation as the fan-out.
+  const { data: reservation } = await supabaseAdmin
+    .from('event_reservations')
+    .select('id, event_id, payment_status, customer_phone, total_price, quantity')
+    .eq('payment_id', depositId)
+    .maybeSingle()
+
+  if (!reservation) {
+    console.warn(`[payments/webhook] no order OR reservation matches depositId=${depositId}`)
+    return NextResponse.json({ ok: true, ignored: 'unknown deposit' })
+  }
+  if (reservation.payment_status === 'paid' || reservation.payment_status === 'failed') {
     return NextResponse.json({ ok: true, ignored: 'already settled' })
   }
 
   if (payload.status === 'COMPLETED') {
     await supabaseAdmin
-      .from('orders')
-      .update({
-        payment_status: 'paid',
-        payment_at:     new Date().toISOString(),
-      })
-      .eq('id', order.id)
+      .from('event_reservations')
+      .update({ payment_status: 'paid', updated_at: new Date().toISOString() })
+      .eq('id', reservation.id)
 
     await writeAudit({
-      action:     'payment_completed',
-      targetType: 'order',
-      targetId:   order.id,
-      metadata:   { deposit_id: depositId, amount: payload.amount, currency: payload.currency, correspondent: payload.correspondent },
+      action:     'event_payment_completed',
+      targetType: 'event_reservation',
+      targetId:   reservation.id,
+      metadata:   {
+        deposit_id:    depositId,
+        amount:        payload.amount,
+        currency:      payload.currency,
+        correspondent: payload.correspondent,
+        event_id:      reservation.event_id,
+      },
     })
 
-    console.log(`[payment] webhook → paid: order=${order.id} deposit=${depositId}`)
-    await notifyPaidOrder(order.id, payload.correspondent)
+    console.log(`[payment] webhook → reservation paid: reservation=${reservation.id} deposit=${depositId}`)
+    await notifyPaidReservation(reservation.id, payload.correspondent)
   } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
-    await supabaseAdmin
-      .from('orders')
-      .update({ payment_status: 'failed' })
-      .eq('id', order.id)
+    // Release the held seats so a failed payment doesn't permanently
+    // inflate tickets_sold. Best-effort: read current, subtract, write.
+    const { data: ev } = await supabaseAdmin
+      .from('events').select('tickets_sold').eq('id', reservation.event_id).maybeSingle()
+    const sold = Number(ev?.tickets_sold ?? 0)
+    const nextSold = Math.max(0, sold - Number(reservation.quantity ?? 0))
+
+    await Promise.all([
+      supabaseAdmin
+        .from('event_reservations')
+        .update({ payment_status: 'failed', updated_at: new Date().toISOString() })
+        .eq('id', reservation.id),
+      supabaseAdmin
+        .from('events').update({ tickets_sold: nextSold }).eq('id', reservation.event_id),
+    ])
 
     await writeAudit({
-      action:     'payment_failed',
-      targetType: 'order',
-      targetId:   order.id,
+      action:     'event_payment_failed',
+      targetType: 'event_reservation',
+      targetId:   reservation.id,
       metadata:   {
         deposit_id: depositId,
         reason:     payload.failureReason?.failureMessage ?? null,
         amount:     payload.amount,
         currency:   payload.currency,
+        event_id:   reservation.event_id,
       },
     })
 
-    if (order.customer_phone) {
-      await sendWhatsApp(order.customer_phone, [
+    if (reservation.customer_phone) {
+      await sendWhatsApp(reservation.customer_phone, [
         `❌ *Paiement échoué / Payment failed*`,
         ``,
-        `Votre paiement n'a pas abouti. Envoyez "payer" pour réessayer ou contactez le restaurant.`,
-        `Your payment didn't go through. Send "pay" to retry or contact the restaurant.`,
+        `Votre paiement pour la réservation n'a pas abouti. Réessayez ou contactez l'organisateur.`,
+        `Your reservation payment didn't go through. Retry or contact the organizer.`,
       ].join('\n')).catch(() => null)
     }
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { checkDepositStatus } from '@/lib/pawapay'
-import { notifyPaidOrder } from '@/lib/payments-notify'
+import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
 import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +38,14 @@ export async function GET(_req: NextRequest, { params }: { params: { depositId: 
     .eq('payment_id', depositId)
     .maybeSingle()
 
-  console.log(`[payment] poll tick: deposit=${depositId} pawapay.status=${info.status} db.order=${order?.id ?? '<none>'} db.payment_status=${order?.payment_status ?? '<none>'}`)
+  // Event-reservation fallback when the deposit isn't on an order.
+  const { data: reservation } = order ? { data: null } : await supabaseAdmin
+    .from('event_reservations')
+    .select('id, event_id, payment_status, quantity')
+    .eq('payment_id', depositId)
+    .maybeSingle()
+
+  console.log(`[payment] poll tick: deposit=${depositId} pawapay.status=${info.status} db.order=${order?.id ?? '<none>'} db.reservation=${reservation?.id ?? '<none>'} db.payment_status=${order?.payment_status ?? reservation?.payment_status ?? '<none>'}`)
 
   if (order && order.payment_status === 'pending') {
     if (info.status === 'COMPLETED') {
@@ -64,9 +71,38 @@ export async function GET(_req: NextRequest, { params }: { params: { depositId: 
         .eq('id', order.id)
     }
   } else if (order && info.status === 'COMPLETED' && order.payment_status === 'paid') {
-    // Already settled by the webhook or a previous poll — quiet skip, but
-    // log it once so we can confirm the guard is doing its job in dev.
     console.log(`[payment] poll: order=${order.id} already paid — skipping notify (idempotent)`)
+  } else if (reservation && reservation.payment_status === 'pending') {
+    if (info.status === 'COMPLETED') {
+      console.log(`[payment] polling detected status: COMPLETED — reservation=${reservation.id} deposit=${depositId}`)
+      await supabaseAdmin
+        .from('event_reservations')
+        .update({ payment_status: 'paid', updated_at: new Date().toISOString() })
+        .eq('id', reservation.id)
+      await writeAudit({
+        action:     'event_payment_completed',
+        targetType: 'event_reservation',
+        targetId:   reservation.id,
+        metadata:   { deposit_id: depositId, via: 'status_poll', correspondent: info.correspondent, event_id: reservation.event_id },
+      })
+      await notifyPaidReservation(reservation.id, info.correspondent)
+      console.log(`[payment] notifyPaidReservation complete: reservation=${reservation.id}`)
+    } else if (info.status === 'FAILED' || info.status === 'REJECTED') {
+      // Free the seats we held during the USSD window.
+      const { data: ev } = await supabaseAdmin
+        .from('events').select('tickets_sold').eq('id', reservation.event_id).maybeSingle()
+      const sold = Number(ev?.tickets_sold ?? 0)
+      await Promise.all([
+        supabaseAdmin
+          .from('event_reservations')
+          .update({ payment_status: 'failed', updated_at: new Date().toISOString() })
+          .eq('id', reservation.id),
+        supabaseAdmin
+          .from('events')
+          .update({ tickets_sold: Math.max(0, sold - Number(reservation.quantity ?? 0)) })
+          .eq('id', reservation.event_id),
+      ])
+    }
   }
 
   // Map PawaPay verbs to a simple lifecycle the client can switch on.

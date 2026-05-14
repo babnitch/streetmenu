@@ -90,3 +90,94 @@ export async function notifyPaidOrder(
     }
   })
 }
+
+// Sibling helper for paid event reservations. Same guard pattern as
+// notifyPaidOrder: the caller flips payment_status to 'paid' under a
+// pending guard before calling us, so duplicate webhook + poll firings
+// don't double-notify.
+//
+// Customer gets a ticket confirmation; organizer (organizer_id customer
+// if present, else events.whatsapp) gets a "ticket sold" ping.
+export async function notifyPaidReservation(
+  reservationId: string,
+  correspondent?: PawaPayCorrespondent,
+): Promise<void> {
+  const { data: r } = await supabaseAdmin
+    .from('event_reservations')
+    .select('id, event_id, customer_name, customer_phone, quantity, total_price')
+    .eq('id', reservationId)
+    .maybeSingle()
+  if (!r) {
+    console.warn(`[payment] notifyPaidReservation: reservation ${reservationId} not found`)
+    return
+  }
+  const { data: event } = await supabaseAdmin
+    .from('events')
+    .select('id, title, date, time, venue, whatsapp, organizer_id')
+    .eq('id', r.event_id)
+    .maybeSingle()
+  if (!event) {
+    console.warn(`[payment] notifyPaidReservation: event ${r.event_id} not found`)
+    return
+  }
+
+  const total   = Number(r.total_price ?? 0)
+  const id4     = r.id.replace(/-/g, '').slice(-4).toUpperCase()
+  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
+    day: '2-digit', month: 'long', year: 'numeric',
+  })
+  const mno = correspondent ? mnoLabel(correspondent) : 'mobile money'
+
+  console.log(`[payment] calling notifyPaidReservation for reservation: ${r.id} event=${event.id}`)
+
+  // ── Customer ticket ────────────────────────────────────────────────────────
+  if (r.customer_phone) {
+    console.log(`[payment] sending reservation customer confirmation: reservation=${r.id} to=${r.customer_phone}`)
+    const sent = await sendWhatsApp(r.customer_phone, [
+      `🎟 *Réservation payée! / Reservation paid!*`,
+      ``,
+      `🎉 ${event.title}`,
+      `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+      event.venue ? `📍 ${event.venue}` : '',
+      `🎟 ${r.quantity} place(s) / ticket(s)`,
+      `💰 ${total.toLocaleString()} FCFA · ${mno}`,
+      ``,
+      `À bientôt! / See you soon!`,
+    ].filter(Boolean).join('\n'))
+    console.log(`[payment] reservation customer result: ok=${sent.ok} sid=${sent.sid ?? '-'} twilioStatus=${sent.twilioStatus ?? '-'}${sent.error ? ` error=${sent.error.slice(0, 200)}` : ''}`)
+  } else {
+    console.warn(`[payment] notifyPaidReservation: reservation ${r.id} has no customer_phone`)
+  }
+
+  // ── Organizer ping ─────────────────────────────────────────────────────────
+  // Organizer customer account wins; fall back to events.whatsapp. Unlike
+  // restaurants we don't have a "team" of organizers — a single inbox is
+  // the right shape for the way Ndjoka & Tchop runs events today.
+  let organizerPhone: string | null = null
+  if (event.organizer_id) {
+    const { data: o } = await supabaseAdmin
+      .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
+    organizerPhone = o?.phone ?? null
+  }
+  if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
+
+  if (!organizerPhone) {
+    console.warn(`[payment] notifyPaidReservation: no organizer recipient for event ${event.id}`)
+    return
+  }
+
+  console.log(`[payment] sending reservation organizer notification: event=${event.id} to=${organizerPhone}`)
+  const sentOrg = await sendWhatsApp(organizerPhone, [
+    `💰 *PAIEMENT REÇU / PAYMENT RECEIVED*`,
+    ``,
+    `🎟 Réservation #${id4}`,
+    `🎉 ${event.title}`,
+    `📅 ${dateStr}`,
+    `👤 ${r.customer_name}`,
+    `📱 ${r.customer_phone}`,
+    `🎟 ${r.quantity} place(s)`,
+    `💳 ${mno}`,
+    `💰 ${total.toLocaleString()} FCFA`,
+  ].join('\n'))
+  console.log(`[payment] reservation organizer result: ok=${sentOrg.ok} sid=${sentOrg.sid ?? '-'} twilioStatus=${sentOrg.twilioStatus ?? '-'}${sentOrg.error ? ` error=${sentOrg.error.slice(0, 200)}` : ''}`)
+}

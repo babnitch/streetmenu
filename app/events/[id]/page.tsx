@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -10,6 +10,15 @@ import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
+
+// Mirror of the MNO prefix check in /order — only the four PawaPay-routed
+// dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
+const SUPPORTED_COUNTRY_CODES = ['237', '225', '221', '229'] as const
+function hasSupportedCountryPrefix(phone: string): boolean {
+  const digits = phone.replace(/[^\d]/g, '')
+  return SUPPORTED_COUNTRY_CODES.some(p => digits.startsWith(p))
+}
+type PayPhase = 'idle' | 'waiting' | 'paid' | 'failed' | 'timeout'
 
 // Customer session — pulled lazily so guests still get the page. Mirrors
 // the pattern in /order: /api/auth/me drives the prefill, no Supabase Auth.
@@ -31,6 +40,20 @@ export default function EventDetailPage() {
   const [submitting, setSubmitting] = useState(false)
   const [reserveError, setReserveError] = useState('')
   const [reservationId, setReservationId] = useState<string | null>(null)
+
+  // Paid-flow state (mirrors /order).
+  const [momoPhone, setMomoPhone] = useState('')
+  const [payPhase, setPayPhase] = useState<PayPhase>('idle')
+  const [activeDepositId, setActiveDepositId] = useState<string | null>(null)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup pollers on unmount so a stale tick can't setState on a dead
+  // component after the user navigates away mid-USSD.
+  useEffect(() => () => {
+    if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+  }, [])
 
   useEffect(() => {
     async function fetchEvent() {
@@ -81,10 +104,14 @@ export default function EventDetailPage() {
   const isCancelled  = event.event_status === 'cancelled'
   const isCompleted  = event.event_status === 'completed'
   const reservable   = !isCancelled && !isCompleted && !soldOut
-  // Online payment lands in Batch B. For now, payment_enabled=true events
-  // surface the WhatsApp contact button instead of an in-app reserve flow.
+  // Free + pay-at-door go through the lightweight /reserve modal.
+  // payment_enabled=true events route through /pay (PawaPay) instead.
   const onlineReservable = reservable && !event.payment_enabled
+  const onlinePayReservable = reservable && event.payment_enabled && ticketPrice > 0
   const totalForQty = ticketPrice * quantity
+
+  const trimmedMomo  = momoPhone.trim()
+  const momoValid    = trimmedMomo ? hasSupportedCountryPrefix(trimmedMomo) : false
 
   const whatsappMsg = encodeURIComponent(
     `Bonjour ! Je suis intéressé(e) par votre événement "${event.title}" le ${dateStr}.`
@@ -103,7 +130,71 @@ export default function EventDetailPage() {
     setReservationId(null)
     setGuestName('')
     setGuestPhone('')
+    setMomoPhone('')
+    setPayPhase('idle')
+    setActiveDepositId(null)
     setShowModal(true)
+  }
+
+  function stopPolling() {
+    if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null }
+    if (timeoutRef.current)   { clearTimeout(timeoutRef.current);    timeoutRef.current = null }
+  }
+
+  function startPolling(depositId: string) {
+    stopPolling()
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/payments/status/${depositId}`, { cache: 'no-store' })
+        const d = await r.json()
+        if (d.phase === 'paid') {
+          stopPolling()
+          setPayPhase('paid')
+          const { data: refreshed } = await supabase.from('events').select('*').eq('id', event!.id).single()
+          if (refreshed) setEvent(refreshed)
+        } else if (d.phase === 'failed') {
+          stopPolling()
+          setReserveError(d.failureReason ?? bi('Paiement refusé', 'Payment refused'))
+          setPayPhase('failed')
+        }
+      } catch { /* transient — keep polling, 2-min timeout below is the failsafe */ }
+    }
+    tick()
+    pollTimerRef.current = setInterval(tick, 3000)
+    timeoutRef.current   = setTimeout(() => {
+      stopPolling()
+      setPayPhase(prev => prev === 'waiting' ? 'timeout' : prev)
+    }, 120_000)
+  }
+
+  async function submitPay() {
+    if (!trimmedMomo || !momoValid) return
+    setSubmitting(true)
+    setReserveError('')
+    try {
+      const body: Record<string, unknown> = { quantity, phoneNumber: trimmedMomo }
+      if (!me) {
+        body.customer_name  = guestName.trim()
+        body.customer_phone = guestPhone.trim()
+      }
+      const res = await fetch(`/api/events/${event!.id}/pay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setReserveError(data.error ?? bi('Erreur de paiement', 'Payment error'))
+        setPayPhase('failed')
+        return
+      }
+      setReservationId(data.reservation_id)
+      setActiveDepositId(data.depositId)
+      setPayPhase('waiting')
+      startPolling(data.depositId)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   async function submitReserve() {
@@ -235,15 +326,17 @@ export default function EventDetailPage() {
           </button>
         )}
 
-        {/* Online payment events surface the contact button until the
-            paid reservation flow lands in Batch B. */}
-        {reservable && event.payment_enabled && (
-          <div className="bg-brand-light border border-brand-badge/40 rounded-2xl p-3 text-xs text-brand-darker text-center">
-            {bi(
-              'Paiement en ligne bientôt disponible. Contactez l\'organisateur pour réserver.',
-              'Online payment coming soon. Contact the organizer to reserve.',
-            )}
-          </div>
+        {/* Paid online reservation — PawaPay flow. */}
+        {onlinePayReservable && (
+          <button
+            onClick={openReserve}
+            className="block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
+          >
+            💰 {bi('Réserver et payer', 'Reserve and pay')}
+            <span className="block text-xs font-normal opacity-90 mt-0.5">
+              {ticketPrice.toLocaleString()} FCFA{bi(' / personne', ' / person')}
+            </span>
+          </button>
         )}
 
         {whatsappNumber && (
@@ -277,11 +370,17 @@ export default function EventDetailPage() {
             className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5"
             onClick={e => e.stopPropagation()}
           >
-            {reservationId ? (
+            {/* Modal body branches: success → waiting → failed/timeout → form.
+                Free flow short-circuits to success the moment reservationId
+                lands; paid flow holds at 'waiting' until the poller flips
+                payPhase to 'paid' (or 'failed' / 'timeout'). */}
+            {((reservationId && !event.payment_enabled) || payPhase === 'paid') ? (
               <div className="text-center">
-                <div className="text-5xl mb-3">✅</div>
+                <div className="text-5xl mb-3">{payPhase === 'paid' ? '🎟' : '✅'}</div>
                 <h3 className="font-bold text-ink-primary text-lg mb-1">
-                  {bi('Réservation confirmée!', 'Reservation confirmed!')}
+                  {payPhase === 'paid'
+                    ? bi('Paiement confirmé!', 'Payment confirmed!')
+                    : bi('Réservation confirmée!', 'Reservation confirmed!')}
                 </h3>
                 <p className="text-sm text-ink-secondary mb-4">
                   {bi('Un message WhatsApp vient de partir.', 'A WhatsApp message just went out.')}
@@ -299,10 +398,50 @@ export default function EventDetailPage() {
                   {bi('Fermer', 'Close')}
                 </button>
               </div>
+            ) : payPhase === 'waiting' ? (
+              <div className="text-center py-4">
+                <div className="text-5xl mb-4 animate-pulse">📱</div>
+                <h3 className="font-bold text-ink-primary mb-1">
+                  {bi('En attente de confirmation…', 'Waiting for confirmation…')}
+                </h3>
+                <p className="text-sm text-ink-secondary mb-2">
+                  {bi('Validez le paiement sur votre téléphone.', 'Confirm the payment on your phone.')}
+                </p>
+                <p className="text-xs text-ink-tertiary mb-4 font-mono">
+                  {totalForQty.toLocaleString()} FCFA · {trimmedMomo}
+                </p>
+                {activeDepositId && (
+                  <p className="text-[10px] text-ink-tertiary font-mono">ref: {activeDepositId.slice(0, 12)}…</p>
+                )}
+              </div>
+            ) : payPhase === 'failed' || payPhase === 'timeout' ? (
+              <div className="text-center">
+                <div className="text-5xl mb-3">{payPhase === 'timeout' ? '⏱️' : '❌'}</div>
+                <h3 className="font-bold text-ink-primary mb-1">
+                  {payPhase === 'timeout'
+                    ? bi('Paiement expiré', 'Payment expired')
+                    : bi('Paiement échoué', 'Payment failed')}
+                </h3>
+                {reserveError && <p className="text-xs text-danger mt-2 mb-4">{reserveError}</p>}
+                <button
+                  onClick={() => { setPayPhase('idle'); setReserveError(''); setActiveDepositId(null); setReservationId(null) }}
+                  className="w-full bg-brand hover:bg-brand-dark text-white py-2.5 rounded-full text-sm font-semibold transition-colors mb-2"
+                >
+                  {bi('Réessayer', 'Try again')}
+                </button>
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="block w-full text-ink-secondary text-xs py-2 hover:text-ink-primary"
+                >
+                  {bi('Fermer', 'Close')}
+                </button>
+              </div>
             ) : (
               <>
                 <h3 className="font-bold text-ink-primary mb-1">
-                  📋 {bi('Réserver', 'Reserve')}
+                  {event.payment_enabled
+                    ? <>💰 {bi('Réserver et payer', 'Reserve and pay')}</>
+                    : <>📋 {bi('Réserver', 'Reserve')}</>}
                 </h3>
                 <p className="text-xs text-ink-tertiary mb-4">{event.title} · {dateStr}</p>
 
@@ -348,10 +487,37 @@ export default function EventDetailPage() {
                   </div>
                 )}
 
+                {event.payment_enabled && (
+                  <>
+                    <label className="block text-xs text-ink-secondary mb-1">
+                      {bi('Numéro Mobile Money', 'Mobile Money number')}
+                    </label>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      value={momoPhone}
+                      onChange={e => setMomoPhone(e.target.value)}
+                      placeholder="Ex: 237670000000"
+                      className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface mb-1 font-mono"
+                      disabled={submitting}
+                    />
+                    {trimmedMomo && !momoValid && (
+                      <p className="text-xs text-danger mb-3">
+                        {bi(
+                          "Numéro non supporté. Utilisez MTN ou Orange avec l'indicatif pays.",
+                          'Unsupported number. Use MTN or Orange with country code.',
+                        )}
+                      </p>
+                    )}
+                  </>
+                )}
+
                 {!isFree && (
                   <div className="bg-brand-light rounded-xl px-3 py-2 mb-3 text-sm flex items-center justify-between">
                     <span className="text-brand-darker">
-                      {bi('Total (à payer sur place)', 'Total (pay at the door)')}
+                      {event.payment_enabled
+                        ? bi('Total à payer', 'Total to pay')
+                        : bi('Total (à payer sur place)', 'Total (pay at the door)')}
                     </span>
                     <span className="font-bold text-brand-darker">
                       {totalForQty.toLocaleString()} FCFA
@@ -372,13 +538,23 @@ export default function EventDetailPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={submitReserve}
-                    disabled={submitting || (!me && (!guestName.trim() || !guestPhone.trim()))}
-                    className="flex-1 px-3 py-2 rounded-full text-sm font-semibold bg-brand text-white hover:bg-brand-dark transition-colors disabled:opacity-50"
+                    onClick={event.payment_enabled ? submitPay : submitReserve}
+                    disabled={
+                      submitting
+                      || (!me && (!guestName.trim() || !guestPhone.trim()))
+                      || (event.payment_enabled && (!trimmedMomo || !momoValid))
+                    }
+                    className={`flex-1 px-3 py-2 rounded-full text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
+                      event.payment_enabled
+                        ? 'bg-orange-500 hover:bg-orange-600'
+                        : 'bg-brand hover:bg-brand-dark'
+                    }`}
                   >
                     {submitting
-                      ? bi('Réservation…', 'Reserving…')
-                      : bi('Confirmer', 'Confirm')}
+                      ? bi('Envoi…', 'Sending…')
+                      : event.payment_enabled
+                        ? `${bi('Payer', 'Pay')} ${totalForQty.toLocaleString()} FCFA`
+                        : bi('Confirmer', 'Confirm')}
                   </button>
                 </div>
               </>
