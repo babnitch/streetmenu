@@ -28,16 +28,26 @@ export default function MenuPage() {
   // legacy restaurants.is_open column — that's now derived and may be
   // stale. Null while the status hasn't been fetched yet.
   const [computedOpen, setComputedOpen] = useState<boolean | null>(null)
+  // Compact rating summary for the hero chip. Full distribution + tags
+  // still live in <RestaurantRatingPanel> below the hero; this is the
+  // at-a-glance number for customers who don't scroll past the cover image.
+  const [ratingSummary, setRatingSummary] = useState<{ average: number; count: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<string>('all')
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: rest }, { data: menu }, statusRes] = await Promise.all([
+      const [{ data: rest }, { data: menu }, statusRes, ratingRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', id).single(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+        // Rating summary for the hero chip. Failure (e.g. supabase-reviews.sql
+        // not yet applied) is silent — the chip just doesn't render.
+        fetch(`/api/restaurants/${id}/rating`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       ])
+      if (ratingRes && typeof ratingRes.count === 'number') {
+        setRatingSummary({ average: Number(ratingRes.average ?? 0), count: ratingRes.count })
+      }
       if (rest) {
         // Cross-check: we've seen the detail page render "Open" while the
         // dashboard renders "Closed" for the same-named restaurant. This
@@ -148,6 +158,19 @@ export default function MenuPage() {
             <p className="text-white/85 text-sm truncate">
               {[restaurant.cuisine_type, restaurant.neighborhood, restaurant.city].filter(Boolean).join(' · ')}
             </p>
+            {/* Compact rating chip — visible without scrolling on every
+                viewport. Hidden when count=0 to keep the hero clean for
+                new restaurants. The full panel below the hero still
+                shows the "Pas encore d'avis" empty state. */}
+            {ratingSummary && ratingSummary.count > 0 && (
+              <a
+                href="#rate"
+                className="inline-flex items-center gap-1 mt-1 bg-white/90 backdrop-blur-sm text-ink-primary text-xs font-semibold px-2 py-0.5 rounded-full hover:bg-white transition-colors"
+              >
+                ⭐ {ratingSummary.average.toFixed(1)}
+                <span className="text-ink-tertiary font-normal">({ratingSummary.count})</span>
+              </a>
+            )}
           </div>
           {/* Source: computed open-status when available, falls back to the
               legacy is_open column for the first render before the bulk

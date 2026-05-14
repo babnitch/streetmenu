@@ -108,7 +108,17 @@ export default function RestaurantRatingPanel({ restaurantId }: { restaurantId: 
   }
 
   if (loading) {
-    return <div className="text-center py-6 text-ink-tertiary text-sm">…</div>
+    // Render the section header during the initial fetch so the card has
+    // visible presence on mobile (previous "…" centered text was easy to
+    // miss between the hero and the menu).
+    return (
+      <div className="bg-white rounded-2xl shadow-sm p-4">
+        <h2 className="text-base font-bold text-ink-primary mb-2">
+          ⭐ {bi('Avis', 'Ratings')}
+        </h2>
+        <p className="text-xs text-ink-tertiary">…</p>
+      </div>
+    )
   }
   // Don't vanish silently on fetch errors. Common cause is the
   // restaurant_ratings table not yet existing on the live DB (the

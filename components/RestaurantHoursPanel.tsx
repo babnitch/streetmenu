@@ -45,7 +45,19 @@ export default function RestaurantHoursPanel({ restaurantId }: { restaurantId: s
     return () => { cancelled = true }
   }, [restaurantId])
 
-  if (loading) return null
+  if (loading) {
+    // Skeleton card — keeps the surface visible while the schedule fetch
+    // resolves. Returning null caused the panel to silently appear later
+    // and was easy to miss on a slow mobile network.
+    return (
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h2 className="text-base font-bold text-ink-primary mb-2">
+          🕐 {bi('Horaires', 'Opening hours')}
+        </h2>
+        <p className="text-xs text-ink-tertiary">…</p>
+      </div>
+    )
+  }
   if (hours.length === 0) return null  // restaurant has no schedule yet — don't render an empty card
 
   const lines = formatHoursForDisplay(hours, locale === 'fr' ? 'fr' : 'en')
