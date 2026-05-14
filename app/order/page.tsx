@@ -9,6 +9,7 @@ import Image from 'next/image'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { supabase } from '@/lib/supabase'
+import { isPercentDiscount } from '@/lib/vouchers'
 import TopNav from '@/components/TopNav'
 import { Voucher, CustomerVoucher } from '@/types'
 
@@ -172,7 +173,7 @@ export default function OrderPage() {
   }, [])
 
   const discountAmount = appliedVoucher
-    ? appliedVoucher.discount_type === 'percent'
+    ? isPercentDiscount(appliedVoucher.discount_type)
       ? Math.round(totalPrice * appliedVoucher.discount_value / 100)
       : Math.min(appliedVoucher.discount_value, totalPrice)
     : 0
@@ -661,8 +662,8 @@ export default function OrderPage() {
                         className="bg-brand-light text-brand-darker text-xs font-semibold px-2.5 py-1 rounded-full hover:bg-brand-badge transition-colors"
                       >
                         {cv.vouchers?.code}
-                        {cv.vouchers?.discount_type === 'percent'
-                          ? ` −${cv.vouchers.discount_value}%`
+                        {isPercentDiscount(cv.vouchers?.discount_type)
+                          ? ` −${cv.vouchers?.discount_value}%`
                           : ` −${cv.vouchers?.discount_value?.toLocaleString()} FCFA`}
                       </button>
                     ))}

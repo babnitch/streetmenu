@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem, Order } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
+import { isPercentDiscount } from '@/lib/vouchers'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import TopNav from '@/components/TopNav'
 import PaymentBadge from '@/components/PaymentBadge'
@@ -671,7 +672,7 @@ export default function DashboardPage() {
                         setValidateResult('ok')
                         setValidateDetails({
                           code: v?.code ?? '',
-                          discount: v?.discount_type === 'percent' ? `-${v.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
+                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
                           cvId: data.id,
                         })
                       }
@@ -690,7 +691,7 @@ export default function DashboardPage() {
                         setValidateResult('ok')
                         setValidateDetails({
                           code: v?.code ?? '',
-                          discount: v?.discount_type === 'percent' ? `-${v.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
+                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
                           cvId: data.id,
                         })
                       }
@@ -1463,7 +1464,7 @@ function VendorVouchersPanel({
                       <p className="font-mono font-bold text-ink-primary">{v.code}</p>
                     </td>
                     <td className="px-4 py-3 text-brand-dark font-semibold">
-                      {v.discount_type === 'percent' ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
+                      {isPercentDiscount(v.discount_type) ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
                     </td>
                     <td className="px-4 py-3 text-ink-secondary">
                       {v.current_uses ?? 0}{v.max_uses ? `/${v.max_uses}` : ''}

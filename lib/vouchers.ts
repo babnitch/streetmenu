@@ -47,6 +47,15 @@ export type ValidationResult =
 
 // Computes derived status for admin views. Keep in lockstep with
 // validateVoucher — both sides use the same preconditions.
+// Some external/manual seeds spell the percent type as 'percentage'
+// (the spec example does) even though the canonical value stored by every
+// app-managed write is 'percent'. Centralise the check so a stray row
+// with the alias still applies cleanly.
+export function isPercentDiscount(type: string | null | undefined): boolean {
+  const v = (type ?? '').toLowerCase().trim()
+  return v === 'percent' || v === 'percentage' || v === '%'
+}
+
 export type DerivedStatus = 'active' | 'inactive' | 'expired' | 'exhausted'
 
 export function deriveStatus(v: Pick<VoucherRow, 'is_active' | 'expires_at' | 'max_uses' | 'current_uses'>): DerivedStatus {
@@ -59,7 +68,7 @@ export function deriveStatus(v: Pick<VoucherRow, 'is_active' | 'expires_at' | 'm
 // Calculates the discount a voucher would apply to an order total. Never
 // exceeds the order total (fixed vouchers can't produce a negative charge).
 export function computeDiscount(v: Pick<VoucherRow, 'discount_type' | 'discount_value'>, orderTotal: number): number {
-  if (v.discount_type === 'percent') {
+  if (isPercentDiscount(v.discount_type)) {
     return Math.max(0, Math.round(orderTotal * Math.max(0, Math.min(100, v.discount_value)) / 100))
   }
   return Math.min(orderTotal, Math.max(0, Math.round(v.discount_value)))
@@ -155,10 +164,17 @@ export async function validateVoucher(
     }
   }
 
-  const discount = computeDiscount(voucher, ctx.orderTotal)
+  // Coerce the type to the canonical 'percent' | 'fixed' before returning
+  // so the apply route + clients only ever have to switch on one value.
+  const canonical: VoucherRow = {
+    ...voucher,
+    discount_type: isPercentDiscount(voucher.discount_type) ? 'percent' : 'fixed',
+  }
+
+  const discount = computeDiscount(canonical, ctx.orderTotal)
   return {
     ok: true,
-    voucher,
+    voucher: canonical,
     discount,
     finalTotal: Math.max(0, ctx.orderTotal - discount),
   }

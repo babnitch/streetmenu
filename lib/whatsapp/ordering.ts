@@ -12,7 +12,7 @@ import {
   notifyCustomerOrderDelivered,
   notifyCustomerOrderCancelled,
 } from '@/lib/whatsapp'
-import { validateVoucher, consumeVoucherForOrder } from '@/lib/vouchers'
+import { validateVoucher, consumeVoucherForOrder, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
 
 // ── TwiML ack ────────────────────────────────────────────────────────────────
@@ -450,7 +450,7 @@ export async function handleOrderCommand(
         expires_at: string | null; is_active: boolean; restaurants: { name: string } | null
       } | null
       if (!v) return ''
-      const value = v.discount_type === 'percent'
+      const value = isPercentDiscount(v.discount_type)
         ? `-${v.discount_value}%`
         : `-${Number(v.discount_value).toLocaleString()} FCFA`
       const used    = !!cv.used_at
@@ -514,7 +514,7 @@ export async function handleOrderCommand(
       performedBy: customer.id, performedByType: 'customer',
       metadata: { code, customer_voucher_id: inserted.id, via: 'whatsapp' },
     })
-    const value = v.discount_type === 'percent'
+    const value = isPercentDiscount(v.discount_type)
       ? `-${v.discount_value}%`
       : `-${Number(v.discount_value).toLocaleString()} FCFA`
     await sendWhatsApp(from,

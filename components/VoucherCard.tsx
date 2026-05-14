@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { Voucher } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import { isPercentDiscount } from '@/lib/vouchers'
 
 interface VoucherCardProps {
   voucher: Voucher
@@ -26,7 +27,7 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
   const isExpired = voucher.expires_at ? new Date(voucher.expires_at) < new Date() : false
   const isActive = !isUsed && !isExpired && voucher.is_active
 
-  const discountLabel = voucher.discount_type === 'percent'
+  const discountLabel = isPercentDiscount(voucher.discount_type)
     ? `${voucher.discount_value}%`
     : `${Number(voucher.discount_value).toLocaleString()}F`
 
@@ -55,7 +56,7 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
         <div className={`flex-shrink-0 w-24 flex flex-col items-center justify-center px-2 py-4 ${panelBg}`}>
           <p className="text-2xl font-black leading-none">{discountLabel}</p>
           <p className="text-[10px] font-semibold uppercase tracking-wider mt-1 opacity-90">
-            {voucher.discount_type === 'percent' ? bi('Réduction', 'Off') : 'FCFA'}
+            {isPercentDiscount(voucher.discount_type) ? bi('Réduction', 'Off') : 'FCFA'}
           </p>
         </div>
 
@@ -123,7 +124,7 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
 
             <div className="bg-brand text-white rounded-2xl py-4 mb-4">
               <p className="text-5xl font-black">
-                {voucher.discount_type === 'percent' ? `-${voucher.discount_value}%` : `-${Number(voucher.discount_value).toLocaleString()} FCFA`}
+                {isPercentDiscount(voucher.discount_type) ? `-${voucher.discount_value}%` : `-${Number(voucher.discount_value).toLocaleString()} FCFA`}
               </p>
               <p className="text-sm opacity-90 mt-1">{t('voucher.discount')}</p>
             </div>
