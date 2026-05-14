@@ -27,7 +27,7 @@ const CATEGORIES = [
   'Music', 'Food', 'Sport', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
 ]
 
-function EventCard({ event, viewLabel, freeLabel }: { event: Event; viewLabel: string; freeLabel: string }) {
+function EventCard({ event, viewLabel, freeLabel, likes }: { event: Event; viewLabel: string; freeLabel: string; likes?: number }) {
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
   })
@@ -68,6 +68,9 @@ function EventCard({ event, viewLabel, freeLabel }: { event: Event; viewLabel: s
         {event.venue && (
           <p className="text-xs text-ink-tertiary truncate">📍 {event.venue}{event.neighborhood ? `, ${event.neighborhood}` : ''}</p>
         )}
+        {likes && likes > 0 ? (
+          <p className="text-xs text-rose-600 font-semibold mt-1">❤️ {likes}</p>
+        ) : null}
         <Link
           href={`/events/${event.id}`}
           className="mt-2.5 block w-full bg-brand hover:bg-brand-dark text-white text-center py-1.5 rounded-xl text-xs font-semibold transition-colors"
@@ -99,6 +102,7 @@ export default function EventsPage() {
   const router = useRouter()
   const { city } = useCity()
   const [events, setEvents] = useState<Event[]>([])
+  const [likesSummary, setLikesSummary] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [showMap, setShowMap] = useState(false)
@@ -113,6 +117,17 @@ export default function EventsPage() {
         .order('date', { ascending: true })
       if (data) setEvents(data)
       setLoading(false)
+
+      // Like counts. Best-effort follow-up so the grid paints first; failure
+      // just hides the ❤️ N line on each card.
+      if (data && data.length > 0) {
+        try {
+          const ids = data.map(e => e.id).join(',')
+          const res = await fetch(`/api/events/likes-summary?ids=${ids}`, { cache: 'no-store' })
+          const d = await res.json()
+          if (d?.summary && typeof d.summary === 'object') setLikesSummary(d.summary)
+        } catch { /* card just hides the line */ }
+      }
     }
     fetchEvents()
   }, [])
@@ -204,6 +219,7 @@ export default function EventsPage() {
                 event={evt}
                 viewLabel={t('evt.viewDetail')}
                 freeLabel={t('evt.free')}
+                likes={likesSummary[evt.id]}
               />
             ))}
           </div>

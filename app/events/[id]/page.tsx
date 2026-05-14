@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
+import EventSocialPanel from '@/components/EventSocialPanel'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -358,6 +359,11 @@ export default function EventDetailPage() {
         >
           {t('evt.share')}
         </a>
+
+        {/* Likes + comments. Self-contained component — owns its own auth
+            read and API roundtrips. Comments are nickname-signed; the
+            nickname prompt fires inline on first comment. */}
+        <EventSocialPanel eventId={event.id} />
       </div>
 
       {/* Reserve modal */}

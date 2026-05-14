@@ -170,6 +170,7 @@ export default function AccountPage() {
   // Profile tab
   interface ProfileRow {
     id: string; name: string; phone: string; city: string
+    nickname: string | null; nickname_updated_at: string | null
     status: string
     suspended_at: string | null; suspended_by: string | null; suspension_reason: string | null
     deleted_at: string | null; created_at: string
@@ -178,6 +179,8 @@ export default function AccountPage() {
   const [profileEditing,  setProfileEditing]  = useState(false)
   const [profileName,     setProfileName]     = useState('')
   const [profileCity,     setProfileCity]     = useState('')
+  const [profileNickname, setProfileNickname] = useState('')
+  const [savingNickname,  setSavingNickname]  = useState(false)
   const [savingProfile,   setSavingProfile]   = useState(false)
   const PROFILE_CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
 
@@ -586,6 +589,7 @@ export default function AccountPage() {
       setProfile(data.profile)
       setProfileName(data.profile.name ?? '')
       setProfileCity(data.profile.city ?? '')
+      setProfileNickname(data.profile.nickname ?? '')
       setAccountDeletedAt(data.profile.deleted_at ?? null)
     }
   }
@@ -1129,6 +1133,36 @@ export default function AccountPage() {
                             <p className="font-semibold text-ink-primary">{profile.city || '—'}</p>
                           )}
                         </div>
+
+                        {/* Nickname — used to sign event comments. Has its
+                            own save button (separate API + cooldown) so the
+                            user can change it without re-saving the rest of
+                            the profile. */}
+                        <NicknameRow
+                          profile={profile}
+                          value={profileNickname}
+                          onChange={setProfileNickname}
+                          saving={savingNickname}
+                          onSave={async () => {
+                            setSavingNickname(true)
+                            try {
+                              const res = await fetch('/api/auth/nickname', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ nickname: profileNickname }),
+                              })
+                              const d = await res.json()
+                              if (!res.ok) {
+                                showToast(d?.error ?? bi('Erreur', 'Error'), false)
+                                return
+                              }
+                              showToast(bi('Pseudo enregistré', 'Nickname saved'))
+                              if (user) loadProfile()
+                            } finally {
+                              setSavingNickname(false)
+                            }
+                          }}
+                        />
 
                         {/* Member since */}
                         <div>
@@ -2141,6 +2175,60 @@ function EventReservationCard({
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+// Nickname editor row inside the Profile card. Has its own save button so
+// the 30-day cooldown failure surfaces here rather than as a blanket
+// profile-save error. Cooldown counter renders in days when active.
+function NicknameRow({
+  profile, value, onChange, saving, onSave,
+}: {
+  profile: { nickname: string | null; nickname_updated_at: string | null }
+  value: string
+  onChange: (v: string) => void
+  saving: boolean
+  onSave: () => void
+}) {
+  const bi = useBi()
+  const cooldownMs = 30 * 24 * 60 * 60 * 1000
+  const lastChanged = profile.nickname_updated_at ? new Date(profile.nickname_updated_at).getTime() : 0
+  const cooldownRemaining = lastChanged
+    ? Math.max(0, Math.ceil((cooldownMs - (Date.now() - lastChanged)) / (24 * 60 * 60 * 1000)))
+    : 0
+  const dirty = value.trim() !== (profile.nickname ?? '')
+  return (
+    <div>
+      <label className="block text-xs text-ink-tertiary mb-1">
+        {bi('Pseudo / Nickname', 'Nickname')}
+      </label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={bi('Choisissez un pseudo', 'Choose a nickname')}
+          maxLength={20}
+          className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white"
+        />
+        <button
+          onClick={onSave}
+          disabled={saving || !dirty || cooldownRemaining > 0}
+          className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+        >
+          {saving ? '…' : bi('Enregistrer', 'Save')}
+        </button>
+      </div>
+      <p className="text-[11px] text-ink-tertiary mt-1">
+        {cooldownRemaining > 0
+          ? bi(
+              `Modifiable dans ${cooldownRemaining} jour${cooldownRemaining > 1 ? 's' : ''}.`,
+              `Editable in ${cooldownRemaining} day${cooldownRemaining > 1 ? 's' : ''}.`,
+            )
+          : bi('Modifiable une fois par 30 jours. Affiché sur vos commentaires d\'événements.',
+               'Editable once per 30 days. Shown on your event comments.')}
+      </p>
     </div>
   )
 }

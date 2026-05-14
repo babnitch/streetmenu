@@ -39,7 +39,11 @@
 - [x] **Vendor dashboard panel** — aggregate + distribution + top tags + 30-day trend (up/down/flat). No reply, no dispute, no individual ratings
 - [x] **WhatsApp `noter` command + deep link** — `noter / rate` jumps to `/restaurant/[id]#rate`; the page auto-opens the rating modal from the hash
 - [ ] **Post-delivery WhatsApp prompt** — Cron job to fire 2h after order moves to `delivered` (deferred)
-- [ ] **Event likes + comments, nickname system, full reporting + admin moderation** — schemas ready in `supabase-reviews.sql` (event_likes / event_comments / reports), UI lands in follow-up batches
+- [x] **Event likes** — toggle heart, optimistic update, bulk like-count summary on event cards
+- [x] **Event comments** — nickname-signed (never phone), 500-char cap, paginated 10-per-page, inline nickname prompt on first comment
+- [x] **Nickname system** — 3-20 chars, alphanumeric + `._-`, no phone-like 4+ digit sequences, 30-day cooldown, editable in /account profile
+- [x] **Admin soft-delete on comments** — `is_deleted`/`deleted_by`/`deleted_at` audited; UI lands with reporting in the next batch
+- [ ] **Reporting + admin moderation** — schema ready in `supabase-reviews.sql` (`reports`), UI lands in follow-up batch
 
 ### Vendor System
 - [x] Vendor self-signup form (/join)
