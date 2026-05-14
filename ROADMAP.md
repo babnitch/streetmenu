@@ -43,7 +43,7 @@
 - [x] **Event comments** — nickname-signed (never phone), 500-char cap, paginated 10-per-page, inline nickname prompt on first comment
 - [x] **Nickname system** — 3-20 chars, alphanumeric + `._-`, no phone-like 4+ digit sequences, 30-day cooldown, editable in /account profile
 - [x] **Admin soft-delete on comments** — `is_deleted`/`deleted_by`/`deleted_at` audited; UI lands with reporting in the next batch
-- [ ] **Reporting + admin moderation** — schema ready in `supabase-reviews.sql` (`reports`), UI lands in follow-up batch
+- [x] **Reporting + admin moderation** — 🚩 button on restaurant + event detail + per-comment row, modal with reason dropdown + optional description, `POST /api/reports` (login-gated, anonymous to the reported party). Admin `Signalements / Reports` sub-tab with pending/reviewed/action_taken/dismissed filters + counts, expandable row with reporter info (admin-only), `PATCH /api/admin/reports/[id]` for mark-reviewed / dismiss / soft-delete-comment + admin notes. WhatsApp `signaler / report` returns deep links to the customer's most-recent restaurant + event so they can report from the right page.
 
 ### Vendor System
 - [x] Vendor self-signup form (/join)

@@ -12,6 +12,7 @@ import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
+import ReportButton from '@/components/ReportButton'
 
 export default function MenuPage() {
   const bi = useBi()
@@ -233,6 +234,14 @@ export default function MenuPage() {
             the #rate hash by auto-opening the rate modal. */}
         <div id="rate" className="mt-8">
           <RestaurantRatingPanel restaurantId={id} />
+        </div>
+
+        <div className="mt-4">
+          <ReportButton
+            targetType="restaurant"
+            targetId={id}
+            label={bi('Signaler ce restaurant', 'Report this restaurant')}
+          />
         </div>
       </div>
 

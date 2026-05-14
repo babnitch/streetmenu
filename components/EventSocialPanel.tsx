@@ -12,6 +12,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import ReportButton from '@/components/ReportButton'
 
 interface CommentRow {
   id:         string
@@ -256,7 +257,10 @@ export default function EventSocialPanel({ eventId }: { eventId: string }) {
               <div key={c.id} className="border-b border-divider pb-3 last:border-b-0 last:pb-0">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-semibold text-ink-primary">{c.author}</p>
-                  <p className="text-[11px] text-ink-tertiary">{relativeTime(c.created_at, locale)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] text-ink-tertiary">{relativeTime(c.created_at, locale)}</p>
+                    <ReportButton targetType="comment" targetId={c.id} variant="icon" />
+                  </div>
                 </div>
                 <p className="text-sm text-ink-secondary whitespace-pre-wrap">{c.comment}</p>
               </div>

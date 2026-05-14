@@ -847,6 +847,44 @@ export async function handleOrderCommand(
     return ok()
   }
 
+  // "signaler" / "report" — generic entry point for reporting. We can't
+  // run the report modal in chat (reason dropdown + free-text doesn't fit
+  // a stateless chat surface cleanly), so we deep-link to the customer's
+  // recent surfaces. The page-level 🚩 Report button takes them through
+  // the modal.
+  if (cmd === 'signaler' || cmd === 'report') {
+    // Most-recent restaurant order + most-recent event reservation as
+    // likely report contexts.
+    const [{ data: lastOrder }, { data: lastResv }] = await Promise.all([
+      supabaseAdmin
+        .from('orders').select('restaurant_id, restaurants(name)')
+        .eq('customer_id', customer.id)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabaseAdmin
+        .from('event_reservations').select('event_id, events(title)')
+        .eq('customer_id', customer.id)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    ])
+    const lines: string[] = [`🚩 *Signaler un problème / Report an issue*`, '']
+    if (lastOrder?.restaurant_id) {
+      const r = lastOrder.restaurants as unknown as { name: string } | null
+      lines.push(`🏪 ${r?.name ?? 'Restaurant'}: ${BASE_URL}/restaurant/${lastOrder.restaurant_id}`)
+    }
+    if (lastResv?.event_id) {
+      const e = lastResv.events as unknown as { title: string } | null
+      lines.push(`🎉 ${e?.title ?? 'Événement'}: ${BASE_URL}/events/${lastResv.event_id}`)
+    }
+    if (lines.length === 2) {
+      lines.push(
+        `Ouvrez la page d'un restaurant ou d'un événement et cliquez "🚩 Signaler".\n` +
+        `Open a restaurant or event page and click "🚩 Report".`)
+    } else {
+      lines.push('', `Cliquez "🚩 Signaler" en bas de la page / Click "🚩 Report" at the bottom.`)
+    }
+    await sendWhatsApp(from, lines.join('\n'))
+    return ok()
+  }
+
   // "publier" / "publish" → deep-link to the in-app submission form. The
   // page itself handles the login gate, so we don't need to check trust
   // state here.

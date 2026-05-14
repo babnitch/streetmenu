@@ -11,6 +11,7 @@ import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import EventSocialPanel from '@/components/EventSocialPanel'
+import ReportButton from '@/components/ReportButton'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -364,6 +365,12 @@ export default function EventDetailPage() {
             read and API roundtrips. Comments are nickname-signed; the
             nickname prompt fires inline on first comment. */}
         <EventSocialPanel eventId={event.id} />
+
+        <ReportButton
+          targetType="event"
+          targetId={event.id}
+          label={bi('Signaler cet événement', 'Report this event')}
+        />
       </div>
 
       {/* Reserve modal */}
