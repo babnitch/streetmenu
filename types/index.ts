@@ -29,6 +29,7 @@ export interface Restaurant {
   manual_override?: 'open' | 'closed' | null
   manual_override_at?: string | null
   timezone?: string
+  allow_orders_when_closed?: boolean
 }
 
 export interface MenuItem {

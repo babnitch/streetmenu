@@ -33,14 +33,19 @@ DO $$ BEGIN
 END $$;
 CREATE INDEX IF NOT EXISTS restaurant_hours_restaurant_idx ON restaurant_hours(restaurant_id);
 
--- 2. restaurants: manual override + timezone -----------------------------------
+-- 2. restaurants: manual override + timezone + closed-order toggle ------------
 -- timezone defaults to Africa/Douala (UTC+1) for Cameroon; the seed below
 -- adjusts cities outside Cameroon to their actual IANA zone.
+-- allow_orders_when_closed defaults TRUE so the new column doesn't silently
+-- block ordering on existing rows during the migration window — the
+-- closed-order warning UI in Batch J reads this flag to decide whether to
+-- disable the "Order" button outright vs. just warn.
 ALTER TABLE restaurants
-  ADD COLUMN IF NOT EXISTS manual_override    TEXT
+  ADD COLUMN IF NOT EXISTS manual_override          TEXT
     CHECK (manual_override IS NULL OR manual_override IN ('open', 'closed')),
-  ADD COLUMN IF NOT EXISTS manual_override_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS timezone           TEXT NOT NULL DEFAULT 'Africa/Douala';
+  ADD COLUMN IF NOT EXISTS manual_override_at       TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS timezone                 TEXT NOT NULL DEFAULT 'Africa/Douala',
+  ADD COLUMN IF NOT EXISTS allow_orders_when_closed BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- 3. Backfill timezone per city ------------------------------------------------
 -- Only rewrite the default. Custom timezones already set by an admin
