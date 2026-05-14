@@ -106,7 +106,18 @@ export default function AccountPage() {
   // Default to Profile — Orders and Vouchers no longer render as tab
   // buttons on this page (they live in the bottom nav), but deep links
   // with ?tab=orders / ?tab=vouchers still work for backward compat.
-  const [customerTab,      setCustomerTab]      = useState<CustomerTab>('profile')
+  // Read ?tab= synchronously in the lazy initializer so /account?tab=orders
+  // lands on Orders directly, with no flash through the default Profile tab.
+  // The post-mount useEffect below keeps in-page URL changes (back/forward
+  // nav, deep-linked toasts) in sync.
+  const [customerTab,      setCustomerTab]      = useState<CustomerTab>(() => {
+    if (typeof window === 'undefined') return 'profile'
+    const q = new URLSearchParams(window.location.search).get('tab')
+    const allowed: CustomerTab[] = ['vouchers', 'orders', 'profile', 'restaurant', 'team']
+    const initial = q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'profile'
+    console.log('[account] initial customerTab from URL:', { rawQuery: q, initial })
+    return initial
+  })
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   // One-time welcome banner shown after a brand-new customer signs in for
@@ -199,12 +210,15 @@ export default function AccountPage() {
 
   // Honor the ?tab= query param — BottomNav links to /account?tab=orders,
   // and TopNav desktop nav does likewise. Only adopt known CustomerTab
-  // values to avoid arbitrary strings leaking into state.
+  // values to avoid arbitrary strings leaking into state. (The lazy
+  // initializer above handles the first paint; this effect catches
+  // in-page URL changes that don't remount the component.)
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
     const allowed: CustomerTab[] = ['vouchers', 'orders', 'profile', 'restaurant', 'team']
     if (q && (allowed as string[]).includes(q)) {
+      console.log('[account] post-mount effect setting tab:', q)
       setCustomerTab(q as CustomerTab)
     }
   }, [])
