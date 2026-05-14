@@ -135,21 +135,35 @@ export default function OrderPage() {
     return () => { cancelled = true }
   }, [me])
 
-  // Resolve the restaurant's payment_enabled flag — anonymous reads work
-  // because RLS already exposes restaurants for public browsing.
+  // Resolve the restaurant's payment_enabled flag + computed open status
+  // + allow_orders_when_closed toggle. Single sequential fetch so the
+  // submit button can branch on all three at render time.
+  const [openWhenClosed, setOpenWhenClosed] = useState(true)
+  const [restaurantOpen, setRestaurantOpen] = useState<boolean | null>(null)
   useEffect(() => {
     if (!restaurantId) return
     let cancelled = false
-    supabase
-      .from('restaurants')
-      .select('payment_enabled')
-      .eq('id', restaurantId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) setPaymentEnabled(Boolean(data?.payment_enabled))
-      })
+    ;(async () => {
+      const [{ data }, status] = await Promise.all([
+        supabase
+          .from('restaurants')
+          .select('payment_enabled, allow_orders_when_closed')
+          .eq('id', restaurantId).maybeSingle(),
+        fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
+          .then(r => r.json())
+          .catch(() => null),
+      ])
+      if (cancelled) return
+      setPaymentEnabled(Boolean(data?.payment_enabled))
+      // Default TRUE matches the column default — a missing row should
+      // never silently disable orders.
+      setOpenWhenClosed(data?.allow_orders_when_closed !== false)
+      const s = status?.status?.[restaurantId]
+      if (s) setRestaurantOpen(!!s.open)
+    })()
     return () => { cancelled = true }
   }, [restaurantId])
+  const orderingBlocked = restaurantOpen === false && !openWhenClosed
 
   useEffect(() => {
     if (!me) return
@@ -685,6 +699,36 @@ export default function OrderPage() {
           )}
         </div>
 
+        {/* Closed-restaurant banner. When ordering is allowed past closing
+            time we warn but keep the button live. When the vendor's opted
+            out of after-hours orders (allow_orders_when_closed=false) we
+            still render the warning here and disable the submit button
+            below so the user understands why. */}
+        {restaurantOpen === false && (
+          <div className={`rounded-2xl border px-4 py-3 mb-4 text-sm ${
+            orderingBlocked
+              ? 'bg-rose-50 border-rose-200 text-rose-700'
+              : 'bg-amber-50 border-amber-200 text-amber-700'
+          }`}>
+            <p className="font-semibold mb-0.5">
+              {orderingBlocked
+                ? bi('❌ Restaurant fermé', '❌ Restaurant closed')
+                : bi('⚠️ Restaurant fermé actuellement', '⚠️ Restaurant currently closed')}
+            </p>
+            <p className="text-xs">
+              {orderingBlocked
+                ? bi(
+                    'Ce restaurant n\'accepte pas les commandes en dehors des heures d\'ouverture.',
+                    'This restaurant doesn\'t accept orders outside opening hours.',
+                  )
+                : bi(
+                    'Votre commande sera traitée à l\'ouverture.',
+                    'Your order will be processed when they open.',
+                  )}
+            </p>
+          </div>
+        )}
+
         {/* Customer identity — session if logged in, inputs otherwise */}
         <form onSubmit={paymentEnabled ? handlePay : handleReservation}>
           <h2 className="text-base font-bold text-ink-primary mb-3">{t('order.detailsTitle')}</h2>
@@ -814,6 +858,7 @@ export default function OrderPage() {
               || loadingMe
               || (!me && (!name || !phone))
               || (paymentEnabled && !mnoPreview)
+              || orderingBlocked
             }
             className={`w-full ${
               paymentEnabled

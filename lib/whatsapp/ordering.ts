@@ -1373,6 +1373,61 @@ export async function handleOrderingSession(
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       return ok()
     }
+
+    // Closed-restaurant gate. allow_orders_when_closed=false short-circuits
+    // the order flow with a hint about the schedule; the default TRUE lets
+    // the customer proceed with a banner-style heads-up.
+    const { data: restRow } = await supabaseAdmin
+      .from('restaurants')
+      .select('city, timezone, manual_override, allow_orders_when_closed')
+      .eq('id', chosen.id).maybeSingle()
+    const { data: hoursRows } = await supabaseAdmin
+      .from('restaurant_hours')
+      .select('day_of_week, open_time, close_time, is_closed')
+      .eq('restaurant_id', chosen.id)
+    if (restRow) {
+      const { isRestaurantOpen, timezoneForCity, formatHoursForDisplay } = await import('@/lib/openingHours')
+      const tz = restRow.timezone || timezoneForCity(restRow.city)
+      const status = isRestaurantOpen({
+        manual_override: (restRow.manual_override as 'open' | 'closed' | null) ?? null,
+        timezone:        tz,
+        hours:           (hoursRows ?? []).map(h => ({
+          day_of_week: h.day_of_week,
+          open_time:   String(h.open_time).slice(0, 5),
+          close_time:  String(h.close_time).slice(0, 5),
+          is_closed:   !!h.is_closed,
+        })),
+      })
+      if (!status.open) {
+        const weekLines = formatHoursForDisplay(
+          (hoursRows ?? []).map(h => ({
+            day_of_week: h.day_of_week,
+            open_time:   String(h.open_time).slice(0, 5),
+            close_time:  String(h.close_time).slice(0, 5),
+            is_closed:   !!h.is_closed,
+          })),
+          'fr',
+        )
+        if (restRow.allow_orders_when_closed === false) {
+          // Hard block — abandon the session and tell the customer the
+          // schedule so they know when to come back.
+          await sendWhatsApp(from,
+            `⚠️ *${chosen.name} est fermé / is closed*\n\n` +
+            `Horaires / Hours:\n${weekLines.join('\n')}\n\n` +
+            `Réessayez à l'ouverture. / Try again when they open.`)
+          await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+          return ok()
+        }
+        // Soft warning — keep the session alive but signal the wait.
+        const nextLine = status.next_transition?.kind === 'opens'
+          ? `Ouvre à ${status.next_transition.at} / Opens at ${status.next_transition.at}.`
+          : ''
+        await sendWhatsApp(from,
+          `⚠️ *${chosen.name}* est fermé actuellement. ${nextLine}\n` +
+          `Votre commande sera traitée à l'ouverture.\n` +
+          `Currently closed. Your order will be processed when they open.`)
+      }
+    }
     await supabaseAdmin.from('signup_sessions').update({
       step: 2,
       data: { restaurant_id: chosen.id, restaurant_name: chosen.name, menu },

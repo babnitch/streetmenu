@@ -16,7 +16,11 @@
 - [x] Restaurant detail page with menu, prices, categories
 - [x] 10 sample Yaoundé restaurants with full menus
 - [x] Add to cart functionality
-- [x] **Opening hours + manual override** — weekly schedule per restaurant (`restaurant_hours`), timezone-aware (Africa/Douala default, Africa/Abidjan / Dakar / Lome per city), overnight windows supported. Computed open/closed via `GET /api/restaurants/open-status?ids=…` (60s edge cache), surfaced on home cards + restaurant detail with a "Closes at HH:MM" line. Owner-only schedule editor + open/close manual override on the dashboard Settings tab. Audited as `schedule_updated` / `manual_override_set` / `manual_override_removed`. (Map pin colours + WhatsApp `ouvrir`/`fermer`/`horaire`/`auto` + closed-ordering warning deferred to a follow-up batch.)
+- [x] **Opening hours + manual override** — weekly schedule per restaurant (`restaurant_hours`), timezone-aware (Africa/Douala default, Africa/Abidjan / Dakar / Lome per city), overnight windows supported. Computed open/closed via `GET /api/restaurants/open-status?ids=…` (60s edge cache), surfaced on home cards + restaurant detail with a "Closes at HH:MM" line. Owner-only schedule editor + open/close manual override on the dashboard Settings tab. Audited as `schedule_updated` / `manual_override_set` / `manual_override_removed`.
+- [x] **Map pin colours + map sidebar use computed status** — pins flip with override + schedule.
+- [x] **"Open now" filter on home** — toggle pill filters cards (and the map) by computed open status.
+- [x] **WhatsApp vendor schedule commands** — `ouvrir` / `open`, `fermer` / `close`, `auto`, `horaire` / `schedule` flip `manual_override` or read the week + current status inline.
+- [x] **Closed-ordering warning + `allow_orders_when_closed` toggle** — `/order` shows an amber warning above the submit when the restaurant is currently closed (with the order still allowed), or a rose-coloured block + disabled submit when the vendor's opted out. WhatsApp `commander` flow aborts the session with the week's schedule when a hard-blocked restaurant is picked, or surfaces a soft warning with the next-open time otherwise. Vendor toggle lives at the bottom of the Settings → Hours panel.
 
 ### Events Section
 - [x] Events listing page with 7 categories (including BT/Club)

@@ -8,9 +8,13 @@ import { useLanguage } from '@/lib/languageContext'
 interface Props {
   restaurant: Restaurant
   onClose: () => void
+  // Computed open status from /api/restaurants/open-status. Wins over the
+  // legacy is_open column when provided (mirrors the home card behaviour).
+  openOverride?: boolean
 }
 
-export default function RestaurantSidebar({ restaurant, onClose }: Props) {
+export default function RestaurantSidebar({ restaurant, onClose, openOverride }: Props) {
+  const isOpen = openOverride ?? restaurant.is_open
   const { t } = useLanguage()
 
   return (
@@ -37,9 +41,9 @@ export default function RestaurantSidebar({ restaurant, onClose }: Props) {
         </button>
         <div className="absolute bottom-3 left-3">
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-full bg-white ${
-            restaurant.is_open ? 'text-green-600' : 'text-red-600'
+            isOpen ? 'text-green-600' : 'text-red-600'
           }`}>
-            {restaurant.is_open ? `🟢 ${t('sidebar.openNow')}` : `🔴 ${t('sidebar.closed')}`}
+            {isOpen ? `🟢 ${t('sidebar.openNow')}` : `🔴 ${t('sidebar.closed')}`}
           </span>
         </div>
       </div>

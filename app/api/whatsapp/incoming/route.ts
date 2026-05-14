@@ -1007,6 +1007,13 @@ async function handleVendor(
           `💰 "paye XXXX orange 237..." → Marquer payé Orange / Mark paid Orange\n`
         : '') +
       `🔗 "restaurant" → Voir votre page / View your page\n` +
+      `🕐 *Horaires / Hours:*\n` +
+      `🕐 "horaire" → Voir l'horaire + statut / View schedule + status\n` +
+      ((isOwner || isManager)
+        ? `🟢 "ouvrir" → Ouvrir manuellement / Manually open\n` +
+          `🔴 "fermer" → Fermer manuellement / Manually close\n` +
+          `↩️ "auto" → Suivre l'horaire / Follow schedule\n`
+        : '') +
       ownerCmds +
       `❓ "aide" → Ce message / This message`)
     return ok()
@@ -1015,6 +1022,105 @@ async function handleVendor(
   // ── RESTAURANT PAGE ──────────────────────────────────────────────────────
   if (cmd === 'restaurant') {
     await sendWhatsApp(from, `🔗 *${restaurant.name}*\n${BASE_URL}/restaurant/${restaurant.id}`)
+    return ok()
+  }
+
+  // ── SCHEDULE & MANUAL OVERRIDE ───────────────────────────────────────────
+  // Mirrors POST /api/restaurants/[id]/override + GET /hours so the vendor
+  // can flip "open / closed" without leaving WhatsApp. Owner + manager
+  // can flip; staff can only read the current state.
+  if (cmd === 'ouvrir' || cmd === 'open' || cmd === 'fermer' || cmd === 'close' || cmd === 'auto') {
+    if (!(isOwner || isManager)) {
+      await sendWhatsApp(from,
+        `Vous n'avez pas la permission de modifier le statut. / You don't have permission.`)
+      return ok()
+    }
+    const next: 'open' | 'closed' | null =
+      (cmd === 'ouvrir' || cmd === 'open')  ? 'open' :
+      (cmd === 'fermer' || cmd === 'close') ? 'closed' : null
+    const { error } = await supabaseAdmin
+      .from('restaurants')
+      .update({
+        manual_override:    next,
+        manual_override_at: next === null ? null : new Date().toISOString(),
+      })
+      .eq('id', restaurant.id)
+    if (error) {
+      await sendWhatsApp(from, `⚠️ Erreur: ${error.message} / Error.`)
+      return ok()
+    }
+    const { writeAudit } = await import('@/lib/audit')
+    await writeAudit({
+      action:          next === null ? 'manual_override_removed' : 'manual_override_set',
+      targetType:      'restaurant',
+      targetId:        restaurant.id,
+      performedBy:     null,
+      performedByType: 'vendor',
+      metadata:        { override: next, via: 'whatsapp' },
+    })
+    const ack =
+      next === 'open'   ? `🟢 *Ouvert manuellement / Manually open*` :
+      next === 'closed' ? `🔴 *Fermé manuellement / Manually closed*` :
+      `↩️ *Mode automatique / Auto mode*`
+    const hint = next === null
+      ? `Le restaurant suit à nouveau l'horaire. / Following the schedule again.`
+      : `Envoyez "auto" pour revenir à l'horaire. / Send "auto" to follow the schedule.`
+    await sendWhatsApp(from, `${ack}\n${restaurant.name}\n\n${hint}`)
+    return ok()
+  }
+
+  if (cmd === 'horaire' || cmd === 'horaires' || cmd === 'schedule' || cmd === 'hours') {
+    // Pull the live schedule + current status from the bulk endpoint so
+    // the chat response matches what customers see in the app.
+    const [{ data: hours }, { data: rest }] = await Promise.all([
+      supabaseAdmin.from('restaurant_hours')
+        .select('day_of_week, open_time, close_time, is_closed')
+        .eq('restaurant_id', restaurant.id)
+        .order('day_of_week', { ascending: true }),
+      supabaseAdmin.from('restaurants')
+        .select('city, timezone, manual_override')
+        .eq('id', restaurant.id).maybeSingle(),
+    ])
+    const { isRestaurantOpen, formatHoursForDisplay, timezoneForCity } = await import('@/lib/openingHours')
+    const tz = rest?.timezone || timezoneForCity(rest?.city)
+    const status = isRestaurantOpen({
+      manual_override: (rest?.manual_override as 'open' | 'closed' | null) ?? null,
+      timezone:        tz,
+      hours:           (hours ?? []).map(h => ({
+        day_of_week: h.day_of_week,
+        open_time:   String(h.open_time).slice(0, 5),
+        close_time:  String(h.close_time).slice(0, 5),
+        is_closed:   !!h.is_closed,
+      })),
+    })
+    const statusLine = status.source === 'override'
+      ? (status.open
+          ? `🟢 *Ouvert (manuel) / Open (manual)*`
+          : `🔴 *Fermé (manuel) / Closed (manual)*`)
+      : (status.open
+          ? `🟢 *Ouvert (horaire) / Open (scheduled)*`
+          : `🔴 *Fermé (horaire) / Closed (scheduled)*`)
+    const nextLine = status.next_transition
+      ? (status.next_transition.kind === 'opens'
+          ? `· Ouvre à ${status.next_transition.at} / Opens at ${status.next_transition.at}`
+          : `· Ferme à ${status.next_transition.at} / Closes at ${status.next_transition.at}`)
+      : ''
+    const weekLines = formatHoursForDisplay(
+      (hours ?? []).map(h => ({
+        day_of_week: h.day_of_week,
+        open_time:   String(h.open_time).slice(0, 5),
+        close_time:  String(h.close_time).slice(0, 5),
+        is_closed:   !!h.is_closed,
+      })),
+      'fr',
+    )
+    await sendWhatsApp(from,
+      `${statusLine} ${nextLine}\n${restaurant.name}\n\n` +
+      `🕐 Horaires / Hours:\n${weekLines.join('\n')}\n\n` +
+      `Commandes / Commands:\n` +
+      `🟢 "ouvrir" / "open" → Ouvrir manuellement\n` +
+      `🔴 "fermer" / "close" → Fermer manuellement\n` +
+      `↩️ "auto" → Suivre l'horaire / Follow schedule`)
     return ok()
   }
 

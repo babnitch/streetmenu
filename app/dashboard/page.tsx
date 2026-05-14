@@ -1183,9 +1183,63 @@ function OpeningHoursPanel({ restaurant }: { restaurant: Restaurant }) {
           >
             {saving ? '…' : bi('Enregistrer l\'horaire', 'Save schedule')}
           </button>
+
+          {/* allow_orders_when_closed — decides whether customers can place
+              an order outside opening hours. Default TRUE; some vendors
+              prefer to hard-block to avoid surprise orders at 02:00. */}
+          <AllowOrdersToggle restaurant={restaurant} />
         </>
       )}
     </div>
+  )
+}
+
+// Tiny dedicated row for the allow_orders_when_closed switch. Renders as
+// part of the OpeningHoursPanel rather than its own card so the vendor
+// reads it adjacent to the schedule it's coupled with.
+function AllowOrdersToggle({ restaurant }: { restaurant: Restaurant }) {
+  const bi = useBi()
+  const initial = (restaurant as Restaurant & { allow_orders_when_closed?: boolean }).allow_orders_when_closed
+  const [allow, setAllow] = useState<boolean>(initial !== false)
+  const [saving, setSaving] = useState(false)
+
+  async function toggle() {
+    const next = !allow
+    setAllow(next) // optimistic
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/restaurants/${restaurant.id}/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_orders_when_closed: next }),
+      })
+      if (!res.ok) setAllow(!next) // revert on failure
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <label className="mt-3 flex items-start gap-3 bg-surface-muted border border-divider rounded-xl px-3 py-2.5 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={allow}
+        onChange={toggle}
+        disabled={saving}
+        className="mt-0.5"
+      />
+      <span className="flex-1 text-sm">
+        <strong className="block text-ink-primary">
+          {bi('Accepter les commandes hors horaires', 'Accept orders outside hours')}
+        </strong>
+        <span className="text-xs text-ink-secondary">
+          {bi(
+            'Si désactivé, les clients ne peuvent pas commander quand le restaurant est fermé.',
+            'When off, customers can\'t order while the restaurant is closed.',
+          )}
+        </span>
+      </span>
+    </label>
   )
 }
 

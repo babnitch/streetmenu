@@ -30,28 +30,47 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const body = await req.json().catch(() => ({}))
-  const override: unknown = body?.override
-  if (override !== 'open' && override !== 'closed' && override !== null) {
-    return NextResponse.json({ error: 'override must be open | closed | null' }, { status: 400 })
+  // Two independent toggles, either may be present; both map to the same
+  // commercial-state surface so they share an endpoint.
+  const update: Record<string, unknown> = {}
+  let auditAction: string | null = null
+
+  if ('override' in body) {
+    const override: unknown = body.override
+    if (override !== 'open' && override !== 'closed' && override !== null) {
+      return NextResponse.json({ error: 'override must be open | closed | null' }, { status: 400 })
+    }
+    update.manual_override    = override
+    update.manual_override_at = override === null ? null : new Date().toISOString()
+    auditAction = override === null ? 'manual_override_removed' : 'manual_override_set'
+  }
+
+  if ('allow_orders_when_closed' in body) {
+    if (typeof body.allow_orders_when_closed !== 'boolean') {
+      return NextResponse.json({ error: 'allow_orders_when_closed must be boolean' }, { status: 400 })
+    }
+    update.allow_orders_when_closed = body.allow_orders_when_closed
+    auditAction = auditAction ?? 'allow_orders_toggled'
+  }
+
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
   }
 
   const { error } = await supabaseAdmin
-    .from('restaurants')
-    .update({
-      manual_override:    override,
-      manual_override_at: override === null ? null : new Date().toISOString(),
-    })
-    .eq('id', params.id)
+    .from('restaurants').update(update).eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  await writeAudit({
-    action:          override === null ? 'manual_override_removed' : 'manual_override_set',
-    targetType:      'restaurant',
-    targetId:        params.id,
-    performedBy:     session.id,
-    performedByType: isAdmin ? session.role : 'vendor',
-    metadata:        { override },
-  })
+  if (auditAction) {
+    await writeAudit({
+      action:          auditAction,
+      targetType:      'restaurant',
+      targetId:        params.id,
+      performedBy:     session.id,
+      performedByType: isAdmin ? session.role : 'vendor',
+      metadata:        update,
+    })
+  }
 
-  return NextResponse.json({ ok: true, override })
+  return NextResponse.json({ ok: true, ...update })
 }

@@ -123,6 +123,9 @@ export default function HomePage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
   const [openStatus, setOpenStatus] = useState<Record<string, { open: boolean }>>({})
+  // "Open now" toggle. Persisted via the same URL pattern as the search
+  // query so a deep link like /?open=1 reproduces the filter.
+  const [openOnly, setOpenOnly] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Restaurant | null>(null)
@@ -246,7 +249,15 @@ export default function HomePage() {
         (r.neighborhood?.toLowerCase().includes(q) ?? false)
       )
     })
-  const openCount = filtered.filter(r => r.is_open).length
+    .filter(r => {
+      if (!openOnly) return true
+      // Prefer computed status; only fall through to is_open while the
+      // bulk endpoint is still loading.
+      return openStatus[r.id]?.open ?? r.is_open
+    })
+  // Computed open-count for the toggle label. Uses the same fallback
+  // chain as the filter.
+  const openCount = filtered.filter(r => openStatus[r.id]?.open ?? r.is_open).length
 
   // While redirecting, render a minimal shell so we don't briefly flash
   // the home feed to an approved vendor.
@@ -312,6 +323,18 @@ export default function HomePage() {
               className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-3 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
             />
           </label>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={() => setOpenOnly(prev => !prev)}
+              className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                openOnly
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-surface-muted text-ink-secondary border border-divider hover:bg-divider'
+              }`}
+            >
+              🟢 {bi('Ouverts maintenant', 'Open now')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -393,7 +416,14 @@ export default function HomePage() {
 
           <div className="flex-1 relative overflow-hidden">
             <Map
-              restaurants={filtered}
+              // Override each marker's is_open with the computed status when
+              // available so manual override / timezone-correct schedule
+              // colour the pins. Falls back to restaurants.is_open during
+              // the brief window before the bulk endpoint resolves.
+              restaurants={filtered.map(r => ({
+                ...r,
+                is_open: openStatus[r.id]?.open ?? r.is_open,
+              }))}
               onSelectRestaurant={handleMapSelect}
               selectedId={mapSelected?.id ?? null}
               center={cityData.center}
@@ -412,6 +442,7 @@ export default function HomePage() {
                     <RestaurantSidebar
                       restaurant={mapSelected}
                       onClose={() => setMapSelected(null)}
+                      openOverride={openStatus[mapSelected.id]?.open}
                     />
                   </div>
                 </div>
