@@ -184,17 +184,24 @@ export default function OrderPage() {
 
   async function applyVoucher() {
     const code = voucherInput.trim().toUpperCase()
-    if (!code || !restaurantId) return
+    if (!code || !restaurantId) {
+      console.log('[order/voucher] aborted — missing input', { code, restaurantId })
+      return
+    }
     setApplyingVoucher(true)
     setVoucherError('')
+
+    const payload = { code, restaurantId, orderTotal: totalPrice }
+    console.log('[order/voucher] POST /api/customer/vouchers/apply', { ...payload, paymentEnabled, loggedIn: !!me })
 
     try {
       const res = await fetch('/api/customer/vouchers/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, restaurantId, orderTotal: totalPrice }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
+      console.log('[order/voucher] response', { status: res.status, body: data })
       if (!res.ok) {
         setVoucherError(data.error ?? bi('Code invalide', 'Invalid code'))
         return
