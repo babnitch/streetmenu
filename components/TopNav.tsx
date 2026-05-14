@@ -45,9 +45,10 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // actually owns/manages an approved restaurant.
   const [pendingCount, setPendingCount] = useState(0)
 
+  const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab } = useMode()
+
   useEffect(() => {
     let cancelled = false
-    const timers: Array<ReturnType<typeof setInterval>> = []
 
     ;(async () => {
       try {
@@ -68,29 +69,33 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         if (!list.length) { setVendor({ kind: 'none' }); return }
         const allPending = list.every(r => r.status === 'pending')
         setVendor({ kind: allPending ? 'pending' : 'approved' })
-
-        if (!allPending) {
-          const refreshCount = async () => {
-            try {
-              const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
-              const d = await r.json()
-              if (!cancelled) setPendingCount(Number(d?.count ?? 0))
-            } catch { /* transient network; keep prior count */ }
-          }
-          refreshCount()
-          timers.push(setInterval(refreshCount, 30_000))
-        }
       } catch {
         if (!cancelled) { setVendor({ kind: 'none' }); setMe(null) }
       }
     })()
-    return () => {
-      cancelled = true
-      for (const t of timers) clearInterval(t)
-    }
+    return () => { cancelled = true }
   }, [])
 
-  const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab } = useMode()
+  // Pending-count poll lives in its own effect so a pure customer (no
+  // restaurant_team role) never pings the vendor endpoint. Mirrors the
+  // BottomNav gate.
+  useEffect(() => {
+    if (!hasRestaurantRole) {
+      setPendingCount(0)
+      return
+    }
+    let cancelled = false
+    const refreshCount = async () => {
+      try {
+        const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) setPendingCount(Number(d?.count ?? 0))
+      } catch { /* transient network; keep prior count */ }
+    }
+    refreshCount()
+    const t = setInterval(refreshCount, 30_000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [hasRestaurantRole])
 
   const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
   const isRestaurants = pathname === '/'

@@ -38,16 +38,13 @@ export default function BottomNav() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)             // vendor-side
-  const [customerPendingCount, setCustomerPendingCount] = useState(0) // client-side
 
-  // Initial vendor probe + start polling pending count. Poll interval 30s
-  // per spec — light enough to not burn battery, frequent enough to feel
-  // near-real-time on the restaurant tab badge. Every logged-in customer
-  // also gets the customer-side poll so the client-mode 📦 badge tracks
-  // their own open orders.
+  // Initial probe — just identifies the session so the bar can pick the
+  // right tab set. The pending-count poll is gated on hasRestaurantRole
+  // in a separate effect below, so pure customers never hit the vendor
+  // endpoint at all.
   useEffect(() => {
     let cancelled = false
-    const timers: Array<ReturnType<typeof setInterval>> = []
 
     async function probe() {
       try {
@@ -58,45 +55,34 @@ export default function BottomNav() {
         setIsLoggedIn(true)
         if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
           setIsAdmin(true)
-          return
-        }
-
-        const refreshCustomerCount = async () => {
-          try {
-            const r = await fetch('/api/customer/pending-count', { cache: 'no-store' })
-            const d = await r.json()
-            if (!cancelled) setCustomerPendingCount(Number(d?.count ?? 0))
-          } catch { /* transient network; keep prior count */ }
-        }
-        refreshCustomerCount()
-        timers.push(setInterval(refreshCustomerCount, 30_000))
-
-        const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
-        const v = await vRes.json()
-        if (cancelled) return
-        const list: Array<{ status?: string }> = v.restaurants ?? []
-        const hasApproved = list.some(r => r.status && r.status !== 'pending')
-
-        if (hasApproved) {
-          const refreshCount = async () => {
-            try {
-              const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
-              const d = await r.json()
-              if (!cancelled) setPendingCount(Number(d?.count ?? 0))
-            } catch { /* transient network; keep prior count */ }
-          }
-          refreshCount()
-          timers.push(setInterval(refreshCount, 30_000))
         }
       } catch { /* swallow — show base tabs */ }
     }
 
     probe()
-    return () => {
-      cancelled = true
-      for (const t of timers) clearInterval(t)
-    }
+    return () => { cancelled = true }
   }, [])
+
+  // Vendor pending-count poll. Only runs when the context tells us the
+  // session actually has a restaurant_team role — pure customers don't
+  // need the badge and shouldn't hit the endpoint.
+  useEffect(() => {
+    if (!hasRestaurantRole) {
+      setPendingCount(0)
+      return
+    }
+    let cancelled = false
+    const refreshCount = async () => {
+      try {
+        const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) setPendingCount(Number(d?.count ?? 0))
+      } catch { /* transient network; keep prior count */ }
+    }
+    refreshCount()
+    const t = setInterval(refreshCount, 30_000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [hasRestaurantRole])
 
   // Hide on /admin (admins navigate via /account admin tabs, the BottomNav
   // isn't useful there). /dashboard keeps the bar so vendors can hop back
@@ -131,8 +117,7 @@ export default function BottomNav() {
     { href: '/events',    icon: '🎉', label: bi('Événements', 'Events'),       match: p => p.startsWith('/events') },
     ...(isLoggedIn ? [
       { href: '/account?tab=orders', icon: '📦', label: bi('Commandes', 'Orders'),
-        match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')),
-        badge: customerPendingCount }
+        match: (p: string) => p === '/account' && (typeof window !== 'undefined' && window.location.search.includes('tab=orders')) }
     ] : []),
     { href: '/account',   icon: '👤', label: bi('Compte', 'Account'),
       match: p => p === '/account' && !(typeof window !== 'undefined' && window.location.search.includes('tab=orders')) },

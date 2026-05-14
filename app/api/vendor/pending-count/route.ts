@@ -37,11 +37,30 @@ export async function GET(req: NextRequest) {
 
   // Non-terminal = vendor has work to do. Terminal states (delivered /
   // completed / cancelled) don't count toward the badge.
-  const { count } = await supabaseAdmin
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-    .in('restaurant_id', Array.from(ids))
-    .in('status', ['pending', 'confirmed', 'preparing', 'ready'])
+  //
+  // A failed paid_order is also "off the vendor's plate" — the customer
+  // has to retry payment before the kitchen can act on it. Counting those
+  // inflates the badge with orders the vendor literally can't progress.
+  // Reservations + already-paid paid_orders + still-pending deposits all
+  // remain countable.
+  const restaurantIds = Array.from(ids)
+  const baseStatuses  = ['pending', 'confirmed', 'preparing', 'ready']
 
-  return NextResponse.json({ count: count ?? 0 })
+  const [reservations, paid] = await Promise.all([
+    supabaseAdmin
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .in('restaurant_id', restaurantIds)
+      .in('status', baseStatuses)
+      .eq('order_type', 'reservation'),
+    supabaseAdmin
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .in('restaurant_id', restaurantIds)
+      .in('status', baseStatuses)
+      .eq('order_type', 'paid_order')
+      .neq('payment_status', 'failed'),
+  ])
+
+  return NextResponse.json({ count: (reservations.count ?? 0) + (paid.count ?? 0) })
 }
