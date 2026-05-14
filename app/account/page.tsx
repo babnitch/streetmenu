@@ -13,7 +13,7 @@ import ModeToggle from '@/components/ModeToggle'
 import VoucherCard from '@/components/VoucherCard'
 import AdminProfilePanel from '@/components/AdminProfilePanel'
 import PaymentBadge from '@/components/PaymentBadge'
-import { CustomerVoucher, Order } from '@/types'
+import { CustomerVoucher, EventReservation, Order } from '@/types'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
 const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'), { ssr: false })
@@ -120,6 +120,7 @@ export default function AccountPage() {
   })
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
+  const [eventReservations, setEventReservations] = useState<EventReservation[]>([])
   // One-time welcome banner shown after a brand-new customer signs in for
   // the first time. Set by verifyOtp when /api/auth/verify-code reports
   // isNewAccount; dismissed by the user via the close button.
@@ -248,12 +249,16 @@ export default function AccountPage() {
 
   const loadCustomerData = useCallback(async (customerId: string) => {
     setLoadingData(true)
-    const [{ data: cvData }, { data: ordersData }] = await Promise.all([
+    const [{ data: cvData }, { data: ordersData }, resvRes] = await Promise.all([
       supabase.from('customer_vouchers').select('*, vouchers(*, restaurants(name))').eq('customer_id', customerId).order('claimed_at', { ascending: false }),
       supabase.from('orders').select('*, restaurants(name, city)').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(20),
+      // event_reservations is service-role-only — go through the API route
+      // so RLS isn't a footgun.
+      fetch('/api/customer/reservations', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ reservations: [] })),
     ])
     if (cvData) setCustomerVouchers(cvData)
     if (ordersData) setOrders(ordersData)
+    if (Array.isArray(resvRes?.reservations)) setEventReservations(resvRes.reservations)
     setLoadingData(false)
   }, [])
 
@@ -964,18 +969,42 @@ export default function AccountPage() {
                   <>
                     {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-ink-tertiary">…</div></div>}
                     {!loadingData && (
-                      <div className="space-y-3">
-                        {orders.length === 0 ? (
-                          <div className="text-center py-12">
-                            <div className="text-4xl mb-3">📋</div>
-                            <p className="text-ink-tertiary text-sm">{t('account.noOrders')}</p>
-                            <Link href="/" className="mt-4 inline-block text-brand text-sm font-semibold underline">
-                              Explorer les restaurants
-                            </Link>
-                          </div>
-                        ) : orders.map(order => (
-                          <OrderCard key={order.id} order={order} orderAtLabel={t('account.orderAt')} />
-                        ))}
+                      <div className="space-y-6">
+                        {eventReservations.length > 0 && (
+                          <section>
+                            <h3 className="text-sm font-bold text-ink-primary mb-2">
+                              🎟 {bi('Mes réservations', 'My reservations')}
+                            </h3>
+                            <div className="space-y-3">
+                              {eventReservations.map(r => (
+                                <EventReservationCard key={r.id} reservation={r} />
+                              ))}
+                            </div>
+                          </section>
+                        )}
+
+                        <section>
+                          {eventReservations.length > 0 && (
+                            <h3 className="text-sm font-bold text-ink-primary mb-2">
+                              📦 {bi('Mes commandes', 'My orders')}
+                            </h3>
+                          )}
+                          {orders.length === 0 && eventReservations.length === 0 ? (
+                            <div className="text-center py-12">
+                              <div className="text-4xl mb-3">📋</div>
+                              <p className="text-ink-tertiary text-sm">{t('account.noOrders')}</p>
+                              <Link href="/" className="mt-4 inline-block text-brand text-sm font-semibold underline">
+                                Explorer les restaurants
+                              </Link>
+                            </div>
+                          ) : orders.length === 0 ? null : (
+                            <div className="space-y-3">
+                              {orders.map(order => (
+                                <OrderCard key={order.id} order={order} orderAtLabel={t('account.orderAt')} />
+                              ))}
+                            </div>
+                          )}
+                        </section>
                       </div>
                     )}
                   </>
@@ -1707,6 +1736,50 @@ function OrderStatusBadge({ status }: { status: string }) {
 
 function orderShortId(id: string): string {
   return id.replace(/-/g, '').slice(-4).toUpperCase()
+}
+
+// Compact card for an event reservation. Lives at the top of the Orders
+// tab when the customer has any. Payment badge mirrors the food-order
+// PaymentBadge component; reservation_status uses its own colour set so
+// 'attended' reads as positive rather than terminal.
+function EventReservationCard({ reservation }: { reservation: EventReservation }) {
+  const bi = useBi()
+  const ev = reservation.events
+  const dateStr = ev?.date
+    ? new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+    : ''
+  const statusPill: Record<EventReservation['reservation_status'], { cls: string; label: string }> = {
+    confirmed: { cls: 'bg-brand-light text-brand-darker',                       label: '✅ ' + bi('Confirmée', 'Confirmed') },
+    cancelled: { cls: 'bg-rose-50 text-rose-700 border border-rose-200',        label: '❌ ' + bi('Annulée',   'Cancelled') },
+    attended:  { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '🎉 ' + bi('Participée', 'Attended') },
+  }
+  const s = statusPill[reservation.reservation_status]
+  return (
+    <Link
+      href={ev ? `/events/${ev.id}` : '#'}
+      className="block bg-white rounded-2xl shadow-sm p-3 hover:bg-surface-muted transition-colors"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-ink-primary text-sm truncate">
+            🎉 {ev?.title ?? bi('Événement supprimé', 'Event removed')}
+          </p>
+          <p className="text-xs text-ink-tertiary mt-0.5">
+            {dateStr}{ev?.venue ? ` · ${ev.venue}` : ''}
+          </p>
+          <p className="text-xs text-ink-secondary mt-1">
+            🎟 {reservation.quantity} {bi('place(s)', 'ticket(s)')}
+            {reservation.total_price > 0 && (
+              <> · {Number(reservation.total_price).toLocaleString()} FCFA</>
+            )}
+          </p>
+        </div>
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${s.cls}`}>
+          {s.label}
+        </span>
+      </div>
+    </Link>
+  )
 }
 
 function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string }) {

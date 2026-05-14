@@ -117,4 +117,30 @@ export interface Event {
   created_at: string
   lat?: number | null
   lng?: number | null
+  // Reservations & ticketing — populated by supabase-event-reservations.sql.
+  // Optional so older rows still typecheck during the migration window.
+  payment_enabled?: boolean
+  ticket_price?: number | null
+  max_tickets?: number | null
+  tickets_sold?: number | null
+  organizer_id?: string | null
+  event_status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
+}
+
+export interface EventReservation {
+  id:                 string
+  event_id:           string
+  customer_id:        string | null
+  customer_name:      string
+  customer_phone:     string
+  quantity:           number
+  total_price:        number
+  payment_status:     'not_required' | 'pending' | 'paid' | 'failed'
+  payment_id:         string | null
+  payment_method:     string | null
+  reservation_status: 'confirmed' | 'cancelled' | 'attended'
+  created_at:         string
+  updated_at:         string
+  // Joined view when /api/customer/reservations or admin queries include it
+  events?: Pick<Event, 'id' | 'title' | 'date' | 'time' | 'venue' | 'city' | 'cover_photo' | 'ticket_price' | 'event_status'> | null
 }
