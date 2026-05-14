@@ -9,7 +9,10 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useLanguage, useBi } from '@/lib/languageContext'
-import { POSITIVE_TAGS, NEGATIVE_TAGS, ALL_TAGS, tagsForRating } from '@/lib/ratings'
+// tagsForRating exists in @/lib/ratings but isn't used here — the
+// component selects the tag set inline based on the chosen star count
+// (rating === 3 needs both sets shown, which the helper doesn't model).
+import { POSITIVE_TAGS, NEGATIVE_TAGS, ALL_TAGS } from '@/lib/ratings'
 
 interface Aggregate {
   average:      number
