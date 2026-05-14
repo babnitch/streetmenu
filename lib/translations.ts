@@ -386,7 +386,7 @@ const t = {
 
     // --- ORDER VOUCHER ---
     'order.voucherTitle':     'Code promo',
-    'order.voucherPh':        'Ex: BIENVENUE10',
+    'order.voucherPh':        'Code promo',
     'order.applyBtn':         'Appliquer',
     'order.applying':         'Vérification…',
     'order.subtotal':         'Sous-total',
@@ -417,7 +417,7 @@ const t = {
     'admin.vchStatus':        'Statut',
     'admin.vchPercent':       '% réduction',
     'admin.vchFixed':         'Montant fixe',
-    'admin.vchCodePh':        'Ex: BIENVENUE10',
+    'admin.vchCodePh':        'Laisser vide pour TCHOP-XXXX',
     'admin.vchValuePh':       'Ex: 10',
     'admin.vchMinPh':         'Ex: 500',
     'admin.vchMaxUsesPh':     'Laisser vide = illimité',
@@ -832,7 +832,7 @@ const t = {
 
     // --- ORDER VOUCHER ---
     'order.voucherTitle':     'Promo code',
-    'order.voucherPh':        'e.g. BIENVENUE10',
+    'order.voucherPh':        'Promo code',
     'order.applyBtn':         'Apply',
     'order.applying':         'Checking…',
     'order.subtotal':         'Subtotal',
@@ -863,7 +863,7 @@ const t = {
     'admin.vchStatus':        'Status',
     'admin.vchPercent':       '% discount',
     'admin.vchFixed':         'Fixed amount',
-    'admin.vchCodePh':        'e.g. WELCOME10',
+    'admin.vchCodePh':        'Leave blank for TCHOP-XXXX',
     'admin.vchValuePh':       'e.g. 10',
     'admin.vchMinPh':         'e.g. 500',
     'admin.vchMaxUsesPh':     'Leave empty = unlimited',
