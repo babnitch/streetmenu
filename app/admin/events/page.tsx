@@ -6,11 +6,18 @@ import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi } from '@/lib/languageContext'
+
+// Aggregate counters keyed by event id. Loaded once per fetchEvents in a
+// single query so the table can render reservation + revenue per row without
+// per-event roundtrips.
+interface EventAggregate { reservations_count: number; tickets_count: number; revenue: number }
 
 export default function AdminEventsPage() {
   const { t } = useLanguage()
+  const bi = useBi()
   const [events, setEvents] = useState<Event[]>([])
+  const [aggregates, setAggregates] = useState<Record<string, EventAggregate>>({})
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'pending' | 'approved'>('pending')
   const [saving, setSaving] = useState<string | null>(null)
@@ -21,6 +28,28 @@ export default function AdminEventsPage() {
       .select('*')
       .order('created_at', { ascending: false })
     if (data) setEvents(data)
+
+    // Reservation aggregates — single query, group client-side. Cancelled
+    // reservations are excluded from the count; only 'paid' rows contribute
+    // to revenue.
+    if (data && data.length > 0) {
+      const ids = data.map(e => e.id)
+      const { data: resv } = await supabase
+        .from('event_reservations')
+        .select('event_id, payment_status, reservation_status, total_price, quantity')
+        .in('event_id', ids)
+      const agg: Record<string, EventAggregate> = {}
+      for (const r of resv ?? []) {
+        const a = agg[r.event_id] ?? { reservations_count: 0, tickets_count: 0, revenue: 0 }
+        if (r.reservation_status !== 'cancelled') {
+          a.reservations_count += 1
+          a.tickets_count      += Number(r.quantity ?? 0)
+        }
+        if (r.payment_status === 'paid') a.revenue += Number(r.total_price ?? 0)
+        agg[r.event_id] = a
+      }
+      setAggregates(agg)
+    }
     setLoading(false)
   }, [])
 
@@ -111,6 +140,7 @@ export default function AdminEventsPage() {
             <EventRow
               key={evt.id}
               event={evt}
+              aggregate={aggregates[evt.id]}
               saving={saving === evt.id}
               onApprove={() => approve(evt.id)}
               onReject={() => reject(evt.id)}
@@ -118,6 +148,9 @@ export default function AdminEventsPage() {
               approveLabel={t('admin.evtApproveBtn')}
               rejectLabel={t('admin.evtRejectBtn')}
               organizerLabel={t('admin.evtOrganizer')}
+              reservationsLabel={bi('Réservations', 'Reservations')}
+              ticketsLabel={bi('Places', 'Tickets')}
+              revenueLabel={bi('Revenus', 'Revenue')}
             />
           ))}
         </div>
@@ -127,10 +160,12 @@ export default function AdminEventsPage() {
 }
 
 function EventRow({
-  event, saving, onApprove, onReject, tab,
+  event, aggregate, saving, onApprove, onReject, tab,
   approveLabel, rejectLabel, organizerLabel,
+  reservationsLabel, ticketsLabel, revenueLabel,
 }: {
   event: Event
+  aggregate?: EventAggregate
   saving: boolean
   onApprove: () => void
   onReject: () => void
@@ -138,6 +173,9 @@ function EventRow({
   approveLabel: string
   rejectLabel: string
   organizerLabel: string
+  reservationsLabel: string
+  ticketsLabel: string
+  revenueLabel: string
 }) {
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -186,6 +224,20 @@ function EventRow({
           )}
         </div>
       </div>
+
+      {/* Reservation aggregates — only shown when there's anything to report
+          and the event has actually been approved (pending events can't have
+          reservations yet, but we still render zero badges if anything snuck
+          through). */}
+      {aggregate && (aggregate.reservations_count > 0 || aggregate.revenue > 0) && (
+        <div className="px-4 py-2 border-t border-divider bg-surface-muted flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-secondary">
+          <span>📋 {reservationsLabel}: <strong className="text-ink-primary">{aggregate.reservations_count}</strong></span>
+          <span>🎟 {ticketsLabel}: <strong className="text-ink-primary">{aggregate.tickets_count}</strong>{event.max_tickets && event.max_tickets > 0 ? `/${event.max_tickets}` : ''}</span>
+          {aggregate.revenue > 0 && (
+            <span>💰 {revenueLabel}: <strong className="text-brand">{Number(aggregate.revenue).toLocaleString()} FCFA</strong></span>
+          )}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="border-t border-divider px-4 py-3 flex items-center justify-end gap-2">

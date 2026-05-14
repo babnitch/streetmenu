@@ -27,7 +27,7 @@ const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/pag
 type LoginTab    = 'customer' | 'team'
 type AuthStep    = 'loading' | 'login' | 'register' | 'otp' | 'dashboard'
 type DashView    = 'customer' | 'vendor' | 'admin'
-type CustomerTab = 'vouchers' | 'orders' | 'profile' | 'restaurant' | 'team'
+type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' | 'team'
 type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'vouchers' | 'accounts' | 'platformteam' | 'profile'
 
 // Explicit bilingual labels — avoids the earlier bug where the label was
@@ -113,7 +113,7 @@ export default function AccountPage() {
   const [customerTab,      setCustomerTab]      = useState<CustomerTab>(() => {
     if (typeof window === 'undefined') return 'orders'
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: CustomerTab[] = ['vouchers', 'orders', 'profile', 'restaurant', 'team']
+    const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
     const initial = q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'orders'
     console.log('[account] initial customerTab from URL:', { rawQuery: q, initial })
     return initial
@@ -121,6 +121,17 @@ export default function AccountPage() {
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   const [eventReservations, setEventReservations] = useState<EventReservation[]>([])
+  // Events the user organizes. Populated from /api/events/my; empty array
+  // means the "Mes événements" tab stays hidden.
+  interface MyEvent {
+    id: string; title: string; date: string; time: string | null
+    venue: string | null; city: string | null; cover_photo: string | null
+    ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
+    payment_enabled: boolean; organizer_name: string | null; event_status: string | null
+    is_active: boolean
+    reservations_count: number; tickets_count: number; revenue: number; pending_count: number
+  }
+  const [myEvents, setMyEvents] = useState<MyEvent[]>([])
   // One-time welcome banner shown after a brand-new customer signs in for
   // the first time. Set by verifyOtp when /api/auth/verify-code reports
   // isNewAccount; dismissed by the user via the close button.
@@ -217,7 +228,7 @@ export default function AccountPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: CustomerTab[] = ['vouchers', 'orders', 'profile', 'restaurant', 'team']
+    const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
     if (q && (allowed as string[]).includes(q)) {
       console.log('[account] post-mount effect setting tab:', q)
       setCustomerTab(q as CustomerTab)
@@ -249,16 +260,18 @@ export default function AccountPage() {
 
   const loadCustomerData = useCallback(async (customerId: string) => {
     setLoadingData(true)
-    const [{ data: cvData }, { data: ordersData }, resvRes] = await Promise.all([
+    const [{ data: cvData }, { data: ordersData }, resvRes, myEvRes] = await Promise.all([
       supabase.from('customer_vouchers').select('*, vouchers(*, restaurants(name))').eq('customer_id', customerId).order('claimed_at', { ascending: false }),
       supabase.from('orders').select('*, restaurants(name, city)').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(20),
-      // event_reservations is service-role-only — go through the API route
-      // so RLS isn't a footgun.
+      // event_reservations + organized-events are service-role-only — go
+      // through API routes so RLS isn't a footgun.
       fetch('/api/customer/reservations', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ reservations: [] })),
+      fetch('/api/events/my', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ events: [] })),
     ])
     if (cvData) setCustomerVouchers(cvData)
     if (ordersData) setOrders(ordersData)
     if (Array.isArray(resvRes?.reservations)) setEventReservations(resvRes.reservations)
+    if (Array.isArray(myEvRes?.events)) setMyEvents(myEvRes.events)
     setLoadingData(false)
   }, [])
 
@@ -933,6 +946,9 @@ export default function AccountPage() {
                 <div className="flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
                   <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
                   <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
+                  {myEvents.length > 0 && (
+                    <TabBtn icon="🎉" label={bi('Mes événements', 'My events')} active={customerTab === 'events'} onClick={() => setCustomerTab('events')} />
+                  )}
                   <TabBtn icon="👤" label={t('account.profileTab')}  active={customerTab === 'profile'}  onClick={() => setCustomerTab('profile')} />
                   {myRestaurants.length > 0 && (
                     <TabBtn icon="🏪" label={t('account.restaurantTab')} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
@@ -1008,6 +1024,13 @@ export default function AccountPage() {
                       </div>
                     )}
                   </>
+                )}
+
+                {/* My events — organizer dashboard. Hidden in the tab bar
+                    when myEvents is empty, but the panel still renders if
+                    someone deep-links to ?tab=events. */}
+                {customerTab === 'events' && (
+                  <MyEventsPanel events={myEvents} onChanged={() => user && loadCustomerData(user.id)} />
                 )}
 
                 {/* Profile */}
@@ -1742,6 +1765,246 @@ function orderShortId(id: string): string {
 // tab when the customer has any. Payment badge mirrors the food-order
 // PaymentBadge component; reservation_status uses its own colour set so
 // 'attended' reads as positive rather than terminal.
+// Organizer panel for the "Mes événements" tab. Hosts the event list with
+// aggregate stats and a drill-down to the per-event reservation list. The
+// list view stays in the same panel (rather than a route) so the data is
+// already in scope — onChanged triggers a parent reload after any mutation.
+interface MyEventsPanelEvent {
+  id: string; title: string; date: string; time: string | null
+  venue: string | null; city: string | null; cover_photo: string | null
+  ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
+  payment_enabled: boolean; organizer_name: string | null; event_status: string | null
+  is_active: boolean
+  reservations_count: number; tickets_count: number; revenue: number; pending_count: number
+}
+interface MyEventReservation {
+  id: string; customer_name: string; customer_phone: string
+  quantity: number; total_price: number
+  payment_status: 'not_required' | 'pending' | 'paid' | 'failed'
+  payment_method: string | null
+  reservation_status: 'confirmed' | 'cancelled' | 'attended'
+  created_at: string
+}
+
+function MyEventsPanel({ events, onChanged }: { events: MyEventsPanelEvent[]; onChanged: () => void }) {
+  const bi = useBi()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [reservations, setReservations] = useState<MyEventReservation[]>([])
+  const [loadingResv, setLoadingResv] = useState(false)
+  const [acting, setActing] = useState<string | null>(null)
+
+  const selected = selectedId ? events.find(e => e.id === selectedId) ?? null : null
+
+  async function openEvent(eventId: string) {
+    setSelectedId(eventId)
+    setLoadingResv(true)
+    try {
+      const r = await fetch(`/api/events/${eventId}/reservations`, { cache: 'no-store' })
+      const d = await r.json()
+      setReservations(Array.isArray(d?.reservations) ? d.reservations : [])
+    } finally {
+      setLoadingResv(false)
+    }
+  }
+
+  async function cancel(resId: string) {
+    const r = reservations.find(x => x.id === resId)
+    const warn = r?.payment_status === 'paid'
+      ? bi(
+          `Annuler #${resId.slice(-4).toUpperCase()}? Le client devra être remboursé.`,
+          `Cancel #${resId.slice(-4).toUpperCase()}? The customer will need a refund.`,
+        )
+      : bi(`Annuler #${resId.slice(-4).toUpperCase()}?`, `Cancel #${resId.slice(-4).toUpperCase()}?`)
+    if (!confirm(warn)) return
+    setActing(resId)
+    try {
+      const res = await fetch(`/api/events/${selectedId}/reservations/${resId}/cancel`, { method: 'POST' })
+      if (res.ok && selectedId) {
+        setReservations(prev => prev.map(x => x.id === resId ? { ...x, reservation_status: 'cancelled' } : x))
+        onChanged()
+      }
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function attend(resId: string) {
+    setActing(resId)
+    try {
+      const res = await fetch(`/api/events/${selectedId}/reservations/${resId}/attend`, { method: 'POST' })
+      if (res.ok) {
+        setReservations(prev => prev.map(x => x.id === resId ? { ...x, reservation_status: 'attended' } : x))
+      }
+    } finally {
+      setActing(null)
+    }
+  }
+
+  if (events.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
+        <div className="text-4xl mb-3">🎉</div>
+        <p className="text-sm text-ink-tertiary">
+          {bi('Vous n\'avez pas encore soumis d\'événement.', 'You haven\'t submitted an event yet.')}
+        </p>
+        <Link href="/events/submit" className="mt-3 inline-block text-brand text-sm font-semibold underline">
+          {bi('Soumettre un événement', 'Submit an event')}
+        </Link>
+      </div>
+    )
+  }
+
+  if (selected) {
+    const dateStr = new Date(selected.date).toLocaleDateString('fr-FR', {
+      day: '2-digit', month: 'long', year: 'numeric',
+    })
+    return (
+      <div>
+        <button
+          onClick={() => setSelectedId(null)}
+          className="text-xs text-brand hover:text-brand-dark font-semibold mb-3"
+        >
+          ← {bi('Retour à mes événements', 'Back to my events')}
+        </button>
+        <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+          <p className="font-bold text-ink-primary">{selected.title}</p>
+          <p className="text-xs text-ink-tertiary mt-0.5">{dateStr}{selected.venue ? ` · ${selected.venue}` : ''}</p>
+          <div className="grid grid-cols-3 gap-3 mt-3 text-center">
+            <div>
+              <p className="text-xs text-ink-tertiary">{bi('Réservations', 'Reservations')}</p>
+              <p className="text-lg font-bold text-ink-primary">{selected.reservations_count}</p>
+            </div>
+            <div>
+              <p className="text-xs text-ink-tertiary">{bi('Places', 'Tickets')}</p>
+              <p className="text-lg font-bold text-ink-primary">
+                {selected.tickets_count}{selected.max_tickets && selected.max_tickets > 0 ? `/${selected.max_tickets}` : ''}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-ink-tertiary">{bi('Revenus', 'Revenue')}</p>
+              <p className="text-lg font-bold text-brand">{Number(selected.revenue).toLocaleString()} FCFA</p>
+            </div>
+          </div>
+        </div>
+
+        {loadingResv ? (
+          <div className="text-center py-12 text-ink-tertiary">…</div>
+        ) : reservations.length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm p-6 text-center text-sm text-ink-tertiary">
+            {bi('Aucune réservation pour le moment.', 'No reservations yet.')}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {reservations.map(r => {
+              const wa = `https://wa.me/${r.customer_phone.replace(/[^\d]/g, '')}`
+              const pillStatus =
+                r.reservation_status === 'cancelled' ? { cls: 'bg-rose-50 text-rose-700 border border-rose-200',     label: '❌ ' + bi('Annulée',   'Cancelled') }
+                : r.reservation_status === 'attended' ? { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '🎉 ' + bi('Participée', 'Attended') }
+                : { cls: 'bg-brand-light text-brand-darker', label: '✅ ' + bi('Confirmée', 'Confirmed') }
+              const pillPay =
+                r.payment_status === 'paid'    ? { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '💰 ' + bi('Payé', 'Paid') }
+                : r.payment_status === 'pending' ? { cls: 'bg-amber-50 text-amber-700 border border-amber-200',      label: '⏳ ' + bi('En attente', 'Pending') }
+                : r.payment_status === 'failed'  ? { cls: 'bg-rose-50 text-rose-700 border border-rose-200',         label: '❌ ' + bi('Échec', 'Failed') }
+                : null
+              return (
+                <div key={r.id} className="bg-white rounded-2xl shadow-sm p-3">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink-primary text-sm truncate">{r.customer_name}</p>
+                      <a href={wa} target="_blank" rel="noopener noreferrer"
+                         className="text-xs text-brand-darker font-mono hover:underline">
+                        📱 {r.customer_phone}
+                      </a>
+                      <p className="text-xs text-ink-tertiary mt-0.5">
+                        🎟 {r.quantity}{r.total_price > 0 && <> · {Number(r.total_price).toLocaleString()} FCFA</>}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-1 items-end flex-shrink-0">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${pillStatus.cls}`}>
+                        {pillStatus.label}
+                      </span>
+                      {pillPay && (
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${pillPay.cls}`}>
+                          {pillPay.label}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {r.reservation_status === 'confirmed' && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-divider">
+                      <button
+                        onClick={() => attend(r.id)}
+                        disabled={acting === r.id}
+                        className="text-xs px-3 py-1.5 rounded-full font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        ✅ {bi('Présent', 'Attended')}
+                      </button>
+                      <button
+                        onClick={() => cancel(r.id)}
+                        disabled={acting === r.id}
+                        className="text-xs px-3 py-1.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-50"
+                      >
+                        ❌ {bi('Annuler', 'Cancel')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-base font-bold text-ink-primary">🎉 {bi('Mes événements', 'My events')}</h2>
+      {events.map(e => {
+        const dateStr = new Date(e.date).toLocaleDateString('fr-FR', {
+          day: '2-digit', month: 'short', year: 'numeric',
+        })
+        const ticketPrice = Number(e.ticket_price ?? 0)
+        return (
+          <button
+            key={e.id}
+            onClick={() => openEvent(e.id)}
+            className="w-full text-left bg-white rounded-2xl shadow-sm p-3 hover:bg-surface-muted transition-colors"
+          >
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="min-w-0">
+                <p className="font-semibold text-ink-primary text-sm truncate">{e.title}</p>
+                <p className="text-xs text-ink-tertiary mt-0.5">
+                  {dateStr}{e.time ? ` · ${e.time}` : ''}{e.venue ? ` · ${e.venue}` : ''}
+                </p>
+              </div>
+              {!e.is_active && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
+                  ⏳ {bi('En attente d\'approbation', 'Pending approval')}
+                </span>
+              )}
+              {e.event_status === 'cancelled' && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+                  ❌ {bi('Annulé', 'Cancelled')}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-4 text-xs text-ink-secondary">
+              <span>🎟 {e.tickets_count}{e.max_tickets && e.max_tickets > 0 ? `/${e.max_tickets}` : ''} {bi('places', 'tickets')}</span>
+              <span>📋 {e.reservations_count} {bi('réservations', 'reservations')}</span>
+              {ticketPrice > 0 && (
+                <span className="text-brand font-semibold">
+                  💰 {Number(e.revenue).toLocaleString()} FCFA
+                </span>
+              )}
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function EventReservationCard({ reservation }: { reservation: EventReservation }) {
   const bi = useBi()
   const ev = reservation.events

@@ -2,11 +2,11 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
-import { useLanguage } from '@/lib/languageContext'
+import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
@@ -16,9 +16,22 @@ const CATEGORIES = [
 ]
 
 
+interface SessionUser { id: string; name: string; phone: string; role: string }
+
 export default function SubmitEventPage() {
   const { t } = useLanguage()
+  const bi = useBi()
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Logged-in customer → auto-link organizer_id on insert. Submission is
+  // still allowed for guests; they keep the existing whatsapp + name path.
+  const [me, setMe] = useState<SessionUser | null>(null)
+  useEffect(() => {
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => { if (data?.user?.role === 'customer') setMe(data.user) })
+      .catch(() => null)
+  }, [])
 
   const [form, setForm] = useState({
     title: '',
@@ -32,6 +45,8 @@ export default function SubmitEventPage() {
     price: '',
     whatsapp: '',
     organizer_name: '',
+    max_tickets: '',
+    payment_enabled: false,
   })
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
@@ -39,7 +54,7 @@ export default function SubmitEventPage() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
 
-  function set(field: string, value: string) {
+  function set(field: string, value: string | boolean) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
@@ -74,6 +89,15 @@ export default function SubmitEventPage() {
       }
     }
 
+    // Ticket price + capacity from the new fields. We write to both `price`
+    // (legacy display) and `ticket_price` (canonical) so older pages keep
+    // rendering during the migration window.
+    const ticketPrice = form.price ? parseFloat(form.price) : null
+    const maxTickets  = form.max_tickets ? parseInt(form.max_tickets, 10) : 0
+    // Payment toggle is only meaningful for non-free events. Force it off
+    // for free events so the detail page picks the free reserve path.
+    const paymentEnabled = ticketPrice && ticketPrice > 0 ? !!form.payment_enabled : false
+
     const { error: insertErr } = await supabase.from('events').insert({
       title: form.title,
       description: form.description || null,
@@ -83,10 +107,14 @@ export default function SubmitEventPage() {
       city: form.city,
       neighborhood: form.neighborhood || null,
       category: form.category,
-      price: form.price ? parseFloat(form.price) : null,
+      price: ticketPrice,
+      ticket_price: ticketPrice != null ? Math.round(ticketPrice) : null,
+      max_tickets: maxTickets,
+      payment_enabled: paymentEnabled,
       cover_photo: cover_photo || null,
       whatsapp: form.whatsapp,
       organizer_name: form.organizer_name,
+      organizer_id: me?.id ?? null,
       is_active: false,
     })
 
@@ -215,6 +243,52 @@ export default function SubmitEventPage() {
               />
             </Field>
           </div>
+
+          {/* Capacity + online payment toggle. Capacity 0 means unlimited
+              (matches API behaviour). Online payment toggle is hidden for
+              free events; the insert forces it off anyway. */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={bi('Capacité (0 = illimité)', 'Capacity (0 = unlimited)')}>
+              <input
+                type="number"
+                min="0"
+                className={INPUT}
+                value={form.max_tickets}
+                onChange={e => set('max_tickets', e.target.value)}
+                placeholder="0"
+              />
+            </Field>
+            <Field label={bi('Réservations', 'Reservations')}>
+              <div className="text-xs text-ink-tertiary pt-2">
+                {bi(
+                  'Les invités pourront réserver via Ndjoka & Tchop.',
+                  'Guests can reserve via Ndjoka & Tchop.',
+                )}
+              </div>
+            </Field>
+          </div>
+
+          {form.price && parseFloat(form.price) > 0 && (
+            <label className="flex items-start gap-3 bg-brand-light border border-brand-badge/40 rounded-xl px-3 py-3 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!form.payment_enabled}
+                onChange={e => set('payment_enabled', e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="flex-1 text-brand-darker">
+                <strong className="block">
+                  💰 {bi('Activer le paiement en ligne (PawaPay)', 'Enable online payment (PawaPay)')}
+                </strong>
+                <span className="text-xs text-brand-dark">
+                  {bi(
+                    'Sinon, paiement sur place.',
+                    'Otherwise, pay at the door.',
+                  )}
+                </span>
+              </span>
+            </label>
+          )}
 
           {/* Organizer */}
           <Field label={t('evt.organizerLbl')}>
