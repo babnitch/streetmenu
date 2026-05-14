@@ -25,6 +25,10 @@ export interface Restaurant {
   // Payments (added via supabase-payments.sql)
   payment_enabled?: boolean
   pawapay_merchant_id?: string | null
+  // Schedule + manual override (added via supabase-opening-hours.sql)
+  manual_override?: 'open' | 'closed' | null
+  manual_override_at?: string | null
+  timezone?: string
 }
 
 export interface MenuItem {

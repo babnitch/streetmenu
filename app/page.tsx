@@ -30,13 +30,19 @@ const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> =
 interface RatingSummary { average: number; count: number }
 
 function RestaurantCard({
-  restaurant, rating,
+  restaurant, rating, openOverride,
 }: {
   restaurant: Restaurant
   rating?: RatingSummary
+  // Server-computed open status from /api/restaurants/open-status. Wins
+  // over the legacy restaurants.is_open column (which can drift while
+  // the schedule cron isn't a thing). Undefined while the bulk endpoint
+  // hasn't responded yet — we fall back to is_open during that gap.
+  openOverride?: boolean
 }) {
   const bi = useBi()
   const [imgError, setImgError] = useState(false)
+  const isOpen = openOverride ?? restaurant.is_open
   const neighborhood = restaurant.neighborhood || restaurant.address
   const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
   const cuisine = restaurant.cuisine_type || restaurant.description
@@ -90,9 +96,9 @@ function RestaurantCard({
           )}
         </div>
         <span className={`flex-shrink-0 text-xs font-semibold whitespace-nowrap ${
-          restaurant.is_open ? 'text-green-600' : 'text-red-600'
+          isOpen ? 'text-green-600' : 'text-red-600'
         }`}>
-          {restaurant.is_open ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
+          {isOpen ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
         </span>
       </div>
     </Link>
@@ -116,6 +122,7 @@ export default function HomePage() {
   const router = useRouter()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
+  const [openStatus, setOpenStatus] = useState<Record<string, { open: boolean }>>({})
   const [loading, setLoading] = useState(true)
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Restaurant | null>(null)
@@ -205,15 +212,19 @@ export default function HomePage() {
       if (data) setRestaurants(data)
       setLoading(false)
 
-      // Rating summary is a follow-up so the cards paint first. Failures
-      // are silent — the cards just don't show the ⭐ line.
+      // Rating + open-status summaries are follow-ups so the cards paint
+      // first. Both failures are silent — cards just fall back to the
+      // legacy state (is_open column, no rating line).
       if (data && data.length > 0) {
         const ids = data.map(r => r.id).join(',')
         try {
-          const res = await fetch(`/api/restaurants/ratings-summary?ids=${ids}`, { cache: 'no-store' })
-          const d = await res.json()
-          if (d?.summary && typeof d.summary === 'object') setRatingSummary(d.summary)
-        } catch { /* card just hides the rating line */ }
+          const [ratingRes, statusRes] = await Promise.all([
+            fetch(`/api/restaurants/ratings-summary?ids=${ids}`, { cache: 'no-store' }).then(r => r.json()),
+            fetch(`/api/restaurants/open-status?ids=${ids}`,     { cache: 'no-store' }).then(r => r.json()),
+          ])
+          if (ratingRes?.summary && typeof ratingRes.summary === 'object') setRatingSummary(ratingRes.summary)
+          if (statusRes?.status && typeof statusRes.status === 'object') setOpenStatus(statusRes.status)
+        } catch { /* falls back to is_open / no rating line */ }
       }
     }
     fetchRestaurants()
@@ -330,7 +341,7 @@ export default function HomePage() {
 
         {!loading && filtered.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-            {filtered.map(r => <RestaurantCard key={r.id} restaurant={r} rating={ratingSummary[r.id]} />)}
+            {filtered.map(r => <RestaurantCard key={r.id} restaurant={r} rating={ratingSummary[r.id]} openOverride={openStatus[r.id]?.open} />)}
           </div>
         )}
 

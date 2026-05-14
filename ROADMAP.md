@@ -16,6 +16,7 @@
 - [x] Restaurant detail page with menu, prices, categories
 - [x] 10 sample Yaoundé restaurants with full menus
 - [x] Add to cart functionality
+- [x] **Opening hours + manual override** — weekly schedule per restaurant (`restaurant_hours`), timezone-aware (Africa/Douala default, Africa/Abidjan / Dakar / Lome per city), overnight windows supported. Computed open/closed via `GET /api/restaurants/open-status?ids=…` (60s edge cache), surfaced on home cards + restaurant detail with a "Closes at HH:MM" line. Owner-only schedule editor + open/close manual override on the dashboard Settings tab. Audited as `schedule_updated` / `manual_override_set` / `manual_override_removed`. (Map pin colours + WhatsApp `ouvrir`/`fermer`/`horaire`/`auto` + closed-ordering warning deferred to a follow-up batch.)
 
 ### Events Section
 - [x] Events listing page with 7 categories (including BT/Club)

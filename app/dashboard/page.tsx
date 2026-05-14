@@ -862,13 +862,19 @@ export default function DashboardPage() {
           )}
 
           {tab === 'settings' && effectiveRole === 'owner' && (
-            <PaymentSettingsPanel
-              restaurant={selectedRestaurant}
-              onChange={updated => {
-                setSelectedRestaurant(updated)
-                setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
-              }}
-            />
+            <div className="space-y-3">
+              <OpeningHoursPanel restaurant={selectedRestaurant} />
+              <PaymentSettingsPanel
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  setSelectedRestaurant(updated)
+                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                }}
+              />
+            </div>
+          )}
+          {tab === 'settings' && (effectiveRole === 'manager' || effectiveRole === 'admin') && (
+            <OpeningHoursPanel restaurant={selectedRestaurant} />
           )}
           {tab === 'settings' && effectiveRole !== 'owner' && (
             <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
@@ -967,6 +973,217 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── Opening hours panel ──────────────────────────────────────────────────────
+// 7-day editor + manual override controls. Renders the current computed
+// status (override or schedule) at the top so the vendor can see what
+// customers see before they edit anything.
+interface HoursRow {
+  day_of_week: number
+  open_time:   string
+  close_time:  string
+  is_closed:   boolean
+}
+
+function OpeningHoursPanel({ restaurant }: { restaurant: Restaurant }) {
+  const bi = useBi()
+  const DAY_LABELS = [
+    bi('Lun', 'Mon'), bi('Mar', 'Tue'), bi('Mer', 'Wed'),
+    bi('Jeu', 'Thu'), bi('Ven', 'Fri'), bi('Sam', 'Sat'), bi('Dim', 'Sun'),
+  ]
+  const DAY_INDEX = [1, 2, 3, 4, 5, 6, 0]  // Mon-Sun, mapped to JS getDay()
+
+  const [hours, setHours] = useState<Record<number, HoursRow>>({})
+  const [status, setStatus] = useState<{ open: boolean; source: string; current_time?: string; next_kind?: string; next_at?: string } | null>(null)
+  const [override, setOverride] = useState<'open' | 'closed' | null>(
+    ((restaurant as Restaurant & { manual_override?: 'open' | 'closed' | null }).manual_override) ?? null
+  )
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [toggling, setToggling] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [hRes, sRes] = await Promise.all([
+        fetch(`/api/restaurants/${restaurant.id}/hours`,        { cache: 'no-store' }).then(r => r.json()),
+        fetch(`/api/restaurants/open-status?ids=${restaurant.id}`, { cache: 'no-store' }).then(r => r.json()),
+      ])
+      const byDay: Record<number, HoursRow> = {}
+      // Initialise every day so the form always renders 7 rows.
+      for (let d = 0; d < 7; d++) byDay[d] = { day_of_week: d, open_time: '08:00', close_time: '22:00', is_closed: d === 0 }
+      for (const h of hRes?.hours ?? []) {
+        byDay[h.day_of_week] = {
+          day_of_week: h.day_of_week,
+          open_time:   String(h.open_time).slice(0, 5),
+          close_time:  String(h.close_time).slice(0, 5),
+          is_closed:   !!h.is_closed,
+        }
+      }
+      setHours(byDay)
+      setStatus(sRes?.status?.[restaurant.id] ?? null)
+    } finally {
+      setLoading(false)
+    }
+  }, [restaurant.id])
+
+  useEffect(() => { load() }, [load])
+
+  async function save() {
+    setSaving(true)
+    try {
+      const payload = Object.values(hours)
+      const res = await fetch(`/api/restaurants/${restaurant.id}/hours`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hours: payload }),
+      })
+      if (res.ok) load()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function setOverrideTo(value: 'open' | 'closed' | null) {
+    setToggling(true)
+    try {
+      const res = await fetch(`/api/restaurants/${restaurant.id}/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ override: value }),
+      })
+      if (res.ok) {
+        setOverride(value)
+        load()
+      }
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  function patch(d: number, key: keyof HoursRow, value: string | boolean) {
+    setHours(prev => ({ ...prev, [d]: { ...prev[d], [key]: value } }))
+  }
+
+  // Status banner copy. Manual mode wins regardless of schedule.
+  const statusBanner = (() => {
+    if (!status) return null
+    if (status.source === 'override') {
+      return status.open
+        ? bi('🟢 Ouvert (manuel)', '🟢 Open (manual)')
+        : bi('🔴 Fermé (manuel)', '🔴 Closed (manual)')
+    }
+    return status.open
+      ? bi('🟢 Ouvert (horaire)', '🟢 Open (scheduled)')
+      : bi('🔴 Fermé (horaire)', '🔴 Closed (scheduled)')
+  })()
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-5">
+      <h2 className="text-lg font-bold text-ink-primary mb-3">
+        🕐 {bi('Horaires & disponibilité', 'Hours & availability')}
+      </h2>
+
+      {loading ? (
+        <div className="text-center py-6 text-ink-tertiary text-sm">…</div>
+      ) : (
+        <>
+          {statusBanner && (
+            <div className="bg-surface-muted rounded-xl px-3 py-2 mb-3 text-sm font-semibold text-ink-primary">
+              {statusBanner}
+              {status?.next_kind && status?.next_at && (
+                <span className="ml-2 text-xs font-normal text-ink-tertiary">
+                  · {status.next_kind === 'opens'
+                    ? bi(`ouvre à ${status.next_at}`,  `opens at ${status.next_at}`)
+                    : bi(`ferme à ${status.next_at}`, `closes at ${status.next_at}`)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Manual override controls. Two big buttons + a "follow schedule"
+              reset when an override is active. */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <button
+              onClick={() => setOverrideTo('open')}
+              disabled={toggling || override === 'open'}
+              className="text-xs px-3 py-1.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              🟢 {bi('Ouvrir maintenant', 'Open now')}
+            </button>
+            <button
+              onClick={() => setOverrideTo('closed')}
+              disabled={toggling || override === 'closed'}
+              className="text-xs px-3 py-1.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-50"
+            >
+              🔴 {bi('Fermer maintenant', 'Close now')}
+            </button>
+            {override !== null && (
+              <button
+                onClick={() => setOverrideTo(null)}
+                disabled={toggling}
+                className="text-xs px-3 py-1.5 rounded-full font-semibold bg-surface-muted text-ink-secondary border border-divider hover:bg-divider disabled:opacity-50"
+              >
+                ↩️ {bi('Suivre l\'horaire', 'Follow schedule')}
+              </button>
+            )}
+          </div>
+          {override !== null && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4">
+              ⚠️ {bi(
+                'Mode manuel actif. Retirez-le pour revenir à l\'horaire.',
+                'Manual mode active. Remove it to follow the schedule.',
+              )}
+            </p>
+          )}
+
+          {/* Weekly schedule editor */}
+          <div className="space-y-2 mb-4">
+            {DAY_INDEX.map(d => {
+              const row = hours[d] ?? { day_of_week: d, open_time: '08:00', close_time: '22:00', is_closed: false }
+              return (
+                <div key={d} className="flex items-center gap-2 flex-wrap">
+                  <span className="w-10 text-sm font-semibold text-ink-primary">{DAY_LABELS[DAY_INDEX.indexOf(d)]}</span>
+                  <input
+                    type="time"
+                    value={row.open_time}
+                    onChange={e => patch(d, 'open_time', e.target.value)}
+                    disabled={row.is_closed}
+                    className="border border-divider rounded-xl px-2 py-1 text-sm bg-surface disabled:opacity-50"
+                  />
+                  <span className="text-ink-tertiary text-xs">→</span>
+                  <input
+                    type="time"
+                    value={row.close_time}
+                    onChange={e => patch(d, 'close_time', e.target.value)}
+                    disabled={row.is_closed}
+                    className="border border-divider rounded-xl px-2 py-1 text-sm bg-surface disabled:opacity-50"
+                  />
+                  <label className="flex items-center gap-1 text-xs text-ink-secondary cursor-pointer ml-auto">
+                    <input
+                      type="checkbox"
+                      checked={row.is_closed}
+                      onChange={e => patch(d, 'is_closed', e.target.checked)}
+                    />
+                    {bi('Fermé', 'Closed')}
+                  </label>
+                </div>
+              )
+            })}
+          </div>
+
+          <button
+            onClick={save}
+            disabled={saving}
+            className="w-full bg-brand hover:bg-brand-dark text-white py-2.5 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
+          >
+            {saving ? '…' : bi('Enregistrer l\'horaire', 'Save schedule')}
+          </button>
+        </>
       )}
     </div>
   )

@@ -12,6 +12,7 @@ import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
+import RestaurantHoursPanel from '@/components/RestaurantHoursPanel'
 import ReportButton from '@/components/ReportButton'
 
 export default function MenuPage() {
@@ -23,14 +24,19 @@ export default function MenuPage() {
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  // Computed open/closed from /api/restaurants/open-status. Wins over the
+  // legacy restaurants.is_open column — that's now derived and may be
+  // stale. Null while the status hasn't been fetched yet.
+  const [computedOpen, setComputedOpen] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<string>('all')
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: rest }, { data: menu }] = await Promise.all([
+      const [{ data: rest }, { data: menu }, statusRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', id).single(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).order('is_daily_special', { ascending: false }),
+        fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
       ])
       if (rest) {
         // Cross-check: we've seen the detail page render "Open" while the
@@ -47,6 +53,8 @@ export default function MenuPage() {
         setRestaurant(rest)
       }
       if (menu) setMenuItems(menu)
+      const s = statusRes?.status?.[id]
+      if (s) setComputedOpen(!!s.open)
       setLoading(false)
     }
     fetchData()
@@ -141,10 +149,15 @@ export default function MenuPage() {
               {[restaurant.cuisine_type, restaurant.neighborhood, restaurant.city].filter(Boolean).join(' · ')}
             </p>
           </div>
+          {/* Source: computed open-status when available, falls back to the
+              legacy is_open column for the first render before the bulk
+              endpoint returns. The bulk endpoint factors in manual override
+              and timezone-correct schedule, so the column is stale-tolerated
+              rather than load-bearing. */}
           <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full bg-white ${
-            restaurant.is_open ? 'text-green-600' : 'text-red-600'
+            (computedOpen ?? restaurant.is_open) ? 'text-green-600' : 'text-red-600'
           }`}>
-            {restaurant.is_open ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
+            {(computedOpen ?? restaurant.is_open) ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
           </span>
         </div>
       </div>
@@ -232,7 +245,11 @@ export default function MenuPage() {
             primary view but customers who scroll past the menu (looking
             to rate, came from the WhatsApp prompt) land here. Honors
             the #rate hash by auto-opening the rate modal. */}
-        <div id="rate" className="mt-8">
+        <div className="mt-8">
+          <RestaurantHoursPanel restaurantId={id} />
+        </div>
+
+        <div id="rate" className="mt-4">
           <RestaurantRatingPanel restaurantId={id} />
         </div>
 
