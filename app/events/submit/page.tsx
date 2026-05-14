@@ -23,15 +23,21 @@ export default function SubmitEventPage() {
   const bi = useBi()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Logged-in customer → auto-link organizer_id on insert. Submission is
-  // still allowed for guests; they keep the existing whatsapp + name path.
+  // Login is now REQUIRED. Anonymous visitors see a "Connectez-vous"
+  // gate that bounces them to /account with a return URL.
   const [me, setMe] = useState<SessionUser | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
       .then(r => r.json())
       .then(data => { if (data?.user?.role === 'customer') setMe(data.user) })
       .catch(() => null)
+      .finally(() => setAuthLoading(false))
   }, [])
+
+  // Submission outcome — auto_approved sees a different success screen
+  // than admin-pending.
+  const [autoApproved, setAutoApproved] = useState(false)
 
   const [form, setForm] = useState({
     title: '',
@@ -89,51 +95,90 @@ export default function SubmitEventPage() {
       }
     }
 
-    // Ticket price + capacity from the new fields. We write to both `price`
-    // (legacy display) and `ticket_price` (canonical) so older pages keep
-    // rendering during the migration window.
-    const ticketPrice = form.price ? parseFloat(form.price) : null
-    const maxTickets  = form.max_tickets ? parseInt(form.max_tickets, 10) : 0
-    // Payment toggle is only meaningful for non-free events. Force it off
-    // for free events so the detail page picks the free reserve path.
-    const paymentEnabled = ticketPrice && ticketPrice > 0 ? !!form.payment_enabled : false
-
-    const { error: insertErr } = await supabase.from('events').insert({
-      title: form.title,
-      description: form.description || null,
-      date: form.date,
-      time: form.time || null,
-      venue: form.venue || null,
-      city: form.city,
-      neighborhood: form.neighborhood || null,
-      category: form.category,
-      price: ticketPrice,
-      ticket_price: ticketPrice != null ? Math.round(ticketPrice) : null,
-      max_tickets: maxTickets,
-      payment_enabled: paymentEnabled,
-      cover_photo: cover_photo || null,
-      whatsapp: form.whatsapp,
-      organizer_name: form.organizer_name,
-      organizer_id: me?.id ?? null,
-      is_active: false,
+    // Hand off to /api/events/submit so the auto-approve gate + counter
+    // increments happen server-side under the trust model. The route also
+    // writes audit rows + pings the submitter over WhatsApp.
+    const res = await fetch('/api/events/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title:           form.title,
+        description:     form.description,
+        date:            form.date,
+        time:            form.time,
+        venue:           form.venue,
+        city:            form.city,
+        neighborhood:    form.neighborhood,
+        category:        form.category,
+        ticket_price:    form.price ? parseFloat(form.price) : null,
+        max_tickets:     form.max_tickets ? parseInt(form.max_tickets, 10) : 0,
+        payment_enabled: !!form.payment_enabled,
+        cover_photo:     cover_photo || null,
+        whatsapp:        form.whatsapp,
+        organizer_name:  form.organizer_name,
+      }),
     })
-
+    const data = await res.json()
     setSubmitting(false)
-
-    if (insertErr) {
-      setError(t('evt.errorServer'))
+    if (!res.ok) {
+      setError(data?.error ?? t('evt.errorServer'))
       return
     }
-
+    setAutoApproved(!!data.auto_approved)
     setSuccess(true)
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen flex items-center justify-center bg-surface">
+        <div className="text-3xl animate-pulse text-ink-tertiary">…</div>
+      </div>
+    )
+  }
+
+  if (!me) {
+    return (
+      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen flex flex-col items-center justify-center px-4 text-center bg-surface">
+        <div className="w-20 h-20 bg-brand-light rounded-3xl flex items-center justify-center text-4xl mb-5">🔒</div>
+        <h1 className="text-2xl font-bold text-ink-primary mb-2">
+          {bi('Connectez-vous pour publier', 'Log in to publish')}
+        </h1>
+        <p className="text-ink-secondary text-sm mb-6 max-w-xs">
+          {bi(
+            'La publication d\'événements est réservée aux comptes connectés. C\'est rapide — un code par SMS suffit.',
+            'Publishing events requires a logged-in account. Quick — one SMS code is enough.',
+          )}
+        </p>
+        <Link
+          href="/account?return=/events/submit"
+          className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+        >
+          {bi('Se connecter', 'Log in')}
+        </Link>
+      </div>
+    )
   }
 
   if (success) {
     return (
       <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen flex flex-col items-center justify-center px-4 text-center bg-surface">
-        <div className="w-20 h-20 bg-brand-light rounded-3xl flex items-center justify-center text-4xl mb-5">✅</div>
-        <h1 className="text-2xl font-bold text-ink-primary mb-2">{t('evt.successTitle')}</h1>
-        <p className="text-ink-secondary text-sm mb-6 max-w-xs">{t('evt.successSub')}</p>
+        <div className="w-20 h-20 bg-brand-light rounded-3xl flex items-center justify-center text-4xl mb-5">{autoApproved ? '🎉' : '✅'}</div>
+        <h1 className="text-2xl font-bold text-ink-primary mb-2">
+          {autoApproved
+            ? bi('Événement publié!', 'Event published!')
+            : bi('Événement soumis!', 'Event submitted!')}
+        </h1>
+        <p className="text-ink-secondary text-sm mb-6 max-w-xs">
+          {autoApproved
+            ? bi(
+                'Visible immédiatement sur Ndjoka & Tchop.',
+                'Live immediately on Ndjoka & Tchop.',
+              )
+            : bi(
+                'Il sera visible après approbation par un admin.',
+                'It will be visible after admin approval.',
+              )}
+        </p>
         <Link
           href="/events"
           className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"

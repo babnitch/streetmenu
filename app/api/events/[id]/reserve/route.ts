@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // already see.
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled')
+    .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -83,6 +83,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const ticketPrice = Number(event.ticket_price ?? 0) || 0
   const totalPrice  = ticketPrice * quantity
+  // Commission is locked in at reservation time so a later rate change on
+  // the event doesn't retroactively shift what the organizer owes.
+  const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
+  const commissionAmount = totalPrice > 0 ? Math.round(totalPrice * commissionRate) : 0
 
   const { data: reservation, error: insErr } = await supabaseAdmin
     .from('event_reservations')
@@ -93,6 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       customer_phone:     custPhone,
       quantity,
       total_price:        totalPrice,
+      commission_amount:  commissionAmount,
       payment_status:     'not_required',
       reservation_status: 'confirmed',
     })

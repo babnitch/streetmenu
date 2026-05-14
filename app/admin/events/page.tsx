@@ -11,13 +11,15 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
 // per-event roundtrips.
-interface EventAggregate { reservations_count: number; tickets_count: number; revenue: number }
+interface EventAggregate { reservations_count: number; tickets_count: number; revenue: number; commission: number }
+interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean }
 
 export default function AdminEventsPage() {
   const { t } = useLanguage()
   const bi = useBi()
   const [events, setEvents] = useState<Event[]>([])
   const [aggregates, setAggregates] = useState<Record<string, EventAggregate>>({})
+  const [submitters, setSubmitters] = useState<Record<string, Submitter>>({})
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'pending' | 'approved'>('pending')
   const [saving, setSaving] = useState<string | null>(null)
@@ -31,24 +33,39 @@ export default function AdminEventsPage() {
 
     // Reservation aggregates — single query, group client-side. Cancelled
     // reservations are excluded from the count; only 'paid' rows contribute
-    // to revenue.
+    // to revenue + platform commission.
     if (data && data.length > 0) {
       const ids = data.map(e => e.id)
       const { data: resv } = await supabase
         .from('event_reservations')
-        .select('event_id, payment_status, reservation_status, total_price, quantity')
+        .select('event_id, payment_status, reservation_status, total_price, quantity, commission_amount')
         .in('event_id', ids)
       const agg: Record<string, EventAggregate> = {}
       for (const r of resv ?? []) {
-        const a = agg[r.event_id] ?? { reservations_count: 0, tickets_count: 0, revenue: 0 }
+        const a = agg[r.event_id] ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0 }
         if (r.reservation_status !== 'cancelled') {
           a.reservations_count += 1
           a.tickets_count      += Number(r.quantity ?? 0)
         }
-        if (r.payment_status === 'paid') a.revenue += Number(r.total_price ?? 0)
+        if (r.payment_status === 'paid') {
+          a.revenue    += Number(r.total_price ?? 0)
+          a.commission += Number(r.commission_amount ?? 0)
+        }
         agg[r.event_id] = a
       }
       setAggregates(agg)
+
+      // Submitter trust info. Unique organizer_id set, single query.
+      const orgIds = Array.from(new Set(data.map(e => e.organizer_id).filter(Boolean) as string[]))
+      if (orgIds.length > 0) {
+        const { data: subs } = await supabase
+          .from('customers')
+          .select('id, name, phone, events_approved_count, event_auto_approve')
+          .in('id', orgIds)
+        const subMap: Record<string, Submitter> = {}
+        for (const s of subs ?? []) subMap[s.id] = s as Submitter
+        setSubmitters(subMap)
+      }
     }
     setLoading(false)
   }, [])
@@ -59,17 +76,48 @@ export default function AdminEventsPage() {
 
   async function approve(id: string) {
     setSaving(id)
-    await supabase.from('events').update({ is_active: true }).eq('id', id)
-    setEvents(prev => prev.map(e => e.id === id ? { ...e, is_active: true } : e))
-    setSaving(null)
+    try {
+      // Server route handles counter + auto-approve gate + WhatsApp ping.
+      const res = await fetch(`/api/admin/events/${id}/approve`, { method: 'POST' })
+      if (res.ok) {
+        // Refetch to surface any newly-granted trust on the submitter.
+        await fetchEvents()
+      }
+    } finally {
+      setSaving(null)
+    }
   }
 
   async function reject(id: string) {
-    if (!confirm(t('admin.evtRejectConfirm'))) return
+    const reason = prompt(bi('Raison du rejet (optionnel):', 'Reason for rejection (optional):'), '')
+    if (reason === null) return // user cancelled the prompt
     setSaving(id)
-    await supabase.from('events').delete().eq('id', id)
-    setEvents(prev => prev.filter(e => e.id !== id))
-    setSaving(null)
+    try {
+      const res = await fetch(`/api/admin/events/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || null }),
+      })
+      if (res.ok) {
+        setEvents(prev => prev.filter(e => e.id !== id))
+      }
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function revokeAutoApprove(customerId: string) {
+    const reason = prompt(bi(
+      'Raison de la révocation (optionnel):',
+      'Reason for revocation (optional):',
+    ), '')
+    if (reason === null) return
+    const res = await fetch(`/api/admin/events/revoke-auto-approve/${customerId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: reason || null }),
+    })
+    if (res.ok) await fetchEvents()
   }
 
   const pending  = events.filter(e => !e.is_active)
@@ -141,9 +189,15 @@ export default function AdminEventsPage() {
               key={evt.id}
               event={evt}
               aggregate={aggregates[evt.id]}
+              submitter={evt.organizer_id ? submitters[evt.organizer_id] : undefined}
               saving={saving === evt.id}
               onApprove={() => approve(evt.id)}
               onReject={() => reject(evt.id)}
+              onRevokeAutoApprove={
+                evt.organizer_id && submitters[evt.organizer_id]?.event_auto_approve
+                  ? () => revokeAutoApprove(evt.organizer_id!)
+                  : undefined
+              }
               tab={tab}
               approveLabel={t('admin.evtApproveBtn')}
               rejectLabel={t('admin.evtRejectBtn')}
@@ -151,6 +205,10 @@ export default function AdminEventsPage() {
               reservationsLabel={bi('Réservations', 'Reservations')}
               ticketsLabel={bi('Places', 'Tickets')}
               revenueLabel={bi('Revenus', 'Revenue')}
+              commissionLabel={bi('Commission', 'Commission')}
+              verifiedLabel={bi('✅ Vérifié', '✅ Verified')}
+              progressLabel={bi('approuvés / 3', 'approved / 3')}
+              revokeAutoLabel={bi('Révoquer auto-approbation', 'Revoke auto-approve')}
             />
           ))}
         </div>
@@ -160,15 +218,19 @@ export default function AdminEventsPage() {
 }
 
 function EventRow({
-  event, aggregate, saving, onApprove, onReject, tab,
+  event, aggregate, submitter, saving,
+  onApprove, onReject, onRevokeAutoApprove, tab,
   approveLabel, rejectLabel, organizerLabel,
-  reservationsLabel, ticketsLabel, revenueLabel,
+  reservationsLabel, ticketsLabel, revenueLabel, commissionLabel,
+  verifiedLabel, progressLabel, revokeAutoLabel,
 }: {
   event: Event
   aggregate?: EventAggregate
+  submitter?: Submitter
   saving: boolean
   onApprove: () => void
   onReject: () => void
+  onRevokeAutoApprove?: () => void
   tab: 'pending' | 'approved'
   approveLabel: string
   rejectLabel: string
@@ -176,6 +238,10 @@ function EventRow({
   reservationsLabel: string
   ticketsLabel: string
   revenueLabel: string
+  commissionLabel: string
+  verifiedLabel: string
+  progressLabel: string
+  revokeAutoLabel: string
 }) {
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -219,6 +285,31 @@ function EventRow({
             )}
           </div>
 
+          {/* Submitter trust + auto-approve revoke. Only renders when we
+              successfully joined a submitter row (rejected events lose the
+              organizer_id link, so this stays absent there). */}
+          {submitter && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {submitter.event_auto_approve ? (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  {verifiedLabel}
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                  {submitter.events_approved_count}/3 {progressLabel}
+                </span>
+              )}
+              {onRevokeAutoApprove && (
+                <button
+                  onClick={onRevokeAutoApprove}
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
+                >
+                  ⛔ {revokeAutoLabel}
+                </button>
+              )}
+            </div>
+          )}
+
           {event.description && (
             <p className="text-xs text-ink-secondary mt-1.5 line-clamp-2">{event.description}</p>
           )}
@@ -234,7 +325,10 @@ function EventRow({
           <span>📋 {reservationsLabel}: <strong className="text-ink-primary">{aggregate.reservations_count}</strong></span>
           <span>🎟 {ticketsLabel}: <strong className="text-ink-primary">{aggregate.tickets_count}</strong>{event.max_tickets && event.max_tickets > 0 ? `/${event.max_tickets}` : ''}</span>
           {aggregate.revenue > 0 && (
-            <span>💰 {revenueLabel}: <strong className="text-brand">{Number(aggregate.revenue).toLocaleString()} FCFA</strong></span>
+            <>
+              <span>💰 {revenueLabel}: <strong className="text-brand">{Number(aggregate.revenue).toLocaleString()} FCFA</strong></span>
+              <span>📊 {commissionLabel}: <strong className="text-ink-primary">{Number(aggregate.commission).toLocaleString()} FCFA</strong></span>
+            </>
           )}
         </div>
       )}

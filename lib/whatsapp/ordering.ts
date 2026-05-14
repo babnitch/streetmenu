@@ -726,6 +726,62 @@ export async function handleOrderCommand(
     return ok()
   }
 
+  // "publier" / "publish" → deep-link to the in-app submission form. The
+  // page itself handles the login gate, so we don't need to check trust
+  // state here.
+  if (cmd === 'publier' || cmd === 'publish') {
+    await sendWhatsApp(from,
+      `📢 *Publier un événement / Publish an event*\n\n` +
+      `Soumettez votre événement ici / Submit your event here:\n` +
+      `${BASE_URL}/events/submit`)
+    return ok()
+  }
+
+  // "mes evenements" / "mes événements" / "my events" → list events the
+  // customer has submitted with their current status. Pending events stay
+  // visible so the publisher can track admin review.
+  if (cmd === 'mes evenements' || cmd === 'mes événements' || cmd === 'my events') {
+    const { data } = await supabaseAdmin
+      .from('events')
+      .select('id, title, date, is_active, auto_approved, event_status')
+      .eq('organizer_id', customer.id)
+      .order('date', { ascending: false })
+      .limit(10)
+
+    if (!data || data.length === 0) {
+      await sendWhatsApp(from,
+        `📢 Vous n'avez pas encore soumis d'événement.\n` +
+        `You haven't submitted an event yet.\n\n` +
+        `Envoyez "publier" pour en créer un. / Send "publish" to create one.`)
+      return ok()
+    }
+
+    // Trust badge for the publisher — gives them a sense of how close they
+    // are to auto-approve without forcing a /account roundtrip.
+    const { data: trust } = await supabaseAdmin
+      .from('customers')
+      .select('events_approved_count, event_auto_approve')
+      .eq('id', customer.id)
+      .maybeSingle()
+    const trustLine = trust?.event_auto_approve
+      ? `✅ *Éditeur vérifié / Verified publisher* — publication immédiate.`
+      : `🛡 ${trust?.events_approved_count ?? 0}/3 approuvés pour la publication automatique / approved for auto-publish.`
+
+    const lines = data.map((e, i) => {
+      const dateStr = new Date(e.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
+      const statusLabel = e.event_status === 'cancelled'
+        ? '❌ Annulé / Cancelled'
+        : !e.is_active
+          ? '⏳ En attente d\'approbation / Pending'
+          : e.auto_approved
+            ? '⚡ Auto-publié / Auto-published'
+            : '✅ Publié / Published'
+      return `${i + 1}. *${e.title}* (${dateStr})\n   ${statusLabel}`
+    })
+    await sendWhatsApp(from, `📢 *Vos événements / Your events:*\n\n${trustLine}\n\n${lines.join('\n\n')}`)
+    return ok()
+  }
+
   return null
 }
 

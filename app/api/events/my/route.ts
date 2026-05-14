@@ -34,31 +34,54 @@ export async function GET(req: NextRequest) {
   if (!events || events.length === 0) return NextResponse.json({ events: [] })
 
   // Aggregate reservations per event. Single query, group client-side.
+  // commission_amount is stored per reservation by /reserve + /pay so a
+  // mid-event rate change can't retroactively shift the organizer's payout.
   const ids = events.map(e => e.id)
   const { data: resv } = await supabaseAdmin
     .from('event_reservations')
-    .select('event_id, payment_status, reservation_status, total_price, quantity')
+    .select('event_id, payment_status, reservation_status, total_price, quantity, commission_amount')
     .in('event_id', ids)
 
-  const aggBy = new Map<string, { reservations_count: number; tickets_count: number; revenue: number; pending_count: number }>()
+  const aggBy = new Map<string, { reservations_count: number; tickets_count: number; revenue: number; commission: number; pending_count: number }>()
   for (const r of resv ?? []) {
-    const agg = aggBy.get(r.event_id) ?? { reservations_count: 0, tickets_count: 0, revenue: 0, pending_count: 0 }
+    const agg = aggBy.get(r.event_id) ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0, pending_count: 0 }
     if (r.reservation_status !== 'cancelled') {
       agg.reservations_count += 1
       agg.tickets_count      += Number(r.quantity ?? 0)
     }
-    if (r.payment_status === 'paid')    agg.revenue       += Number(r.total_price ?? 0)
+    if (r.payment_status === 'paid') {
+      agg.revenue    += Number(r.total_price ?? 0)
+      agg.commission += Number(r.commission_amount ?? 0)
+    }
     if (r.payment_status === 'pending') agg.pending_count += 1
     aggBy.set(r.event_id, agg)
   }
 
-  const enriched = events.map(e => ({
-    ...e,
-    reservations_count: aggBy.get(e.id)?.reservations_count ?? 0,
-    tickets_count:      aggBy.get(e.id)?.tickets_count      ?? 0,
-    revenue:            aggBy.get(e.id)?.revenue            ?? 0,
-    pending_count:      aggBy.get(e.id)?.pending_count      ?? 0,
-  }))
+  const enriched = events.map(e => {
+    const a = aggBy.get(e.id) ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0, pending_count: 0 }
+    return {
+      ...e,
+      reservations_count: a.reservations_count,
+      tickets_count:      a.tickets_count,
+      revenue:            a.revenue,
+      commission:         a.commission,
+      net_revenue:        Math.max(0, a.revenue - a.commission),
+      pending_count:      a.pending_count,
+    }
+  })
 
-  return NextResponse.json({ events: enriched, isAdmin })
+  // Surface the caller's publisher trust state alongside their events so
+  // the /account "Mes événements" tab can render the verified badge in
+  // one round-trip.
+  let trust: { events_submitted_count: number; events_approved_count: number; event_auto_approve: boolean } | null = null
+  if (!isAdmin) {
+    const { data: c } = await supabaseAdmin
+      .from('customers')
+      .select('events_submitted_count, events_approved_count, event_auto_approve')
+      .eq('id', session.id)
+      .maybeSingle()
+    if (c) trust = c
+  }
+
+  return NextResponse.json({ events: enriched, isAdmin, trust })
 }

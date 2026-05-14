@@ -129,9 +129,16 @@ export default function AccountPage() {
     ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
     payment_enabled: boolean; organizer_name: string | null; event_status: string | null
     is_active: boolean
-    reservations_count: number; tickets_count: number; revenue: number; pending_count: number
+    reservations_count: number; tickets_count: number
+    revenue: number; commission: number; net_revenue: number; pending_count: number
+  }
+  interface OrganizerTrust {
+    events_submitted_count: number
+    events_approved_count:  number
+    event_auto_approve:     boolean
   }
   const [myEvents, setMyEvents] = useState<MyEvent[]>([])
+  const [organizerTrust, setOrganizerTrust] = useState<OrganizerTrust | null>(null)
   // One-time welcome banner shown after a brand-new customer signs in for
   // the first time. Set by verifyOtp when /api/auth/verify-code reports
   // isNewAccount; dismissed by the user via the close button.
@@ -272,6 +279,7 @@ export default function AccountPage() {
     if (ordersData) setOrders(ordersData)
     if (Array.isArray(resvRes?.reservations)) setEventReservations(resvRes.reservations)
     if (Array.isArray(myEvRes?.events)) setMyEvents(myEvRes.events)
+    if (myEvRes?.trust) setOrganizerTrust(myEvRes.trust as OrganizerTrust)
     setLoadingData(false)
   }, [])
 
@@ -1034,7 +1042,7 @@ export default function AccountPage() {
                     when myEvents is empty, but the panel still renders if
                     someone deep-links to ?tab=events. */}
                 {customerTab === 'events' && (
-                  <MyEventsPanel events={myEvents} onChanged={() => user && loadCustomerData(user.id)} />
+                  <MyEventsPanel events={myEvents} trust={organizerTrust} onChanged={() => user && loadCustomerData(user.id)} />
                 )}
 
                 {/* Profile */}
@@ -1779,7 +1787,13 @@ interface MyEventsPanelEvent {
   ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
   payment_enabled: boolean; organizer_name: string | null; event_status: string | null
   is_active: boolean
-  reservations_count: number; tickets_count: number; revenue: number; pending_count: number
+  reservations_count: number; tickets_count: number
+  revenue: number; commission: number; net_revenue: number; pending_count: number
+}
+interface MyEventsPanelTrust {
+  events_submitted_count: number
+  events_approved_count:  number
+  event_auto_approve:     boolean
 }
 interface MyEventReservation {
   id: string; customer_name: string; customer_phone: string
@@ -1790,7 +1804,13 @@ interface MyEventReservation {
   created_at: string
 }
 
-function MyEventsPanel({ events, onChanged }: { events: MyEventsPanelEvent[]; onChanged: () => void }) {
+function MyEventsPanel({
+  events, trust, onChanged,
+}: {
+  events: MyEventsPanelEvent[]
+  trust: MyEventsPanelTrust | null
+  onChanged: () => void
+}) {
   const bi = useBi()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [reservations, setReservations] = useState<MyEventReservation[]>([])
@@ -1885,10 +1905,25 @@ function MyEventsPanel({ events, onChanged }: { events: MyEventsPanelEvent[]; on
               </p>
             </div>
             <div>
-              <p className="text-xs text-ink-tertiary">{bi('Revenus', 'Revenue')}</p>
+              <p className="text-xs text-ink-tertiary">{bi('Recettes brutes', 'Gross')}</p>
               <p className="text-lg font-bold text-brand">{Number(selected.revenue).toLocaleString()} FCFA</p>
             </div>
           </div>
+          {/* Commission breakdown — only when there's actual revenue to split.
+              The 10% line is informational; the organizer's payout is the
+              net figure. */}
+          {selected.revenue > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-surface-muted rounded-xl p-2 text-center">
+                <p className="text-ink-tertiary">📊 {bi('Commission (10%)', 'Commission (10%)')}</p>
+                <p className="font-semibold text-ink-primary">{Number(selected.commission).toLocaleString()} FCFA</p>
+              </div>
+              <div className="bg-brand-light rounded-xl p-2 text-center">
+                <p className="text-brand-dark">💵 {bi('Net', 'Net')}</p>
+                <p className="font-bold text-brand-darker">{Number(selected.net_revenue).toLocaleString()} FCFA</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {loadingResv ? (
@@ -1963,7 +1998,20 @@ function MyEventsPanel({ events, onChanged }: { events: MyEventsPanelEvent[]; on
 
   return (
     <div className="space-y-3">
-      <h2 className="text-base font-bold text-ink-primary">🎉 {bi('Mes événements', 'My events')}</h2>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-base font-bold text-ink-primary">🎉 {bi('Mes événements', 'My events')}</h2>
+        {trust && (
+          trust.event_auto_approve ? (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              ✅ {bi('Éditeur vérifié', 'Verified publisher')}
+            </span>
+          ) : (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+              {trust.events_approved_count}/3 {bi('événements approuvés', 'events approved')}
+            </span>
+          )
+        )}
+      </div>
       {events.map(e => {
         const dateStr = new Date(e.date).toLocaleDateString('fr-FR', {
           day: '2-digit', month: 'short', year: 'numeric',

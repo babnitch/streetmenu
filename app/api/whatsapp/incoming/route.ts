@@ -1571,6 +1571,8 @@ async function handleCustomer(
       `🎫 "bon CODE" → Ajouter un bon / Claim a code\n` +
       `🎟 "mes reservations" → Voir vos réservations / View reservations\n` +
       `🎟 "reserver XXXX" → Réserver un événement / Book an event\n` +
+      `📢 "publier" → Publier un événement / Publish an event\n` +
+      `📢 "mes evenements" → Voir vos événements publiés / View your events\n` +
       `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
       `❓ "aide" → Ce message / This message\n\n` +
       `🌍 Parcourez / Browse: ${BASE_URL}\n` +

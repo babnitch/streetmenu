@@ -1,6 +1,6 @@
 # 🗺️ Ndjoka & Tchop — Project Roadmap
 
-**Last updated:** April 20, 2026
+**Last updated:** May 14, 2026
 **Status:** MVP Live — Pre-Launch Phase
 **Live URL:** https://streetmenu.vercel.app
 **Repo:** github.com/babnitch/streetmenu
@@ -23,6 +23,13 @@
 - [x] Public event submission form for promoters
 - [x] 7 sample events (one per category)
 - [x] Admin approval flow for submitted events
+- [x] **Event reservations (free + pay-at-door)** — quantity + capacity + sold-out gate
+- [x] **Paid event reservations via PawaPay** — same pipeline as restaurant orders, webhook + poll fallback for `event_reservations`, seats released on failed payment
+- [x] **Organizer "Mes événements" tab** in /account — reservation list, ✅ attendance, ❌ cancel with refund flag
+- [x] **Admin events panel: reservation count + revenue + commission** badges per row
+- [x] **WhatsApp event commands** — `mes reservations`, `reserver XXXX`, `publier`, `mes evenements`
+- [x] **Light publisher trust model** — any logged-in customer submits; 3 admin approvals auto-grant `event_auto_approve`; admin can revoke
+- [x] **10% platform commission on paid events** — `commission_rate` per event, `commission_amount` stored per reservation; organizer panel surfaces gross / commission / net
 
 ### Vendor System
 - [x] Vendor self-signup form (/join)

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, city, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled')
+    .select('id, title, city, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -96,6 +96,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const totalPrice = ticketPrice * quantity
+  const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
+  const commissionAmount = Math.round(totalPrice * commissionRate)
 
   // Pending reservation FIRST so we have an id to thread into PawaPay's
   // statementDescription. Bump tickets_sold under the same write so concurrent
@@ -109,6 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       customer_phone:     custPhone,
       quantity,
       total_price:        totalPrice,
+      commission_amount:  commissionAmount,
       payment_status:     'pending',
       reservation_status: 'confirmed',
     })
