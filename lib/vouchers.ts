@@ -88,24 +88,37 @@ export async function validateVoucher(
   ctx:  VoucherApplyContext,
 ): Promise<ValidationResult> {
   const normalized = code.trim().toUpperCase()
+  console.log(`[vouchers] validate: input=${JSON.stringify(code)} normalized=${JSON.stringify(normalized)} customerId=${ctx.customerId ?? '<guest>'} restaurantId=${ctx.restaurantId ?? '<none>'} orderTotal=${ctx.orderTotal}`)
   if (!normalized) return reject('not_found')
 
-  const { data: v } = await supabaseAdmin
+  // ilike (not eq) so a DB row stored mixed-case (e.g. an admin pasted
+  // "Bienvenue") still matches. Client + server both uppercase the input,
+  // so this is defence-in-depth rather than the primary case-normaliser.
+  const { data: v, error: lookupErr } = await supabaseAdmin
     .from('vouchers')
-    .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id')
-    .eq('code', normalized)
+    .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id, per_customer_max')
+    .ilike('code', normalized)
     .maybeSingle()
+  if (lookupErr) console.error('[vouchers] lookup error:', lookupErr.message)
 
-  if (!v) return reject('not_found')
+  if (!v) {
+    console.log(`[vouchers] validate: not_found for ${normalized}`)
+    return reject('not_found')
+  }
   const voucher = v as unknown as VoucherRow
+  console.log(`[vouchers] validate: matched voucher.id=${voucher.id} code=${voucher.code} active=${voucher.is_active} restaurant_id=${voucher.restaurant_id ?? '<platform>'} expires=${voucher.expires_at ?? 'never'}`)
 
   const status = deriveStatus(voucher)
-  if (status === 'inactive')  return reject('inactive')
-  if (status === 'expired')   return reject('expired')
-  if (status === 'exhausted') return reject('exhausted')
+  if (status !== 'active') {
+    console.log(`[vouchers] validate: rejected status=${status}`)
+    if (status === 'inactive')  return reject('inactive')
+    if (status === 'expired')   return reject('expired')
+    if (status === 'exhausted') return reject('exhausted')
+  }
 
   // Restaurant scoping
   if (voucher.restaurant_id && voucher.restaurant_id !== ctx.restaurantId) {
+    console.log(`[vouchers] validate: wrong_restaurant (voucher=${voucher.restaurant_id} order=${ctx.restaurantId})`)
     return reject('wrong_restaurant')
   }
 
@@ -114,12 +127,14 @@ export async function validateVoucher(
   if (voucher.city) {
     const ctxCity = (ctx.city ?? '').trim()
     if (!ctxCity || ctxCity.toLowerCase() !== voucher.city.toLowerCase()) {
+      console.log(`[vouchers] validate: wrong_city (voucher=${voucher.city} ctx=${ctxCity})`)
       return reject('wrong_city')
     }
   }
 
   // Minimum order
   if (voucher.min_order && ctx.orderTotal < voucher.min_order) {
+    console.log(`[vouchers] validate: min_order ${ctx.orderTotal} < ${voucher.min_order}`)
     return reject('min_order')
   }
 
