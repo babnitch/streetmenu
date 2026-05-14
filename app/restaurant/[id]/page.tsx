@@ -188,6 +188,17 @@ export default function MenuPage() {
       )}
 
       <div className="px-4 pb-40 md:pb-32 max-w-2xl mx-auto">
+        {/* Hours + Ratings sit at the top of the content area so they're
+            visible immediately under the hero on long menus. Previously
+            both lived after the menu and were past the fold on any
+            restaurant with more than ~15 items. */}
+        <div className="mt-6">
+          <RestaurantHoursPanel restaurantId={id} />
+        </div>
+        <div id="rate" className="mt-3">
+          <RestaurantRatingPanel restaurantId={id} />
+        </div>
+
         {/* Daily Specials */}
         {specials.length > 0 && activeCategory === 'all' && (
           <div className="mt-6">
@@ -241,19 +252,9 @@ export default function MenuPage() {
           </div>
         )}
 
-        {/* Ratings — anchored after the menu so the cart CTA stays in
-            primary view but customers who scroll past the menu (looking
-            to rate, came from the WhatsApp prompt) land here. Honors
-            the #rate hash by auto-opening the rate modal. */}
+        {/* Report button stays at the bottom — least-frequently-used
+            action, doesn't compete with the rating panel up top. */}
         <div className="mt-8">
-          <RestaurantHoursPanel restaurantId={id} />
-        </div>
-
-        <div id="rate" className="mt-4">
-          <RestaurantRatingPanel restaurantId={id} />
-        </div>
-
-        <div className="mt-4">
           <ReportButton
             targetType="restaurant"
             targetId={id}
