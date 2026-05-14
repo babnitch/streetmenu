@@ -159,7 +159,18 @@ export default function OrderPage() {
       .eq('customer_id', me.id)
       .is('used_at', null)
       .then(({ data }) => {
-        if (data) setMyVouchers(data.filter(cv => cv.vouchers?.is_active))
+        if (!data) return
+        // Hide vouchers the server would reject anyway. Without the
+        // expires_at filter, an expired BIENVENUE chip stayed clickable
+        // and showed "Code expiré" only after the customer tapped it.
+        const now = Date.now()
+        setMyVouchers(data.filter(cv => {
+          const v = cv.vouchers
+          if (!v) return false
+          if (!v.is_active) return false
+          if (v.expires_at && new Date(v.expires_at).getTime() < now) return false
+          return true
+        }))
       })
   }, [me])
 

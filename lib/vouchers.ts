@@ -186,10 +186,16 @@ export async function validateVoucher(
 export async function assignWelcomeVoucher(customerId: string): Promise<void> {
   try {
     const { data: voucher } = await supabaseAdmin
-      .from('vouchers').select('id').eq('code', 'BIENVENUE')
+      .from('vouchers').select('id, expires_at').eq('code', 'BIENVENUE')
       .eq('is_active', true).maybeSingle()
     if (!voucher) {
       console.warn('[vouchers] BIENVENUE not found — seed supabase-vouchers-system.sql')
+      return
+    }
+    // Skip the auto-claim when the welcome voucher itself has expired so
+    // a stale BIENVENUE doesn't litter every new wallet.
+    if (voucher.expires_at && new Date(voucher.expires_at).getTime() < Date.now()) {
+      console.warn('[vouchers] BIENVENUE has expired — skipping auto-claim for', customerId)
       return
     }
     const { data: existing } = await supabaseAdmin
