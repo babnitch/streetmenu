@@ -583,8 +583,8 @@ export async function handleOrderCommand(
 
     if (!data || data.length === 0) {
       await sendWhatsApp(from,
-        `🎟 Aucune réservation. Envoyez "reserver XXXX" pour réserver un événement.\n` +
-        `No reservations. Send "book XXXX" to reserve an event.`)
+        `🎟 Aucune réservation. Envoyez "evenements" pour parcourir.\n` +
+        `No reservations. Send "events" to browse.`)
       return ok()
     }
     const statusLabel: Record<string, string> = {
@@ -596,7 +596,7 @@ export async function handleOrderCommand(
       paid:         '💰 Payé',
       pending:      '⏳ Paiement en attente',
       failed:       '❌ Paiement échoué',
-      not_required: '',
+      not_required: '📋 Gratuit',
     }
     const lines = data.map((r, i) => {
       const ev = r.events as unknown as { title: string; date: string; venue: string | null } | null
@@ -607,123 +607,218 @@ export async function handleOrderCommand(
       const stat  = statusLabel[r.reservation_status] ?? r.reservation_status
       return `${i + 1}. *${ev?.title ?? '—'}* (${dateStr})\n   🎟 ${r.quantity} place(s)${r.total_price > 0 ? ` · ${Number(r.total_price).toLocaleString()} FCFA` : ''}\n   ${stat}${pay ? ` · ${pay}` : ''}`
     })
-    await sendWhatsApp(from, `🎟 *Vos réservations / Your reservations:*\n\n${lines.join('\n\n')}`)
+
+    // Seed a reservations_browse session so "annuler reservation N" can
+    // resolve the list number back to the right id without a follow-up
+    // round-trip. 15-minute TTL — same as the spec.
+    await supabaseAdmin.from('signup_sessions').upsert({
+      phone, user_type: 'reservations_browse', step: 1,
+      data: { reservation_ids: data.map(d => d.id) },
+      expires_at: sessionExpiry(15),
+    })
+
+    await sendWhatsApp(from,
+      `🎟 *Vos réservations / Your reservations:*\n\n${lines.join('\n\n')}\n\n` +
+      `Envoyez "annuler reservation N" pour annuler / Send "cancel reservation N" to cancel`)
     return ok()
   }
 
-  // "reserver XXXX" / "book XXXX" — quick reservation for a free event the
-  // customer already knows the short code for. Paid events still require
-  // the web flow (PawaPay USSD), so payment_enabled=true events route the
-  // customer back to the event page instead.
-  const reserveMatch = cmd.match(/^(?:reserver|réserver|book|reserve)\s+([0-9a-f]{4})$/i)
-  if (reserveMatch) {
-    const code4 = reserveMatch[1].toLowerCase()
-    // Find an upcoming event whose id ends in code4.
-    const { data: candidates } = await supabaseAdmin
-      .from('events')
-      .select('id, title, date, time, venue, whatsapp, organizer_id, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status')
-      .eq('is_active', true)
-      .gte('date', new Date().toISOString().slice(0, 10))
-      .order('date', { ascending: true })
-      .limit(50)
-    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
-    if (!event) {
+  // "annuler reservation N" / "cancel reservation N" — resolves N to the
+  // id stored in the most-recent "mes reservations" listing.
+  const cancelResvMatch = cmd.match(/^(?:annuler|cancel)\s+(?:reservation|réservation)\s+(\d+)$/i)
+  if (cancelResvMatch) {
+    const n = parseInt(cancelResvMatch[1], 10)
+    const { data: sess } = await supabaseAdmin
+      .from('signup_sessions').select('data')
+      .eq('phone', phone).eq('user_type', 'reservations_browse')
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle()
+    const ids = (sess?.data as { reservation_ids?: string[] } | undefined)?.reservation_ids ?? []
+    if (!ids.length || n < 1 || n > ids.length) {
       await sendWhatsApp(from,
-        `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+        `❌ Aucune réservation #${n}. Envoyez "mes reservations" d'abord.\n` +
+        `No reservation #${n}. Send "my reservations" first.`)
       return ok()
     }
-    if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
-      await sendWhatsApp(from,
-        `❌ Événement clôturé. / Event closed.`)
-      return ok()
-    }
-    if (event.payment_enabled) {
-      await sendWhatsApp(from,
-        `💰 Cet événement nécessite un paiement en ligne. Réservez sur le site:\n` +
-        `This event requires online payment. Reserve on the site:\n` +
-        `${BASE_URL}/events/${event.id}`)
-      return ok()
-    }
-    // Capacity check.
-    const sold = Number(event.tickets_sold ?? 0)
-    if (event.max_tickets && event.max_tickets > 0 && sold + 1 > event.max_tickets) {
-      await sendWhatsApp(from, `🎟 Complet. / Sold out.`)
-      return ok()
-    }
-
-    const ticketPrice = Number(event.ticket_price ?? 0) || 0
-    const { data: reservation, error: insErr } = await supabaseAdmin
+    const resvId = ids[n - 1]
+    // Server-route call would be cleaner but we're already in the same
+    // process with service-role access. Inline the cancel logic so the
+    // organizer ping reuses sendWhatsApp.
+    const { data: r } = await supabaseAdmin
       .from('event_reservations')
-      .insert({
-        event_id:           event.id,
-        customer_id:        customer.id,
-        customer_name:      customer.name,
-        customer_phone:     customer.phone,
-        quantity:           1,
-        total_price:        ticketPrice,
-        payment_status:     'not_required',
-        reservation_status: 'confirmed',
-      })
-      .select('id')
-      .single()
-    if (insErr || !reservation) {
-      console.error('[ordering] reservation insert failed:', insErr?.message)
-      await sendWhatsApp(from, `⚠️ Erreur. / Error.`)
+      .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price')
+      .eq('id', resvId).maybeSingle()
+    if (!r || r.customer_id !== customer.id) {
+      await sendWhatsApp(from, `❌ Réservation introuvable / Reservation not found.`)
       return ok()
     }
-    await supabaseAdmin.from('events').update({ tickets_sold: sold + 1 }).eq('id', event.id)
+    if (r.reservation_status === 'cancelled') {
+      await sendWhatsApp(from, `Déjà annulée. / Already cancelled.`)
+      return ok()
+    }
+    const { data: ev } = await supabaseAdmin
+      .from('events').select('id, title, date, organizer_id, whatsapp, tickets_sold').eq('id', r.event_id).maybeSingle()
+    if (!ev) {
+      await sendWhatsApp(from, `❌ Événement introuvable / Event not found.`)
+      return ok()
+    }
+    const sold = Number(ev.tickets_sold ?? 0)
+    await Promise.all([
+      supabaseAdmin.from('event_reservations')
+        .update({ reservation_status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('id', r.id),
+      supabaseAdmin.from('events')
+        .update({ tickets_sold: Math.max(0, sold - Number(r.quantity ?? 0)) })
+        .eq('id', ev.id),
+    ])
     await writeAudit({
-      action:          'event_reservation_created',
+      action:          'event_reservation_cancelled',
       targetType:      'event_reservation',
-      targetId:        reservation.id,
+      targetId:        r.id,
       performedBy:     customer.id,
       performedByType: 'customer',
-      metadata: {
-        event_id:    event.id,
-        event_title: event.title,
-        quantity:    1,
-        total_price: ticketPrice,
-        paid:        false,
-        via:         'whatsapp',
-      },
+      previousData:    { reservation_status: r.reservation_status, payment_status: r.payment_status },
+      metadata:        { event_id: ev.id, quantity: r.quantity, needs_refund: r.payment_status === 'paid', via: 'whatsapp' },
     })
 
-    const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
-      day: '2-digit', month: 'long', year: 'numeric',
-    })
-    const priceLine = ticketPrice > 0
-      ? `\n💰 Paiement sur place: ${ticketPrice.toLocaleString()} FCFA / Pay at the door`
+    const refundLine = r.payment_status === 'paid'
+      ? `\n⚠️ Cette réservation a été payée. Contactez l'organisateur pour un remboursement.\n` +
+        `This reservation was paid. Contact the organizer for a refund.`
       : ''
-    await sendWhatsApp(from, [
-      `✅ *Réservation confirmée! / Reservation confirmed!*`,
-      ``,
-      `🎉 ${event.title}`,
-      `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
-      event.venue ? `📍 ${event.venue}` : '',
-      `🎟 1 place(s) / ticket(s)`,
-      priceLine,
-    ].filter(Boolean).join('\n'))
+    await sendWhatsApp(from, `✅ Réservation annulée. / Reservation cancelled.${refundLine}`)
 
-    // Organizer ping mirrors the /reserve API.
+    // Organizer ping — reuse the customer-cancel pathway from the API.
     let organizerPhone: string | null = null
-    if (event.organizer_id) {
-      const { data: o } = await supabaseAdmin
-        .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
+    if (ev.organizer_id) {
+      const { data: o } = await supabaseAdmin.from('customers').select('phone').eq('id', ev.organizer_id).maybeSingle()
       organizerPhone = o?.phone ?? null
     }
-    if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
+    if (!organizerPhone && ev.whatsapp) organizerPhone = ev.whatsapp
     if (organizerPhone) {
+      const dateStr = new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
       await sendWhatsApp(organizerPhone, [
-        `🎟 *Nouvelle réservation / New reservation*`,
+        `❌ *Réservation annulée / Reservation cancelled*`,
         ``,
-        `🎉 ${event.title}`,
+        `🎉 ${ev.title}`,
         `📅 ${dateStr}`,
-        `👤 ${customer.name}`,
-        `📱 ${customer.phone}`,
-        `🎟 1 place(s)`,
+        `👤 ${r.customer_name}`,
+        `📱 ${r.customer_phone}`,
+        `🎟 ${r.quantity} place(s)`,
       ].join('\n')).catch(() => null)
     }
     return ok()
+  }
+
+  // ── Event discovery ───────────────────────────────────────────────────────
+  // "evenements" / "events" → upcoming events in the customer's city. Seeds
+  // an event_browse session so the customer can pick by number.
+  if (cmd === 'evenements' || cmd === 'événements' || cmd === 'events') {
+    const today = new Date().toISOString().slice(0, 10)
+    // Prefer the customer's city; fall back to anywhere if their city has
+    // no upcoming events.
+    let { data: scoped } = await supabaseAdmin
+      .from('events')
+      .select('id, title, date, time, ticket_price, payment_enabled, city')
+      .eq('is_active', true).eq('city', customer.city)
+      .gte('date', today)
+      .order('date', { ascending: true }).limit(10)
+    let cityScope = customer.city
+    if (!scoped || scoped.length === 0) {
+      const { data: any } = await supabaseAdmin
+        .from('events')
+        .select('id, title, date, time, ticket_price, payment_enabled, city')
+        .eq('is_active', true)
+        .gte('date', today)
+        .order('date', { ascending: true }).limit(10)
+      scoped = any ?? []
+      cityScope = ''
+    }
+    if (!scoped || scoped.length === 0) {
+      await sendWhatsApp(from, `🎉 Aucun événement à venir. / No upcoming events.`)
+      return ok()
+    }
+    const header = cityScope
+      ? `🎉 *Événements à ${cityScope} / Events in ${cityScope}:*`
+      : `🎉 *Événements à venir / Upcoming events:*`
+    const lines = scoped.map((e, i) => {
+      const d = new Date(e.date).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' })
+      const price = !e.ticket_price || e.ticket_price <= 0
+        ? 'Gratuit / Free'
+        : `${Number(e.ticket_price).toLocaleString()} FCFA`
+      return `${i + 1}. *${e.title}* — ${d}${e.time ? ` · ${e.time}` : ''} — ${price}`
+    })
+
+    await supabaseAdmin.from('signup_sessions').upsert({
+      phone, user_type: 'event_browse', step: 1,
+      data: { event_ids: scoped.map(e => e.id) },
+      expires_at: sessionExpiry(15),
+    })
+
+    await sendWhatsApp(from,
+      `${header}\n\n${lines.join('\n')}\n\n` +
+      `Envoyez le numéro pour voir les détails / Send the number for details`)
+    return ok()
+  }
+
+  // "reservations XXXX" — organizer-side read-only listing by event short
+  // code. Mutation flows (mark attended, cancel event) stay on the web /
+  // account "Mes événements" tab; this is the WhatsApp-side quick view.
+  const reservationsMatch = cmd.match(/^reservations?\s+([0-9a-f]{4})$/i)
+  if (reservationsMatch) {
+    const code4 = reservationsMatch[1].toLowerCase()
+    // Constrain to events the caller organizes.
+    const { data: candidates } = await supabaseAdmin
+      .from('events').select('id, title, date, organizer_id, whatsapp')
+      .eq('organizer_id', customer.id).limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable parmi vos événements. / Event not found in your events.`)
+      return ok()
+    }
+    const { data: resvs } = await supabaseAdmin
+      .from('event_reservations')
+      .select('customer_name, customer_phone, quantity, payment_status, reservation_status')
+      .eq('event_id', event.id)
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (!resvs || resvs.length === 0) {
+      await sendWhatsApp(from, `📋 *${event.title}*\n\nAucune réservation pour le moment. / No reservations yet.`)
+      return ok()
+    }
+    const lines = resvs.map((r, i) => {
+      const pay = r.payment_status === 'paid' ? '💰 Payé'
+        : r.payment_status === 'pending' ? '⏳ En attente'
+        : r.payment_status === 'failed' ? '❌ Échec'
+        : '📋 Gratuit'
+      const stat = r.reservation_status === 'cancelled' ? ' · ❌ Annulée'
+        : r.reservation_status === 'attended' ? ' · 🎉 Participée'
+        : ''
+      return `${i + 1}. ${r.customer_name} — ${r.quantity} place(s) — ${pay}${stat}\n   📱 ${r.customer_phone}`
+    })
+    await sendWhatsApp(from,
+      `📋 *Réservations — ${event.title}:*\n\n${lines.join('\n\n')}\n\n` +
+      `Gérez les présences sur le site / Manage attendance on the site:\n${BASE_URL}/account?tab=events`)
+    return ok()
+  }
+
+  // "reserver XXXX" / "book XXXX" — shortcut for a known short code. Routes
+  // into the same multi-step flow as the browse → detail → reserver path so
+  // free + paid events take a consistent quantity prompt and (where
+  // payment_enabled) PawaPay USSD step.
+  const reserveMatch = cmd.match(/^(?:reserver|réserver|book|reserve)\s+([0-9a-f]{4})$/i)
+  if (reserveMatch) {
+    const code4 = reserveMatch[1].toLowerCase()
+    const { data: candidates } = await supabaseAdmin
+      .from('events').select('id, event_status, is_active, date')
+      .eq('is_active', true)
+      .gte('date', new Date().toISOString().slice(0, 10))
+      .order('date', { ascending: true }).limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      return ok()
+    }
+    return startReserveFlow(from, phone, event.id)
   }
 
   // "publier" / "publish" → deep-link to the in-app submission form. The
@@ -783,6 +878,409 @@ export async function handleOrderCommand(
   }
 
   return null
+}
+
+// ── Public: continue an in-progress event session ────────────────────────────
+// Drives the multi-step event browse + reserve conversational flow:
+//   event_browse        — customer just saw the list; "N" → switch to detail
+//   event_detail        — viewing one event; "reserver" → start reserve
+//   event_reserve s=1   — asked "how many"; "N" → free path inserts,
+//                         payment_enabled events ask for MoMo number (s=2)
+//   event_reserve s=2   — asked for MoMo number; "237..." → PawaPay deposit
+//                         (status polling lives in /api/payments/status)
+// "annuler" / "cancel" at any step clears the session and lets the user
+// fall back to the customer command dispatcher.
+export async function handleEventSession(
+  from: string,
+  phone: string,
+  cmd: string,
+  session: { user_type: string; step: number; data: Record<string, unknown> },
+  customer: OrderingCustomer,
+): Promise<NextResponse> {
+  const { user_type, step, data } = session
+
+  if (cmd === 'annuler' || cmd === 'cancel') {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, '❌ Annulé. / Cancelled.')
+    return ok()
+  }
+
+  // ── event_browse: customer typed a number from the list ──
+  if (user_type === 'event_browse') {
+    const n = parseInt(cmd, 10)
+    const ids = (data?.event_ids as string[] | undefined) ?? []
+    if (!Number.isFinite(n) || n < 1 || n > ids.length) {
+      await sendWhatsApp(from,
+        `Envoyez un numéro entre 1 et ${ids.length}, ou "annuler".\n` +
+        `Send a number between 1 and ${ids.length}, or "cancel".`)
+      return ok()
+    }
+    return showEventDetail(from, phone, ids[n - 1])
+  }
+
+  // ── event_detail: "reserver" / "back" / arbitrary number for a new pick ──
+  if (user_type === 'event_detail') {
+    const eventId = data?.event_id as string | undefined
+    if (cmd === 'reserver' || cmd === 'réserver' || cmd === 'reserve' || cmd === 'book') {
+      if (!eventId) {
+        await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+        await sendWhatsApp(from, 'Session expirée. Envoyez "evenements". / Session expired. Send "events".')
+        return ok()
+      }
+      return startReserveFlow(from, phone, eventId)
+    }
+    if (cmd === 'retour' || cmd === 'back') {
+      // The previous event_browse ids may have been overwritten; tell the
+      // user to re-list rather than re-fetching from a stale state.
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, 'Envoyez "evenements" pour la liste. / Send "events" for the list.')
+      return ok()
+    }
+    await sendWhatsApp(from,
+      `Envoyez "reserver" pour réserver, "retour" pour la liste, ou "annuler".\n` +
+      `Send "reserve" to book, "back" for the list, or "cancel".`)
+    return ok()
+  }
+
+  // ── event_reserve step 1: quantity ──
+  if (user_type === 'event_reserve' && step === 1) {
+    const q = parseInt(cmd, 10)
+    if (!Number.isFinite(q) || q < 1 || q > 10) {
+      await sendWhatsApp(from, `Envoyez un nombre entre 1 et 10, ou "annuler". / Send 1-10, or "cancel".`)
+      return ok()
+    }
+    const eventId       = data?.event_id as string | undefined
+    const eventTitle    = (data?.event_name as string) ?? ''
+    const ticketPrice   = Number(data?.ticket_price ?? 0)
+    const paymentEnabled = !!data?.payment_enabled
+    if (!eventId) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, 'Session expirée. / Session expired.')
+      return ok()
+    }
+
+    // Re-pull the event to verify capacity at submit time (the user may
+    // have been sitting on the prompt while others booked).
+    const { data: event } = await supabaseAdmin
+      .from('events')
+      .select('id, title, date, time, venue, organizer_id, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate, city')
+      .eq('id', eventId).maybeSingle()
+    if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, '❌ Événement clôturé. / Event closed.')
+      return ok()
+    }
+    const sold = Number(event.tickets_sold ?? 0)
+    if (event.max_tickets && event.max_tickets > 0 && sold + q > event.max_tickets) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, `❌ Plus que ${Math.max(0, event.max_tickets - sold)} places. / Only ${Math.max(0, event.max_tickets - sold)} spots left.`)
+      return ok()
+    }
+
+    const totalPrice = ticketPrice * q
+    const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
+    const commissionAmount = totalPrice > 0 ? Math.round(totalPrice * commissionRate) : 0
+
+    if (!paymentEnabled) {
+      // Free OR pay-at-door — insert the reservation immediately.
+      const { data: reservation, error: insErr } = await supabaseAdmin
+        .from('event_reservations')
+        .insert({
+          event_id:           event.id,
+          customer_id:        customer.id,
+          customer_name:      customer.name,
+          customer_phone:     customer.phone,
+          quantity:           q,
+          total_price:        totalPrice,
+          commission_amount:  commissionAmount,
+          payment_status:     'not_required',
+          reservation_status: 'confirmed',
+        })
+        .select('id').single()
+      if (insErr || !reservation) {
+        await sendWhatsApp(from, `⚠️ Erreur. / Error.`)
+        return ok()
+      }
+      await supabaseAdmin.from('events').update({ tickets_sold: sold + q }).eq('id', event.id)
+      await writeAudit({
+        action:          'event_reservation_created',
+        targetType:      'event_reservation',
+        targetId:        reservation.id,
+        performedBy:     customer.id,
+        performedByType: 'customer',
+        metadata:        { event_id: event.id, event_title: event.title, quantity: q, total_price: totalPrice, paid: false, via: 'whatsapp' },
+      })
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+
+      const dateStr = new Date(event.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      const payLine = ticketPrice > 0
+        ? `\n💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA / Pay at the door`
+        : ''
+      await sendWhatsApp(from, [
+        `✅ *Réservation confirmée! / Reservation confirmed!*`,
+        ``,
+        `🎉 ${event.title}`,
+        `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+        event.venue ? `📍 ${event.venue}` : '',
+        `🎟 ${q} place(s)`,
+        payLine,
+      ].filter(Boolean).join('\n'))
+
+      // Organizer ping.
+      await pingOrganizer(event, customer, q, totalPrice, dateStr)
+      return ok()
+    }
+
+    // Paid + payment_enabled — advance to step 2 and ask for MoMo number.
+    await supabaseAdmin.from('signup_sessions').upsert({
+      phone, user_type: 'event_reserve', step: 2,
+      data: { ...data, quantity: q, total_price: totalPrice, commission_amount: commissionAmount },
+      expires_at: sessionExpiry(15),
+    })
+    await sendWhatsApp(from,
+      `💰 ${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\n` +
+      `Envoyez votre numéro Mobile Money pour payer.\n` +
+      `Send your Mobile Money number to pay.\n\n` +
+      `Ex: 237670000000\n\n` +
+      `Ou "annuler" / Or "cancel"`)
+    return ok()
+    // eventTitle unused at this step — silence by referencing in the log on success.
+    void eventTitle
+  }
+
+  // ── event_reserve step 2: MoMo number ──
+  if (user_type === 'event_reserve' && step === 2) {
+    const eventId       = data?.event_id as string | undefined
+    const quantity      = Number(data?.quantity ?? 0)
+    const totalPrice    = Number(data?.total_price ?? 0)
+    const commissionAmount = Number(data?.commission_amount ?? 0)
+    if (!eventId || !quantity || !totalPrice) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, 'Session expirée. / Session expired.')
+      return ok()
+    }
+    const phoneNumber = cmd.replace(/[^\d+]/g, '')
+    if (!phoneNumber) {
+      await sendWhatsApp(from, 'Envoyez un numéro MoMo (ex: 237670000000). / Send a MoMo number.')
+      return ok()
+    }
+
+    const { data: event } = await supabaseAdmin
+      .from('events').select('id, title, city, organizer_id, whatsapp, tickets_sold, max_tickets').eq('id', eventId).maybeSingle()
+    if (!event) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, '❌ Événement introuvable. / Event not found.')
+      return ok()
+    }
+
+    const country = countryFromCity(event.city)
+    const mno = detectMNO(phoneNumber, country ?? undefined)
+    if (!mno) {
+      await sendWhatsApp(from,
+        `❌ Numéro non supporté. Réessayez avec un numéro MTN ou Orange avec l'indicatif pays.\n` +
+        `Unsupported number. Try an MTN or Orange number with country code.`)
+      return ok()
+    }
+
+    // Insert the pending reservation + bump tickets_sold (race window
+    // mirrors the API path; cleanup happens via the webhook on FAILED).
+    const sold = Number(event.tickets_sold ?? 0)
+    if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, '❌ Complet. / Sold out.')
+      return ok()
+    }
+    const { data: reservation, error: insErr } = await supabaseAdmin
+      .from('event_reservations')
+      .insert({
+        event_id:           event.id,
+        customer_id:        customer.id,
+        customer_name:      customer.name,
+        customer_phone:     customer.phone,
+        quantity,
+        total_price:        totalPrice,
+        commission_amount:  commissionAmount,
+        payment_status:     'pending',
+        reservation_status: 'confirmed',
+      }).select('id').single()
+    if (insErr || !reservation) {
+      await sendWhatsApp(from, `⚠️ Erreur. / Error.`)
+      return ok()
+    }
+    await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
+
+    let depositResult
+    try {
+      depositResult = await createDeposit({
+        amount:      totalPrice,
+        currency:    mno.currency,
+        phoneNumber,
+        orderId:     reservation.id,
+        description: `${event.title} ${reservation.id.slice(0, 6)}`,
+      })
+    } catch (e) {
+      const msg = (e as Error).message
+      await sendWhatsApp(from, `⚠️ PawaPay: ${msg}. Envoyez "annuler" et réessayez. / Try again.`)
+      return ok()
+    }
+    await supabaseAdmin
+      .from('event_reservations')
+      .update({ payment_id: depositResult.depositId, payment_method: depositResult.correspondent })
+      .eq('id', reservation.id)
+
+    await writeAudit({
+      action:          'event_payment_initiated',
+      targetType:      'event_reservation',
+      targetId:        reservation.id,
+      performedBy:     customer.id,
+      performedByType: 'customer',
+      metadata: {
+        event_id:      event.id,
+        deposit_id:    depositResult.depositId,
+        correspondent: depositResult.correspondent,
+        amount:        totalPrice,
+        currency:      mno.currency,
+        quantity,
+        via:           'whatsapp',
+      },
+    })
+
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from,
+      `📱 *Validez sur votre téléphone / Confirm on your phone*\n\n` +
+      `Un prompt PawaPay va apparaître. Confirmez avec votre code PIN.\n` +
+      `A PawaPay prompt will appear. Confirm with your PIN.\n\n` +
+      `Vous recevrez un message à la confirmation. / You'll get a message on confirmation.`)
+    return ok()
+  }
+
+  // Unknown event session shape — quietly clear it.
+  await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+  await sendWhatsApp(from, 'Session expirée. / Session expired.')
+  return ok()
+}
+
+// ── Internal helpers for the event flow ──────────────────────────────────────
+
+// Pulls a single event and shows the detail card. Pushes the event_detail
+// session so "reserver" without a code resolves to this event.
+async function showEventDetail(from: string, phone: string, eventId: string): Promise<NextResponse> {
+  const { data: event } = await supabaseAdmin
+    .from('events')
+    .select('id, title, date, time, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active')
+    .eq('id', eventId).maybeSingle()
+  if (!event || !event.is_active) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, `❌ Événement indisponible. / Event unavailable.`)
+    return ok()
+  }
+  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
+    weekday: 'short', day: '2-digit', month: 'long', year: 'numeric',
+  })
+  const venueLine = event.venue
+    ? `📍 ${event.venue}${event.neighborhood ? ', ' + event.neighborhood : ''}${event.city ? ' — ' + event.city : ''}`
+    : ''
+  const priceLine = !event.ticket_price || event.ticket_price <= 0
+    ? `🎫 Gratuit / Free`
+    : `🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / personne`
+  const remaining = event.max_tickets && event.max_tickets > 0
+    ? Math.max(0, event.max_tickets - Number(event.tickets_sold ?? 0))
+    : null
+  const capacityLine = remaining != null
+    ? `👥 ${remaining} ${remaining > 0 ? 'places restantes / spots remaining' : '— ❌ Complet / Sold out'}`
+    : ''
+  const tail = remaining === 0
+    ? `\n❌ Cet événement est complet.\nThis event is sold out.`
+    : `\nEnvoyez "reserver" pour réserver / Send "reserve" to book\n` +
+      `Envoyez "retour" pour la liste / Send "back" for the list`
+
+  await supabaseAdmin.from('signup_sessions').upsert({
+    phone, user_type: 'event_detail', step: 1,
+    data: { event_id: event.id, event_name: event.title },
+    expires_at: sessionExpiry(15),
+  })
+
+  await sendWhatsApp(from, [
+    `🎉 *${event.title}*`,
+    `📅 ${dateStr}${event.time ? ` — ${event.time}` : ''}`,
+    venueLine,
+    priceLine,
+    capacityLine,
+    event.whatsapp ? `📱 Contact: ${event.whatsapp}` : '',
+    tail,
+  ].filter(Boolean).join('\n'))
+  return ok()
+}
+
+// Verifies the event is bookable in-chat and either inserts the
+// reservation directly or kicks off the multi-step quantity prompt.
+async function startReserveFlow(from: string, phone: string, eventId: string): Promise<NextResponse> {
+  const { data: event } = await supabaseAdmin
+    .from('events')
+    .select('id, title, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status')
+    .eq('id', eventId).maybeSingle()
+  if (!event || !event.is_active) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, '❌ Événement indisponible. / Event unavailable.')
+    return ok()
+  }
+  if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
+    await sendWhatsApp(from, '❌ Événement clôturé. / Event closed.')
+    return ok()
+  }
+  const sold = Number(event.tickets_sold ?? 0)
+  const remaining = event.max_tickets && event.max_tickets > 0
+    ? Math.max(0, event.max_tickets - sold)
+    : Infinity
+  if (remaining === 0) {
+    await sendWhatsApp(from, '❌ Complet. / Sold out.')
+    return ok()
+  }
+
+  await supabaseAdmin.from('signup_sessions').upsert({
+    phone, user_type: 'event_reserve', step: 1,
+    data: {
+      event_id:        event.id,
+      event_name:      event.title,
+      ticket_price:    Number(event.ticket_price ?? 0),
+      payment_enabled: !!event.payment_enabled,
+    },
+    expires_at: sessionExpiry(15),
+  })
+  const cap = remaining === Infinity ? 10 : Math.min(10, remaining)
+  await sendWhatsApp(from,
+    `Combien de places? (1-${cap})\n` +
+    `How many spots? (1-${cap})\n\n` +
+    `Ou "annuler" / Or "cancel"`)
+  return ok()
+}
+
+// Organizer ping for free / pay-at-door reservations. Paid reservations
+// notify on the webhook → notifyPaidReservation path.
+async function pingOrganizer(
+  event:    { id: string; title: string; organizer_id: string | null; whatsapp: string | null },
+  customer: OrderingCustomer,
+  quantity: number,
+  total:    number,
+  dateStr:  string,
+): Promise<void> {
+  let organizerPhone: string | null = null
+  if (event.organizer_id) {
+    const { data: o } = await supabaseAdmin.from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
+    organizerPhone = o?.phone ?? null
+  }
+  if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
+  if (!organizerPhone) return
+  await sendWhatsApp(organizerPhone, [
+    `🔔 *Nouvelle réservation / New reservation!*`,
+    ``,
+    `🎉 ${event.title}`,
+    `📅 ${dateStr}`,
+    `👤 ${customer.name}`,
+    `📱 ${customer.phone}`,
+    `🎟 ${quantity} place(s)`,
+    total > 0 ? `💰 ${total.toLocaleString()} FCFA` : '',
+  ].filter(Boolean).join('\n')).catch(() => null)
 }
 
 // ── Public: continue an in-progress ordering session ─────────────────────────

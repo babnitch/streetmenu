@@ -5,6 +5,7 @@ import { writeAudit } from '@/lib/audit'
 import {
   handleOrderCommand,
   handleOrderingSession,
+  handleEventSession,
   handleVendorOrderAction,
   handlePaymentRetry,
   type OrderingCustomer,
@@ -360,10 +361,16 @@ export async function POST(req: NextRequest) {
     return ok()
   }
 
-  // Check for active session (onboarding or photo-update state)
+  // Check for active session (onboarding or photo-update state).
+  // reservations_browse is a transient list cursor that should NOT intercept
+  // routing — the cancel-by-number resolver looks it up explicitly inside
+  // handleCustomer / handleOrderCommand, and other commands (aide, mes
+  // bons, etc.) need to keep working while it's alive.
   const { data: session } = await supabaseAdmin
     .from('signup_sessions').select('*')
-    .eq('phone', phone).gt('expires_at', new Date().toISOString())
+    .eq('phone', phone)
+    .neq('user_type', 'reservations_browse')
+    .gt('expires_at', new Date().toISOString())
     .maybeSingle()
 
   if (session) {
@@ -577,6 +584,19 @@ async function handleSession(
       session as unknown as Parameters<typeof handleOrderingSession>[4],
       customer as OrderingCustomer,
     )
+  }
+
+  // ── Event browse / detail / reserve session ──────────────────────────────
+  if (user_type === 'event_browse' || user_type === 'event_detail' || user_type === 'event_reserve') {
+    const { data: customer } = await supabaseAdmin
+      .from('customers').select('id, name, phone, city')
+      .eq('phone', phone).maybeSingle()
+    if (!customer) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, '❌ Session expirée. Envoyez "aide". / Session expired.')
+      return ok()
+    }
+    return handleEventSession(from, phone, cmd, session as unknown as Parameters<typeof handleEventSession>[3], customer as OrderingCustomer)
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -1569,10 +1589,12 @@ async function handleCustomer(
       `💳 "payer" → Payer une commande / Pay an order\n` +
       `🎫 "mes bons" → Voir vos bons / View vouchers\n` +
       `🎫 "bon CODE" → Ajouter un bon / Claim a code\n` +
+      `🎉 "evenements" → Voir les événements / Browse events\n` +
       `🎟 "mes reservations" → Voir vos réservations / View reservations\n` +
       `🎟 "reserver XXXX" → Réserver un événement / Book an event\n` +
       `📢 "publier" → Publier un événement / Publish an event\n` +
       `📢 "mes evenements" → Voir vos événements publiés / View your events\n` +
+      `📋 "reservations XXXX" → Voir les réservations d'un événement / View event reservations\n` +
       `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
       `❓ "aide" → Ce message / This message\n\n` +
       `🌍 Parcourez / Browse: ${BASE_URL}\n` +
