@@ -34,12 +34,28 @@ export default function RestaurantRatingPanel({ restaurantId }: { restaurantId: 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  const [fetchError, setFetchError] = useState('')
+
   const fetchAgg = useCallback(async () => {
     setLoading(true)
+    setFetchError('')
     try {
       const res = await fetch(`/api/restaurants/${restaurantId}/rating`, { cache: 'no-store' })
       const data = await res.json()
+      console.log('[rating-panel] fetch', { restaurantId, status: res.status, data })
+      if (!res.ok) {
+        // Most common cause: supabase-reviews.sql hasn't been applied
+        // and the API 500s on the missing table. Keep the panel visible
+        // so the user knows the section exists, just with a hint.
+        setFetchError(data?.error ?? `HTTP ${res.status}`)
+        setAgg(null)
+        return
+      }
       setAgg(data as Aggregate)
+    } catch (e) {
+      console.error('[rating-panel] fetch threw:', (e as Error).message)
+      setFetchError((e as Error).message)
+      setAgg(null)
     } finally {
       setLoading(false)
     }
@@ -94,7 +110,28 @@ export default function RestaurantRatingPanel({ restaurantId }: { restaurantId: 
   if (loading) {
     return <div className="text-center py-6 text-ink-tertiary text-sm">…</div>
   }
-  if (!agg) return null
+  // Don't vanish silently on fetch errors. Common cause is the
+  // restaurant_ratings table not yet existing on the live DB (the
+  // supabase-reviews.sql migration hasn't been run). Render the
+  // section header + a hint so the surface is still discoverable.
+  if (!agg) {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm p-4">
+        <h2 className="text-base font-bold text-ink-primary mb-2">
+          ⭐ {bi('Avis', 'Ratings')}
+        </h2>
+        <p className="text-xs text-ink-tertiary">
+          {bi(
+            'Les avis seront bientôt disponibles.',
+            'Ratings will be available soon.',
+          )}
+        </p>
+        {fetchError && (
+          <p className="text-[10px] text-ink-tertiary mt-1 font-mono">debug: {fetchError}</p>
+        )}
+      </div>
+    )
+  }
 
   // Filter out tags from the visible chip set if their count is 0 — keeps
   // the "Top tags" line readable when only a couple of customers have rated.

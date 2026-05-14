@@ -58,26 +58,41 @@ export default function EventSocialPanel({ eventId }: { eventId: string }) {
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
       .then(r => r.json())
-      .then(d => { if (d?.user?.role === 'customer') setMe(d.user) })
-      .catch(() => null)
+      .then(d => {
+        console.log('[event-social] /api/auth/me →', d?.user ? `role=${d.user.role}` : 'no session')
+        if (d?.user?.role === 'customer') setMe(d.user)
+      })
+      .catch((e) => console.warn('[event-social] /api/auth/me failed:', e))
       .finally(() => setMeLoading(false))
   }, [])
 
-  // Initial likes + comments load.
+  // Initial likes + comments load. We log each side independently so a
+  // failure on one side (e.g. missing event_comments table) doesn't
+  // obscure the other in the console.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const [likesRes, commentsRes] = await Promise.all([
+        const [likesRes, commentsRes] = await Promise.allSettled([
           fetch(`/api/events/${eventId}/likes`,    { cache: 'no-store' }).then(r => r.json()),
           fetch(`/api/events/${eventId}/comments?limit=${PAGE_SIZE}`, { cache: 'no-store' }).then(r => r.json()),
         ])
         if (cancelled) return
-        setLikes(Number(likesRes?.count ?? 0))
-        setLiked(!!likesRes?.userLiked)
-        setComments(Array.isArray(commentsRes?.comments) ? commentsRes.comments : [])
-        setHasMore(!!commentsRes?.has_more)
-        setOffset(Array.isArray(commentsRes?.comments) ? commentsRes.comments.length : 0)
+        if (likesRes.status === 'fulfilled') {
+          console.log('[event-social] likes →', likesRes.value)
+          setLikes(Number(likesRes.value?.count ?? 0))
+          setLiked(!!likesRes.value?.userLiked)
+        } else {
+          console.warn('[event-social] likes fetch failed:', likesRes.reason)
+        }
+        if (commentsRes.status === 'fulfilled') {
+          const cs = Array.isArray(commentsRes.value?.comments) ? commentsRes.value.comments : []
+          setComments(cs)
+          setHasMore(!!commentsRes.value?.has_more)
+          setOffset(cs.length)
+        } else {
+          console.warn('[event-social] comments fetch failed:', commentsRes.reason)
+        }
       } finally {
         if (!cancelled) setLoadingComments(false)
       }
