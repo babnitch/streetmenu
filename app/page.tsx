@@ -12,6 +12,7 @@ import { Restaurant } from '@/types'
 import RestaurantSidebar from '@/components/RestaurantSidebar'
 import TopNav from '@/components/TopNav'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import { formatPrepTime } from '@/lib/prepTime'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
 import { useMode } from '@/lib/modeContext'
@@ -46,6 +47,7 @@ function RestaurantCard({
   const neighborhood = restaurant.neighborhood || restaurant.address
   const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
   const cuisine = restaurant.cuisine_type || restaurant.description
+  const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
   const initial = (restaurant.name?.[0] ?? '?').toUpperCase()
   const heroImage = restaurant.image_url || restaurant.logo_url
   const showImage = heroImage && !imgError
@@ -82,6 +84,11 @@ function RestaurantCard({
           {location && (
             <p className="text-sm text-brand-dark mt-0.5 line-clamp-1">
               {location}
+            </p>
+          )}
+          {prepLabel && (
+            <p className="text-xs text-ink-secondary mt-1">
+              🕐 {prepLabel}
             </p>
           )}
           {cuisine && (

@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem } from '@/types'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import { formatPrepTime } from '@/lib/prepTime'
 import TopNav from '@/components/TopNav'
 import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
 import RestaurantHoursPanel from '@/components/RestaurantHoursPanel'
@@ -215,6 +216,19 @@ export default function MenuPage() {
             visible immediately under the hero on long menus. Previously
             both lived after the menu and were past the fold on any
             restaurant with more than ~15 items. */}
+        {(() => {
+          const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
+          return prepLabel ? (
+            <div className="mt-6">
+              <div className="bg-white rounded-2xl p-4 shadow-sm">
+                <p className="text-sm text-ink-primary">
+                  🕐 <span className="font-semibold">{bi('Temps de préparation', 'Prep time')}:</span>{' '}
+                  {prepLabel}
+                </p>
+              </div>
+            </div>
+          ) : null
+        })()}
         <div className="mt-6">
           <RestaurantHoursPanel restaurantId={id} />
         </div>

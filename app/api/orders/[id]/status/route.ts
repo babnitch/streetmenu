@@ -119,10 +119,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 409 })
   }
 
-  // Apply the update
+  // Apply the update. confirmed_at / ready_at are stamped on the matching
+  // transition (Part 4 groundwork from supabase-prep-time.sql) so a future
+  // rolling-average "smart estimate" has actual_prep_time = ready_at -
+  // confirmed_at to work from. No calculation is built yet.
+  const now = new Date().toISOString()
+  const orderUpdate: Record<string, unknown> = { status: targetStatus, updated_at: now }
+  if (targetStatus === 'confirmed') orderUpdate.confirmed_at = now
+  if (targetStatus === 'ready')     orderUpdate.ready_at     = now
   const { error: updErr } = await supabaseAdmin
     .from('orders')
-    .update({ status: targetStatus, updated_at: new Date().toISOString() })
+    .update(orderUpdate)
     .eq('id', params.id)
 
   if (updErr) {

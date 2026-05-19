@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { notifyCustomerOrderPlaced } from '@/lib/whatsapp'
-import { notifyVendorsOfNewOrder } from '@/lib/whatsapp/ordering'
+import { notifyVendorsOfNewOrder, prepTimeLine } from '@/lib/whatsapp/ordering'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,6 +44,9 @@ export async function POST(req: NextRequest) {
     const items = (Array.isArray(order.items) ? order.items : []) as Array<{ name: string; quantity: number; price: number }>
     const total = Number(order.total_price)
     const trackingUrl = 'https://streetmenu.vercel.app/account'
+    // 🕐 for the customer-facing confirmation. '' when the vendor hasn't
+    // set a range — notifyCustomerOrderPlaced then omits the line.
+    const custPrepLine = await prepTimeLine(order.restaurant_id)
 
     const customerPromise = order.customer_phone
       ? notifyCustomerOrderPlaced(order.customer_phone, {
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
           items,
           total_price: total,
           created_at: order.created_at,
-        }, restaurant.name, trackingUrl)
+        }, restaurant.name, trackingUrl, custPrepLine)
       : Promise.resolve()
 
     const vendorPromise = notifyVendorsOfNewOrder(

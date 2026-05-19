@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
+import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import {
   handleOrderCommand,
   handleOrderingSession,
@@ -1014,6 +1015,10 @@ async function handleVendor(
           `🔴 "fermer" → Fermer manuellement / Manually close\n` +
           `↩️ "auto" → Suivre l'horaire / Follow schedule\n`
         : '') +
+      `⏱️ "temps" → Voir le temps de préparation / View prep time\n` +
+      ((isOwner || isManager)
+        ? `⏱️ "temps 20 35" → Définir le temps de préparation / Set prep time\n`
+        : '') +
       ownerCmds +
       `❓ "aide" → Ce message / This message`)
     return ok()
@@ -1122,6 +1127,75 @@ async function handleVendor(
       `🔴 "fermer" / "close" → Fermer manuellement\n` +
       `↩️ "auto" → Suivre l'horaire / Follow schedule`)
     return ok()
+  }
+
+  // ── PREP TIME ────────────────────────────────────────────────────────────
+  // "temps" / "preptime" → show the current range.
+  // "temps 20 35" / "preptime 20 35" → set min 20, max 35.
+  // Anyone on the team can read it; owner + manager can set it (same as
+  // the manual open/close override). Mirrors PATCH /api/restaurants/[id].
+  {
+    const prepView = /^(?:temps|preptime|prep)$/.test(cmd)
+    const prepSet  = cmd.match(/^(?:temps|preptime|prep)\s+(\d{1,3})\s+(\d{1,3})$/)
+    if (prepView || prepSet) {
+      if (prepView) {
+        const { data: r } = await supabaseAdmin
+          .from('restaurants').select('prep_time_min, prep_time_max')
+          .eq('id', restaurant.id).maybeSingle()
+        const label = formatPrepTime(r?.prep_time_min, r?.prep_time_max)
+        await sendWhatsApp(from,
+          `🕐 *Temps de préparation / Prep time — ${restaurant.name}*\n\n` +
+          (label
+            ? `Actuel / Current: *${label}*\n\n`
+            : `Aucun temps défini. / No prep time set.\n\n`) +
+          (isOwner || isManager
+            ? `Pour changer / To change:\n` +
+              `"temps 20 35" → min 20 min, max 35 min\n\n` +
+              `💡 La plupart des restaurants mettent ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min / ` +
+              `Most restaurants set ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min`
+            : `Seuls le propriétaire et le manager peuvent le modifier. / Only the owner and manager can change it.`))
+        return ok()
+      }
+      // Set path
+      if (!(isOwner || isManager)) {
+        await sendWhatsApp(from,
+          `Vous n'avez pas la permission de modifier le temps de préparation. / You don't have permission.`)
+        return ok()
+      }
+      const v = validatePrepTime(Number(prepSet![1]), Number(prepSet![2]))
+      if (!v.ok) {
+        await sendWhatsApp(from,
+          `❌ ${v.error}\n\n` +
+          `Format: "temps 20 35" (min ≥ 5, max ≤ 120, min < max)`)
+        return ok()
+      }
+      const { data: before } = await supabaseAdmin
+        .from('restaurants').select('prep_time_min, prep_time_max')
+        .eq('id', restaurant.id).maybeSingle()
+      const { error } = await supabaseAdmin
+        .from('restaurants')
+        .update({ prep_time_min: v.min, prep_time_max: v.max })
+        .eq('id', restaurant.id)
+      if (error) {
+        await sendWhatsApp(from, `⚠️ Erreur: ${error.message} / Error.`)
+        return ok()
+      }
+      await writeAudit({
+        action:          'prep_time_updated',
+        targetType:      'restaurant',
+        targetId:        restaurant.id,
+        performedBy:     null,
+        performedByType: 'vendor',
+        previousData:    { prep_time_min: before?.prep_time_min, prep_time_max: before?.prep_time_max },
+        metadata:        { prep_time_min: v.min, prep_time_max: v.max, via: 'whatsapp' },
+      })
+      await sendWhatsApp(from,
+        `✅ *Temps de préparation mis à jour / Prep time updated*\n` +
+        `${restaurant.name}\n\n` +
+        `🕐 ${v.min}-${v.max} min\n\n` +
+        `Affiché aux clients. / Shown to customers.`)
+      return ok()
+    }
   }
 
   // ── TEAM MANAGEMENT (owner only) ─────────────────────────────────────────

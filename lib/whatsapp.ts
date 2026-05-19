@@ -83,6 +83,10 @@ export async function notifyCustomerOrderPlaced(
   order: OrderPayload,
   restaurantName: string,
   trackingUrl: string,
+  // Pre-formatted bilingual estimate, e.g.
+  // "🕐 Temps estimé / Estimated time: 20-35 min". '' (default) when the
+  // restaurant hasn't set a range — the line is then omitted entirely.
+  prepLine = '',
 ): Promise<void> {
   const id4 = last4(order.id)
   const items = Array.isArray(order.items) ? order.items : []
@@ -98,6 +102,7 @@ export async function notifyCustomerOrderPlaced(
     itemLines,
     ``,
     `💰 *Total: ${Number(order.total_price).toLocaleString()} FCFA*`,
+    ...(prepLine ? [``, prepLine] : []),
     ``,
     `Le restaurant a été notifié et prépare votre commande!`,
     `The restaurant has been notified and is preparing your order!`,

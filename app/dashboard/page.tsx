@@ -10,6 +10,12 @@ import { supabase } from '@/lib/supabase'
 import { Restaurant, MenuItem, Order } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import { isPercentDiscount } from '@/lib/vouchers'
+import {
+  validatePrepTime,
+  formatPrepTime,
+  PREP_TIME_DEFAULT_MIN,
+  PREP_TIME_DEFAULT_MAX,
+} from '@/lib/prepTime'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import TopNav from '@/components/TopNav'
 import PaymentBadge from '@/components/PaymentBadge'
@@ -864,6 +870,13 @@ export default function DashboardPage() {
           {tab === 'settings' && effectiveRole === 'owner' && (
             <div className="space-y-3">
               <OpeningHoursPanel restaurant={selectedRestaurant} />
+              <PrepTimePanel
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  setSelectedRestaurant(updated)
+                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                }}
+              />
               <PaymentSettingsPanel
                 restaurant={selectedRestaurant}
                 onChange={updated => {
@@ -874,7 +887,16 @@ export default function DashboardPage() {
             </div>
           )}
           {tab === 'settings' && (effectiveRole === 'manager' || effectiveRole === 'admin') && (
-            <OpeningHoursPanel restaurant={selectedRestaurant} />
+            <div className="space-y-3">
+              <OpeningHoursPanel restaurant={selectedRestaurant} />
+              <PrepTimePanel
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  setSelectedRestaurant(updated)
+                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                }}
+              />
+            </div>
           )}
           {tab === 'settings' && effectiveRole !== 'owner' && (
             <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
@@ -1417,6 +1439,128 @@ function PaymentSettingsPanel({
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Prep time panel ──────────────────────────────────────────────────────────
+// Owner/manager editor for the estimated preparation range surfaced on
+// cards, the detail page and order confirmations. Validated client-side
+// with the same shared rules the API enforces (min ≥ 5, max ≤ 120,
+// min < max) so the vendor gets instant feedback before the round-trip.
+function PrepTimePanel({
+  restaurant,
+  onChange,
+}: {
+  restaurant: Restaurant
+  onChange: (next: Restaurant) => void
+}) {
+  const bi = useBi()
+  const [min, setMin] = useState(
+    restaurant.prep_time_min != null ? String(restaurant.prep_time_min) : '',
+  )
+  const [max, setMax] = useState(
+    restaurant.prep_time_max != null ? String(restaurant.prep_time_max) : '',
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [savedFlash, setSavedFlash] = useState(false)
+
+  const currentLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
+
+  async function save() {
+    const v = validatePrepTime(Number(min), Number(max))
+    if (!v.ok) { setError(v.error ?? bi('Valeurs invalides', 'Invalid values')); return }
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/restaurants/${restaurant.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prep_time_min: v.min, prep_time_max: v.max }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? bi('Erreur', 'Error')); return }
+      onChange({ ...restaurant, prep_time_min: v.min!, prep_time_max: v.max! })
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2000)
+    } catch {
+      setError(bi('Erreur réseau', 'Network error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-5">
+      <h2 className="text-lg font-bold text-ink-primary mb-1">
+        🕐 {bi('Temps de préparation', 'Prep time')}
+      </h2>
+      <p className="text-xs text-ink-tertiary mb-4">
+        {bi(
+          'Affiché aux clients sur les fiches restaurant et les confirmations de commande.',
+          'Shown to customers on restaurant cards and order confirmations.',
+        )}
+        {currentLabel && (
+          <span className="block mt-1 text-ink-secondary font-semibold">
+            {bi('Actuel', 'Current')}: {currentLabel}
+          </span>
+        )}
+      </p>
+
+      <div className="flex items-end gap-3 mb-3 flex-wrap">
+        <div>
+          <label className="block text-xs font-semibold text-ink-secondary mb-1">
+            {bi('Min (minutes)', 'Min (minutes)')}
+          </label>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={5}
+            max={120}
+            value={min}
+            onChange={e => setMin(e.target.value)}
+            placeholder={String(PREP_TIME_DEFAULT_MIN)}
+            className="w-24 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-surface"
+          />
+        </div>
+        <span className="pb-2 text-ink-tertiary">→</span>
+        <div>
+          <label className="block text-xs font-semibold text-ink-secondary mb-1">
+            {bi('Max (minutes)', 'Max (minutes)')}
+          </label>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={5}
+            max={120}
+            value={max}
+            onChange={e => setMax(e.target.value)}
+            placeholder={String(PREP_TIME_DEFAULT_MAX)}
+            className="w-24 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-surface"
+          />
+        </div>
+      </div>
+
+      <p className="text-xs text-ink-tertiary mb-4">
+        💡 {bi(
+          `La plupart des restaurants mettent ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min`,
+          `Most restaurants set ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min`,
+        )}
+      </p>
+
+      {error && <p className="text-xs text-danger mb-3">{error}</p>}
+      {savedFlash && (
+        <p className="text-xs text-brand-darker mb-3">✓ {bi('Enregistré', 'Saved')}</p>
+      )}
+
+      <button
+        onClick={save}
+        disabled={saving}
+        className="w-full bg-brand hover:bg-brand-dark text-white py-2.5 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
+      >
+        {saving ? '…' : bi('Enregistrer', 'Save')}
+      </button>
     </div>
   )
 }

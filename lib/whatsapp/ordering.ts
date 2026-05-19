@@ -14,6 +14,25 @@ import {
 } from '@/lib/whatsapp'
 import { validateVoucher, consumeVoucherForOrder, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
+import { formatPrepTime } from '@/lib/prepTime'
+
+// Reads the restaurant's estimated prep range and formats a bilingual
+// WhatsApp line like "🕐 Temps estimé / Estimated time: 20-35 min", or ''
+// when the vendor hasn't set one. The leading emoji is caller-supplied so
+// the vendor ping can use ⏱️ while customer messages use 🕐. Shared so
+// both sides stay consistent.
+export async function prepTimeLine(
+  restaurantId: string,
+  emoji = '🕐',
+): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from('restaurants')
+    .select('prep_time_min, prep_time_max')
+    .eq('id', restaurantId)
+    .maybeSingle()
+  const label = formatPrepTime(data?.prep_time_min, data?.prep_time_max)
+  return label ? `${emoji} Temps estimé / Estimated time: ${label}` : ''
+}
 
 // ── TwiML ack ────────────────────────────────────────────────────────────────
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
@@ -239,6 +258,8 @@ export async function notifyVendorsOfNewOrder(
   }
 
   const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} (${(i.quantity * i.price).toLocaleString()} FCFA)`).join('\n')
+  // ⏱️ for the vendor — a reminder of the window they committed to.
+  const prepLine = await prepTimeLine(restaurantId, '⏱️')
   const msg = [
     `🔔 *NOUVELLE COMMANDE / NEW ORDER!*`,
     `━━━━━━━━━━━━━━━━━━`,
@@ -252,6 +273,7 @@ export async function notifyVendorsOfNewOrder(
     itemLines,
     ``,
     `💰 *Total: ${total.toLocaleString()} FCFA*`,
+    ...(prepLine ? [``, prepLine] : []),
     ``,
     `━━━━━━━━━━━━━━━━━━`,
     `Répondez "ok ${id4}" pour confirmer / Reply "ok ${id4}" to confirm`,
@@ -1577,6 +1599,8 @@ export async function handleOrderingSession(
         confirmLines.push(`🏷️ ${data.voucher_code} (−${discount.toLocaleString()} FCFA)`)
       }
       confirmLines.push(`💰 Total: ${total.toLocaleString()} FCFA`)
+      const custPrepLine = await prepTimeLine(data.restaurant_id)
+      if (custPrepLine) confirmLines.push(custPrepLine)
       confirmLines.push(``, `Le restaurant a été notifié. Vous recevrez un message quand votre commande sera prête!`)
       confirmLines.push(`The restaurant has been notified. You'll receive a message when your order is ready!`)
       await sendWhatsApp(from, confirmLines.join('\n'))

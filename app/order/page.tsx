@@ -10,6 +10,7 @@ import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { supabase } from '@/lib/supabase'
 import { isPercentDiscount } from '@/lib/vouchers'
+import { formatPrepTime } from '@/lib/prepTime'
 import TopNav from '@/components/TopNav'
 import { Voucher, CustomerVoucher } from '@/types'
 
@@ -140,6 +141,8 @@ export default function OrderPage() {
   // submit button can branch on all three at render time.
   const [openWhenClosed, setOpenWhenClosed] = useState(true)
   const [restaurantOpen, setRestaurantOpen] = useState<boolean | null>(null)
+  // "20-35 min" for the success screen, or null when unset (badge hidden).
+  const [prepLabel, setPrepLabel] = useState<string | null>(null)
   useEffect(() => {
     if (!restaurantId) return
     let cancelled = false
@@ -147,7 +150,7 @@ export default function OrderPage() {
       const [{ data }, status] = await Promise.all([
         supabase
           .from('restaurants')
-          .select('payment_enabled, allow_orders_when_closed')
+          .select('payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max')
           .eq('id', restaurantId).maybeSingle(),
         fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.json())
@@ -155,6 +158,7 @@ export default function OrderPage() {
       ])
       if (cancelled) return
       setPaymentEnabled(Boolean(data?.payment_enabled))
+      setPrepLabel(formatPrepTime(data?.prep_time_min, data?.prep_time_max))
       // Default TRUE matches the column default — a missing row should
       // never silently disable orders.
       setOpenWhenClosed(data?.allow_orders_when_closed !== false)
@@ -455,8 +459,14 @@ export default function OrderPage() {
               : bi('Le restaurant vous contactera pour confirmer.', 'The restaurant will contact you to confirm.')}
           </p>
           {orderId && (
-            <p className="text-xs text-ink-tertiary mb-6 font-mono">
+            <p className="text-xs text-ink-tertiary mb-3 font-mono">
               Order #{orderId.slice(0, 8).toUpperCase()}
+            </p>
+          )}
+          {prepLabel && (
+            <p className="text-sm text-ink-primary mb-6">
+              🕐 <span className="font-semibold">{bi('Temps estimé', 'Estimated time')}:</span>{' '}
+              {prepLabel}
             </p>
           )}
           {!wasPaid && (

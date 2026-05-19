@@ -30,6 +30,10 @@ export interface Restaurant {
   manual_override_at?: string | null
   timezone?: string
   allow_orders_when_closed?: boolean
+  // Estimated prep range (added via supabase-prep-time.sql). Both null
+  // until the vendor sets one; the seed migration backfills 20/35.
+  prep_time_min?: number | null
+  prep_time_max?: number | null
 }
 
 export interface MenuItem {
@@ -67,6 +71,11 @@ export interface Order {
   payment_amount?: number | null
   payment_at?: string | null
   manual_payment_phone?: string | null
+  // Kitchen timing groundwork (added via supabase-prep-time.sql). Set by
+  // /api/orders/[id]/status so a future rolling-average "smart estimate"
+  // has historical data — no calculation is built yet.
+  confirmed_at?: string | null
+  ready_at?: string | null
 }
 
 export interface Voucher {
