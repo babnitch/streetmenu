@@ -12,8 +12,13 @@ import TopNav from '@/components/TopNav'
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
 
 const CATEGORIES = [
-  'Music', 'Food', 'Sport', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
+  'Music', 'Food', 'Sport', 'Enfants', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
 ]
+
+// Same emoji-prefix-on-render convention as app/events/page.tsx.
+function categoryLabel(cat: string): string {
+  return cat === 'Enfants' ? '👶 Enfants' : cat
+}
 
 
 interface SessionUser { id: string; name: string; phone: string; role: string }
@@ -274,7 +279,7 @@ export default function SubmitEventPage() {
             <Field label={t('evt.catLbl')}>
               <select className={INPUT} value={form.category} onChange={e => set('category', e.target.value)}>
                 <option value="">{t('evt.catPh')}</option>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
               </select>
             </Field>
             <Field label={t('evt.priceLbl')}>

@@ -24,8 +24,16 @@ const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> =
 }
 
 const CATEGORIES = [
-  'Music', 'Food', 'Sport', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
+  'Music', 'Food', 'Sport', 'Enfants', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
 ]
+
+// Display label for a category. We keep the stored value bare ("Enfants") so
+// filtering by exact match still works, and add the 👶 emoji only at render
+// time. Other categories aren't emoji-prefixed today — kept that way to
+// avoid the visual churn of restyling the whole pill row.
+function categoryLabel(cat: string): string {
+  return cat === 'Enfants' ? '👶 Enfants' : cat
+}
 
 function EventCard({ event, viewLabel, freeLabel, likes }: { event: Event; viewLabel: string; freeLabel: string; likes?: number }) {
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
@@ -47,7 +55,7 @@ function EventCard({ event, viewLabel, freeLabel, likes }: { event: Event; viewL
           <div className="absolute inset-0 flex items-center justify-center text-5xl">🎉</div>
         )}
         <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
-          {event.category}
+          {categoryLabel(event.category)}
         </span>
         {event.price === null || event.price === 0 ? (
           <span className="absolute top-2 right-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
@@ -188,7 +196,7 @@ export default function EventsPage() {
                   : 'bg-surface-muted text-ink-secondary hover:bg-divider'
               }`}
             >
-              {cat}
+              {categoryLabel(cat)}
             </button>
           ))}
         </div>

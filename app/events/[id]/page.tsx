@@ -249,7 +249,7 @@ export default function EventDetailPage() {
 
         <div className="absolute bottom-4 left-4 right-4 z-10">
           <span className="inline-block bg-brand text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
-            {event.category}
+            {event.category === 'Enfants' ? '👶 Enfants' : event.category}
           </span>
           <h1 className="text-white text-2xl font-bold leading-tight drop-shadow-lg">
             {event.title}

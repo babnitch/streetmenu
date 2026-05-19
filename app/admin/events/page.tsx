@@ -269,7 +269,7 @@ function EventRow({
               </p>
             </div>
             <span className="flex-shrink-0 text-xs bg-surface-muted text-ink-secondary px-2 py-0.5 rounded-full">
-              {event.category}
+              {event.category === 'Enfants' ? '👶 Enfants' : event.category}
             </span>
           </div>
 
