@@ -7,7 +7,7 @@ import { getCountryFromCity } from '@/lib/phoneValidation'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
 const CATEGORIES = [
-  'Music', 'Food', 'Sport', 'Enfants', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
+  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ] as const
 const TITLE_MAX = 100
 const MESSAGE_MAX = 1000

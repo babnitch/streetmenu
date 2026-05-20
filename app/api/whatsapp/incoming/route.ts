@@ -1866,23 +1866,27 @@ async function handleCustomer(
 // Returns NextResponse when handled, null otherwise so the caller falls
 // through to the rest of the customer command tree.
 const SUB_KEYWORD_TO_CATEGORY: Record<string, string> = {
-  // Music / Concert
-  'music':    'Music',   'musique':  'Music',
-  'concert':  'Music',   'concerts': 'Music',
-  // Food
-  'food':     'Food',    'cuisine':  'Food',  'gastronomie': 'Food',
+  // Concert (legacy "Music" + "Concert" both land here now)
+  'concert':  'Concert', 'concerts': 'Concert',
+  'music':    'Concert', 'musique':  'Concert',
+  // Festival (legacy "Nightlife" → "Festival")
+  'festival': 'Festival', 'festivals': 'Festival',
+  'nightlife':'Festival', 'nuit':     'Festival',
+  // BT/Club (merged)
+  'bt':       'BT/Club', 'club':     'BT/Club', 'clubs': 'BT/Club',
+  'bricolage':'BT/Club',
   // Sport
   'sport':    'Sport',   'sports':   'Sport',
+  // Culture (legacy "Art" → "Culture")
+  'culture':  'Culture', 'cultures': 'Culture',
+  'art':      'Culture', 'arts':     'Culture',
+  // Gastronomie (legacy "Food" → "Gastronomie")
+  'gastronomie': 'Gastronomie',
+  'food':     'Gastronomie', 'cuisine': 'Gastronomie',
   // Kids
   'enfants':  'Enfants', 'enfant':   'Enfants', 'kids': 'Enfants',
-  // Art
-  'art':      'Art',     'arts':     'Art',
-  // Nightlife
-  'nightlife':'Nightlife','nuit':    'Nightlife', 'club': 'Nightlife',
   // Business
   'business': 'Business','affaires': 'Business',
-  // Bricolage/Club
-  'bt':       'BT / Club', 'bricolage': 'BT / Club',
   // Other
   'autre':    'Autre',   'other':    'Autre',
 }

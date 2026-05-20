@@ -10,7 +10,7 @@ import { sendWhatsApp } from '@/lib/whatsapp'
 
 export const SUBSCRIPTION_CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
 export const EVENT_CATEGORIES = [
-  'Music', 'Food', 'Sport', 'Enfants', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
+  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ] as const
 
 // Twilio's published WhatsApp rate is ~1 msg/sec on shared-sender, much

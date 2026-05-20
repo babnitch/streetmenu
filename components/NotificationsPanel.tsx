@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
 
 const CATEGORIES = [
-  'Music', 'Food', 'Sport', 'Enfants', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
+  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ] as const
 
 function categoryLabel(cat: string): string {

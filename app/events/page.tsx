@@ -24,7 +24,7 @@ const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> =
 }
 
 const CATEGORIES = [
-  'Music', 'Food', 'Sport', 'Enfants', 'Art', 'Nightlife', 'Business', 'BT / Club', 'Autre',
+  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ]
 
 // Display label for a category. We keep the stored value bare ("Enfants") so
