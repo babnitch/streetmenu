@@ -152,7 +152,7 @@ export async function notifyPaidReservation(
   // ── Organizer ping ─────────────────────────────────────────────────────────
   // Organizer customer account wins; fall back to events.whatsapp. Unlike
   // restaurants we don't have a "team" of organizers — a single inbox is
-  // the right shape for the way Ndjoka & Tchop runs events today.
+  // the right shape for the way Tchop & Ndjoka runs events today.
   let organizerPhone: string | null = null
   if (event.organizer_id) {
     const { data: o } = await supabaseAdmin

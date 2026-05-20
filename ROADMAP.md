@@ -1,4 +1,4 @@
-# 🗺️ Ndjoka & Tchop — Project Roadmap
+# 🗺️ Tchop & Ndjoka — Project Roadmap
 
 **Last updated:** May 14, 2026
 **Status:** MVP Live — Pre-Launch Phase

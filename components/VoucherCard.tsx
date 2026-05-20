@@ -118,8 +118,8 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-center gap-2 mb-5">
-              <span className="bg-brand text-white font-black text-sm px-2 py-1 rounded-lg tracking-tight">NT</span>
-              <span className="font-bold text-ink-primary">Ndjoka &amp; Tchop</span>
+              <span className="bg-brand text-white font-black text-sm px-2 py-1 rounded-lg tracking-tight">TN</span>
+              <span className="font-bold text-ink-primary">Tchop &amp; Ndjoka</span>
             </div>
 
             <div className="bg-brand text-white rounded-2xl py-4 mb-4">

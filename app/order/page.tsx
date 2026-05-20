@@ -758,7 +758,7 @@ export default function OrderPage() {
               <div className="px-4 py-3 bg-brand-light border-b border-divider">
                 <p className="text-sm font-semibold text-ink-primary">👋 Bonjour {me.name}!</p>
                 <p className="text-xs text-ink-secondary mt-0.5">
-                  Hello {me.name}! <span className="text-ink-tertiary">— Ndjoka &amp; Tchop</span>
+                  Hello {me.name}! <span className="text-ink-tertiary">— Tchop &amp; Ndjoka</span>
                 </p>
               </div>
               <div className="px-4 py-3">

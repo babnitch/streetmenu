@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
   // already succeeded by this point.
   if (submitter.phone) {
     const msg = autoApprove
-      ? `✅ *Événement publié! / Event published!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Ndjoka & Tchop. / Live immediately on Ndjoka & Tchop.`
+      ? `✅ *Événement publié! / Event published!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Tchop & Ndjoka. / Live immediately on Tchop & Ndjoka.`
       : `✅ *Événement soumis! / Event submitted!*\n\n🎉 ${event.title}\n\nIl sera visible après approbation par un admin. / It will be visible after admin approval.`
     await sendWhatsApp(submitter.phone, msg).catch(() => null)
   }

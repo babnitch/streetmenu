@@ -145,8 +145,8 @@ export default function JoinPage() {
       <div className="bg-surface border-b border-divider sticky top-0 z-10">
         <div className="max-w-xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
-            <span className="font-bold text-ink-primary text-base">Ndjoka &amp; Tchop</span>
+            <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">TN</span>
+            <span className="font-bold text-ink-primary text-base">Tchop &amp; Ndjoka</span>
           </Link>
           <div className="flex items-center gap-3">
             <LanguageToggle />

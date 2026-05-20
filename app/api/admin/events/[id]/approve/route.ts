@@ -77,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
       if (organizer.phone) {
         await sendWhatsApp(organizer.phone,
-          `✅ *Événement approuvé! / Event approved!*\n\n🎉 ${event.title}\n\nVisible sur Ndjoka & Tchop. / Live on Ndjoka & Tchop.`,
+          `✅ *Événement approuvé! / Event approved!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka. / Live on Tchop & Ndjoka.`,
         ).catch(() => null)
       }
     }

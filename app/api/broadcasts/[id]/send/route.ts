@@ -74,7 +74,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const message = formatBroadcastMessage({
     title:       broadcast.title,
     message:     broadcast.message,
-    sender_name: sender?.name ?? 'Ndjoka & Tchop',
+    sender_name: sender?.name ?? 'Tchop & Ndjoka',
     restaurant_name: restaurantName,
     sender_type: broadcast.sender_type as 'publisher' | 'restaurant',
   })

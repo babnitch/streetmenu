@@ -493,7 +493,7 @@ export async function POST(req: NextRequest) {
     phone, user_type: 'customer', step: 1, data: {}, expires_at: sessionExpiry(),
   })
   await sendWhatsApp(from,
-    '👋 Bienvenue sur *Ndjoka & Tchop*!\n' +
+    '👋 Bienvenue sur *Tchop & Ndjoka*!\n' +
     'Inscrivez-vous en 2 étapes. / Welcome! Sign up in 2 steps.\n\n' +
     'Quel est votre *nom*? / What is your *name*?\n\n' +
     '_Envoyez "annuler" pour annuler. / Send "cancel" to cancel._')
@@ -983,7 +983,7 @@ async function handleVendor(
       : ''
 
     await sendWhatsApp(from,
-      `🍽️ *Ndjoka & Tchop — ${restaurant.name}*\n` +
+      `🍽️ *Tchop & Ndjoka — ${restaurant.name}*\n` +
       `Rôle / Role: ${teamRole}\n\n` +
       `📋 *Commandes disponibles / Available commands:*\n\n` +
       (canEditMenu
@@ -1328,10 +1328,10 @@ async function handleVendor(
     })
 
     await sendWhatsApp(memberPhone,
-      `👋 *${ownerCustomer?.name ?? 'Quelqu\'un'}* vous invite comme *${memberRole}* chez *${restaurant.name}* sur Ndjoka & Tchop!\n\n` +
+      `👋 *${ownerCustomer?.name ?? 'Quelqu\'un'}* vous invite comme *${memberRole}* chez *${restaurant.name}* sur Tchop & Ndjoka!\n\n` +
       `Envoyez *accepter* pour rejoindre. Vous serez inscrit automatiquement.\n` +
       `Envoyez *refuser* pour décliner.\n\n` +
-      `*${ownerCustomer?.name ?? 'Someone'}* invites you as *${memberRole}* at *${restaurant.name}* on Ndjoka & Tchop!\n` +
+      `*${ownerCustomer?.name ?? 'Someone'}* invites you as *${memberRole}* at *${restaurant.name}* on Tchop & Ndjoka!\n` +
       `Send *accept* to join — you'll be registered automatically.\n` +
       `Send *decline* to decline.`)
 

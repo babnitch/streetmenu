@@ -53,8 +53,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href="/" className="flex items-center gap-2">
-              <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">NT</span>
-              <span className="font-bold text-ink-primary text-base hidden sm:inline">Ndjoka &amp; Tchop</span>
+              <span className="bg-brand text-white font-black text-xs px-1.5 py-1 rounded-lg tracking-tight leading-none">TN</span>
+              <span className="font-bold text-ink-primary text-base hidden sm:inline">Tchop &amp; Ndjoka</span>
             </Link>
             <div className="flex items-center gap-1">
               <NavLink href="/admin/restaurants" active={pathname.startsWith('/admin/restaurants')}>

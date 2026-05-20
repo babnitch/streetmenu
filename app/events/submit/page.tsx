@@ -178,8 +178,8 @@ export default function SubmitEventPage() {
         <p className="text-ink-secondary text-sm mb-6 max-w-xs">
           {autoApproved
             ? bi(
-                'Visible immédiatement sur Ndjoka & Tchop.',
-                'Live immediately on Ndjoka & Tchop.',
+                'Visible immédiatement sur Tchop & Ndjoka.',
+                'Live immediately on Tchop & Ndjoka.',
               )
             : bi(
                 'Il sera visible après approbation par un admin.',
@@ -313,8 +313,8 @@ export default function SubmitEventPage() {
             <Field label={bi('Réservations', 'Reservations')}>
               <div className="text-xs text-ink-tertiary pt-2">
                 {bi(
-                  'Les invités pourront réserver via Ndjoka & Tchop.',
-                  'Guests can reserve via Ndjoka & Tchop.',
+                  'Les invités pourront réserver via Tchop & Ndjoka.',
+                  'Guests can reserve via Tchop & Ndjoka.',
                 )}
               </div>
             </Field>

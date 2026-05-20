@@ -155,10 +155,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   await sendWhatsApp(phone,
-    `👋 *${session.name}* vous invite comme *${role}* chez *${restaurant.name}* sur Ndjoka & Tchop!\n\n` +
+    `👋 *${session.name}* vous invite comme *${role}* chez *${restaurant.name}* sur Tchop & Ndjoka!\n\n` +
     `Envoyez *accepter* pour rejoindre. Vous serez inscrit automatiquement.\n` +
     `Envoyez *refuser* pour décliner.\n\n` +
-    `*${session.name}* invites you as *${role}* at *${restaurant.name}* on Ndjoka & Tchop!\n` +
+    `*${session.name}* invites you as *${role}* at *${restaurant.name}* on Tchop & Ndjoka!\n` +
     `Send *accept* to join — you'll be registered automatically.\n` +
     `Send *decline* to decline.`)
 

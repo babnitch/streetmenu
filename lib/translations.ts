@@ -22,7 +22,7 @@ const t = {
     'list.mapIn':       'Restaurants à',
     'list.emptyTitle':  'Bientôt disponible !',
     'list.emptySub':    'Soyez le premier restaurateur de cette ville.',
-    'list.joinBtn':     '+ Rejoindre Ndjoka & Tchop',
+    'list.joinBtn':     '+ Rejoindre Tchop & Ndjoka',
     'list.count':       'restaurants',
     'list.openCount':   'ouverts',
 
@@ -78,8 +78,8 @@ const t = {
     // --- JOIN PAGE ---
     'join.back':          '← Retour',
     'join.headline1':     'Ajoutez votre restaurant',
-    'join.headline2':     'sur Ndjoka & Tchop',
-    'join.subHeadline':   'List your restaurant on Ndjoka & Tchop',
+    'join.headline2':     'sur Tchop & Ndjoka',
+    'join.subHeadline':   'List your restaurant on Tchop & Ndjoka',
     'join.sub2':          'Rejoignez des centaines de restaurateurs qui développent leur activité avec nous.',
     'join.pill1':         '✅ Gratuit',
     'join.pill2':         '📍 Sur la carte',
@@ -382,7 +382,7 @@ const t = {
     'voucher.noExpiry':       'Sans date d\'expiration',
     'voucher.saveHint':       'Faites une capture d\'écran pour sauvegarder',
     'voucher.printTitle':     'Bon de réduction',
-    'voucher.printBy':        'Ndjoka & Tchop',
+    'voucher.printBy':        'Tchop & Ndjoka',
 
     // --- ORDER VOUCHER ---
     'order.voucherTitle':     'Code promo',
@@ -468,7 +468,7 @@ const t = {
     'list.mapIn':       'Restaurants in',
     'list.emptyTitle':  'Coming soon!',
     'list.emptySub':    'Be the first restaurant owner in this city.',
-    'list.joinBtn':     '+ Join Ndjoka & Tchop',
+    'list.joinBtn':     '+ Join Tchop & Ndjoka',
     'list.count':       'restaurants',
     'list.openCount':   'open',
 
@@ -524,8 +524,8 @@ const t = {
     // --- JOIN PAGE ---
     'join.back':          '← Back',
     'join.headline1':     'Add your restaurant',
-    'join.headline2':     'to Ndjoka & Tchop',
-    'join.subHeadline':   'Ajoutez votre restaurant sur Ndjoka & Tchop',
+    'join.headline2':     'to Tchop & Ndjoka',
+    'join.subHeadline':   'Ajoutez votre restaurant sur Tchop & Ndjoka',
     'join.sub2':          'Join hundreds of restaurant owners growing their business with us.',
     'join.pill1':         '✅ Free',
     'join.pill2':         '📍 On the map',
@@ -828,7 +828,7 @@ const t = {
     'voucher.noExpiry':       'No expiry date',
     'voucher.saveHint':       'Take a screenshot to save it',
     'voucher.printTitle':     'Discount Voucher',
-    'voucher.printBy':        'Ndjoka & Tchop',
+    'voucher.printBy':        'Tchop & Ndjoka',
 
     // --- ORDER VOUCHER ---
     'order.voucherTitle':     'Promo code',

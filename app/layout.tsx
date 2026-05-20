@@ -8,7 +8,7 @@ import { ModeProvider } from '@/lib/modeContext'
 import BottomNav from '@/components/BottomNav'
 
 export const metadata: Metadata = {
-  title: 'Ndjoka & Tchop',
+  title: 'Tchop & Ndjoka',
   description: 'Découvrez les meilleurs restaurants et événements food près de chez vous',
 }
 

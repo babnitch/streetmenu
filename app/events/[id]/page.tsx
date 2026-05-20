@@ -124,7 +124,7 @@ export default function EventDetailPage() {
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMsg}`
 
   const shareMsg = encodeURIComponent(
-    `🎉 ${event.title} — ${dateStr}${event.venue ? ` @ ${event.venue}` : ''}\nvia Ndjoka & Tchop`
+    `🎉 ${event.title} — ${dateStr}${event.venue ? ` @ ${event.venue}` : ''}\nvia Tchop & Ndjoka`
   )
   const shareUrl = `https://wa.me/?text=${shareMsg}`
 

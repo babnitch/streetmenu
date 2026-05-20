@@ -144,10 +144,10 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     <header className="sticky top-0 z-30 bg-surface border-b border-divider shadow-sm">
       <div className="max-w-2xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
 
-        {/* Logo — orange N&T text, never hidden. Compact on mobile. */}
-        <Link href="/" className="flex items-center gap-1 flex-shrink-0" aria-label="Ndjoka &amp; Tchop — home">
-          <span className="text-brand font-black tracking-tight text-lg sm:text-xl">N&amp;T</span>
-          <span className="hidden lg:inline font-bold text-ink-primary text-sm">Ndjoka &amp; Tchop</span>
+        {/* Logo — orange T&N text, never hidden. Compact on mobile. */}
+        <Link href="/" className="flex items-center gap-1 flex-shrink-0" aria-label="Tchop &amp; Ndjoka — home">
+          <span className="text-brand font-black tracking-tight text-lg sm:text-xl">T&amp;N</span>
+          <span className="hidden lg:inline font-bold text-ink-primary text-sm">Tchop &amp; Ndjoka</span>
         </Link>
 
         {/* City dropdown — primary global filter. On mobile this row is

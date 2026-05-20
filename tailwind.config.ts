@@ -1,6 +1,6 @@
 import type { Config } from 'tailwindcss'
 
-// Ndjoka & Tchop design tokens — Uber Eats-inspired palette.
+// Tchop & Ndjoka design tokens — Uber Eats-inspired palette.
 // Use `bg-brand`, `text-brand-dark`, `border-divider`, `text-ink-secondary`
 // etc. throughout the app so every CTA and text hierarchy stays in sync.
 const config: Config = {
@@ -14,7 +14,7 @@ const config: Config = {
       colors: {
         background: 'var(--background)',
         foreground: 'var(--foreground)',
-        // Primary brand — Ndjoka & Tchop orange, Uber Eats-style tokens.
+        // Primary brand — Tchop & Ndjoka orange, Uber Eats-style tokens.
         // DEFAULT and dark are the CTA colors; light fills soft surfaces
         // (banners, subtle highlights); badge is the medium pill shade;
         // darker is the ink for "orange text on brand-light" contrast.

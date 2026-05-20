@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 function buildWelcomeMessage(restaurantName: string): string {
   return [
-    `✅ Votre restaurant *${restaurantName}* a été approuvé sur Ndjoka & Tchop! 🎉`,
+    `✅ Votre restaurant *${restaurantName}* a été approuvé sur Tchop & Ndjoka! 🎉`,
     ``,
     `Vous recevrez désormais les notifications de commandes ici.`,
     ``,

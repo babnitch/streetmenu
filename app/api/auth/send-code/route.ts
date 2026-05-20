@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
   // Send via WhatsApp
   const msg =
-    `🔐 Votre code Ndjoka & Tchop: *${code}*\n` +
+    `🔐 Votre code Tchop & Ndjoka: *${code}*\n` +
     `Valide 5 minutes. / Your code: *${code}*. Valid 5 minutes.`
 
   await sendWhatsApp(phone, msg)
