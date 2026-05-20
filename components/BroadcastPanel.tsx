@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
+import PhoneInput from '@/components/PhoneInput'
+import { getCountryFromCity } from '@/lib/phoneValidation'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
 const CATEGORIES = [
@@ -360,11 +362,10 @@ export default function BroadcastPanel() {
             <label className="block text-xs font-semibold text-ink-secondary mb-1.5">
               {bi('Numéro MoMo (paiement)', 'MoMo number (payment)')}
             </label>
-            <input
+            <PhoneInput
               value={phoneNumber}
-              onChange={e => setPhoneNumber(e.target.value)}
-              placeholder="+237 6XX XXX XXX"
-              className="w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm font-mono"
+              onChange={(full) => setPhoneNumber(full)}
+              defaultCountry={getCountryFromCity(targetCity).iso}
             />
           </div>
 

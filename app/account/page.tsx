@@ -15,6 +15,7 @@ import AdminProfilePanel from '@/components/AdminProfilePanel'
 import PaymentBadge from '@/components/PaymentBadge'
 import NotificationsPanel from '@/components/NotificationsPanel'
 import BroadcastPanel from '@/components/BroadcastPanel'
+import PhoneInput from '@/components/PhoneInput'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
@@ -718,11 +719,12 @@ export default function AccountPage() {
               <form onSubmit={handleSendCode} autoComplete="on" className="space-y-3">
                 <div>
                   <label className="block text-xs text-ink-secondary mb-1">{t('account.phoneLbl')}</label>
-                  <input
-                    type="tel" name="phone" autoComplete="tel"
-                    value={phone} onChange={e => setPhone(e.target.value)}
-                    placeholder={t('account.phonePh')}
-                    className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand"
+                  <PhoneInput
+                    value={phone}
+                    onChange={(full) => setPhone(full)}
+                    autoComplete="tel"
+                    name="phone"
+                    wrapperClassName="rounded-2xl"
                   />
                   <p className="text-xs text-ink-tertiary mt-1">{t('account.whatsappHint')}</p>
                 </div>
@@ -1465,13 +1467,13 @@ export default function AccountPage() {
 
                     {/* Add member form */}
                     <form onSubmit={handleAddTeamMember} className="flex gap-2 mb-5 flex-wrap">
-                      <input
-                        type="tel"
-                        value={teamPhone}
-                        onChange={e => setTeamPhone(e.target.value)}
-                        placeholder={t('account.memberPhone')}
-                        className="flex-1 min-w-0 border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand"
-                      />
+                      <div className="flex-1 min-w-[180px]">
+                        <PhoneInput
+                          value={teamPhone}
+                          onChange={(full) => setTeamPhone(full)}
+                          autoComplete="off"
+                        />
+                      </div>
                       <select value={teamRole} onChange={e => setTeamRole(e.target.value)}
                         className="border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand bg-white">
                         <option value="manager">{t('account.roleManager')}</option>

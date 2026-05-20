@@ -8,6 +8,8 @@ import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
+import PhoneInput from '@/components/PhoneInput'
+import { getCountryFromCity } from '@/lib/phoneValidation'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
 
@@ -347,12 +349,10 @@ export default function SubmitEventPage() {
 
           {/* WhatsApp */}
           <Field label={t('evt.whatsappLbl')}>
-            <input
-              type="tel"
-              className={INPUT}
+            <PhoneInput
               value={form.whatsapp}
-              onChange={e => set('whatsapp', e.target.value)}
-              placeholder={t('evt.whatsappPh')}
+              onChange={(full) => set('whatsapp', full)}
+              defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined}
             />
           </Field>
 

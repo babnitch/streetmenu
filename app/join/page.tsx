@@ -6,6 +6,8 @@ import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
+import PhoneInput from '@/components/PhoneInput'
+import { getCountryFromCity } from '@/lib/phoneValidation'
 
 const CITIES = [
   { label: 'Yaoundé', lat: 3.848, lng: 11.5021 },
@@ -204,12 +206,10 @@ export default function JoinPage() {
           </Field>
 
           <Field label={t('join.whatsappLbl')}>
-            <input
+            <PhoneInput
               value={form.whatsapp}
-              onChange={set('whatsapp')}
-              placeholder="+237 6XX XXX XXX"
-              className={INPUT}
-              type="tel"
+              onChange={(full) => setForm(f => ({ ...f, whatsapp: full }))}
+              defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined}
               required
             />
           </Field>

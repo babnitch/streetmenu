@@ -1226,14 +1226,30 @@ async function handleVendor(
   // If the number is already a customer → insert into restaurant_team
   // immediately (existing behaviour). If not → create a pending row in
   // team_invitations + fire a WhatsApp invite. Invitee replies accept/decline.
-  const addMemberMatch = body.match(/^(?:ajouter|add|inviter|invite)\s+(\+?\d[\d\s-]+)\s+(manager|staff)$/i)
+  //
+  // The phone can be entered as a bare local number ("670000000") — the
+  // country code is auto-prepended from the restaurant's city. Vendors no
+  // longer have to type the +237.
+  const addMemberMatch = body.match(/^(?:ajouter|add|inviter|invite)\s+(\+?[\d\s-]+)\s+(manager|staff)$/i)
   if (addMemberMatch) {
     if (!isOwner) {
       await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
       return ok()
     }
-    const memberPhone = addMemberMatch[1].replace(/\s|-/g, '')
+    const rawMemberPhone = addMemberMatch[1].trim()
     const memberRole  = addMemberMatch[2].toLowerCase() as 'manager' | 'staff'
+
+    // Look up the restaurant's city so we can fall back to the right
+    // dial code when the vendor typed a bare local number.
+    const { data: restRow } = await supabaseAdmin
+      .from('restaurants').select('city').eq('id', restaurant.id).maybeSingle()
+    const { ensureInternational, getCountryFromCity } = await import('@/lib/phoneValidation')
+    const fallbackCountry = getCountryFromCity(restRow?.city ?? '')
+    const memberPhone = ensureInternational(rawMemberPhone, fallbackCountry)
+    if (!memberPhone || !/^\+\d{8,}$/.test(memberPhone)) {
+      await sendWhatsApp(from, '❌ Numéro invalide. / Invalid phone number.')
+      return ok()
+    }
 
     const { data: ownerCustomer } = await supabaseAdmin
       .from('customers').select('id, name').eq('phone', phone).maybeSingle()
@@ -1356,13 +1372,17 @@ async function handleVendor(
   }
 
   // ── CANCEL INVITATION: "annuler invitation +237XXX" ──────────────────────
-  const cancelInvMatch = body.match(/^(?:annuler\s+invitation|cancel\s+invitation)\s+(\+?\d[\d\s-]+)$/i)
+  const cancelInvMatch = body.match(/^(?:annuler\s+invitation|cancel\s+invitation)\s+(\+?[\d\s-]+)$/i)
   if (cancelInvMatch) {
     if (!isOwner) {
       await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
       return ok()
     }
-    const targetPhone = cancelInvMatch[1].replace(/\s|-/g, '')
+    const rawTarget = cancelInvMatch[1].trim()
+    const { data: restRow2 } = await supabaseAdmin
+      .from('restaurants').select('city').eq('id', restaurant.id).maybeSingle()
+    const { ensureInternational, getCountryFromCity } = await import('@/lib/phoneValidation')
+    const targetPhone = ensureInternational(rawTarget, getCountryFromCity(restRow2?.city ?? ''))
     const { data: inv } = await supabaseAdmin
       .from('team_invitations').select('id')
       .eq('restaurant_id', restaurant.id).eq('phone', targetPhone).eq('status', 'pending')
@@ -1390,13 +1410,17 @@ async function handleVendor(
   }
 
   // ── REMOVE TEAM MEMBER: "retirer +237XXX" ────────────────────────────────
-  const removeMemberMatch = body.match(/^(?:retirer|remove)\s+(\+?\d[\d\s-]+)$/i)
+  const removeMemberMatch = body.match(/^(?:retirer|remove)\s+(\+?[\d\s-]+)$/i)
   if (removeMemberMatch) {
     if (!isOwner) {
       await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
       return ok()
     }
-    const memberPhone = removeMemberMatch[1].replace(/\s|-/g, '')
+    const rawRemove = removeMemberMatch[1].trim()
+    const { data: restRow3 } = await supabaseAdmin
+      .from('restaurants').select('city').eq('id', restaurant.id).maybeSingle()
+    const { ensureInternational, getCountryFromCity } = await import('@/lib/phoneValidation')
+    const memberPhone = ensureInternational(rawRemove, getCountryFromCity(restRow3?.city ?? ''))
     const { data: memberCustomer } = await supabaseAdmin
       .from('customers').select('id, name, phone').eq('phone', memberPhone).maybeSingle()
 

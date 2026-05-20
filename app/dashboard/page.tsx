@@ -19,6 +19,8 @@ import {
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import TopNav from '@/components/TopNav'
 import PaymentBadge from '@/components/PaymentBadge'
+import PhoneInput from '@/components/PhoneInput'
+import { getCountryFromCity } from '@/lib/phoneValidation'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
 type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
@@ -958,13 +960,10 @@ export default function DashboardPage() {
                 <label className="block text-xs text-ink-secondary mb-1">
                   {bi('Numéro utilisé pour payer', 'Phone number used to pay')}
                 </label>
-                <input
-                  type="tel"
-                  inputMode="numeric"
+                <PhoneInput
                   value={markPaidPhone}
-                  onChange={e => setMarkPaidPhone(e.target.value)}
-                  placeholder="Ex: 237670000000"
-                  className="w-full border border-divider rounded-xl px-3 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none focus:border-brand bg-surface font-mono"
+                  onChange={(full) => setMarkPaidPhone(full)}
+                  defaultCountry={selectedRestaurant?.city ? getCountryFromCity(selectedRestaurant.city).iso : undefined}
                 />
               </div>
             )}
@@ -1399,12 +1398,10 @@ function PaymentSettingsPanel({
             <label className="block text-xs font-semibold text-ink-secondary mb-1">
               {bi('Numéro pour recevoir les paiements', 'Phone number for payouts')}
             </label>
-            <input
-              type="tel"
+            <PhoneInput
               value={payoutPhone}
-              onChange={e => setPayoutPhone(e.target.value)}
-              placeholder="+237 6XX XXX XXX"
-              className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand font-mono"
+              onChange={(full) => setPayoutPhone(full)}
+              defaultCountry={restaurant.city ? getCountryFromCity(restaurant.city).iso : undefined}
             />
             <p className="text-xs text-ink-tertiary mt-1">
               {mno

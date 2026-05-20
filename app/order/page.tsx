@@ -12,6 +12,8 @@ import { supabase } from '@/lib/supabase'
 import { isPercentDiscount } from '@/lib/vouchers'
 import { formatPrepTime } from '@/lib/prepTime'
 import TopNav from '@/components/TopNav'
+import PhoneInput from '@/components/PhoneInput'
+import { getCountryFromCity } from '@/lib/phoneValidation'
 import { Voucher, CustomerVoucher } from '@/types'
 
 // Customer session from the JWT cookie (what /account actually writes).
@@ -143,6 +145,9 @@ export default function OrderPage() {
   const [restaurantOpen, setRestaurantOpen] = useState<boolean | null>(null)
   // "20-35 min" for the success screen, or null when unset (badge hidden).
   const [prepLabel, setPrepLabel] = useState<string | null>(null)
+  // City of the restaurant — drives the default country in the MoMo
+  // PhoneInput (because the wallet must match the local MNO).
+  const [restaurantCity, setRestaurantCity] = useState<string>('')
   useEffect(() => {
     if (!restaurantId) return
     let cancelled = false
@@ -150,7 +155,7 @@ export default function OrderPage() {
       const [{ data }, status] = await Promise.all([
         supabase
           .from('restaurants')
-          .select('payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max')
+          .select('payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city')
           .eq('id', restaurantId).maybeSingle(),
         fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.json())
@@ -159,6 +164,7 @@ export default function OrderPage() {
       if (cancelled) return
       setPaymentEnabled(Boolean(data?.payment_enabled))
       setPrepLabel(formatPrepTime(data?.prep_time_min, data?.prep_time_max))
+      setRestaurantCity(data?.city ?? '')
       // Default TRUE matches the column default — a missing row should
       // never silently disable orders.
       setOpenWhenClosed(data?.allow_orders_when_closed !== false)
@@ -778,13 +784,11 @@ export default function OrderPage() {
                 </div>
                 <div className="px-4 py-3">
                   <label className="block text-xs text-ink-secondary mb-1">{t('order.phoneLbl')}</label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    placeholder={t('order.phonePh')}
+                    onChange={(full) => setPhone(full)}
+                    defaultCountry={restaurantCity ? getCountryFromCity(restaurantCity).iso : undefined}
                     required
-                    className="w-full text-sm text-ink-primary placeholder-ink-tertiary outline-none bg-transparent"
                   />
                 </div>
               </div>
@@ -815,38 +819,31 @@ export default function OrderPage() {
               <label className="block text-xs text-ink-secondary mb-1">
                 {bi('Numéro Mobile Money', 'Mobile Money number')}
               </label>
-              <input
-                type="tel"
-                inputMode="numeric"
+              <PhoneInput
                 value={momoPhone}
-                onChange={e => setMomoPhone(e.target.value)}
-                placeholder="Ex: 237670000000"
+                onChange={(full) => setMomoPhone(full)}
+                defaultCountry={restaurantCity ? getCountryFromCity(restaurantCity).iso : undefined}
                 required
-                className="w-full border border-divider rounded-xl px-3 py-2 text-sm text-ink-primary placeholder-ink-tertiary outline-none focus:border-brand bg-surface mb-1.5 font-mono"
               />
-              <p className="text-[11px] text-ink-tertiary mb-2">
-                {bi(
-                  'Ex: 237670000000',
-                  'e.g. 237670000000',
-                )}
-              </p>
-              {trimmedMomoPhone && !momoPrefixValid ? (
-                <p className="text-xs text-danger">
-                  {bi(
-                    "Entrez un numéro MTN MoMo ou Orange Money avec l'indicatif pays (ex: 237670000000)",
-                    'Enter an MTN MoMo or Orange Money number with country code (e.g. 237670000000)',
-                  )}
-                </p>
-              ) : mnoPreview ? (
-                <div className="flex items-center gap-2 text-sm text-ink-secondary">
-                  <span className="text-2xl">{mnoPreview.logo}</span>
-                  <span>{mnoPreview.label}</span>
-                </div>
-              ) : trimmedMomoPhone && momoPrefixValid ? (
-                <p className="text-xs text-ink-tertiary">
-                  {bi('Numéro non reconnu pour le paiement mobile.', 'Phone not recognised for mobile payment.')}
-                </p>
-              ) : null}
+              <div className="mt-2">
+                {mnoPreview ? (
+                  <div className="flex items-center gap-2 text-sm text-ink-secondary">
+                    <span className="text-2xl">{mnoPreview.logo}</span>
+                    <span>{mnoPreview.label}</span>
+                  </div>
+                ) : trimmedMomoPhone && momoPrefixValid ? (
+                  <p className="text-xs text-ink-tertiary">
+                    {bi('Numéro non reconnu pour le paiement mobile.', 'Phone not recognised for mobile payment.')}
+                  </p>
+                ) : trimmedMomoPhone && !momoPrefixValid ? (
+                  <p className="text-xs text-danger">
+                    {bi(
+                      "Sélectionnez un pays supporté (CM, CI, SN, BJ).",
+                      'Pick a supported country (CM, CI, SN, BJ).',
+                    )}
+                  </p>
+                ) : null}
+              </div>
             </div>
           )}
 

@@ -12,6 +12,8 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import EventSocialPanel from '@/components/EventSocialPanel'
 import ReportButton from '@/components/ReportButton'
+import PhoneInput from '@/components/PhoneInput'
+import { getCountryFromCity } from '@/lib/phoneValidation'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -483,14 +485,14 @@ export default function EventDetailPage() {
                       disabled={submitting}
                     />
                     <label className="block text-xs text-ink-secondary mb-1">{bi('Téléphone', 'Phone')}</label>
-                    <input
-                      type="tel"
-                      value={guestPhone}
-                      onChange={e => setGuestPhone(e.target.value)}
-                      placeholder="+237 6XX XXX XXX"
-                      className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface mb-3 font-mono"
-                      disabled={submitting}
-                    />
+                    <div className="mb-3">
+                      <PhoneInput
+                        value={guestPhone}
+                        onChange={(full) => setGuestPhone(full)}
+                        defaultCountry={event?.city ? getCountryFromCity(event.city).iso : undefined}
+                        disabled={submitting}
+                      />
+                    </div>
                   </>
                 )}
 
@@ -505,20 +507,19 @@ export default function EventDetailPage() {
                     <label className="block text-xs text-ink-secondary mb-1">
                       {bi('Numéro Mobile Money', 'Mobile Money number')}
                     </label>
-                    <input
-                      type="tel"
-                      inputMode="numeric"
-                      value={momoPhone}
-                      onChange={e => setMomoPhone(e.target.value)}
-                      placeholder="Ex: 237670000000"
-                      className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface mb-1 font-mono"
-                      disabled={submitting}
-                    />
+                    <div className="mb-1">
+                      <PhoneInput
+                        value={momoPhone}
+                        onChange={(full) => setMomoPhone(full)}
+                        defaultCountry={event?.city ? getCountryFromCity(event.city).iso : undefined}
+                        disabled={submitting}
+                      />
+                    </div>
                     {trimmedMomo && !momoValid && (
                       <p className="text-xs text-danger mb-3">
                         {bi(
-                          "Numéro non supporté. Utilisez MTN ou Orange avec l'indicatif pays.",
-                          'Unsupported number. Use MTN or Orange with country code.',
+                          "Numéro non supporté. Utilisez MTN ou Orange.",
+                          'Unsupported number. Use MTN or Orange.',
                         )}
                       </p>
                     )}
