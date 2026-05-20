@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -12,6 +12,7 @@ import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { useCity } from '@/lib/cityContext'
+import { arrangePromoted, FEED_INJECT_EVERY_EVENT } from '@/lib/promotions'
 import TopNav from '@/components/TopNav'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
@@ -28,13 +29,32 @@ const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ]
 
-function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number }) {
+function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string }) {
+  const bi = useBi()
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
   })
+  const cardRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!promotionId) return
+    if (typeof IntersectionObserver === 'undefined') return
+    const el = cardRef.current
+    if (!el) return
+    const io = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          import('@/lib/promoTracking').then(m => m.fireImpression(promotionId))
+          io.disconnect()
+          break
+        }
+      }
+    }, { threshold: 0.5 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [promotionId])
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-brand-light">
+    <div ref={cardRef} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-brand-light">
       <div className="relative h-36 bg-gradient-to-br from-brand-badge to-brand">
         {event.cover_photo ? (
           <Image
@@ -72,8 +92,16 @@ function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes }: { ev
         {likes && likes > 0 ? (
           <p className="text-xs text-rose-600 font-semibold mt-1">❤️ {likes}</p>
         ) : null}
+        {promotionId && (
+          <p className="text-[10px] text-ink-tertiary mt-1 leading-none">
+            {bi('Sponsorisé', 'Sponsored')}
+          </p>
+        )}
         <Link
           href={`/events/${event.id}`}
+          onClick={() => {
+            if (promotionId) import('@/lib/promoTracking').then(m => m.fireClick(promotionId))
+          }}
           className="mt-2.5 block w-full bg-brand hover:bg-brand-dark text-white text-center py-1.5 rounded-xl text-xs font-semibold transition-colors"
         >
           {viewLabel}
@@ -250,6 +278,37 @@ export default function EventsPage() {
     return cityMatch && catMatch
   })
 
+  // Active event promotions for this city — pin top_list at the front
+  // and inject feed_card every 4th position, capped at MAX_PROMOS_PER_PAGE.
+  const [eventPromos, setEventPromos] = useState<Array<{ id: string; target_id: string; placement: 'top_list' | 'feed_card' | 'banner' }>>([])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/promotions/active?city=${encodeURIComponent(city)}&type=event`, { cache: 'no-store' })
+        const d = await res.json()
+        if (!cancelled && Array.isArray(d?.promotions)) {
+          setEventPromos(d.promotions.map((p: { id: string; target_id: string; placement: 'top_list' | 'feed_card' | 'banner' }) => ({
+            id: p.id, target_id: p.target_id, placement: p.placement,
+          })))
+        }
+      } catch { /* render un-promoted on failure */ }
+    })()
+    return () => { cancelled = true }
+  }, [city])
+
+  // Plain record (not `new Map(...)`) because the `Map` identifier in
+  // this file is already taken by the dynamic Mapbox component import.
+  const eventById: Record<string, typeof events[number]> = {}
+  for (const e of events) eventById[e.id] = e
+  const arrangedEvents = arrangePromoted(
+    filtered,
+    eventPromos,
+    (id) => eventById[id] ?? null,
+    (e) => e.id,
+    FEED_INJECT_EVERY_EVENT,
+  )
+
   const cityData = CITY_CENTERS[city] ?? CITY_CENTERS['Yaoundé']
 
   // Only events with coords can be placed on the map. Events without
@@ -330,16 +389,17 @@ export default function EventsPage() {
         )}
 
         {/* Grid */}
-        {!loading && filtered.length > 0 && (
+        {!loading && arrangedEvents.length > 0 && (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {filtered.map(evt => (
+            {arrangedEvents.map((entry, idx) => (
               <EventCard
-                key={evt.id}
-                event={evt}
+                key={`${entry.item.id}-${entry.promotionId ?? 'reg'}-${idx}`}
+                event={entry.item}
                 viewLabel={t('evt.viewDetail')}
                 freeLabel={t('evt.free')}
-                categoryDisplay={categoryLabel(evt.category, locale)}
-                likes={likesSummary[evt.id]}
+                categoryDisplay={categoryLabel(entry.item.category, locale)}
+                likes={likesSummary[entry.item.id]}
+                promotionId={entry.promotionId}
               />
             ))}
           </div>

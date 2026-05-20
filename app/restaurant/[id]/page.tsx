@@ -14,6 +14,7 @@ import { formatPrepTime } from '@/lib/prepTime'
 import TopNav from '@/components/TopNav'
 import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
 import RestaurantHoursPanel from '@/components/RestaurantHoursPanel'
+import BannerAd from '@/components/BannerAd'
 import ReportButton from '@/components/ReportButton'
 
 export default function MenuPage() {
@@ -234,6 +235,14 @@ export default function MenuPage() {
         </div>
         <div id="rate" className="mt-3">
           <RestaurantRatingPanel restaurantId={id} />
+        </div>
+
+        {/* Banner ad — single subtle promotion targeting this city. The
+            component fetches itself and renders nothing when there is
+            no active banner promo for the city, so the layout stays
+            stable on un-promoted city listings. */}
+        <div className="mt-4">
+          <BannerAd city={restaurant.city} />
         </div>
 
         {/* Daily Specials */}

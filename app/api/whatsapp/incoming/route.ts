@@ -1828,6 +1828,15 @@ async function handleCustomer(
     return ok()
   }
 
+  // "promouvoir" / "promote" → same: too complex for chat, redirect.
+  if (cmd === 'promouvoir' || cmd === 'promote') {
+    await sendWhatsApp(from,
+      `📢 *Promouvoir / Promote*\n\n` +
+      `Créez votre promotion sur le site / Create your promotion on the website:\n` +
+      `${BASE_URL}/account?tab=profile`)
+    return ok()
+  }
+
   // Payment retry — checked before ordering so "payer" doesn't get swallowed
   // by a future menu intent that happens to match the same token.
   const retry = await handlePaymentRetry(from, cmd, customer as OrderingCustomer)

@@ -14,6 +14,7 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
+import { arrangePromoted, FEED_INJECT_EVERY_RESTAURANT } from '@/lib/promotions'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
@@ -29,7 +30,7 @@ const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> =
 interface RatingSummary { average: number; count: number }
 
 function RestaurantCard({
-  restaurant, rating, openOverride,
+  restaurant, rating, openOverride, promotionId,
 }: {
   restaurant: Restaurant
   rating?: RatingSummary
@@ -38,9 +39,33 @@ function RestaurantCard({
   // the schedule cron isn't a thing). Undefined while the bulk endpoint
   // hasn't responded yet — we fall back to is_open during that gap.
   openOverride?: boolean
+  // When set, this card is a paid promotion. We render a subtle
+  // Sponsorisé / Sponsored label and fire impression + click tracking.
+  promotionId?: string
 }) {
   const bi = useBi()
   const [imgError, setImgError] = useState(false)
+  const cardRef = useRef<HTMLAnchorElement>(null)
+
+  // Impression tracking — fires once when the card enters the viewport.
+  // Client-side dedupe (1h per promotion) lives in promoTracking.
+  useEffect(() => {
+    if (!promotionId) return
+    if (typeof IntersectionObserver === 'undefined') return
+    const el = cardRef.current
+    if (!el) return
+    const io = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          import('@/lib/promoTracking').then(m => m.fireImpression(promotionId))
+          io.disconnect()
+          break
+        }
+      }
+    }, { threshold: 0.5 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [promotionId])
   const isOpen = openOverride ?? restaurant.is_open
   const neighborhood = restaurant.neighborhood || restaurant.address
   const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
@@ -52,7 +77,13 @@ function RestaurantCard({
 
   return (
     <Link
+      ref={cardRef}
       href={`/restaurant/${restaurant.id}`}
+      onClick={() => {
+        if (promotionId) {
+          import('@/lib/promoTracking').then(m => m.fireClick(promotionId))
+        }
+      }}
       className="group block bg-surface border border-divider rounded-xl overflow-hidden hover:shadow-card transition-shadow"
     >
       <div className="relative aspect-[16/9] overflow-hidden bg-surface-muted">
@@ -93,6 +124,11 @@ function RestaurantCard({
             <span className="inline-block mt-2 bg-brand-light text-brand-darker text-xs font-semibold px-2 py-0.5 rounded-full border border-brand-badge/60">
               {cuisine}
             </span>
+          )}
+          {promotionId && (
+            <p className="text-[10px] text-ink-tertiary mt-1.5 leading-none">
+              {bi('Sponsorisé', 'Sponsored')}
+            </p>
           )}
           {rating && rating.count > 0 && (
             <p className="mt-1.5 text-xs text-amber-700 font-semibold">
@@ -159,6 +195,26 @@ export default function HomePage() {
     })()
     return () => { cancelled = true }
   }, [])
+
+  // Active restaurant promotions for the current city. Re-fetched
+  // whenever the city changes so the user always sees promos relevant
+  // to where they're browsing. Shape: { id, target_id, placement }.
+  const [activePromos, setActivePromos] = useState<Array<{ id: string; target_id: string; placement: 'top_list' | 'feed_card' | 'banner' }>>([])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/promotions/active?city=${encodeURIComponent(city)}&type=restaurant`, { cache: 'no-store' })
+        const d = await res.json()
+        if (!cancelled && Array.isArray(d?.promotions)) {
+          setActivePromos(d.promotions.map((p: { id: string; target_id: string; placement: 'top_list' | 'feed_card' | 'banner' }) => ({
+            id: p.id, target_id: p.target_id, placement: p.placement,
+          })))
+        }
+      } catch { /* feed renders un-promoted on failure */ }
+    })()
+    return () => { cancelled = true }
+  }, [city])
 
   // TopNav desktop search submits to /?q=...#search. Seed the local query
   // from the URL on mount + whenever history changes. Client-only reads
@@ -253,6 +309,21 @@ export default function HomePage() {
   // Computed open-count for the toggle label. Uses the same fallback
   // chain as the filter.
   const openCount = filtered.filter(r => openStatus[r.id]?.open ?? r.is_open).length
+
+  // Merge active promotions into the filtered list. arrangePromoted
+  // pins top_list promos at the front and injects feed_card promos
+  // every 5th position, capped at MAX_PROMOS_PER_PAGE.
+  // Plain record (not `new Map(...)`) because the `Map` identifier in
+  // this file is already taken by the dynamic Mapbox component import.
+  const restaurantById: Record<string, Restaurant> = {}
+  for (const r of restaurants) restaurantById[r.id] = r
+  const arranged = arrangePromoted(
+    filtered,
+    activePromos,
+    (id) => restaurantById[id] ?? null,
+    (r) => r.id,
+    FEED_INJECT_EVERY_RESTAURANT,
+  )
 
   return (
     <div className="min-h-screen bg-surface">
@@ -349,7 +420,15 @@ export default function HomePage() {
 
         {!loading && filtered.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-            {filtered.map(r => <RestaurantCard key={r.id} restaurant={r} rating={ratingSummary[r.id]} openOverride={openStatus[r.id]?.open} />)}
+            {arranged.map((entry, idx) => (
+              <RestaurantCard
+                key={`${entry.item.id}-${entry.promotionId ?? 'reg'}-${idx}`}
+                restaurant={entry.item}
+                rating={ratingSummary[entry.item.id]}
+                openOverride={openStatus[entry.item.id]?.open}
+                promotionId={entry.promotionId}
+              />
+            ))}
           </div>
         )}
 

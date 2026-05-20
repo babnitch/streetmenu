@@ -15,6 +15,7 @@ import AdminProfilePanel from '@/components/AdminProfilePanel'
 import PaymentBadge from '@/components/PaymentBadge'
 import NotificationsPanel from '@/components/NotificationsPanel'
 import BroadcastPanel from '@/components/BroadcastPanel'
+import PromotePanel from '@/components/PromotePanel'
 import PhoneInput from '@/components/PhoneInput'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 
@@ -23,6 +24,7 @@ const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'
 const AdminOrders      = dynamicLoad(() => import('@/app/admin/orders/page'),      { ssr: false })
 const AdminEvents      = dynamicLoad(() => import('@/app/admin/events/page'),      { ssr: false })
 const AdminBroadcasts  = dynamicLoad(() => import('@/app/admin/broadcasts/page'),  { ssr: false })
+const AdminPromotions  = dynamicLoad(() => import('@/app/admin/promotions/page'),  { ssr: false })
 const AdminVouchers    = dynamicLoad(() => import('@/app/admin/vouchers/page'),    { ssr: false })
 const AdminReports     = dynamicLoad(() => import('@/app/admin/reports/page'),     { ssr: false })
 const AdminAccounts    = dynamicLoad(() => import('@/app/admin/accounts/page'),    { ssr: false })
@@ -33,7 +35,7 @@ type LoginTab    = 'customer' | 'team'
 type AuthStep    = 'loading' | 'login' | 'register' | 'otp' | 'dashboard'
 type DashView    = 'customer' | 'vendor' | 'admin'
 type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' | 'team'
-type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'broadcasts' | 'vouchers' | 'reports' | 'accounts' | 'platformteam' | 'profile'
+type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'broadcasts' | 'promotions' | 'vouchers' | 'reports' | 'accounts' | 'platformteam' | 'profile'
 
 // Explicit bilingual labels — avoids the earlier bug where the label was
 // built from the tab value (e.g. `account.adminNav${capitalize(sub)}`),
@@ -44,6 +46,7 @@ const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
   orders: 'Commandes / Orders',
   events: 'Événements / Events',
   broadcasts: 'Diffusions / Broadcasts',
+  promotions: 'Promotions / Promotions',
   vouchers: 'Bons / Vouchers',
   reports: 'Signalements / Reports',
   accounts: 'Comptes / Accounts',
@@ -657,7 +660,7 @@ export default function AccountPage() {
     if (tab === 'profile') return true
     if (user.role === 'super_admin') return true
     if (user.role === 'admin') return tab !== 'platformteam'
-    if (user.role === 'moderator') return ['restaurants', 'orders', 'events', 'broadcasts', 'reports'].includes(tab)
+    if (user.role === 'moderator') return ['restaurants', 'orders', 'events', 'broadcasts', 'promotions', 'reports'].includes(tab)
     return false
   }
 
@@ -896,7 +899,7 @@ export default function AccountPage() {
                 ADMIN DASHBOARD
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'admin' && (() => {
-              const allAdminTabs: AdminSubTab[] = ['restaurants', 'orders', 'events', 'broadcasts', 'vouchers', 'reports', 'accounts', 'platformteam', 'profile']
+              const allAdminTabs: AdminSubTab[] = ['restaurants', 'orders', 'events', 'broadcasts', 'promotions', 'vouchers', 'reports', 'accounts', 'platformteam', 'profile']
               const visibleTabs = allAdminTabs.filter(adminCan)
               if (typeof window !== 'undefined') {
                 console.log('[admin-tabs] user.role =', user.role, '| visible =', visibleTabs, '| profile visible?', visibleTabs.includes('profile'))
@@ -920,6 +923,7 @@ export default function AccountPage() {
                 {adminSubTab === 'orders'       && <AdminOrders />}
                 {adminSubTab === 'events'       && <AdminEvents />}
                 {adminSubTab === 'broadcasts'   && <AdminBroadcasts />}
+                {adminSubTab === 'promotions'   && <AdminPromotions />}
                 {adminSubTab === 'vouchers'     && <AdminVouchers />}
                 {adminSubTab === 'reports'      && <AdminReports />}
                 {adminSubTab === 'accounts'     && <AdminAccounts />}
@@ -1206,6 +1210,11 @@ export default function AccountPage() {
                         {/* Paid broadcasts (only renders for eligible accounts) */}
                         <div className="pt-2">
                           <BroadcastPanel />
+                        </div>
+
+                        {/* Paid promotions (only renders for eligible accounts) */}
+                        <div className="pt-2">
+                          <PromotePanel />
                         </div>
 
                         {/* Suspension info */}

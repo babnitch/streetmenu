@@ -185,6 +185,69 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
+  // ── Promotion fallback ─────────────────────────────────────────────────────
+  // Same idempotent guard + audit shape. On COMPLETED the promotion
+  // flips to pending_review so an admin can vet ad copy before it goes
+  // live in the feed; on FAILED/REJECTED the row is marked rejected.
+  const { data: promo } = await supabaseAdmin
+    .from('promotions')
+    .select('id, promoter_id, payment_status, status')
+    .eq('payment_id', depositId)
+    .maybeSingle()
+
+  if (promo) {
+    if (promo.payment_status === 'paid' || promo.payment_status === 'failed') {
+      return NextResponse.json({ ok: true, ignored: 'already settled' })
+    }
+
+    if (payload.status === 'COMPLETED') {
+      await supabaseAdmin
+        .from('promotions')
+        .update({
+          payment_status: 'paid',
+          status:         'pending_review',
+          updated_at:     new Date().toISOString(),
+        })
+        .eq('id', promo.id)
+
+      await writeAudit({
+        action:          'promotion_paid',
+        targetType:      'promotion',
+        targetId:        promo.id,
+        performedBy:     promo.promoter_id,
+        performedByType: 'system',
+        metadata: {
+          deposit_id: depositId,
+          amount:     payload.amount,
+          currency:   payload.currency,
+        },
+      })
+    } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
+      await supabaseAdmin
+        .from('promotions')
+        .update({
+          payment_status: 'failed',
+          status:         'rejected',
+          updated_at:     new Date().toISOString(),
+        })
+        .eq('id', promo.id)
+
+      await writeAudit({
+        action:          'promotion_payment_failed',
+        targetType:      'promotion',
+        targetId:        promo.id,
+        performedBy:     promo.promoter_id,
+        performedByType: 'system',
+        metadata: {
+          deposit_id: depositId,
+          reason:     payload.failureReason?.failureMessage ?? null,
+        },
+      })
+    }
+
+    return NextResponse.json({ ok: true })
+  }
+
   // ── Event-reservation fallback ─────────────────────────────────────────────
   // Same idempotent guard + audit shape as orders, but with event_reservations
   // as the row and notifyPaidReservation as the fan-out.
