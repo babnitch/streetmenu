@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
-import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Restaurant } from '@/types'
 import RestaurantSidebar from '@/components/RestaurantSidebar'
@@ -15,8 +14,6 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
-import { useMode } from '@/lib/modeContext'
-import { isInitialRedirectSuppressed, suppressInitialRedirect } from '@/lib/initialRedirect'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
@@ -127,7 +124,6 @@ function CardSkeleton() {
 
 export default function HomePage() {
   const bi = useBi()
-  const router = useRouter()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
   const [openStatus, setOpenStatus] = useState<Record<string, { open: boolean }>>({})
@@ -140,30 +136,16 @@ export default function HomePage() {
   const [bannerDismissed, setBannerDismissed] = useState(true)
   const [query, setQuery] = useState('')
   const [pendingOrders, setPendingOrders] = useState(0)
-  const [redirecting, setRedirecting] = useState(false)
   const { t } = useLanguage()
   const { user, loading: authLoading } = useAuth()
   const { city } = useCity()
-  const { mode, hasRestaurantRole, loading: modeLoading } = useMode()
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Vendor "land on / → bounce to /dashboard" convenience-redirect.
-  // Fires AT MOST ONCE per tab session and only when the user landed
-  // cold on /. Any in-app navigation (Link click, back/forward, etc.)
-  // arms the suppress flag via NavigationWatcher, so clicking
-  // "Restaurants" or visiting / on purpose never gets bounced.
-  useEffect(() => {
-    if (modeLoading) return
-    if (!(hasRestaurantRole && mode === 'restaurant')) return
-    if (isInitialRedirectSuppressed()) return
-    // Arm the flag synchronously BEFORE pushing so a fast back-button
-    // (which would re-fire this effect on remount) becomes a no-op.
-    suppressInitialRedirect()
-    setRedirecting(true)
-    router.replace('/dashboard')
-  }, [modeLoading, hasRestaurantRole, mode, router])
+  // `/` is the public landing page for everyone — logged out, customers,
+  // and vendors alike. Vendors reach their dashboard via the explicit
+  // "Mon restaurant" link in the nav, never via an automatic redirect.
 
-  // Pending-orders banner for vendors currently in Client mode. Populated
+  // Pending-orders banner for vendors browsing the home page. Populated
   // lazily so the home feed renders fast — the banner only shows when there
   // is something to see.
   useEffect(() => {
@@ -272,24 +254,14 @@ export default function HomePage() {
   // chain as the filter.
   const openCount = filtered.filter(r => openStatus[r.id]?.open ?? r.is_open).length
 
-  // While redirecting, render a minimal shell so we don't briefly flash
-  // the home feed to an approved vendor.
-  if (redirecting) {
-    return (
-      <div className="min-h-[calc(100dvh-4rem)] md:min-h-screen bg-surface flex items-center justify-center">
-        <div className="skeleton h-6 w-40" />
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-surface">
 
       <TopNav cta={{ label: t('nav.join'), href: '/join' }} />
 
-      {/* Pending-orders banner for vendors who returned to the home page
-          after their initial redirect. Tap to go straight to the
-          dashboard. Hidden when there's nothing pending. */}
+      {/* Pending-orders banner for vendors browsing the home page. Tap
+          to go straight to the dashboard. Hidden when there's nothing
+          pending. */}
       {pendingOrders > 0 && (
         <Link
           href="/dashboard"
