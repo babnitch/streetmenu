@@ -110,14 +110,23 @@ export default function PhoneInput({
     }
   }, [dropdownOpen])
 
-  // Sorted + filtered list driven by city-context and the search box.
-  // Sort is stable across renders for a given city so the order doesn't
-  // jitter when the search query changes.
-  const sortedCountries = useMemo(() => sortedCountriesFor(city), [city])
+  // Sorted + filtered list. City-match country is first; everything
+  // else is alphabetical in the current locale. Sort recomputes when
+  // the locale changes so the A-Z order matches whichever name the
+  // user sees.
+  const sortedCountries = useMemo(() => sortedCountriesFor(city, locale), [city, locale])
   const visibleCountries = useMemo(
     () => sortedCountries.filter(c => matchesCountrySearch(c, searchQuery)),
     [sortedCountries, searchQuery],
   )
+  // Divider sits between the pinned city-match country and the rest.
+  // Only show it when (a) the pinned entry is still visible (search
+  // hasn't filtered it out) and (b) the search is empty — a filtered
+  // result list reads cleaner without an arbitrary horizontal line.
+  const cityCountryIso = sortedCountries[0]?.iso
+  const showCityDivider = !searchQuery.trim()
+    && visibleCountries.length > 1
+    && visibleCountries[0].iso === cityCountryIso
 
   // Keep local + country in sync when the parent reassigns `value` to
   // something new (e.g. profile auto-fill after the session resolves).
@@ -243,7 +252,7 @@ export default function PhoneInput({
               type="search"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder={locale === 'fr' ? 'Rechercher un pays…' : 'Search countries…'}
+              placeholder={locale === 'fr' ? 'Rechercher un pays…' : 'Search country…'}
               className="w-full bg-white border border-divider rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-brand"
             />
           </div>
@@ -256,22 +265,27 @@ export default function PhoneInput({
                 {locale === 'fr' ? 'Aucun pays trouvé' : 'No countries found'}
               </div>
             ) : (
-              visibleCountries.map(c => {
+              visibleCountries.map((c, idx) => {
                 const active = c.iso === country
+                const isCityPinned = idx === 0 && c.iso === cityCountryIso && !searchQuery.trim()
                 return (
-                  <button
-                    key={c.iso}
-                    type="button"
-                    onClick={() => handleCountryChange(c.iso)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors text-left ${
-                      active ? 'bg-brand-light text-ink-primary' : 'text-ink-secondary hover:bg-surface-muted'
-                    }`}
-                  >
-                    <span className="text-base leading-none">{c.flag}</span>
-                    <span className="font-mono text-xs w-12 flex-shrink-0">{c.code}</span>
-                    <span className="flex-1 truncate">{locale === 'fr' ? c.nameFr : c.name}</span>
-                    {active && <span className="text-brand">✓</span>}
-                  </button>
+                  <div key={c.iso}>
+                    <button
+                      type="button"
+                      onClick={() => handleCountryChange(c.iso)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors text-left ${
+                        active ? 'bg-brand-light text-ink-primary' : 'text-ink-secondary hover:bg-surface-muted'
+                      } ${isCityPinned ? 'font-semibold' : ''}`}
+                    >
+                      <span className="text-base leading-none">{c.flag}</span>
+                      <span className="font-mono text-xs w-12 flex-shrink-0">{c.code}</span>
+                      <span className="flex-1 truncate">{locale === 'fr' ? c.nameFr : c.name}</span>
+                      {active && <span className="text-brand">✓</span>}
+                    </button>
+                    {showCityDivider && idx === 0 && (
+                      <div className="h-px bg-divider mx-3 my-1" aria-hidden="true" />
+                    )}
+                  </div>
                 )
               })
             )}
