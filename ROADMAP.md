@@ -1,288 +1,230 @@
-# 🗺️ Tchop & Ndjoka — Project Roadmap
+# 🗺️ Tchop & Ndjoka — Project Roadmap (v4.0)
 
-**Last updated:** May 14, 2026
-**Status:** MVP Live — Pre-Launch Phase
+**Last updated:** 2026-05-20
+**Status:** MVP live — pre-launch
 **Live URL:** https://streetmenu.vercel.app
 **Repo:** github.com/babnitch/streetmenu
 
----
-
-## ✅ Phase 1: Core Platform (COMPLETED)
-
-### Restaurant Discovery
-- [x] Restaurant list by city with search
-- [x] Fullscreen map with restaurant pins (Mapbox)
-- [x] City selector: Yaoundé, Abidjan, Dakar, Lomé
-- [x] Restaurant detail page with menu, prices, categories
-- [x] 10 sample Yaoundé restaurants with full menus
-- [x] Add to cart functionality
-- [x] **Opening hours + manual override** — weekly schedule per restaurant (`restaurant_hours`), timezone-aware (Africa/Douala default, Africa/Abidjan / Dakar / Lome per city), overnight windows supported. Computed open/closed via `GET /api/restaurants/open-status?ids=…` (60s edge cache), surfaced on home cards + restaurant detail with a "Closes at HH:MM" line. Owner-only schedule editor + open/close manual override on the dashboard Settings tab. Audited as `schedule_updated` / `manual_override_set` / `manual_override_removed`.
-- [x] **Map pin colours + map sidebar use computed status** — pins flip with override + schedule.
-- [x] **"Open now" filter on home** — toggle pill filters cards (and the map) by computed open status.
-- [x] **WhatsApp vendor schedule commands** — `ouvrir` / `open`, `fermer` / `close`, `auto`, `horaire` / `schedule` flip `manual_override` or read the week + current status inline.
-- [x] **Closed-ordering warning + `allow_orders_when_closed` toggle** — `/order` shows an amber warning above the submit when the restaurant is currently closed (with the order still allowed), or a rose-coloured block + disabled submit when the vendor's opted out. WhatsApp `commander` flow aborts the session with the week's schedule when a hard-blocked restaurant is picked, or surfaces a soft warning with the next-open time otherwise. Vendor toggle lives at the bottom of the Settings → Hours panel.
-
-### Events Section
-- [x] Events listing page with 7 categories (including BT/Club)
-- [x] Event detail page with WhatsApp contact button
-- [x] Public event submission form for promoters
-- [x] 7 sample events (one per category)
-- [x] Admin approval flow for submitted events
-- [x] **Event reservations (free + pay-at-door)** — quantity + capacity + sold-out gate
-- [x] **Paid event reservations via PawaPay** — same pipeline as restaurant orders, webhook + poll fallback for `event_reservations`, seats released on failed payment
-- [x] **Organizer "Mes événements" tab** in /account — reservation list, ✅ attendance, ❌ cancel with refund flag
-- [x] **Admin events panel: reservation count + revenue + commission** badges per row
-- [x] **WhatsApp event commands** — `mes reservations`, `reserver XXXX`, `publier`, `mes evenements`
-- [x] **Light publisher trust model** — any logged-in customer submits; 3 admin approvals auto-grant `event_auto_approve`; admin can revoke
-- [x] **10% platform commission on paid events** — `commission_rate` per event, `commission_amount` stored per reservation; organizer panel surfaces gross / commission / net
-
-### Restaurant Ratings (Uber Eats style)
-- [x] **1-5 star ratings + predefined tag picker** — positive tag set when ≥4 stars, negative when ≤3, both at 3
-- [x] **Verified-buyer gate** — only customers with a delivered order at this restaurant can rate; one rating per order
-- [x] **Anonymous aggregate** — average, count, 1-5 distribution bars, top tags; no individual reviews visible
-- [x] **Card + detail page badges** — `⭐ N.N (count)` shown on home cards (bulk endpoint) and the restaurant detail page
-- [x] **Vendor dashboard panel** — aggregate + distribution + top tags + 30-day trend (up/down/flat). No reply, no dispute, no individual ratings
-- [x] **WhatsApp `noter` command + deep link** — `noter / rate` jumps to `/restaurant/[id]#rate`; the page auto-opens the rating modal from the hash
-- [ ] **Post-delivery WhatsApp prompt** — Cron job to fire 2h after order moves to `delivered` (deferred)
-- [x] **Event likes** — toggle heart, optimistic update, bulk like-count summary on event cards
-- [x] **Event comments** — nickname-signed (never phone), 500-char cap, paginated 10-per-page, inline nickname prompt on first comment
-- [x] **Nickname system** — 3-20 chars, alphanumeric + `._-`, no phone-like 4+ digit sequences, 30-day cooldown, editable in /account profile
-- [x] **Admin soft-delete on comments** — `is_deleted`/`deleted_by`/`deleted_at` audited; UI lands with reporting in the next batch
-- [x] **Reporting + admin moderation** — 🚩 button on restaurant + event detail + per-comment row, modal with reason dropdown + optional description, `POST /api/reports` (login-gated, anonymous to the reported party). Admin `Signalements / Reports` sub-tab with pending/reviewed/action_taken/dismissed filters + counts, expandable row with reporter info (admin-only), `PATCH /api/admin/reports/[id]` for mark-reviewed / dismiss / soft-delete-comment + admin notes. WhatsApp `signaler / report` returns deep links to the customer's most-recent restaurant + event so they can report from the right page.
-
-### Vendor System
-- [x] Vendor self-signup form (/join)
-- [x] Admin approval workflow
-- [x] Vendor dashboard: manage menu, view orders, validate vouchers
-
-### Customer Features
-- [x] Customer signup/login with phone number
-- [x] Order page: cart review, customer name/phone, order submit
-- [x] Order history in customer account
-- [x] Welcome voucher (10% off first order)
-- [x] Short memorable voucher codes (TCHOP-XXXX)
-- [x] Voucher claiming and validation system
-
-### Admin Panel
-- [x] Admin dashboard with tabs: restaurants, orders, events, vouchers
-- [x] Approve/reject vendors
-- [x] Approve/reject events
-- [x] Manage vouchers
-
-### Infrastructure
-- [x] Next.js 14 + Tailwind CSS frontend
-- [x] Supabase (Postgres) database
-- [x] Vercel hosting
-- [x] Bilingual FR/EN toggle throughout
+For the *what* of the product see `FUNCTIONAL-SPEC.md`. For the *how* see `TECHNICAL-REQUIREMENTS.md`. For unbuilt ideas see `IDEAS-BACKLOG.md`.
 
 ---
 
-## 🔄 Phase 2: WhatsApp Integration (IN PROGRESS)
+## ✅ Phase 1 — Core platform (DONE)
 
-### Twilio WhatsApp Setup
-- [x] Twilio account created
-- [x] WhatsApp Sandbox configured
-- [x] Environment variables set (.env.local + Vercel)
-- [x] Switched from Auth Token to API Keys
-- [x] Webhook URL configured in Twilio
+### Restaurant discovery
+- City-filtered list (Yaoundé, Abidjan, Dakar, Lomé) + Mapbox map
+- City dropdown in TopNav, persisted in localStorage
+- Restaurant detail page (menu, prices, categories, sticky tabs)
+- 10 sample Yaoundé restaurants with full menus
+- Search by name / cuisine / neighborhood (`?q=` deep-linkable)
+- "Open now" filter (`?open=1` deep-linkable)
+- Map pins coloured by computed open status
 
-### Inbound: Vendor Menu via WhatsApp
-- [x] Webhook route: /api/whatsapp/incoming
-- [x] Vendor lookup by phone number
-- [x] Parse menu items from messages ("Ndolé - 2500")
-- [x] Download and store photos to Supabase Storage
-- [x] Commands: aide/help, menu, commandes/orders, restaurant
-- [x] Bilingual FR/EN replies
-- [ ] **TESTING**: Confirm API credentials (TWILIO_API_KEY_SID must start with SK)
-- [ ] **TESTING**: Confirm WhatsApp replies received end-to-end
+### Cart + checkout
+- `cartContext` (localStorage-backed), one restaurant at a time, clear-on-switch prompt
+- Auto-fill name + phone for logged-in customers
+- Voucher input with client preview + server re-validation
+- Pay-at-door path + PawaPay deposit path
 
-### WhatsApp Onboarding (NEW)
-- [x] Customer signup via WhatsApp (name + city, 2 steps)
-- [x] signup_sessions table for multi-step state machine
-- [x] Vendor signup via WhatsApp (4 steps: name, neighborhood, cuisine, city)
-- [x] Commands for customers without restaurant: aide, restaurant
-- [x] Commands for pending vendors: pending approval message
-- [x] Cancel command at any step ("annuler" / "cancel")
-- [x] 1-hour session expiry with auto-cleanup
-- [x] Unified accounts: same phone works on WhatsApp and web
-
-### Web Auth: WhatsApp OTP (NEW — replaces Supabase SMS)
-- [x] POST /api/auth/send-code — generates 4-digit code, stores in verification_codes, sends WhatsApp
-- [x] POST /api/auth/verify-code — verifies code, upserts customer, assigns welcome voucher
-- [x] /account page uses WhatsApp codes instead of Supabase SMS OTP
-- [x] New customer flow: phone → name + city fields → WhatsApp code → dashboard
-- [x] Existing customer flow: phone → WhatsApp code → dashboard
-- [x] customers table as single source of truth (unified with WhatsApp signups)
-- [x] verification_codes table (4-digit, 5-min TTL)
-
-### Outbound: Order Notifications
-- [x] Notification service (lib/whatsapp.ts)
-- [x] Order notification route: /api/whatsapp/notify-order
-- [x] Message templates: new order, confirmed, ready
-- [ ] **TESTING**: Test end-to-end order notification flow
-- [ ] Hook into existing order submission flow
-
-### Team Invitations (NEW — April 2026)
-- [x] team_invitations table (supabase-team-invitations.sql)
-- [x] POST /api/restaurants/[id]/invite — owner creates invitation or adds direct
-- [x] GET /api/restaurants/[id]/invite — list pending invitations
-- [x] DELETE /api/restaurants/[id]/invite/[invitationId] — cancel pending
-- [x] WhatsApp: "ajouter/inviter +XXX role" falls back to invitation when number unregistered
-- [x] WhatsApp: "accepter" / "refuser" with auto-registration for new invitees
-- [x] WhatsApp: "invitations" lists pending; "annuler invitation +XXX" cancels
-- [x] Dashboard Team tab: pending invitations section + per-row Cancel
-- [x] Audit log: team_invitation_{sent, accepted, declined, cancelled, expired}
-- [x] 7-day lazy expiry — stale rows filtered at read time
-
-### Mode Switcher (NEW — April 2026)
-- [x] lib/modeContext.tsx — client/restaurant mode + topRole probe
-- [x] Slim mode bar below TopNav, only for users with a team role
-- [x] TopNav desktop: mode-aware link set (Restaurants/Events/Orders vs Orders/Menu/Team/Settings)
-- [x] BottomNav: mode-aware tab variants with role gating
-- [x] /dashboard ?tab= deep links + stubs for team/settings tabs
-
-### WhatsApp Remaining
-- [ ] Production Twilio WhatsApp number (~$15/month)
-- [ ] Vendor sends "ok XXXX" to confirm orders
-- [ ] Customer receives order status updates
+### Vendor signup
+- `/join` public form (name, owner, WhatsApp, city, neighborhood, cuisine, photo)
+- WhatsApp `restaurant` keyword for mid-flow signup
+- Admin approval queue in `/admin/restaurants`
 
 ---
 
-## 🔴 Phase 3: Security Fixes (CRITICAL — DO BEFORE LAUNCH)
+## ✅ Phase 2 — WhatsApp ordering (DONE)
 
-### Vuln 1: Missing Twilio Webhook Signature Verification
-- **Severity:** HIGH
-- **File:** app/api/whatsapp/incoming/route.ts
-- **Risk:** Anyone can forge POST requests impersonating Twilio, access PII (customer names/phones), and pollute restaurant menus with fake items
-- **Fix:**
-  - [ ] Add TWILIO_AUTH_TOKEN back to Vercel env vars (for validation only)
-  - [ ] Install twilio npm package: `npm install twilio`
-  - [ ] Add signature validation before processing any request:
-    ```
-    import twilio from 'twilio'
-    const valid = twilio.validateRequest(authToken, sig, url, params)
-    if (!valid) return new NextResponse('Forbidden', { status: 403 })
-    ```
-  - [ ] Test that forged requests are rejected
-
-### Vuln 2: Admin Panel Has No Server-Side Authorization
-- **Severity:** HIGH
-- **File:** app/admin/restaurants/page.tsx + Supabase RLS policies
-- **Risk:** Anyone with the public anon key (visible in page source) can approve/reject/delete any restaurant, deactivate vendors, or modify any data — no authentication needed
-- **Fix:**
-  - [ ] Create server-side API routes for all admin mutations
-  - [ ] Verify hashed ADMIN_PASSWORD from Authorization header before executing writes
-  - [ ] Replace USING (true) RLS policies with proper role-based policies
-  - [ ] Move admin operations to use SUPABASE_SERVICE_ROLE_KEY server-side only
-  - [ ] Test that direct Supabase API calls with anon key are blocked
-
-### Credential Rotation (Completed)
-- [x] Twilio Auth Token → switched to API Keys
-- [x] Created GitHub Personal Access Token for pushes
-- [x] Added CLAUDE_API_KEY to GitHub Secrets for security reviews
-- [ ] Rotate Mapbox token (old one was exposed)
-- [ ] Rotate Supabase anon key (old one was exposed)
-- [ ] Change ADMIN_PASSWORD (old one was exposed)
-- [ ] Set up GitHub Actions automated security review on PRs
-
-### Security Best Practices
-- [x] .env.local in .gitignore
-- [x] Secrets removed from git history
-- [ ] Enable Supabase Row Level Security (proper policies, not USING true)
-- [ ] Add rate limiting to all API routes
-- [ ] Add input sanitization to WhatsApp message parser
-- [ ] HTTPS-only cookies for customer sessions
-- [ ] Add CORS headers to API routes
+- Twilio webhook (`/api/whatsapp/incoming`) — single entrypoint
+- `signup_sessions` for multi-step flows (signup, ordering, event reserve, photo upload, menu add)
+- Bilingual customer commands: `commander`, `mes commandes`, `payer`, `mes bons`, `bon CODE`, `evenements`, `reserver XXXX`, `mes reservations`, `noter`, `signaler`, `aide`
+- Bilingual vendor commands: `menu`, `Nom - Prix`, `prix Nom`, `dispo Nom`, `commandes`, `ok XXXX`, `preparer`, `pret`, `recupere`, `annuler`, `paye XXXX cash/mtn/orange`, `horaire`, `ouvrir`/`fermer`/`auto`, `temps 20 35`, `equipe`, `ajouter +X manager`, `invitations`, `retirer +X`, `suspendre`, `reactiver`
+- Multi-restaurant team flow (`mes restaurants` selector)
+- Photo upload mid-conversation (Twilio media → Supabase Storage)
 
 ---
 
-## ⬜ Phase 4: Payment & Business (NOT YET BUILT)
+## ✅ Phase 3 — Accounts & moderation (DONE)
 
-### Mobile Money Integration
-- [ ] Research providers: MTN MoMo, Orange Money for Cameroon
-- [ ] Integrate payment API
-- [ ] Order payment flow: cart → pay → confirm
-- [ ] Payment confirmation to vendor
-- [ ] Transaction history for customers and vendors
-
-### Vendor Monetization
-- [ ] Vendor subscription plans
-- [ ] Commission per order
-- [ ] Vendor analytics dashboard (orders, revenue, popular items)
+- Customer + admin auth on one `/account` page (phone OTP vs email/password)
+- `customers.status` lifecycle (active / suspended / deleted) + `restaurants.status`
+- Soft-delete with undo window; hard-release of phone numbers
+- Admin tabs: Restaurants, Orders, Vouchers, Reports, Accounts, Platform Team, Profile, Events, Broadcasts, Promotions
+- Three admin roles (`super_admin` / `admin` / `moderator`) with per-tab gating
+- `restaurant_team` + `team_invitations` (owner/manager/staff)
+- `audit_log` with ~70 distinct actions
+- `<ReportButton />` everywhere (`reports` queue, admin resolves)
+- Customer self-suspend + self-delete; admin restore
 
 ---
 
-## ⬜ Phase 5: Growth & Distribution (NOT YET BUILT)
+## ✅ Phase 4 — Payments (DONE)
 
-### Mobile PWA
-- [ ] Add manifest.json for installable PWA
-- [ ] Service worker for offline support
-- [ ] Push notifications for orders
-- [ ] App install prompt
-
-### SEO & Sharing
-- [ ] Dynamic meta tags for each restaurant page
-- [ ] Open Graph images for social sharing
-- [ ] Shareable restaurant links with preview
-- [ ] Sitemap.xml generation
-- [ ] Structured data (JSON-LD) for restaurants
-
-### Real Vendor Onboarding (Yaoundé)
-- [ ] Identify 20 target restaurants in Yaoundé
-- [ ] Create onboarding WhatsApp message template
-- [ ] Visit vendors, help them sign up
-- [ ] Collect real menus and photos
-- [ ] Remove sample data, replace with real vendors
+- PawaPay integration: `createDeposit`, `checkDepositStatus`, `createPayout`
+- MNO routing: MTN MoMo (CMR/CIV/BEN), Orange (CMR/CIV/SEN), Moov (CIV/BEN), Free (SEN)
+- Webhook handles 4 domains: orders, event reservations, broadcasts, promotions; idempotent
+- Manual mark-paid by vendor (`paye XXXX cash` / `mtn 237…`)
+- Vendor payout settings (`payout_phone`); admin-triggered payout endpoint
+- Production webhook signature verification (RFC-9421 `Content-Digest`)
+- `<PaymentBadge />` component used across customer + admin views
 
 ---
 
-## ⬜ Phase 6: Scale (FUTURE)
+## ✅ Phase 5 — Vouchers (DONE)
 
-### Multi-City Expansion
-- [ ] Launch Abidjan
-- [ ] Launch Dakar
-- [ ] Launch Lomé
-- [ ] City-specific landing pages
-
-### Advanced Features
-- [ ] Customer reviews and ratings
-- [ ] Delivery tracking
-- [ ] Favorite restaurants
-- [ ] Order scheduling (pre-order for later)
-- [ ] Restaurant recommendations based on location
-- [ ] Analytics dashboard for admin
+- `vouchers` (code, % or fixed, min order, max uses, expiry, city / restaurant scope)
+- `customer_vouchers` with `claimed_at` + `used_at`
+- Welcome `BIENVENUE` code auto-assigned on first signup (10% off, city-scoped)
+- Customer surfaces: claim input, "My vouchers" tab, checkout dropdown
+- Vendor: voucher CRUD on `/dashboard` Vouchers tab + validate / consume flow
+- Admin: platform-wide voucher management
+- WhatsApp: `mes bons`, `bon CODE`
 
 ---
 
-## 🛠️ Tech Stack
+## ✅ Phase 6 — Events (DONE)
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 14 + Tailwind CSS |
-| Database | Supabase (Postgres) |
-| Hosting | Vercel |
-| Maps | Mapbox |
-| WhatsApp | Twilio API (API Keys) |
-| Storage | Supabase Storage (menu-images) |
-| Repo | github.com/babnitch/streetmenu |
-
----
-
-## 📊 Current Priority Order
-
-1. **Fix WhatsApp webhook** — get aide/menu/commandes working end-to-end
-2. **Fix security vulnerabilities** — Twilio signature validation + admin auth
-3. **Rotate exposed credentials** — Mapbox, Supabase anon key, admin password
-4. **Test full order flow** — customer orders → vendor gets WhatsApp notification
-5. **Real vendor onboarding** — sign up 5-10 real restaurants in Yaoundé
-6. **Mobile Money** — enable payments
-7. **PWA** — make it installable on phone
+- `/events` list (city filter, category pills) + `/events/[id]` detail
+- Event submission with cover photo, capacity, single-price OR multi-tier
+- Trust gate: 3 approved events → `event_auto_approve=true`
+- Reservations: free + pay-at-door (`/reserve`), paid PawaPay (`/pay`)
+- Per-event `requires_confirmation` (manual approval flow with pending/confirm/reject)
+- Per-event `reservations_open` (close/reopen the gate independently of event_status)
+- Multi-tier ticketing (`event_ticket_tiers`): Early Bird, VIP, Kids, etc. + 3 presets
+- Tier price-range display on event cards (Gratuit / 1,500 - 5,000 FCFA / mixed)
+- Event likes + comments (with `event_comments.nickname` snapshot)
+- Event subscriptions: city + optional category whitelist → WhatsApp alert on new event
+- Paid broadcasts (50 FCFA/recipient, 1,000 FCFA min) — `<BroadcastPanel />` + admin tab
+- Organizer dashboard: stats, settings, tiers, reservation management with filter tabs
+- Category rename: Music→Concert / Food→Gastronomie / Art→Culture / Nightlife→Festival / BT|Club→BT/Club
+- Locale-aware category labels
 
 ---
 
-## 📝 Notes
+## ✅ Phase 7 — UI polish (DONE)
 
-- Always update this file when completing or adding tasks
-- Run `/security-review` in Claude Code before every deployment
-- Never commit secrets to git — use .env.local locally and Vercel env vars for production
-- All user-facing content must be bilingual FR/EN
+- Brand redesign: Tchop & Ndjoka name + T&N logo + orange palette
+- Bilingual FR/EN throughout (~1000 keys × 2 languages in `lib/translations.ts`)
+- `<TopNav />` + `<BottomNav />` with role/mode-aware tab sets, anti-flash guards
+- Mode switcher (Client ⇄ Restaurant) for vendors
+- Dynamic dashboard tab via `modeContext.dashboardTab` (avoids Next.js `?tab=` same-route skip)
+- Restaurants + Events nav links always visible (even for vendors in restaurant mode)
+- City dropdown, language toggle, map toggle, account pill, cart pill — all in TopNav
+- Cache-Control headers prevent stale HTML; client-storage versioning (`CLIENT_VERSION`)
+- `<PhoneInput />` with ~190-country dropdown, locale-aware A-Z, accent-insensitive search
+- Custom domain not yet configured (still on `streetmenu.vercel.app`)
+
+---
+
+## ✅ Phase 8 — Ratings + social (DONE)
+
+- `restaurant_ratings` with 1-5 stars + tag chips (food/service/value/cleanliness) + comment
+- Gate: only customers with a `delivered` order at the restaurant can rate
+- Aggregate endpoint + bulk loader (`/api/restaurants/ratings-summary?ids=…`)
+- `<RestaurantRatingPanel />` for inline rating; `<EventSocialPanel />` for likes + comments
+- Nicknames (`customers.nickname`) used to sign comments, 7-day change cooldown
+
+---
+
+## ✅ Phase 9 — Operations (DONE)
+
+- Opening hours editor (`restaurant_hours`) + manual override (`open` / `closed` / null)
+- Timezone-aware open-status computation (`lib/openingHours.ts`)
+- Bulk open-status endpoint with 60s edge cache
+- Prep-time range (5–120 min, default 20-35) per restaurant; "X-Y min" everywhere
+- Allow-orders-when-closed flag for vendors who take advance orders
+- Order status pipeline: pending → confirmed → preparing → ready → completed → delivered (+ cancelled)
+- Real-time order updates via Supabase channel subscription on `/dashboard`
+- Daily cron (`/api/admin/cleanup-expired`) purges stale signup sessions, OTP codes, expired invitations
+
+---
+
+## ✅ Phase 10 — Native ads (DONE — May 2026)
+
+- `<PromotePanel />` for restaurant owners + verified publishers
+- Three placements: `top_list` (2,000/day), `feed_card` (1,000/day), `banner` (500/day)
+- Per-day billing, full upfront via PawaPay; admin approval before going live
+- IntersectionObserver impressions + click tracking (sessionStorage dedupe)
+- Self-promoter ad-filter (you never see your own ads)
+- Admin tab: list / filter / approve / reject / pause / resume / pricing edit / revenue total
+
+---
+
+## 🔜 Phase 11 — Security hardening (NEXT — pre-launch blocker)
+
+- [ ] Rate-limit `/api/auth/send-code` (max 5 codes/phone/24h, max 20/IP/hour)
+- [ ] Rate-limit `/api/payments/initiate` to prevent deposit spam
+- [ ] Rate-limit `/api/reports` to prevent abuse-button mash
+- [ ] CSRF tokens on sensitive endpoints (cookie-only same-origin isn't sufficient long-term)
+- [ ] Audit-log read UI inside admin (currently SQL-only)
+- [ ] Production webhook re-test pass (PawaPay sandbox bypasses signature; prod must verify)
+- [ ] Bcrypt rounds → 12 once we cross 1k admin/vendor sign-ins
+- [ ] Secret rotation drill — confirm `JWT_SECRET` rotation procedure
+- [ ] DB-level audit on PII reads via Postgres `pg_audit`
+- [ ] Penetration test before public launch
+
+---
+
+## 🔜 Phase 12 — PWA + offline (NEXT)
+
+- [ ] Service worker for offline-first cart + restaurant cache
+- [ ] Web app manifest with proper icons + theme colour
+- [ ] Add-to-home-screen prompt on iOS/Android browsers
+- [ ] Background sync for orders queued offline
+- [ ] Push notifications via Web Push API (FCM/APNS bridge)
+
+---
+
+## 🔜 Phase 13 — Launch prep
+
+- [ ] Custom domain (tchopndjoka.com or similar) + DNS + SSL
+- [ ] Twilio production WhatsApp template approval
+- [ ] PawaPay production keys + payout testing
+- [ ] Marketing site (currently `/` is the marketing surface too)
+- [ ] Legal: terms of service, privacy policy, refund policy
+- [ ] Analytics: Vercel Analytics or PostHog
+- [ ] Error monitoring: Sentry
+- [ ] Pre-launch bug bash with 20 invited testers in Yaoundé
+
+---
+
+## 🔜 Phase 14 — Post-launch
+
+- [ ] Native mobile app (React Native or Capacitor wrap)
+- [ ] Real-time push notifications (vendor side: order received; customer side: order ready)
+- [ ] Admin analytics dashboard (orders/day, revenue, top restaurants, voucher CTR, promotion ROI)
+- [ ] Vendor analytics: weekly summary email/WhatsApp
+- [ ] Multi-language v2 — add Arabic, Wolof, Lingala
+- [ ] Restaurant payout automation (currently admin-triggered)
+
+---
+
+## 🔜 Phase 15 — Scale
+
+- [ ] Connection pooling (PgBouncer / Supabase pooler) once we cross 100 concurrent dashboards
+- [ ] Read-replica for the open-status endpoint
+- [ ] Per-region edge deployment if Africa latency becomes a real concern
+- [ ] CDN images via Vercel's optimization with sharper compression presets
+- [ ] Background workers for slow WhatsApp fan-outs (currently inline; OK at this scale)
+- [ ] Database sharding by city (only after Vercel/Supabase recommend it)
+- [ ] Multi-currency support beyond XAF/XOF
+
+---
+
+## Feature count summary (May 2026)
+
+- **Pages:** 20 (customer + vendor + admin)
+- **API routes:** ~95
+- **Database tables:** 26
+- **SQL migrations:** 28
+- **WhatsApp commands:** 35+
+- **Languages supported:** 2 (FR/EN)
+- **Cities:** 5 (Yaoundé, Abidjan, Dakar, Lomé, Cotonou)
+- **Countries in PhoneInput:** ~190
+- **MNO correspondents:** 9 (PawaPay)
+- **Event categories:** 9
+- **Audit-log actions:** ~70
+- **TypeScript files:** ~120
+- **Lines of code:** ~30,000
+
+Built in 8 months. Solo dev with Claude in the loop.
