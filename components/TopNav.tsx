@@ -99,7 +99,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
   const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
   const isRestaurants = pathname === '/'
-  const isOrdersPage  = pathname === '/account'
   const isDashboard   = pathname.startsWith('/dashboard')
   const isEvents      = pathname === '/events' || pathname.startsWith('/events/')
   // Map icon only makes sense on the two map-bearing client-mode surfaces.
@@ -198,18 +197,15 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           {/* Restaurants + Events are always visible — vendors need to be
               able to jump back to the public side without flipping modes
               first. In restaurant mode they sit alongside the dashboard
-              tabs (Orders/Menu/Vouchers/Settings). */}
+              tabs (Orders/Menu/Vouchers/Settings). Customers reach their
+              order history through /account → Orders, not from here, so
+              the nav stays focused on discovery + restaurant ops. */}
           <TopNavLink href="/" active={isRestaurants}>
             🏠 {bi('Restaurants', 'Restaurants')}
           </TopNavLink>
           <TopNavLink href="/events" active={isEvents}>
             🎉 {bi('Événements', 'Events')}
           </TopNavLink>
-          {effectiveMode === 'client' && me && (
-            <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
-              📦 {bi('Commandes', 'Orders')}
-            </TopNavLink>
-          )}
           {effectiveMode === 'restaurant' && (
             <>
               {/* Orders catches the "no known tab" case so a freshly

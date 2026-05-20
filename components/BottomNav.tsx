@@ -33,10 +33,15 @@ export default function BottomNav() {
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const bi = useBi()
-  const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab } = useMode()
+  const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab, loading: modeLoading } = useMode()
 
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  // Gates the first render so the bar doesn't briefly show the
+  // logged-out 3-tab set and then jump to the logged-in 4-tab set (or
+  // worse, swap from public tabs to restaurant-mode dashboard tabs).
+  // The bar appears once, with the right tabs already in place.
+  const [authProbed, setAuthProbed] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)             // vendor-side
 
   // Initial probe — just identifies the session so the bar can pick the
@@ -51,12 +56,14 @@ export default function BottomNav() {
         const meRes = await fetch('/api/auth/me', { cache: 'no-store' })
         const me = await meRes.json()
         if (cancelled) return
-        if (!me?.user) return
-        setIsLoggedIn(true)
-        if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
-          setIsAdmin(true)
+        if (me?.user) {
+          setIsLoggedIn(true)
+          if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
+            setIsAdmin(true)
+          }
         }
       } catch { /* swallow — show base tabs */ }
+      finally { if (!cancelled) setAuthProbed(true) }
     }
 
     probe()
@@ -90,6 +97,12 @@ export default function BottomNav() {
   const hideOnRoute = pathname.startsWith('/admin') || isAdmin
 
   if (hideOnRoute) return null
+
+  // Defer the first render until both the auth probe and the mode
+  // probe are settled. The bar then appears once with the correct
+  // tab set instead of flashing through logged-out → logged-in or
+  // client → restaurant variants.
+  if (!authProbed || modeLoading) return null
 
   // Effective mode: only honor "restaurant" when the user actually has a
   // team role. Prevents a stale localStorage flag from showing vendor
