@@ -9,6 +9,7 @@ import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
 import EventSocialPanel from '@/components/EventSocialPanel'
 import ReportButton from '@/components/ReportButton'
@@ -30,7 +31,7 @@ interface SessionUser { id: string; name: string; phone: string; role: string }
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
   const bi = useBi()
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
@@ -251,7 +252,7 @@ export default function EventDetailPage() {
 
         <div className="absolute bottom-4 left-4 right-4 z-10">
           <span className="inline-block bg-brand text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
-            {event.category === 'Enfants' ? '👶 Enfants' : event.category}
+            {categoryLabel(event.category, locale)}
           </span>
           <h1 className="text-white text-2xl font-bold leading-tight drop-shadow-lg">
             {event.title}

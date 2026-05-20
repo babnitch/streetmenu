@@ -7,6 +7,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
@@ -17,16 +18,10 @@ const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ]
 
-// Same emoji-prefix-on-render convention as app/events/page.tsx.
-function categoryLabel(cat: string): string {
-  return cat === 'Enfants' ? '👶 Enfants' : cat
-}
-
-
 interface SessionUser { id: string; name: string; phone: string; role: string }
 
 export default function SubmitEventPage() {
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
   const bi = useBi()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -281,7 +276,7 @@ export default function SubmitEventPage() {
             <Field label={t('evt.catLbl')}>
               <select className={INPUT} value={form.category} onChange={e => set('category', e.target.value)}>
                 <option value="">{t('evt.catPh')}</option>
-                {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
               </select>
             </Field>
             <Field label={t('evt.priceLbl')}>

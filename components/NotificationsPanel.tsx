@@ -1,15 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useBi } from '@/lib/languageContext'
+import { useBi, useLanguage } from '@/lib/languageContext'
+import { categoryLabel } from '@/lib/categoryLabels'
 
 const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ] as const
-
-function categoryLabel(cat: string): string {
-  return cat === 'Enfants' ? '👶 Enfants' : cat
-}
 
 interface Sub {
   id: string
@@ -26,6 +23,7 @@ interface Sub {
 // the /events page button (lives next to the city dropdown).
 export default function NotificationsPanel() {
   const bi = useBi()
+  const { locale } = useLanguage()
   const [subs, setSubs] = useState<Sub[]>([])
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -177,7 +175,7 @@ export default function NotificationsPanel() {
                               : 'bg-surface-muted text-ink-tertiary hover:bg-divider'
                           }`}
                         >
-                          {categoryLabel(cat)}
+                          {categoryLabel(cat, locale)}
                         </button>
                       )
                     })}

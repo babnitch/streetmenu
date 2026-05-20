@@ -5,6 +5,7 @@
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { categoryLabelBilingual } from '@/lib/categoryLabels'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -192,7 +193,9 @@ function formatEventLine(e: EventForNotify): string {
   const priceLine = price && price > 0
     ? `🎫 ${Number(price).toLocaleString()} FCFA`
     : `🎫 Gratuit / Free`
-  const cat = e.category === 'Enfants' ? '👶 Enfants' : e.category
+  // Bilingual badge because the WhatsApp recipient has no locale we can
+  // read — `categoryLabelBilingual` returns e.g. "👶 Enfants / 👶 Kids".
+  const cat = categoryLabelBilingual(e.category)
   const lines = [
     `🎉 *Nouvel événement à ${e.city}! / New event in ${e.city}!*`,
     ``,

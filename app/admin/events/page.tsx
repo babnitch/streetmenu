@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import { categoryLabel } from '@/lib/categoryLabels'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -15,7 +16,7 @@ interface EventAggregate { reservations_count: number; tickets_count: number; re
 interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean }
 
 export default function AdminEventsPage() {
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
   const bi = useBi()
   const [events, setEvents] = useState<Event[]>([])
   const [aggregates, setAggregates] = useState<Record<string, EventAggregate>>({})
@@ -199,6 +200,7 @@ export default function AdminEventsPage() {
                   : undefined
               }
               tab={tab}
+              categoryDisplay={categoryLabel(evt.category, locale)}
               approveLabel={t('admin.evtApproveBtn')}
               rejectLabel={t('admin.evtRejectBtn')}
               organizerLabel={t('admin.evtOrganizer')}
@@ -223,6 +225,7 @@ function EventRow({
   approveLabel, rejectLabel, organizerLabel,
   reservationsLabel, ticketsLabel, revenueLabel, commissionLabel,
   verifiedLabel, progressLabel, revokeAutoLabel,
+  categoryDisplay,
 }: {
   event: Event
   aggregate?: EventAggregate
@@ -242,6 +245,7 @@ function EventRow({
   verifiedLabel: string
   progressLabel: string
   revokeAutoLabel: string
+  categoryDisplay: string
 }) {
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -269,7 +273,7 @@ function EventRow({
               </p>
             </div>
             <span className="flex-shrink-0 text-xs bg-surface-muted text-ink-secondary px-2 py-0.5 rounded-full">
-              {event.category === 'Enfants' ? '👶 Enfants' : event.category}
+              {categoryDisplay}
             </span>
           </div>
 

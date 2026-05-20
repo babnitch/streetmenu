@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useBi } from '@/lib/languageContext'
+import { useBi, useLanguage } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
+import { categoryLabel } from '@/lib/categoryLabels'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
 const CATEGORIES = [
@@ -11,10 +12,6 @@ const CATEGORIES = [
 ] as const
 const TITLE_MAX = 100
 const MESSAGE_MAX = 1000
-
-function categoryLabel(cat: string): string {
-  return cat === 'Enfants' ? '👶 Enfants' : cat
-}
 
 interface Eligibility {
   eligible: boolean
@@ -44,6 +41,7 @@ interface PastBroadcast {
 // or approved restaurant owners.
 export default function BroadcastPanel() {
   const bi = useBi()
+  const { locale } = useLanguage()
   const [eligibility, setEligibility] = useState<Eligibility | null>(null)
   const [pastBroadcasts, setPastBroadcasts] = useState<PastBroadcast[]>([])
   const [composeOpen, setComposeOpen] = useState(false)
@@ -320,7 +318,7 @@ export default function BroadcastPanel() {
                       on ? 'bg-brand text-white' : 'bg-surface-muted text-ink-tertiary hover:bg-divider'
                     }`}
                   >
-                    {categoryLabel(cat)}
+                    {categoryLabel(cat, locale)}
                   </button>
                 )
               })}

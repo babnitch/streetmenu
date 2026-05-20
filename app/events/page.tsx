@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
+import { categoryLabel } from '@/lib/categoryLabels'
 import { useCity } from '@/lib/cityContext'
 import TopNav from '@/components/TopNav'
 
@@ -27,15 +28,7 @@ const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ]
 
-// Display label for a category. We keep the stored value bare ("Enfants") so
-// filtering by exact match still works, and add the 👶 emoji only at render
-// time. Other categories aren't emoji-prefixed today — kept that way to
-// avoid the visual churn of restyling the whole pill row.
-function categoryLabel(cat: string): string {
-  return cat === 'Enfants' ? '👶 Enfants' : cat
-}
-
-function EventCard({ event, viewLabel, freeLabel, likes }: { event: Event; viewLabel: string; freeLabel: string; likes?: number }) {
+function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number }) {
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
   })
@@ -55,7 +48,7 @@ function EventCard({ event, viewLabel, freeLabel, likes }: { event: Event; viewL
           <div className="absolute inset-0 flex items-center justify-center text-5xl">🎉</div>
         )}
         <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
-          {categoryLabel(event.category)}
+          {categoryDisplay}
         </span>
         {event.price === null || event.price === 0 ? (
           <span className="absolute top-2 right-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
@@ -112,7 +105,7 @@ interface MySubscription {
 }
 
 export default function EventsPage() {
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
   const bi = useBi()
   const router = useRouter()
   const { city } = useCity()
@@ -300,7 +293,7 @@ export default function EventsPage() {
                   : 'bg-surface-muted text-ink-secondary hover:bg-divider'
               }`}
             >
-              {categoryLabel(cat)}
+              {categoryLabel(cat, locale)}
             </button>
           ))}
         </div>
@@ -345,6 +338,7 @@ export default function EventsPage() {
                 event={evt}
                 viewLabel={t('evt.viewDetail')}
                 freeLabel={t('evt.free')}
+                categoryDisplay={categoryLabel(evt.category, locale)}
                 likes={likesSummary[evt.id]}
               />
             ))}
@@ -501,7 +495,7 @@ export default function EventsPage() {
                         onChange={() => toggleSubCategory(cat)}
                         className="w-4 h-4 rounded border-divider text-brand"
                       />
-                      <span className="text-ink-primary">{categoryLabel(cat)}</span>
+                      <span className="text-ink-primary">{categoryLabel(cat, locale)}</span>
                     </label>
                   ))}
                 </div>
