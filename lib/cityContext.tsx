@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { runClientVersionGuard } from './clientVersion'
 
 // The four supported cities. Kept here so TopNav's dropdown and the home
 // page's filter never drift — import `CITIES` wherever the list is needed.
@@ -14,7 +15,7 @@ interface CityContextValue {
   setCity: (c: City) => void
 }
 
-const STORAGE_KEY = 'nt_selected_city'
+const STORAGE_KEY = 'tn_selected_city'
 const DEFAULT_CITY: City = 'Yaoundé'
 
 const CityContext = createContext<CityContextValue>({
@@ -27,8 +28,11 @@ export function CityProvider({ children }: { children: ReactNode }) {
 
   // Restore the persisted choice on mount. Guarded against malformed
   // localStorage values (e.g. a city name we removed later) by checking
-  // against the canonical CITIES list.
+  // against the canonical CITIES list. The version guard runs first; if
+  // it detects a stale schema it clears + reloads, and we never reach
+  // the read below on the old page instance.
   useEffect(() => {
+    runClientVersionGuard()
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (stored && (CITIES as readonly string[]).includes(stored)) {

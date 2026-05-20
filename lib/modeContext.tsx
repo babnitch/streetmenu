@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { runClientVersionGuard } from './clientVersion'
 
 // ModeContext tracks whether a user with a restaurant_team role is currently
 // browsing as a customer ("client") or managing their restaurant ("restaurant").
@@ -34,7 +35,7 @@ interface ModeContextValue {
   setDashboardTab: (t: DashboardTab) => void
 }
 
-const STORAGE_KEY = 'nt_mode'
+const STORAGE_KEY = 'tn_mode'
 const DEFAULT_MODE: Mode = 'restaurant' // vendors care about orders first
 
 const ROLE_RANK: Record<TeamRole, number> = { staff: 1, manager: 2, owner: 3 }
@@ -61,8 +62,11 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const [dashboardTab, setDashboardTab]      = useState<DashboardTab>('orders')
 
   // Restore the persisted mode choice on mount. Only the two known values
-  // are accepted — guards against stale storage from a prior schema.
+  // are accepted — guards against stale storage from a prior schema. The
+  // version guard runs first so we never read a value written by an
+  // incompatible older release.
   useEffect(() => {
+    runClientVersionGuard()
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (stored === 'client' || stored === 'restaurant') setModeState(stored)
