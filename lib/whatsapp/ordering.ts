@@ -823,6 +823,123 @@ export async function handleOrderCommand(
     return ok()
   }
 
+  // "fermer reservations XXXX" / "ouvrir reservations XXXX" — organizer
+  // toggle for the events.reservations_open gate. Matches the web button
+  // in /account → Mes événements; lets the organizer close walk-ins from
+  // their phone.
+  const reservGateMatch = cmd.match(/^(fermer|ouvrir|close|open)\s+reservations?\s+([0-9a-f]{4})$/i)
+  if (reservGateMatch) {
+    const verb = reservGateMatch[1].toLowerCase()
+    const code4 = reservGateMatch[2].toLowerCase()
+    const open = (verb === 'ouvrir' || verb === 'open')
+    const { data: candidates } = await supabaseAdmin
+      .from('events').select('id, title, reservations_open')
+      .eq('organizer_id', customer.id).limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      return ok()
+    }
+    await supabaseAdmin.from('events').update({ reservations_open: open }).eq('id', event.id)
+    const { writeAudit } = await import('@/lib/audit')
+    await writeAudit({
+      action:          open ? 'reservations_opened' : 'reservations_closed',
+      targetType:      'event',
+      targetId:        event.id,
+      performedBy:     customer.id,
+      performedByType: 'customer',
+      previousData:    { reservations_open: event.reservations_open },
+      metadata:        { open, via: 'whatsapp' },
+    })
+    await sendWhatsApp(from,
+      open
+        ? `🔓 Réservations ouvertes pour *${event.title}*. / Reservations opened.`
+        : `🔒 Réservations fermées pour *${event.title}*. / Reservations closed.`)
+    return ok()
+  }
+
+  // "confirmer reservation XXXX" / "rejeter reservation XXXX" — organizer
+  // confirms / rejects a pending reservation by its 4-char ID suffix.
+  // Customer notification is handled inside the API handlers via the
+  // shared sendWhatsApp helper, so we just delegate over fetch.
+  const reservDecisionMatch = cmd.match(/^(confirmer|rejeter|confirm|reject)\s+reservation\s+([0-9a-f]{4})$/i)
+  if (reservDecisionMatch) {
+    const verb  = reservDecisionMatch[1].toLowerCase()
+    const code4 = reservDecisionMatch[2].toLowerCase()
+    const action = (verb === 'confirmer' || verb === 'confirm') ? 'confirm' : 'reject'
+
+    // Resolve the reservation by short code, scoped to this organizer.
+    const { data: pendings } = await supabaseAdmin
+      .from('event_reservations')
+      .select('id, event_id, reservation_status, events!inner(organizer_id, title)')
+      .eq('events.organizer_id', customer.id)
+      .neq('reservation_status', 'cancelled')
+      .neq('reservation_status', 'rejected')
+      .order('created_at', { ascending: false })
+      .limit(100)
+    const match = (pendings ?? []).find(r => r.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!match) {
+      await sendWhatsApp(from, `❌ Réservation #${code4.toUpperCase()} introuvable. / Reservation not found.`)
+      return ok()
+    }
+
+    const { writeAudit } = await import('@/lib/audit')
+    if (action === 'confirm') {
+      await supabaseAdmin
+        .from('event_reservations')
+        .update({ reservation_status: 'confirmed', updated_at: new Date().toISOString() })
+        .eq('id', match.id)
+      await writeAudit({
+        action:          'reservation_confirmed_by_organizer',
+        targetType:      'event_reservation',
+        targetId:        match.id,
+        performedBy:     customer.id,
+        performedByType: 'customer',
+        previousData:    { reservation_status: match.reservation_status },
+        metadata:        { event_id: match.event_id, via: 'whatsapp' },
+      })
+      // Notify the customer.
+      const { data: r } = await supabaseAdmin
+        .from('event_reservations').select('customer_phone, quantity, events(title)').eq('id', match.id).maybeSingle()
+      const ev = r?.events as unknown as { title: string } | null
+      if (r?.customer_phone) {
+        await sendWhatsApp(r.customer_phone,
+          `✅ *Votre réservation est confirmée! / Your reservation is confirmed!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} place(s)`,
+        ).catch(() => null)
+      }
+      await sendWhatsApp(from, `✅ Réservation #${code4.toUpperCase()} confirmée. / Reservation confirmed.`)
+    } else {
+      // Reject — also release seats.
+      const { data: r } = await supabaseAdmin
+        .from('event_reservations').select('quantity, customer_phone, event_id, events(title, tickets_sold)').eq('id', match.id).maybeSingle()
+      if (r) {
+        const ev = r.events as unknown as { title: string; tickets_sold: number } | null
+        const sold = Number(ev?.tickets_sold ?? 0)
+        const next = Math.max(0, sold - Number(r.quantity ?? 0))
+        await Promise.all([
+          supabaseAdmin.from('event_reservations').update({ reservation_status: 'rejected', updated_at: new Date().toISOString() }).eq('id', match.id),
+          supabaseAdmin.from('events').update({ tickets_sold: next }).eq('id', match.event_id),
+        ])
+        await writeAudit({
+          action:          'reservation_rejected',
+          targetType:      'event_reservation',
+          targetId:        match.id,
+          performedBy:     customer.id,
+          performedByType: 'customer',
+          previousData:    { reservation_status: match.reservation_status },
+          metadata:        { event_id: match.event_id, via: 'whatsapp' },
+        })
+        if (r.customer_phone) {
+          await sendWhatsApp(r.customer_phone,
+            `❌ *Votre réservation a été refusée / Your reservation was declined*\n🎉 ${ev?.title ?? ''}`,
+          ).catch(() => null)
+        }
+      }
+      await sendWhatsApp(from, `❌ Réservation #${code4.toUpperCase()} rejetée. / Reservation rejected.`)
+    }
+    return ok()
+  }
+
   // "reserver XXXX" / "book XXXX" — shortcut for a known short code. Routes
   // into the same multi-step flow as the browse → detail → reserver path so
   // free + paid events take a consistent quantity prompt and (where
@@ -831,13 +948,18 @@ export async function handleOrderCommand(
   if (reserveMatch) {
     const code4 = reserveMatch[1].toLowerCase()
     const { data: candidates } = await supabaseAdmin
-      .from('events').select('id, event_status, is_active, date')
+      .from('events').select('id, title, event_status, is_active, date, reservations_open')
       .eq('is_active', true)
       .gte('date', new Date().toISOString().slice(0, 10))
       .order('date', { ascending: true }).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      return ok()
+    }
+    if (event.reservations_open === false) {
+      await sendWhatsApp(from,
+        `🔒 Les réservations pour *${event.title}* sont fermées. / Reservations for *${event.title}* are closed.`)
       return ok()
     }
     return startReserveFlow(from, phone, event.id)

@@ -55,6 +55,7 @@ export default function SubmitEventPage() {
     organizer_name: '',
     max_tickets: '',
     payment_enabled: false,
+    requires_confirmation: false,
   })
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
@@ -115,6 +116,7 @@ export default function SubmitEventPage() {
         ticket_price:    form.price ? parseFloat(form.price) : null,
         max_tickets:     form.max_tickets ? parseInt(form.max_tickets, 10) : 0,
         payment_enabled: !!form.payment_enabled,
+        requires_confirmation: !!form.requires_confirmation,
         cover_photo:     cover_photo || null,
         whatsapp:        form.whatsapp,
         organizer_name:  form.organizer_name,
@@ -336,6 +338,28 @@ export default function SubmitEventPage() {
               </span>
             </label>
           )}
+
+          {/* Manual approval toggle — off by default keeps the existing
+              auto-confirm behaviour for events that don't opt in. */}
+          <label className="flex items-start gap-3 bg-surface-muted border border-divider rounded-xl px-3 py-3 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!form.requires_confirmation}
+              onChange={e => set('requires_confirmation', e.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="flex-1 text-ink-primary">
+              <strong className="block">
+                📋 {bi('Approbation manuelle des réservations', 'Manual reservation approval')}
+              </strong>
+              <span className="text-xs text-ink-secondary">
+                {bi(
+                  'Chaque réservation reste en attente jusqu\'à votre confirmation.',
+                  'Each reservation stays pending until you confirm it.',
+                )}
+              </span>
+            </span>
+          </label>
 
           {/* Organizer */}
           <Field label={t('evt.organizerLbl')}>

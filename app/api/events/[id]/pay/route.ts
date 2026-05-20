@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, city, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate')
+    .select('id, title, city, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate, reservations_open')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -48,6 +48,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
     return NextResponse.json({ error: 'Événement clôturé / Event closed' }, { status: 409 })
+  }
+  if (event.reservations_open === false) {
+    return NextResponse.json({ error: 'Les réservations sont fermées / Reservations are closed' }, { status: 409 })
   }
   if (!event.payment_enabled) {
     return NextResponse.json({

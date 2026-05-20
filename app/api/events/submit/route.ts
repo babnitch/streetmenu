@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     ? Math.max(0, parseInt(String(body.max_tickets), 10))
     : 0
   const paymentEnabled = ticketPrice && ticketPrice > 0 ? !!body.payment_enabled : false
+  const requiresConfirmation = !!body.requires_confirmation
 
   const insertRow: Record<string, unknown> = {
     title:           String(body.title).trim(),
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
     ticket_price:    ticketPrice,
     max_tickets:     maxTickets,
     payment_enabled: paymentEnabled,
+    requires_confirmation: requiresConfirmation,
     cover_photo:     body.cover_photo || null,
     whatsapp:        body.whatsapp,
     organizer_name:  body.organizer_name || submitter.name,

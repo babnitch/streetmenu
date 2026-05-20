@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   // 50 most-recent — organizers rarely run more, admins paginate later.
   let query = supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, city, cover_photo, ticket_price, max_tickets, tickets_sold, payment_enabled, organizer_id, organizer_name, event_status, is_active, created_at')
+    .select('id, title, date, time, venue, city, cover_photo, ticket_price, max_tickets, tickets_sold, payment_enabled, organizer_id, organizer_name, event_status, is_active, requires_confirmation, reservations_open, created_at')
     .order('date', { ascending: false })
     .limit(50)
   if (!isAdmin) {
@@ -42,10 +42,14 @@ export async function GET(req: NextRequest) {
     .select('event_id, payment_status, reservation_status, total_price, quantity, commission_amount')
     .in('event_id', ids)
 
-  const aggBy = new Map<string, { reservations_count: number; tickets_count: number; revenue: number; commission: number; pending_count: number }>()
+  type Agg = { reservations_count: number; tickets_count: number; revenue: number; commission: number; pending_count: number; pending_approval_count: number }
+  const aggBy = new Map<string, Agg>()
   for (const r of resv ?? []) {
-    const agg = aggBy.get(r.event_id) ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0, pending_count: 0 }
-    if (r.reservation_status !== 'cancelled') {
+    const agg: Agg = aggBy.get(r.event_id) ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0, pending_count: 0, pending_approval_count: 0 }
+    // Cancelled + rejected don't count toward tickets sold but they do
+    // belong on the reservations list, so they're surfaced through the
+    // reservations endpoint, not aggregated here.
+    if (r.reservation_status !== 'cancelled' && r.reservation_status !== 'rejected') {
       agg.reservations_count += 1
       agg.tickets_count      += Number(r.quantity ?? 0)
     }
@@ -54,19 +58,21 @@ export async function GET(req: NextRequest) {
       agg.commission += Number(r.commission_amount ?? 0)
     }
     if (r.payment_status === 'pending') agg.pending_count += 1
+    if (r.reservation_status === 'pending') agg.pending_approval_count += 1
     aggBy.set(r.event_id, agg)
   }
 
   const enriched = events.map(e => {
-    const a = aggBy.get(e.id) ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0, pending_count: 0 }
+    const a: Agg = aggBy.get(e.id) ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0, pending_count: 0, pending_approval_count: 0 }
     return {
       ...e,
-      reservations_count: a.reservations_count,
-      tickets_count:      a.tickets_count,
-      revenue:            a.revenue,
-      commission:         a.commission,
-      net_revenue:        Math.max(0, a.revenue - a.commission),
-      pending_count:      a.pending_count,
+      reservations_count:      a.reservations_count,
+      tickets_count:           a.tickets_count,
+      revenue:                 a.revenue,
+      commission:              a.commission,
+      net_revenue:             Math.max(0, a.revenue - a.commission),
+      pending_count:           a.pending_count,
+      pending_approval_count:  a.pending_approval_count,
     }
   })
 

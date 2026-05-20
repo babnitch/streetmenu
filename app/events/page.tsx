@@ -89,6 +89,11 @@ function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promot
         {event.venue && (
           <p className="text-xs text-ink-tertiary truncate">📍 {event.venue}{event.neighborhood ? `, ${event.neighborhood}` : ''}</p>
         )}
+        {event.reservations_open === false && (
+          <p className="text-[10px] text-ink-tertiary font-semibold mt-1 leading-none">
+            🔒 {bi('Réservations fermées', 'Reservations closed')}
+          </p>
+        )}
         {likes && likes > 0 ? (
           <p className="text-xs text-rose-600 font-semibold mt-1">❤️ {likes}</p>
         ) : null}

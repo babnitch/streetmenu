@@ -139,6 +139,11 @@ export interface Event {
   tickets_sold?: number | null
   organizer_id?: string | null
   event_status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
+  // Capacity + approval flags (supabase-event-capacity.sql).
+  // requires_confirmation defaults FALSE — auto-confirm behaviour.
+  // reservations_open    defaults TRUE  — public reserve flow open.
+  requires_confirmation?: boolean
+  reservations_open?:     boolean
 }
 
 export interface EventReservation {
@@ -152,7 +157,7 @@ export interface EventReservation {
   payment_status:     'not_required' | 'pending' | 'paid' | 'failed'
   payment_id:         string | null
   payment_method:     string | null
-  reservation_status: 'confirmed' | 'cancelled' | 'attended'
+  reservation_status: 'pending' | 'confirmed' | 'cancelled' | 'attended' | 'rejected'
   created_at:         string
   updated_at:         string
   // Joined view when /api/customer/reservations or admin queries include it

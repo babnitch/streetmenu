@@ -1801,6 +1801,8 @@ async function handleCustomer(
       `📢 "publier" → Publier un événement / Publish an event\n` +
       `📢 "mes evenements" → Voir vos événements publiés / View your events\n` +
       `📋 "reservations XXXX" → Voir les réservations d'un événement / View event reservations\n` +
+      `🔒 "fermer reservations XXXX" / "ouvrir reservations XXXX" → Fermer/ouvrir les réservations / Close/open reservations\n` +
+      `✅ "confirmer reservation XXXX" / "rejeter reservation XXXX" → Confirmer/rejeter / Confirm/reject\n` +
       `🔔 "abonner" → Recevoir les nouveaux événements / Get new event alerts\n` +
       `🔕 "desabonner" → Arrêter les notifications / Stop notifications\n` +
       `📋 "mes abonnements" → Voir mes abonnements / View my subscriptions\n` +

@@ -108,7 +108,10 @@ export default function EventDetailPage() {
   const soldOut      = maxTickets > 0 && remaining <= 0
   const isCancelled  = event.event_status === 'cancelled'
   const isCompleted  = event.event_status === 'completed'
-  const reservable   = !isCancelled && !isCompleted && !soldOut
+  // Organizer can close the reservation gate independently of event_status —
+  // e.g. soft-pause to manage walk-ins. Default is open (column default).
+  const reservationsClosed = event.reservations_open === false
+  const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed
   // Free + pay-at-door go through the lightweight /reserve modal.
   // payment_enabled=true events route through /pay (PawaPay) instead.
   const onlineReservable = reservable && !event.payment_enabled
@@ -313,6 +316,11 @@ export default function EventDetailPage() {
         {!isCancelled && !isCompleted && soldOut && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center text-sm font-semibold text-amber-700">
             {bi('🎟 Complet', '🎟 Sold out')}
+          </div>
+        )}
+        {!isCancelled && !isCompleted && !soldOut && reservationsClosed && (
+          <div className="bg-surface-muted border border-divider rounded-2xl p-4 text-center text-sm font-semibold text-ink-secondary">
+            🔒 {bi('Les réservations sont fermées.', 'Reservations are closed.')}
           </div>
         )}
 

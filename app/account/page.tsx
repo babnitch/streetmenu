@@ -139,8 +139,11 @@ export default function AccountPage() {
     ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
     payment_enabled: boolean; organizer_name: string | null; event_status: string | null
     is_active: boolean
+    requires_confirmation?: boolean
+    reservations_open?:     boolean
     reservations_count: number; tickets_count: number
     revenue: number; commission: number; net_revenue: number; pending_count: number
+    pending_approval_count?: number
   }
   interface OrganizerTrust {
     events_submitted_count: number
@@ -1850,8 +1853,11 @@ interface MyEventsPanelEvent {
   ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
   payment_enabled: boolean; organizer_name: string | null; event_status: string | null
   is_active: boolean
+  requires_confirmation?: boolean
+  reservations_open?:     boolean
   reservations_count: number; tickets_count: number
   revenue: number; commission: number; net_revenue: number; pending_count: number
+  pending_approval_count?: number
 }
 interface MyEventsPanelTrust {
   events_submitted_count: number
@@ -1863,7 +1869,7 @@ interface MyEventReservation {
   quantity: number; total_price: number
   payment_status: 'not_required' | 'pending' | 'paid' | 'failed'
   payment_method: string | null
-  reservation_status: 'confirmed' | 'cancelled' | 'attended'
+  reservation_status: 'pending' | 'confirmed' | 'cancelled' | 'attended' | 'rejected'
   created_at: string
 }
 
@@ -1879,6 +1885,13 @@ function MyEventsPanel({
   const [reservations, setReservations] = useState<MyEventReservation[]>([])
   const [loadingResv, setLoadingResv] = useState(false)
   const [acting, setActing] = useState<string | null>(null)
+  // Reservation list filter — All / Pending / Confirmed / Attended.
+  // Defaults to All so the organizer sees everything by default.
+  const [resvFilter, setResvFilter] = useState<'all' | 'pending' | 'confirmed' | 'attended'>('all')
+  // Inline event-setting controls (open/close, manual approval, capacity).
+  // Track in-flight to disable the buttons while a PATCH is mid-air.
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [capacityDraft, setCapacityDraft] = useState<string>('')
 
   const selected = selectedId ? events.find(e => e.id === selectedId) ?? null : null
 
@@ -1925,6 +1938,82 @@ function MyEventsPanel({
     } finally {
       setActing(null)
     }
+  }
+
+  // New organizer actions for manual-approval flow.
+  async function confirmRes(resId: string) {
+    setActing(resId)
+    try {
+      const res = await fetch(`/api/events/${selectedId}/reservations/${resId}/confirm`, { method: 'POST' })
+      if (res.ok) {
+        setReservations(prev => prev.map(x => x.id === resId ? { ...x, reservation_status: 'confirmed' } : x))
+        onChanged()
+      }
+    } finally {
+      setActing(null)
+    }
+  }
+  async function rejectRes(resId: string) {
+    const reason = prompt(bi('Raison du refus (optionnel):', 'Reason for rejection (optional):'), '')
+    if (reason === null) return
+    setActing(resId)
+    try {
+      const res = await fetch(`/api/events/${selectedId}/reservations/${resId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || null }),
+      })
+      if (res.ok) {
+        setReservations(prev => prev.map(x => x.id === resId ? { ...x, reservation_status: 'rejected' } : x))
+        onChanged()
+      }
+    } finally {
+      setActing(null)
+    }
+  }
+
+  // Event-level toggles. Each PATCH refreshes the parent so the badge
+  // counts in the header stay in sync with the buttons just clicked.
+  async function toggleReservationsOpen() {
+    if (!selected) return
+    setSavingSettings(true)
+    try {
+      const res = await fetch(`/api/events/${selected.id}/reservations-status`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ open: !(selected.reservations_open !== false) }),
+      })
+      if (res.ok) onChanged()
+    } finally { setSavingSettings(false) }
+  }
+  async function toggleRequiresConfirmation() {
+    if (!selected) return
+    setSavingSettings(true)
+    try {
+      const res = await fetch(`/api/events/${selected.id}/settings`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ requires_confirmation: !selected.requires_confirmation }),
+      })
+      if (res.ok) onChanged()
+    } finally { setSavingSettings(false) }
+  }
+  async function saveCapacity() {
+    if (!selected) return
+    const n = Number.parseInt(capacityDraft, 10)
+    if (!Number.isFinite(n) || n < 0) return
+    setSavingSettings(true)
+    try {
+      const res = await fetch(`/api/events/${selected.id}/settings`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ max_tickets: n }),
+      })
+      if (res.ok) {
+        setCapacityDraft('')
+        onChanged()
+      }
+    } finally { setSavingSettings(false) }
   }
 
   if (events.length === 0) {
@@ -1989,6 +2078,103 @@ function MyEventsPanel({
           )}
         </div>
 
+        {/* Event-level controls — reservations open/close, manual approval
+            toggle, capacity bump. Each PATCH refreshes the parent so the
+            stats above stay live. */}
+        <div className="bg-white rounded-2xl shadow-sm p-4 mb-4 space-y-3">
+          <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide">
+            ⚙️ {bi('Paramètres', 'Settings')}
+          </p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink-primary">
+                {selected.reservations_open === false
+                  ? bi('🔒 Réservations fermées', '🔒 Reservations closed')
+                  : bi('🔓 Réservations ouvertes', '🔓 Reservations open')}
+              </p>
+            </div>
+            <button
+              onClick={toggleReservationsOpen}
+              disabled={savingSettings}
+              className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+                selected.reservations_open === false
+                  ? 'bg-brand text-white hover:bg-brand-dark'
+                  : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+              }`}
+            >
+              {selected.reservations_open === false
+                ? bi('🔓 Ouvrir', '🔓 Open')
+                : bi('🔒 Fermer', '🔒 Close')}
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-divider">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink-primary">
+                📋 {bi('Approbation manuelle', 'Manual approval')}
+              </p>
+              <p className="text-xs text-ink-tertiary mt-0.5">
+                {selected.requires_confirmation
+                  ? bi('Chaque réservation reste en attente.', 'Each reservation stays pending.')
+                  : bi('Les réservations sont confirmées automatiquement.', 'Reservations are auto-confirmed.')}
+              </p>
+            </div>
+            <button
+              onClick={toggleRequiresConfirmation}
+              disabled={savingSettings}
+              className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors disabled:opacity-50 ${
+                selected.requires_confirmation ? 'bg-brand text-white hover:bg-brand-dark' : 'bg-surface-muted text-ink-secondary hover:bg-divider'
+              }`}
+            >
+              {selected.requires_confirmation
+                ? bi('Désactiver', 'Disable')
+                : bi('Activer', 'Enable')}
+            </button>
+          </div>
+          <div className="pt-3 border-t border-divider">
+            <p className="text-sm font-semibold text-ink-primary mb-1.5">
+              🎟 {bi('Capacité', 'Capacity')}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                value={capacityDraft}
+                onChange={e => setCapacityDraft(e.target.value)}
+                placeholder={String(selected.max_tickets ?? 0)}
+                className="flex-1 bg-surface-muted border border-divider rounded-xl px-3 py-1.5 text-sm"
+              />
+              <button
+                onClick={saveCapacity}
+                disabled={savingSettings || !capacityDraft.trim()}
+                className="text-xs px-3 py-1.5 rounded-full font-semibold bg-brand text-white hover:bg-brand-dark disabled:opacity-50"
+              >
+                💾 {bi('Mettre à jour', 'Update')}
+              </button>
+            </div>
+            <p className="text-xs text-ink-tertiary mt-1">
+              {bi('0 = illimité.', '0 = unlimited.')} {bi('Actuel:', 'Current:')} {selected.max_tickets ?? 0}
+            </p>
+          </div>
+        </div>
+
+        {/* Filter tabs */}
+        <div className="flex gap-1 bg-surface-muted p-1 rounded-xl w-fit mb-3 overflow-x-auto">
+          {(['all', 'pending', 'confirmed', 'attended'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setResvFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                resvFilter === f ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
+              }`}
+            >
+              {f === 'all' ? bi('Tous', 'All')
+                : f === 'pending' ? bi('En attente', 'Pending')
+                : f === 'confirmed' ? bi('Confirmées', 'Confirmed')
+                : bi('Présents', 'Attended')}
+            </button>
+          ))}
+        </div>
+
         {loadingResv ? (
           <div className="text-center py-12 text-ink-tertiary">…</div>
         ) : reservations.length === 0 ? (
@@ -1997,11 +2183,18 @@ function MyEventsPanel({
           </div>
         ) : (
           <div className="space-y-2">
-            {reservations.map(r => {
+            {reservations.filter(r =>
+              resvFilter === 'all'      ? true
+              : resvFilter === 'pending'  ? r.reservation_status === 'pending'
+              : resvFilter === 'confirmed' ? r.reservation_status === 'confirmed'
+              : r.reservation_status === 'attended'
+            ).map(r => {
               const wa = `https://wa.me/${r.customer_phone.replace(/[^\d]/g, '')}`
               const pillStatus =
                 r.reservation_status === 'cancelled' ? { cls: 'bg-rose-50 text-rose-700 border border-rose-200',     label: '❌ ' + bi('Annulée',   'Cancelled') }
-                : r.reservation_status === 'attended' ? { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '🎉 ' + bi('Participée', 'Attended') }
+                : r.reservation_status === 'rejected' ? { cls: 'bg-rose-50 text-rose-700 border border-rose-200',     label: '❌ ' + bi('Refusée',   'Rejected') }
+                : r.reservation_status === 'attended' ? { cls: 'bg-blue-50 text-blue-700 border border-blue-200',     label: '🎉 ' + bi('Présent',   'Attended') }
+                : r.reservation_status === 'pending'  ? { cls: 'bg-amber-50 text-amber-700 border border-amber-200', label: '⏳ ' + bi('En attente', 'Pending') }
                 : { cls: 'bg-brand-light text-brand-darker', label: '✅ ' + bi('Confirmée', 'Confirmed') }
               const pillPay =
                 r.payment_status === 'paid'    ? { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '💰 ' + bi('Payé', 'Paid') }
@@ -2032,6 +2225,24 @@ function MyEventsPanel({
                       )}
                     </div>
                   </div>
+                  {r.reservation_status === 'pending' && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-divider">
+                      <button
+                        onClick={() => confirmRes(r.id)}
+                        disabled={acting === r.id}
+                        className="text-xs px-3 py-1.5 rounded-full font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        ✅ {bi('Confirmer', 'Confirm')}
+                      </button>
+                      <button
+                        onClick={() => rejectRes(r.id)}
+                        disabled={acting === r.id}
+                        className="text-xs px-3 py-1.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-50"
+                      >
+                        ❌ {bi('Rejeter', 'Reject')}
+                      </button>
+                    </div>
+                  )}
                   {r.reservation_status === 'confirmed' && (
                     <div className="flex items-center gap-2 pt-2 border-t border-divider">
                       <button
@@ -2133,9 +2344,11 @@ function EventReservationCard({
     ? new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
     : ''
   const statusPill: Record<EventReservation['reservation_status'], { cls: string; label: string }> = {
+    pending:   { cls: 'bg-amber-50 text-amber-700 border border-amber-200',     label: '⏳ ' + bi('En attente', 'Pending') },
     confirmed: { cls: 'bg-brand-light text-brand-darker',                       label: '✅ ' + bi('Confirmée', 'Confirmed') },
     cancelled: { cls: 'bg-rose-50 text-rose-700 border border-rose-200',        label: '❌ ' + bi('Annulée',   'Cancelled') },
     attended:  { cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', label: '🎉 ' + bi('Participée', 'Attended') },
+    rejected:  { cls: 'bg-rose-50 text-rose-700 border border-rose-200',        label: '❌ ' + bi('Refusée',   'Rejected') },
   }
   const s = statusPill[reservation.reservation_status]
 

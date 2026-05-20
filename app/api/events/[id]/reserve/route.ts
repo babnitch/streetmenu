@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // already see.
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate')
+    .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate, requires_confirmation, reservations_open')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -43,6 +43,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
     return NextResponse.json({ error: 'Événement clôturé / Event closed' }, { status: 409 })
+  }
+  if (event.reservations_open === false) {
+    return NextResponse.json({ error: 'Les réservations sont fermées / Reservations are closed' }, { status: 409 })
   }
 
   if (event.payment_enabled) {
@@ -88,6 +91,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
   const commissionAmount = totalPrice > 0 ? Math.round(totalPrice * commissionRate) : 0
 
+  // Manual-approval events land as 'pending' and require the organizer
+  // to confirm/reject before the reservation counts toward attendance.
+  // Default events stay on the existing auto-confirm path.
+  const needsApproval = event.requires_confirmation === true
+  const initialStatus: 'pending' | 'confirmed' = needsApproval ? 'pending' : 'confirmed'
+
   const { data: reservation, error: insErr } = await supabaseAdmin
     .from('event_reservations')
     .insert({
@@ -99,7 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       total_price:        totalPrice,
       commission_amount:  commissionAmount,
       payment_status:     'not_required',
-      reservation_status: 'confirmed',
+      reservation_status: initialStatus,
     })
     .select('id, quantity, total_price')
     .single()
@@ -133,15 +142,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   // Customer ack — short, since the success page on /events/[id] already
-  // shows the full summary.
+  // shows the full summary. Copy + emoji vary depending on whether the
+  // reservation is auto-confirmed or awaiting organizer approval.
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
   const priceLine = ticketPrice > 0
     ? `\n💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA / Pay at the door`
     : ''
+  const customerHeader = needsApproval
+    ? `⏳ *Votre réservation est en attente / Your reservation is pending*\nL'organisateur doit la confirmer. / The organizer needs to confirm it.`
+    : `✅ *Réservation confirmée! / Reservation confirmed!*`
   await sendWhatsApp(custPhone, [
-    `✅ *Réservation confirmée! / Reservation confirmed!*`,
+    customerHeader,
     ``,
     `🎉 ${event.title}`,
     `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
@@ -163,8 +176,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
 
   if (organizerPhone) {
+    const id4 = reservation.id.replace(/-/g, '').slice(-4).toUpperCase()
+    const organizerHeader = needsApproval
+      ? `📋 *Nouvelle réservation en attente / New reservation pending*\nID #${id4} — répondez "confirmer reservation ${id4}" ou "rejeter reservation ${id4}". / Reply "confirm" or "reject" with the ID.`
+      : `🎟 *Nouvelle réservation / New reservation*`
     await sendWhatsApp(organizerPhone, [
-      `🎟 *Nouvelle réservation / New reservation*`,
+      organizerHeader,
       ``,
       `🎉 ${event.title}`,
       `📅 ${dateStr}`,
