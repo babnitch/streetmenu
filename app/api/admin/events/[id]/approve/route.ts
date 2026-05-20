@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { notifyEventSubscribers } from '@/lib/subscriptions'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, is_active, organizer_id')
+    .select('id, title, is_active, organizer_id, date, time, venue, city, category, price, ticket_price')
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
@@ -91,6 +92,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     previousData:    { is_active: event.is_active },
     metadata:        { title: event.title, organizer_id: event.organizer_id, newly_granted_auto: newlyGrantedAuto },
   })
+
+  // Fan-out to subscribers only on the first activation; re-approving an
+  // already-active event would otherwise spam subscribers each time.
+  if (wasInactive) {
+    try {
+      const fan = await notifyEventSubscribers({
+        id:           event.id,
+        title:        event.title,
+        date:         (event as { date: string }).date,
+        time:         (event as { time: string | null }).time,
+        venue:        (event as { venue: string | null }).venue,
+        city:         (event as { city: string }).city,
+        category:     (event as { category: string }).category,
+        price:        (event as { price: number | null }).price,
+        ticket_price: (event as { ticket_price: number | null }).ticket_price,
+      })
+      if (fan.recipient_count > 0) {
+        await writeAudit({
+          action:          'event_notification_sent',
+          targetType:      'event',
+          targetId:        event.id,
+          performedBy:     session.id,
+          performedByType: session.role,
+          metadata:        { recipient_count: fan.recipient_count, ok: fan.ok, failed: fan.failed, via: 'admin_approve' },
+        })
+      }
+    } catch (e) {
+      console.error('[admin/events/approve] notifyEventSubscribers failed:', (e as Error).message)
+    }
+  }
 
   return NextResponse.json({ ok: true, newly_granted_auto: newlyGrantedAuto })
 }

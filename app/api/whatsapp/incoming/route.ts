@@ -1777,10 +1777,30 @@ async function handleCustomer(
       `📢 "publier" → Publier un événement / Publish an event\n` +
       `📢 "mes evenements" → Voir vos événements publiés / View your events\n` +
       `📋 "reservations XXXX" → Voir les réservations d'un événement / View event reservations\n` +
+      `🔔 "abonner" → Recevoir les nouveaux événements / Get new event alerts\n` +
+      `🔕 "desabonner" → Arrêter les notifications / Stop notifications\n` +
+      `📋 "mes abonnements" → Voir mes abonnements / View my subscriptions\n` +
+      `📢 "diffuser" → Diffuser un message (payant) / Broadcast a message (paid)\n` +
       `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
       `❓ "aide" → Ce message / This message\n\n` +
       `🌍 Parcourez / Browse: ${BASE_URL}\n` +
       `🔑 Mon compte / My account: ${BASE_URL}/account`)
+    return ok()
+  }
+
+  // Subscription commands. Handled before ordering so the verbs don't
+  // collide with future ordering intents that happen to start with the same
+  // tokens.
+  const subResp = await handleSubscriptionCommand(from, cmd, customer)
+  if (subResp) return subResp
+
+  // "diffuser" / "broadcast" → punt to the website (compose UI is too
+  // heavy for chat, per spec).
+  if (cmd === 'diffuser' || cmd === 'broadcast') {
+    await sendWhatsApp(from,
+      `📢 *Diffuser un message / Broadcast a message*\n\n` +
+      `Composez votre message sur le site / Compose on the website:\n` +
+      `${BASE_URL}/account?tab=profile`)
     return ok()
   }
 
@@ -1809,4 +1829,161 @@ async function handleCustomer(
   await sendWhatsApp(from,
     `Envoyez *aide* pour les options. / Send *help* for options.`)
   return ok()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUBSCRIPTION COMMANDS (customer-side)
+// ─────────────────────────────────────────────────────────────────────────────
+// "abonner" / "subscribe"                      → subscribe to all categories in their city
+// "abonner concerts enfants"                   → subscribe only to those categories
+// "desabonner" / "unsubscribe"                 → unsubscribe from ALL cities
+// "mes abonnements" / "my subscriptions"       → list active subscriptions
+//
+// Returns NextResponse when handled, null otherwise so the caller falls
+// through to the rest of the customer command tree.
+const SUB_KEYWORD_TO_CATEGORY: Record<string, string> = {
+  // Music / Concert
+  'music':    'Music',   'musique':  'Music',
+  'concert':  'Music',   'concerts': 'Music',
+  // Food
+  'food':     'Food',    'cuisine':  'Food',  'gastronomie': 'Food',
+  // Sport
+  'sport':    'Sport',   'sports':   'Sport',
+  // Kids
+  'enfants':  'Enfants', 'enfant':   'Enfants', 'kids': 'Enfants',
+  // Art
+  'art':      'Art',     'arts':     'Art',
+  // Nightlife
+  'nightlife':'Nightlife','nuit':    'Nightlife', 'club': 'Nightlife',
+  // Business
+  'business': 'Business','affaires': 'Business',
+  // Bricolage/Club
+  'bt':       'BT / Club', 'bricolage': 'BT / Club',
+  // Other
+  'autre':    'Autre',   'other':    'Autre',
+}
+
+function parseSubscribeCategories(tail: string): string[] | null {
+  const tokens = tail.trim().toLowerCase().split(/[\s,]+/).filter(Boolean)
+  if (tokens.length === 0) return null
+  const cats = new Set<string>()
+  for (const t of tokens) {
+    const c = SUB_KEYWORD_TO_CATEGORY[t]
+    if (c) cats.add(c)
+  }
+  return cats.size > 0 ? Array.from(cats) : null
+}
+
+async function handleSubscriptionCommand(
+  from: string,
+  cmd: string,
+  customer: { id: string; name: string; phone: string; city: string },
+): Promise<NextResponse | null> {
+  const { writeAudit } = await import('@/lib/audit')
+
+  // ── List
+  if (cmd === 'mes abonnements' || cmd === 'my subscriptions' || cmd === 'mes abos') {
+    const { data: subs } = await supabaseAdmin
+      .from('event_subscriptions')
+      .select('city, categories, is_active')
+      .eq('customer_id', customer.id)
+      .order('is_active', { ascending: false })
+
+    const active = (subs ?? []).filter(s => s.is_active)
+    if (active.length === 0) {
+      await sendWhatsApp(from,
+        `📋 Aucun abonnement actif. / No active subscriptions.\n\n` +
+        `Envoyez "abonner" pour vous abonner aux événements à ${customer.city}.\n` +
+        `Send "subscribe" to subscribe to events in ${customer.city}.`)
+      return ok()
+    }
+    const lines = active.map(s => {
+      const cats = s.categories && s.categories.length > 0
+        ? `(${s.categories.join(', ')})`
+        : '(toutes / all)'
+      return `📍 ${s.city} ${cats}`
+    })
+    await sendWhatsApp(from,
+      `🔔 *Mes abonnements / My subscriptions*\n\n${lines.join('\n')}\n\n` +
+      `Envoyez "desabonner" pour tout arrêter. / Send "unsubscribe" to stop all.`)
+    return ok()
+  }
+
+  // ── Unsubscribe (all cities)
+  if (cmd === 'desabonner' || cmd === 'unsubscribe' || cmd === 'desabonnement') {
+    const { data: rows } = await supabaseAdmin
+      .from('event_subscriptions')
+      .update({ is_active: false, unsubscribed_at: new Date().toISOString() })
+      .eq('customer_id', customer.id)
+      .eq('is_active', true)
+      .select('id, city')
+
+    for (const r of rows ?? []) {
+      await writeAudit({
+        action:          'subscription_cancelled',
+        targetType:      'customer',
+        targetId:        customer.id,
+        performedBy:     customer.id,
+        performedByType: 'customer',
+        metadata: { subscription_id: r.id, city: r.city, via: 'whatsapp' },
+      })
+    }
+    await sendWhatsApp(from,
+      `🔕 Désabonné. Vous ne recevrez plus de notifications d'événements.\n` +
+      `Unsubscribed. You won't receive event notifications anymore.\n\n` +
+      `Envoyez "abonner" pour vous réabonner. / Send "subscribe" to opt back in.`)
+    return ok()
+  }
+
+  // ── Subscribe (optionally with a category whitelist tail)
+  const subMatch = cmd.match(/^(?:abonner|subscribe|abonnement|abonne)\s*(.*)$/i)
+  if (subMatch && (cmd.startsWith('abonner') || cmd.startsWith('subscribe') || cmd.startsWith('abonne') || cmd === 'abonnement')) {
+    if (!customer.city) {
+      await sendWhatsApp(from,
+        `❌ Ville inconnue. Mettez à jour votre ville sur ${BASE_URL}/account.\n` +
+        `Unknown city. Update your city at ${BASE_URL}/account.`)
+      return ok()
+    }
+    const tail = subMatch[1] ?? ''
+    const categories = parseSubscribeCategories(tail)
+
+    const { data, error } = await supabaseAdmin
+      .from('event_subscriptions')
+      .upsert({
+        customer_id:     customer.id,
+        city:            customer.city,
+        categories,
+        is_active:       true,
+        unsubscribed_at: null,
+      }, { onConflict: 'customer_id,city' })
+      .select('id')
+      .single()
+
+    if (error || !data) {
+      console.error('[whatsapp/subscribe] upsert error:', error?.message)
+      await sendWhatsApp(from, `❌ Erreur. Réessayez. / Error. Retry.`)
+      return ok()
+    }
+
+    await writeAudit({
+      action:          'subscription_created',
+      targetType:      'customer',
+      targetId:        customer.id,
+      performedBy:     customer.id,
+      performedByType: 'customer',
+      metadata: { subscription_id: data.id, city: customer.city, categories, via: 'whatsapp' },
+    })
+
+    const catLine = categories
+      ? `Catégories: ${categories.join(', ')}\nCategories: ${categories.join(', ')}\n\n`
+      : ''
+    await sendWhatsApp(from,
+      `🔔 Abonné aux événements à ${customer.city}!\n` +
+      `${catLine}` +
+      `Envoyez "desabonner" pour arrêter.\n\n` +
+      `Subscribed to events in ${customer.city}! Send "unsubscribe" to stop.`)
+    return ok()
+  }
+
+  return null
 }

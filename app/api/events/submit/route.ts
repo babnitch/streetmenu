@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { notifyEventSubscribers } from '@/lib/subscriptions'
 
 export const dynamic = 'force-dynamic'
 
@@ -124,6 +125,36 @@ export async function POST(req: NextRequest) {
       ? `✅ *Événement publié! / Event published!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Ndjoka & Tchop. / Live immediately on Ndjoka & Tchop.`
       : `✅ *Événement soumis! / Event submitted!*\n\n🎉 ${event.title}\n\nIl sera visible après approbation par un admin. / It will be visible after admin approval.`
     await sendWhatsApp(submitter.phone, msg).catch(() => null)
+  }
+
+  // Fan-out to subscribers when the event went live immediately (verified
+  // publisher). Admin-approval path notifies inside the /approve route.
+  if (autoApprove) {
+    try {
+      const fan = await notifyEventSubscribers({
+        id:           event.id,
+        title:        String(insertRow.title),
+        date:         String(insertRow.date),
+        time:         insertRow.time as string | null,
+        venue:        insertRow.venue as string | null,
+        city:         String(insertRow.city),
+        category:     String(insertRow.category),
+        price:        ticketPrice,
+        ticket_price: ticketPrice,
+      })
+      if (fan.recipient_count > 0) {
+        await writeAudit({
+          action:     'event_notification_sent',
+          targetType: 'event',
+          targetId:   event.id,
+          performedBy:     submitter.id,
+          performedByType: 'system',
+          metadata:   { recipient_count: fan.recipient_count, ok: fan.ok, failed: fan.failed, via: 'auto_approve' },
+        })
+      }
+    } catch (e) {
+      console.error('[events/submit] notifyEventSubscribers failed:', (e as Error).message)
+    }
   }
 
   return NextResponse.json({

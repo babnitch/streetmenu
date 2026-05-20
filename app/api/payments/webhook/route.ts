@@ -119,6 +119,72 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
+  // ── Broadcast fallback ─────────────────────────────────────────────────────
+  // Same idempotent guard + audit shape, but for paid broadcasts. On
+  // COMPLETED we mark paid and fire the fan-out via the /send route.
+  const { data: broadcast } = await supabaseAdmin
+    .from('broadcasts')
+    .select('id, sender_id, payment_status, status')
+    .eq('payment_id', depositId)
+    .maybeSingle()
+
+  if (broadcast) {
+    if (broadcast.payment_status === 'paid' || broadcast.payment_status === 'failed') {
+      return NextResponse.json({ ok: true, ignored: 'already settled' })
+    }
+
+    if (payload.status === 'COMPLETED') {
+      await supabaseAdmin
+        .from('broadcasts')
+        .update({ payment_status: 'paid', status: 'paid' })
+        .eq('id', broadcast.id)
+
+      await writeAudit({
+        action:          'broadcast_paid',
+        targetType:      'customer',
+        targetId:        broadcast.sender_id,
+        performedBy:     broadcast.sender_id,
+        performedByType: 'system',
+        metadata: {
+          broadcast_id: broadcast.id,
+          deposit_id:   depositId,
+          amount:       payload.amount,
+          currency:     payload.currency,
+        },
+      })
+
+      // Fire-and-await the fan-out. We're already in a background webhook,
+      // so blocking until WhatsApp finishes is fine and keeps audit ordering
+      // deterministic.
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://streetmenu.vercel.app'
+      try {
+        await fetch(`${baseUrl}/api/broadcasts/${broadcast.id}/send`, { method: 'POST' })
+      } catch (e) {
+        console.error('[payments/webhook] broadcast send failed:', (e as Error).message)
+      }
+    } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
+      await supabaseAdmin
+        .from('broadcasts')
+        .update({ payment_status: 'failed', status: 'failed' })
+        .eq('id', broadcast.id)
+
+      await writeAudit({
+        action:          'broadcast_payment_failed',
+        targetType:      'customer',
+        targetId:        broadcast.sender_id,
+        performedBy:     broadcast.sender_id,
+        performedByType: 'system',
+        metadata: {
+          broadcast_id: broadcast.id,
+          deposit_id:   depositId,
+          reason:       payload.failureReason?.failureMessage ?? null,
+        },
+      })
+    }
+
+    return NextResponse.json({ ok: true })
+  }
+
   // ── Event-reservation fallback ─────────────────────────────────────────────
   // Same idempotent guard + audit shape as orders, but with event_reservations
   // as the row and notifyPaidReservation as the fan-out.
