@@ -185,7 +185,13 @@ export default function PhoneInput({
         return
       }
     }
-    const digits = raw.replace(/\D/g, '').slice(0, meta.localLength)
+    // Strict platform countries cap to their canonical length; loose
+    // countries (localLength === 0) fall back to the E.164 ceiling of
+    // 15 digits so typing past the cap is rejected but every keystroke
+    // before that is preserved. The previous code used .slice(0, 0)
+    // for non-platform countries, which silently dropped every digit.
+    const maxLen = meta.localLength > 0 ? meta.localLength : 15
+    const digits = raw.replace(/\D/g, '').slice(0, maxLen)
     setLocal(digits)
     emit(digits, country)
   }
