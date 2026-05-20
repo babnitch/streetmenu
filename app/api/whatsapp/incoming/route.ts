@@ -1803,6 +1803,8 @@ async function handleCustomer(
       `📋 "reservations XXXX" → Voir les réservations d'un événement / View event reservations\n` +
       `🔒 "fermer reservations XXXX" / "ouvrir reservations XXXX" → Fermer/ouvrir les réservations / Close/open reservations\n` +
       `✅ "confirmer reservation XXXX" / "rejeter reservation XXXX" → Confirmer/rejeter / Confirm/reject\n` +
+      `🎫 "tarifs XXXX" → Voir les tarifs / View tiers\n` +
+      `➕ "ajouter tarif XXXX nom prix [max]" → Ajouter un tarif / Add tier\n` +
       `🔔 "abonner" → Recevoir les nouveaux événements / Get new event alerts\n` +
       `🔕 "desabonner" → Arrêter les notifications / Stop notifications\n` +
       `📋 "mes abonnements" → Voir mes abonnements / View my subscriptions\n` +

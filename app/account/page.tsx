@@ -16,6 +16,7 @@ import PaymentBadge from '@/components/PaymentBadge'
 import NotificationsPanel from '@/components/NotificationsPanel'
 import BroadcastPanel from '@/components/BroadcastPanel'
 import PromotePanel from '@/components/PromotePanel'
+import EventTiersPanel from '@/components/EventTiersPanel'
 import PhoneInput from '@/components/PhoneInput'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 
@@ -2077,6 +2078,11 @@ function MyEventsPanel({
             </div>
           )}
         </div>
+
+        {/* Ticket tiers panel — self-contained CRUD for the event's
+            tiered pricing. Renders empty state when the event still
+            uses the legacy single price. */}
+        <EventTiersPanel eventId={selected.id} />
 
         {/* Event-level controls — reservations open/close, manual approval
             toggle, capacity bump. Each PATCH refreshes the parent so the

@@ -3,32 +3,34 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { tierAvailability, type TicketTier } from '@/lib/tiers'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/events/[id]/reserve
-// Body: { quantity, customer_name?, customer_phone? }
 //
-// Batch A: free-only reservation path. Events with payment_enabled=true are
-// rejected (the paid path lands in Batch B with PawaPay wiring). Pay-at-door
-// paid events (ticket_price > 0 + payment_enabled=false) are treated as
-// free-reservation here — the price stays on total_price for the organiser's
-// records, payment_status remains 'not_required'.
+// Body — two shapes accepted:
+//
+//   A) { quantity, customer_name?, customer_phone? }      (legacy / no tiers)
+//      Used by single-price events. One reservation row is inserted with
+//      tier_* = null.
+//
+//   B) { items: [{ tier_id, quantity }], customer_name?, customer_phone? }
+//      Used by tier-priced events. One reservation row is inserted per
+//      requested tier; each row carries a snapshot of tier_id +
+//      tier_name + tier_price so the customer/admin history survives
+//      later renames or deactivations.
+//
+// Free + pay-at-door only. payment_enabled=true events route through
+// /pay (PawaPay) — that handler mirrors this validation.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = getSessionFromRequest(req)
   const customerId = session?.role === 'customer' ? session.id : null
 
   const body = await req.json().catch(() => ({}))
-  const quantityRaw = Number(body.quantity)
-  const quantity = Number.isFinite(quantityRaw) && quantityRaw >= 1 && quantityRaw <= 10
-    ? Math.floor(quantityRaw)
-    : 1
   const guestName  = typeof body.customer_name  === 'string' ? body.customer_name.trim()  : ''
   const guestPhone = typeof body.customer_phone === 'string' ? body.customer_phone.trim() : ''
 
-  // Pull the event row + needed fields. Active check matches the public read
-  // policy so a logged-out user could only ever reserve for events they can
-  // already see.
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
     .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate, requires_confirmation, reservations_open')
@@ -47,26 +49,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (event.reservations_open === false) {
     return NextResponse.json({ error: 'Les réservations sont fermées / Reservations are closed' }, { status: 409 })
   }
-
   if (event.payment_enabled) {
-    // Paid flow lands in Batch B. Tell the client to fall back to the
-    // WhatsApp interest button for now.
     return NextResponse.json({
-      error: 'Paiement en ligne bientôt disponible / Online payment coming soon',
+      error: 'Paiement en ligne requis / Online payment required',
     }, { status: 501 })
   }
 
-  // Capacity check — max_tickets=0 means unlimited (spec).
-  const sold = Number(event.tickets_sold ?? 0)
-  if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
-    return NextResponse.json({
-      error: 'Plus assez de places / Not enough spots remaining',
-      remaining: Math.max(0, event.max_tickets - sold),
-    }, { status: 409 })
-  }
-
-  // Resolve customer identity. Logged-in session wins; otherwise the form
-  // values are required.
+  // ── Resolve customer identity ────────────────────────────────────────────
   let custName  = ''
   let custPhone = ''
   if (customerId) {
@@ -84,70 +73,177 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 400 })
   }
 
-  const ticketPrice = Number(event.ticket_price ?? 0) || 0
-  const totalPrice  = ticketPrice * quantity
-  // Commission is locked in at reservation time so a later rate change on
-  // the event doesn't retroactively shift what the organizer owes.
-  const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
-  const commissionAmount = totalPrice > 0 ? Math.round(totalPrice * commissionRate) : 0
+  // ── Items-shaped vs legacy single-quantity ───────────────────────────────
+  type Item = { tier_id: string; quantity: number }
+  const rawItems = Array.isArray(body.items) ? body.items : null
+  const items: Item[] = rawItems
+    ? rawItems
+        .map((i: { tier_id?: unknown; quantity?: unknown }) => ({
+          tier_id:  String(i?.tier_id ?? '').trim(),
+          quantity: Number.isFinite(i?.quantity) ? Math.floor(Number(i.quantity)) : 0,
+        }))
+        .filter((i: Item) => i.tier_id && i.quantity > 0 && i.quantity <= 10)
+    : []
 
-  // Manual-approval events land as 'pending' and require the organizer
-  // to confirm/reject before the reservation counts toward attendance.
-  // Default events stay on the existing auto-confirm path.
+  const useTiers = items.length > 0
   const needsApproval = event.requires_confirmation === true
   const initialStatus: 'pending' | 'confirmed' = needsApproval ? 'pending' : 'confirmed'
+  const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
+  const sold = Number(event.tickets_sold ?? 0)
 
-  const { data: reservation, error: insErr } = await supabaseAdmin
-    .from('event_reservations')
-    .insert({
-      event_id:           event.id,
-      customer_id:        customerId,
-      customer_name:      custName,
-      customer_phone:     custPhone,
+  // Build the row list to insert. The legacy path is fully isomorphic
+  // with a one-element item list whose tier_id is null.
+  type RowToInsert = {
+    quantity:   number
+    total_price: number
+    commission_amount: number
+    tier_id:    string | null
+    tier_name:  string | null
+    tier_price: number | null
+  }
+  const rowsToInsert: RowToInsert[] = []
+  // Tracks tier.sold_count bumps per tier_id for the post-insert update.
+  const tierBumps: Map<string, { newSold: number; row: TicketTier }> = new Map()
+
+  if (useTiers) {
+    const { data: tierRows, error: tierErr } = await supabaseAdmin
+      .from('event_ticket_tiers')
+      .select('*')
+      .eq('event_id', event.id)
+      .in('id', items.map(i => i.tier_id))
+    if (tierErr) {
+      return NextResponse.json({ error: tierErr.message }, { status: 500 })
+    }
+    const byId = new Map(((tierRows ?? []) as TicketTier[]).map(t => [t.id, t]))
+    for (const item of items) {
+      const tier = byId.get(item.tier_id)
+      if (!tier) {
+        return NextResponse.json({ error: `Tarif introuvable / Tier not found: ${item.tier_id}` }, { status: 404 })
+      }
+      const avail = tierAvailability(tier)
+      if (avail.kind !== 'active') {
+        return NextResponse.json({
+          error: `Tarif non disponible / Tier not available: ${tier.name}`,
+          tier_id: tier.id,
+          state:   avail.kind,
+        }, { status: 409 })
+      }
+      const remaining = tier.max_quantity > 0 ? tier.max_quantity - tier.sold_count : Infinity
+      if (item.quantity > remaining) {
+        return NextResponse.json({
+          error: `Plus assez de places pour ${tier.name} / Not enough remaining`,
+          remaining: Math.max(0, remaining),
+          tier_id:   tier.id,
+        }, { status: 409 })
+      }
+      const linePrice = tier.price * item.quantity
+      rowsToInsert.push({
+        quantity:          item.quantity,
+        total_price:       linePrice,
+        commission_amount: linePrice > 0 ? Math.round(linePrice * commissionRate) : 0,
+        tier_id:           tier.id,
+        tier_name:         tier.name,
+        tier_price:        tier.price,
+      })
+      tierBumps.set(tier.id, { newSold: tier.sold_count + item.quantity, row: tier })
+    }
+  } else {
+    const qty = Number(body.quantity)
+    const quantity = Number.isFinite(qty) && qty >= 1 && qty <= 10 ? Math.floor(qty) : 1
+    if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
+      return NextResponse.json({
+        error: 'Plus assez de places / Not enough spots remaining',
+        remaining: Math.max(0, event.max_tickets - sold),
+      }, { status: 409 })
+    }
+    const ticketPrice = Number(event.ticket_price ?? 0) || 0
+    const linePrice = ticketPrice * quantity
+    rowsToInsert.push({
       quantity,
-      total_price:        totalPrice,
-      commission_amount:  commissionAmount,
-      payment_status:     'not_required',
-      reservation_status: initialStatus,
+      total_price:       linePrice,
+      commission_amount: linePrice > 0 ? Math.round(linePrice * commissionRate) : 0,
+      tier_id:           null,
+      tier_name:         null,
+      tier_price:        null,
     })
-    .select('id, quantity, total_price')
-    .single()
+  }
 
-  if (insErr || !reservation) {
+  // ── Insert reservation rows ──────────────────────────────────────────────
+  const totalQuantity = rowsToInsert.reduce((s, r) => s + r.quantity, 0)
+  const totalPrice    = rowsToInsert.reduce((s, r) => s + r.total_price, 0)
+
+  // Aggregate-capacity gate when using tiers but the event also has a
+  // global max_tickets — both caps must hold.
+  if (useTiers && event.max_tickets && event.max_tickets > 0 && sold + totalQuantity > event.max_tickets) {
+    return NextResponse.json({
+      error: 'Plus assez de places / Not enough spots remaining',
+      remaining: Math.max(0, event.max_tickets - sold),
+    }, { status: 409 })
+  }
+
+  const insertPayload = rowsToInsert.map(r => ({
+    event_id:           event.id,
+    customer_id:        customerId,
+    customer_name:      custName,
+    customer_phone:     custPhone,
+    quantity:           r.quantity,
+    total_price:        r.total_price,
+    commission_amount:  r.commission_amount,
+    payment_status:     'not_required',
+    reservation_status: initialStatus,
+    tier_id:            r.tier_id,
+    tier_name:          r.tier_name,
+    tier_price:         r.tier_price,
+  }))
+
+  const { data: inserted, error: insErr } = await supabaseAdmin
+    .from('event_reservations')
+    .insert(insertPayload)
+    .select('id, quantity, total_price, tier_id, tier_name')
+  if (insErr || !inserted || inserted.length === 0) {
     console.error('[events/reserve] insert failed:', insErr?.message)
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
   }
 
-  // Bump tickets_sold so the next capacity check sees the new total. Race
-  // window exists vs concurrent reservations — acceptable at this scale; a
-  // follow-up could move this to an RPC for atomic increment.
+  // Bump global tickets_sold + per-tier sold_count. Race-window same
+  // as the legacy code — acceptable at this scale.
   await supabaseAdmin
     .from('events')
-    .update({ tickets_sold: sold + quantity })
+    .update({ tickets_sold: sold + totalQuantity })
     .eq('id', event.id)
+  const bumps = Array.from(tierBumps.values())
+  for (const { newSold, row } of bumps) {
+    await supabaseAdmin
+      .from('event_ticket_tiers')
+      .update({ sold_count: newSold, updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+  }
 
   await writeAudit({
     action:          'event_reservation_created',
     targetType:      'event_reservation',
-    targetId:        reservation.id,
+    targetId:        inserted[0].id,
     performedBy:     customerId ?? null,
     performedByType: customerId ? 'customer' : 'guest',
     metadata: {
       event_id:    event.id,
       event_title: event.title,
-      quantity,
+      quantity:    totalQuantity,
       total_price: totalPrice,
       paid:        false,
+      reservation_ids: inserted.map(r => r.id),
+      tiers:       useTiers ? inserted.map(r => ({ tier_name: r.tier_name, qty: r.quantity })) : null,
     },
   })
 
-  // Customer ack — short, since the success page on /events/[id] already
-  // shows the full summary. Copy + emoji vary depending on whether the
-  // reservation is auto-confirmed or awaiting organizer approval.
+  // ── Customer + organizer pings ───────────────────────────────────────────
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
-  const priceLine = ticketPrice > 0
+  const tierLines = useTiers
+    ? inserted.map(r => `🎟 ${r.tier_name} × ${r.quantity}${r.total_price > 0 ? ` — ${Number(r.total_price).toLocaleString()} FCFA` : ''}`)
+    : [`🎟 ${totalQuantity} place(s) / ticket(s)`]
+  const priceLine = totalPrice > 0
     ? `\n💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA / Pay at the door`
     : ''
   const customerHeader = needsApproval
@@ -159,14 +255,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     `🎉 ${event.title}`,
     `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
     event.venue ? `📍 ${event.venue}` : '',
-    `🎟 ${quantity} place(s) / ticket(s)`,
+    ...tierLines,
     priceLine,
   ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] customer ping failed:', (e as Error).message))
 
-  // Organizer ping — use the customer linked via organizer_id if present,
-  // otherwise fall back to events.whatsapp. Organizers without either get
-  // no notification (acceptable; they can read /account "Mes événements"
-  // when that tab ships in Batch C).
   let organizerPhone: string | null = null
   if (event.organizer_id) {
     const { data: o } = await supabaseAdmin
@@ -176,9 +268,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
 
   if (organizerPhone) {
-    const id4 = reservation.id.replace(/-/g, '').slice(-4).toUpperCase()
+    const id4 = inserted[0].id.replace(/-/g, '').slice(-4).toUpperCase()
     const organizerHeader = needsApproval
-      ? `📋 *Nouvelle réservation en attente / New reservation pending*\nID #${id4} — répondez "confirmer reservation ${id4}" ou "rejeter reservation ${id4}". / Reply "confirm" or "reject" with the ID.`
+      ? `📋 *Nouvelle réservation en attente / New reservation pending*\nID #${id4} — répondez "confirmer reservation ${id4}" ou "rejeter reservation ${id4}". / Reply with the ID.`
       : `🎟 *Nouvelle réservation / New reservation*`
     await sendWhatsApp(organizerPhone, [
       organizerHeader,
@@ -187,15 +279,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `📅 ${dateStr}`,
       `👤 ${custName}`,
       `📱 ${custPhone}`,
-      `🎟 ${quantity} place(s)`,
-      ticketPrice > 0 ? `💰 ${totalPrice.toLocaleString()} FCFA` : '',
+      ...tierLines,
+      totalPrice > 0 ? `💰 ${totalPrice.toLocaleString()} FCFA` : '',
     ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] organizer ping failed:', (e as Error).message))
   }
 
   return NextResponse.json({
     ok: true,
-    reservation_id: reservation.id,
-    quantity:       reservation.quantity,
-    total_price:    reservation.total_price,
+    reservation_id:  inserted[0].id,
+    reservation_ids: inserted.map(r => r.id),
+    quantity:        totalQuantity,
+    total_price:     totalPrice,
   })
 }

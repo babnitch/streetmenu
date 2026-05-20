@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
+import { tierAvailability, type TicketTier } from '@/lib/tiers'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +30,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
   const guestName   = typeof body.customer_name  === 'string' ? body.customer_name.trim()  : ''
   const guestPhone  = typeof body.customer_phone === 'string' ? body.customer_phone.trim() : ''
+  // Optional tier_id — when present, price + capacity come from the tier
+  // row rather than events.ticket_price. Multi-tier paid checkout is
+  // intentionally out of scope for this iteration; the UI buys one tier
+  // per PawaPay deposit.
+  const tierIdRaw = typeof body.tier_id === 'string' ? body.tier_id.trim() : ''
 
   if (!phoneNumber) {
     return NextResponse.json({ error: 'phoneNumber requis / required' }, { status: 400 })
@@ -58,14 +64,38 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 400 })
   }
 
-  const ticketPrice = Number(event.ticket_price ?? 0) || 0
+  // Resolve price + capacity from the tier when provided, otherwise
+  // from the event's default ticket_price.
+  let tier: TicketTier | null = null
+  if (tierIdRaw) {
+    const { data: t } = await supabaseAdmin
+      .from('event_ticket_tiers').select('*').eq('id', tierIdRaw).eq('event_id', event.id).maybeSingle()
+    if (!t) return NextResponse.json({ error: 'Tarif introuvable / Tier not found' }, { status: 404 })
+    tier = t as TicketTier
+    const avail = tierAvailability(tier)
+    if (avail.kind !== 'active') {
+      return NextResponse.json({
+        error: `Tarif non disponible / Tier not available`,
+        state: avail.kind,
+      }, { status: 409 })
+    }
+    const remaining = tier.max_quantity > 0 ? tier.max_quantity - tier.sold_count : Infinity
+    if (quantity > remaining) {
+      return NextResponse.json({
+        error: 'Plus assez de places pour ce tarif / Not enough remaining for this tier',
+        remaining: Math.max(0, remaining),
+      }, { status: 409 })
+    }
+  }
+
+  const ticketPrice = tier ? tier.price : (Number(event.ticket_price ?? 0) || 0)
   if (ticketPrice <= 0) {
     return NextResponse.json({
       error: 'Prix du billet invalide / Invalid ticket price',
     }, { status: 400 })
   }
 
-  // Capacity check.
+  // Capacity check against the event's global cap (unchanged).
   const sold = Number(event.tickets_sold ?? 0)
   if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
     return NextResponse.json({
@@ -117,6 +147,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       commission_amount:  commissionAmount,
       payment_status:     'pending',
       reservation_status: 'confirmed',
+      tier_id:            tier?.id    ?? null,
+      tier_name:          tier?.name  ?? null,
+      tier_price:         tier?.price ?? null,
     })
     .select('id')
     .single()
@@ -127,6 +160,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
+  // Per-tier sold_count bump too, mirroring the free reserve flow so the
+  // public picker's "remaining" stays accurate even before the deposit
+  // settles. The webhook releases this back on FAILED/REJECTED.
+  if (tier) {
+    await supabaseAdmin
+      .from('event_ticket_tiers')
+      .update({ sold_count: tier.sold_count + quantity, updated_at: new Date().toISOString() })
+      .eq('id', tier.id)
+  }
 
   // Now create the deposit. If PawaPay rejects synchronously we leave the
   // reservation as 'pending' and report the error — the user can retry, and

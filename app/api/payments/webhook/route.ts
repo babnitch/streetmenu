@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
   // as the row and notifyPaidReservation as the fan-out.
   const { data: reservation } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, event_id, payment_status, customer_phone, total_price, quantity')
+    .select('id, event_id, payment_status, customer_phone, total_price, quantity, tier_id')
     .eq('payment_id', depositId)
     .maybeSingle()
 
@@ -289,6 +289,8 @@ export async function POST(req: NextRequest) {
   } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
     // Release the held seats so a failed payment doesn't permanently
     // inflate tickets_sold. Best-effort: read current, subtract, write.
+    // When the reservation came from a tier, also decrement that tier's
+    // sold_count so the public picker shows the seats as available again.
     const { data: ev } = await supabaseAdmin
       .from('events').select('tickets_sold').eq('id', reservation.event_id).maybeSingle()
     const sold = Number(ev?.tickets_sold ?? 0)
@@ -301,6 +303,18 @@ export async function POST(req: NextRequest) {
         .eq('id', reservation.id),
       supabaseAdmin
         .from('events').update({ tickets_sold: nextSold }).eq('id', reservation.event_id),
+      reservation.tier_id
+        ? supabaseAdmin
+            .from('event_ticket_tiers')
+            .select('sold_count').eq('id', reservation.tier_id).maybeSingle()
+            .then(({ data: t }) => {
+              const next = Math.max(0, Number(t?.sold_count ?? 0) - Number(reservation.quantity ?? 0))
+              return supabaseAdmin
+                .from('event_ticket_tiers')
+                .update({ sold_count: next, updated_at: new Date().toISOString() })
+                .eq('id', reservation.tier_id)
+            })
+        : Promise.resolve(),
     ])
 
     await writeAudit({

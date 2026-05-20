@@ -86,6 +86,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
   }
 
+  // Tier inserts — when the submit form sent a non-empty tiers[]
+  // payload, create one event_ticket_tiers row per entry. Failures
+  // here don't roll back the event itself; the organizer can edit
+  // tiers from the dashboard if the bulk insert errored partway.
+  const tiersInput = Array.isArray(body?.tiers) ? body.tiers : null
+  if (tiersInput && tiersInput.length > 0) {
+    const tierRows = tiersInput
+      .map((t: { name?: unknown; name_en?: unknown; price?: unknown; max_quantity?: unknown; description?: unknown }, idx: number) => ({
+        event_id:     event.id,
+        name:         String(t?.name ?? '').trim(),
+        name_en:      t?.name_en ? String(t.name_en).trim() : null,
+        price:        Math.max(0, Math.round(Number(t?.price ?? 0)) || 0),
+        max_quantity: Math.max(0, Math.round(Number(t?.max_quantity ?? 0)) || 0),
+        description:  t?.description ? String(t.description).trim() : null,
+        sort_order:   idx,
+        is_active:    true,
+      }))
+      .filter((t: { name: string }) => t.name.length > 0)
+    if (tierRows.length > 0) {
+      const { error: tierErr } = await supabaseAdmin
+        .from('event_ticket_tiers').insert(tierRows)
+      if (tierErr) {
+        console.error('[events/submit] tier insert failed:', tierErr.message)
+      }
+    }
+  }
+
   // Bump submitter's events_submitted_count. Read-modify-write — fine at
   // this scale. The approval counter is bumped in /admin/events/[id]/approve
   // (or auto-bumped here when autoApprove is true so the gate stays

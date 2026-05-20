@@ -823,6 +823,101 @@ export async function handleOrderCommand(
     return ok()
   }
 
+  // "tarifs XXXX" / "tiers XXXX" — organizer-only listing of every
+  // (active + inactive) ticket tier on one of their events, with the
+  // current sold-counts. Mutations live on the web; this is a quick
+  // read-only check.
+  const tarifsMatch = cmd.match(/^(?:tarifs|tiers)\s+([0-9a-f]{4})$/i)
+  if (tarifsMatch) {
+    const code4 = tarifsMatch[1].toLowerCase()
+    const { data: candidates } = await supabaseAdmin
+      .from('events').select('id, title, organizer_id')
+      .eq('organizer_id', customer.id).limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      return ok()
+    }
+    const { data: tiers } = await supabaseAdmin
+      .from('event_ticket_tiers')
+      .select('name, price, max_quantity, sold_count, is_active')
+      .eq('event_id', event.id)
+      .order('sort_order', { ascending: true })
+    if (!tiers || tiers.length === 0) {
+      await sendWhatsApp(from, `🎫 *${event.title}*\n\nAucun tarif. / No tiers.\nAjoutez-en sur ${BASE_URL}/account.`)
+      return ok()
+    }
+    const lines = tiers.map((t, i) => {
+      const cap = t.max_quantity > 0 ? `${t.sold_count}/${t.max_quantity}` : `${t.sold_count}`
+      const inactive = t.is_active ? '' : ' (inactif)'
+      const priceLine = t.price === 0 ? 'Gratuit' : `${t.price.toLocaleString()} FCFA`
+      return `${i + 1}. ${t.name} — ${priceLine} · ${cap} vendus${inactive}`
+    })
+    await sendWhatsApp(from, `🎫 *Tarifs — ${event.title}:*\n\n${lines.join('\n')}`)
+    return ok()
+  }
+
+  // "ajouter tarif XXXX name price max" — organizer shortcut to create
+  // a new tier from chat. Spaces in the tier name must be replaced with
+  // underscores ("Plein_tarif") for the parser to work; the underscore
+  // is rewritten to a space before insert.
+  const addTarifMatch = cmd.match(/^ajouter\s+tarif\s+([0-9a-f]{4})\s+(\S+)\s+(\d+)(?:\s+(\d+))?$/i)
+  if (addTarifMatch) {
+    const code4 = addTarifMatch[1].toLowerCase()
+    const rawName = addTarifMatch[2].replace(/_+/g, ' ').trim()
+    const price = Number.parseInt(addTarifMatch[3], 10)
+    const maxQty = addTarifMatch[4] ? Number.parseInt(addTarifMatch[4], 10) : 0
+
+    const { data: candidates } = await supabaseAdmin
+      .from('events').select('id, title, organizer_id')
+      .eq('organizer_id', customer.id).limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      return ok()
+    }
+    if (!rawName || !Number.isFinite(price) || price < 0) {
+      await sendWhatsApp(from, `❌ Format: "ajouter tarif XXXX nom prix max" / "ajouter tarif XXXX name price max"`)
+      return ok()
+    }
+
+    const { data: existingCount } = await supabaseAdmin
+      .from('event_ticket_tiers').select('id').eq('event_id', event.id)
+    const sortOrder = (existingCount ?? []).length
+
+    const { data: inserted, error } = await supabaseAdmin
+      .from('event_ticket_tiers')
+      .insert({
+        event_id:     event.id,
+        name:         rawName,
+        price,
+        max_quantity: Number.isFinite(maxQty) ? Math.max(0, maxQty) : 0,
+        sort_order:   sortOrder,
+        is_active:    true,
+      })
+      .select('id, name')
+      .single()
+    if (error || !inserted) {
+      await sendWhatsApp(from, `❌ Erreur. Réessayez. / Error. Retry.`)
+      return ok()
+    }
+
+    const { writeAudit } = await import('@/lib/audit')
+    await writeAudit({
+      action:          'tier_created',
+      targetType:      'event',
+      targetId:        event.id,
+      performedBy:     customer.id,
+      performedByType: 'customer',
+      metadata:        { tier_id: inserted.id, name: rawName, price, max_quantity: maxQty, via: 'whatsapp' },
+    })
+
+    await sendWhatsApp(from,
+      `✅ Tarif *${inserted.name}* ajouté à *${event.title}* — ${price.toLocaleString()} FCFA.\n` +
+      `Added to your event.`)
+    return ok()
+  }
+
   // "fermer reservations XXXX" / "ouvrir reservations XXXX" — organizer
   // toggle for the events.reservations_open gate. Matches the web button
   // in /account → Mes événements; lets the organizer close walk-ins from

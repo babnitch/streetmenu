@@ -37,6 +37,23 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true)
   const [me, setMe] = useState<SessionUser | null>(null)
 
+  // Tier picker. Empty when the event has no tiers (backward-compat
+  // single-price path stays untouched). Per-tier quantity is tracked in
+  // `tierQty` keyed by tier id; missing keys default to 0.
+  interface PublicTier {
+    id: string
+    name: string
+    name_en: string | null
+    price: number
+    max_quantity: number
+    sold_count: number
+    sales_start: string | null
+    sales_end: string | null
+    description: string | null
+  }
+  const [tiers, setTiers] = useState<PublicTier[]>([])
+  const [tierQty, setTierQty] = useState<Record<string, number>>({})
+
   // Reservation modal state
   const [showModal, setShowModal] = useState(false)
   const [quantity, setQuantity] = useState(1)
@@ -65,6 +82,13 @@ export default function EventDetailPage() {
       const { data } = await supabase.from('events').select('*').eq('id', id).single()
       setEvent(data)
       setLoading(false)
+      // Tiers are fetched separately so the event card renders without
+      // waiting for them — empty list is a valid public state.
+      try {
+        const tRes = await fetch(`/api/events/${id}/tiers`, { cache: 'no-store' })
+        const tJson = await tRes.json()
+        if (Array.isArray(tJson?.tiers)) setTiers(tJson.tiers)
+      } catch { /* silent — single-price flow */ }
     }
     fetchEvent()
   }, [id])
@@ -100,8 +124,11 @@ export default function EventDetailPage() {
 
   // Reservation gating + price display all derive from a single source of
   // truth so the button copy and the modal stay in lockstep.
+  const hasTiers     = tiers.length > 0
   const ticketPrice  = Number(event.ticket_price ?? event.price ?? 0) || 0
-  const isFree       = ticketPrice === 0
+  const isFree       = hasTiers
+    ? tiers.every(t => t.price === 0)
+    : ticketPrice === 0
   const maxTickets   = Number(event.max_tickets ?? 0)
   const ticketsSold  = Number(event.tickets_sold ?? 0)
   const remaining    = maxTickets > 0 ? Math.max(0, maxTickets - ticketsSold) : Infinity
@@ -116,7 +143,21 @@ export default function EventDetailPage() {
   // payment_enabled=true events route through /pay (PawaPay) instead.
   const onlineReservable = reservable && !event.payment_enabled
   const onlinePayReservable = reservable && event.payment_enabled && ticketPrice > 0
-  const totalForQty = ticketPrice * quantity
+
+  // Tier-mode totals — sum of (price × qty) across every tier with a
+  // positive quantity in tierQty.
+  const tierTotalQty = hasTiers
+    ? tiers.reduce((s, t) => s + (tierQty[t.id] ?? 0), 0)
+    : 0
+  const tierTotalPrice = hasTiers
+    ? tiers.reduce((s, t) => s + (tierQty[t.id] ?? 0) * t.price, 0)
+    : 0
+  const selectedTierItems = hasTiers
+    ? tiers
+        .map(t => ({ tier_id: t.id, quantity: tierQty[t.id] ?? 0, price: t.price }))
+        .filter(i => i.quantity > 0)
+    : []
+  const totalForQty = hasTiers ? tierTotalPrice : ticketPrice * quantity
 
   const trimmedMomo  = momoPhone.trim()
   const momoValid    = trimmedMomo ? hasSupportedCountryPrefix(trimmedMomo) : false
@@ -180,7 +221,17 @@ export default function EventDetailPage() {
     setSubmitting(true)
     setReserveError('')
     try {
-      const body: Record<string, unknown> = { quantity, phoneNumber: trimmedMomo }
+      // Paid checkout buys one tier per PawaPay deposit. If the user
+      // selected multiple tiers in the picker, we send the first one
+      // with positive qty — the modal copy below the picker spells
+      // this out, so the failure case is "fine, but suboptimal" not
+      // "lost money".
+      const tierItem = selectedTierItems[0]
+      const body: Record<string, unknown> = {
+        quantity:    hasTiers ? (tierItem?.quantity ?? 1) : quantity,
+        phoneNumber: trimmedMomo,
+      }
+      if (hasTiers && tierItem) body.tier_id = tierItem.tier_id
       if (!me) {
         body.customer_name  = guestName.trim()
         body.customer_phone = guestPhone.trim()
@@ -209,7 +260,11 @@ export default function EventDetailPage() {
     setSubmitting(true)
     setReserveError('')
     try {
-      const body: Record<string, unknown> = { quantity }
+      // Tier mode sends items[]; legacy single-price sends quantity.
+      // The API accepts both shapes — see app/api/events/[id]/reserve.
+      const body: Record<string, unknown> = hasTiers
+        ? { items: selectedTierItems.map(i => ({ tier_id: i.tier_id, quantity: i.quantity })) }
+        : { quantity }
       if (!me) {
         body.customer_name  = guestName.trim()
         body.customer_phone = guestPhone.trim()
@@ -324,30 +379,104 @@ export default function EventDetailPage() {
           </div>
         )}
 
+        {/* Tier picker — only when the event has tiers AND we can still
+            sell. Per-tier qty stepper, total at the bottom, modal opens
+            once at least one tier is selected. */}
+        {hasTiers && reservable && (
+          <div className="space-y-2">
+            {tiers.map(t => {
+              const displayName = locale === 'en' && t.name_en ? t.name_en : t.name
+              const remaining = t.max_quantity > 0 ? Math.max(0, t.max_quantity - t.sold_count) : null
+              const tierSoldOut = remaining === 0
+              const qty = tierQty[t.id] ?? 0
+              const canInc = !tierSoldOut && (remaining === null || qty < remaining) && qty < 10
+              return (
+                <div key={t.id} className={`bg-white rounded-2xl shadow-sm border ${tierSoldOut ? 'border-divider opacity-60' : 'border-brand-light'} p-3`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink-primary text-sm">🎫 {displayName}</p>
+                      {t.description && (
+                        <p className="text-xs text-ink-tertiary mt-0.5">{t.description}</p>
+                      )}
+                      <p className="text-xs text-ink-tertiary mt-1">
+                        {tierSoldOut
+                          ? bi('🔴 Épuisé', '🔴 Sold out')
+                          : remaining !== null
+                            ? `👥 ${remaining}/${t.max_quantity} ${bi('restants', 'left')}`
+                            : `👥 ${bi('Places disponibles', 'Available')}`}
+                      </p>
+                    </div>
+                    <p className="text-sm font-bold text-brand-darker flex-shrink-0">
+                      {t.price === 0 ? bi('Gratuit', 'Free') : `${t.price.toLocaleString()} FCFA`}
+                    </p>
+                  </div>
+                  {!tierSoldOut && (
+                    <div className="flex items-center justify-end gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setTierQty(prev => ({ ...prev, [t.id]: Math.max(0, (prev[t.id] ?? 0) - 1) }))}
+                        disabled={qty === 0}
+                        className="w-7 h-7 flex items-center justify-center rounded-full bg-surface-muted text-ink-primary text-sm font-bold disabled:opacity-50"
+                      >
+                        −
+                      </button>
+                      <span className="w-6 text-center text-sm font-semibold tabular-nums">{qty}</span>
+                      <button
+                        type="button"
+                        onClick={() => setTierQty(prev => ({ ...prev, [t.id]: (prev[t.id] ?? 0) + 1 }))}
+                        disabled={!canInc}
+                        className="w-7 h-7 flex items-center justify-center rounded-full bg-brand-light text-brand-darker text-sm font-bold disabled:opacity-50"
+                      >
+                        +
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {/* Reserve button — only for events the in-app flow can handle. */}
         {onlineReservable && (
           <button
             onClick={openReserve}
-            className="block w-full bg-brand hover:bg-brand-dark text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
+            disabled={hasTiers && tierTotalQty === 0}
+            className="block w-full bg-brand hover:bg-brand-dark disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
-            📋 {bi('Réserver', 'Reserve')}
-            {!isFree && (
-              <span className="block text-xs font-normal opacity-90 mt-0.5">
-                {bi('Paiement sur place', 'Pay at the door')} · {ticketPrice.toLocaleString()} FCFA{bi(' / personne', ' / person')}
-              </span>
+            {hasTiers ? (
+              tierTotalQty === 0
+                ? bi('Sélectionnez un tarif', 'Pick a tier')
+                : tierTotalPrice === 0
+                  ? bi('📋 Réserver gratuitement', '📋 Reserve free')
+                  : `📋 ${bi('Réserver', 'Reserve')} ${tierTotalPrice.toLocaleString()} FCFA`
+            ) : (
+              <>
+                📋 {bi('Réserver', 'Reserve')}
+                {!isFree && (
+                  <span className="block text-xs font-normal opacity-90 mt-0.5">
+                    {bi('Paiement sur place', 'Pay at the door')} · {ticketPrice.toLocaleString()} FCFA{bi(' / personne', ' / person')}
+                  </span>
+                )}
+              </>
             )}
           </button>
         )}
 
-        {/* Paid online reservation — PawaPay flow. */}
+        {/* Paid online reservation — PawaPay flow. Multi-tier paid
+            checkouts buy one tier per deposit, so the button label
+            picks the highest-qty selected tier. */}
         {onlinePayReservable && (
           <button
             onClick={openReserve}
-            className="block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
+            disabled={hasTiers && tierTotalQty === 0}
+            className="block w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
             💰 {bi('Réserver et payer', 'Reserve and pay')}
             <span className="block text-xs font-normal opacity-90 mt-0.5">
-              {ticketPrice.toLocaleString()} FCFA{bi(' / personne', ' / person')}
+              {hasTiers
+                ? (tierTotalPrice > 0 ? `${tierTotalPrice.toLocaleString()} FCFA` : bi('Sélectionnez un tarif', 'Pick a tier'))
+                : `${ticketPrice.toLocaleString()} FCFA${bi(' / personne', ' / person')}`}
             </span>
           </button>
         )}

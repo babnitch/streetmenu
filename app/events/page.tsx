@@ -29,7 +29,7 @@ const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ]
 
-function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string }) {
+function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[] }) {
   const bi = useBi()
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -70,15 +70,44 @@ function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promot
         <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
           {categoryDisplay}
         </span>
-        {event.price === null || event.price === 0 ? (
-          <span className="absolute top-2 right-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
-            {freeLabel}
-          </span>
-        ) : (
-          <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-bold px-2 py-0.5 rounded-full backdrop-blur-sm">
-            {Number(event.price).toLocaleString()} FCFA
-          </span>
-        )}
+        {(() => {
+          // Three branches: (1) no tiers → single price as before;
+          // (2) tiers exist → range/all-free/mixed; (3) free fallback.
+          if (tierPrices && tierPrices.length > 0) {
+            const paid = tierPrices.filter(p => p > 0)
+            if (paid.length === 0) {
+              return (
+                <span className="absolute top-2 right-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                  {freeLabel}
+                </span>
+              )
+            }
+            const min = Math.min(...paid)
+            const max = Math.max(...paid)
+            const hasFree = tierPrices.some(p => p === 0)
+            const label = min === max
+              ? `${min.toLocaleString()} FCFA`
+              : `${min.toLocaleString()} - ${max.toLocaleString()} FCFA`
+            const prefix = hasFree ? `${freeLabel} - ` : ''
+            return (
+              <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-bold px-2 py-0.5 rounded-full backdrop-blur-sm">
+                {prefix}{label}
+              </span>
+            )
+          }
+          if (event.price === null || event.price === 0) {
+            return (
+              <span className="absolute top-2 right-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {freeLabel}
+              </span>
+            )
+          }
+          return (
+            <span className="absolute top-2 right-2 bg-black/50 text-white text-xs font-bold px-2 py-0.5 rounded-full backdrop-blur-sm">
+              {Number(event.price).toLocaleString()} FCFA
+            </span>
+          )
+        })()}
       </div>
 
       <div className="px-3 pt-3 pb-3">
@@ -143,6 +172,9 @@ export default function EventsPage() {
   const router = useRouter()
   const { city } = useCity()
   const [events, setEvents] = useState<Event[]>([])
+  // Per-event tier prices keyed by event_id. Empty array (or missing key)
+  // means the event has no tiers — the card falls back to event.price.
+  const [tierPrices, setTierPrices] = useState<Record<string, number[]>>({})
   const [likesSummary, setLikesSummary] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -259,9 +291,28 @@ export default function EventsPage() {
       // Like counts. Best-effort follow-up so the grid paints first; failure
       // just hides the ❤️ N line on each card.
       if (data && data.length > 0) {
+        // Tier prices for cards that should show a range. One query for the
+        // whole grid; group on the client.
         try {
-          const ids = data.map(e => e.id).join(',')
-          const res = await fetch(`/api/events/likes-summary?ids=${ids}`, { cache: 'no-store' })
+          const ids = data.map(e => e.id)
+          const { data: tRows } = await supabase
+            .from('event_ticket_tiers')
+            .select('event_id, price, is_active')
+            .in('event_id', ids)
+            .eq('is_active', true)
+          if (tRows) {
+            const map: Record<string, number[]> = {}
+            for (const r of tRows) {
+              const k = r.event_id as string
+              ;(map[k] ??= []).push(Number(r.price ?? 0))
+            }
+            setTierPrices(map)
+          }
+        } catch { /* card falls back to event.price */ }
+
+        try {
+          const idList = data.map(e => e.id).join(',')
+          const res = await fetch(`/api/events/likes-summary?ids=${idList}`, { cache: 'no-store' })
           const d = await res.json()
           if (d?.summary && typeof d.summary === 'object') setLikesSummary(d.summary)
         } catch { /* card just hides the line */ }
@@ -405,6 +456,7 @@ export default function EventsPage() {
                 categoryDisplay={categoryLabel(entry.item.category, locale)}
                 likes={likesSummary[entry.item.id]}
                 promotionId={entry.promotionId}
+                tierPrices={tierPrices[entry.item.id]}
               />
             ))}
           </div>

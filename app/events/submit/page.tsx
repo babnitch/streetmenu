@@ -63,6 +63,55 @@ export default function SubmitEventPage() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
 
+  // Multi-tier ticketing — when enabled, `form.price` + `form.max_tickets`
+  // are ignored and the API creates one event_ticket_tiers row per entry
+  // in `tiers[]`. At least one tier is required when the toggle is on.
+  interface TierDraft {
+    name:         string
+    name_en:      string
+    price:        string  // string-typed so empty value stays controlled
+    max_quantity: string
+    description:  string
+  }
+  const [useTiers, setUseTiers] = useState(false)
+  const [tiers, setTiers] = useState<TierDraft[]>([
+    { name: '', name_en: '', price: '', max_quantity: '', description: '' },
+  ])
+
+  function addTier() {
+    setTiers(prev => [...prev, { name: '', name_en: '', price: '', max_quantity: '', description: '' }])
+  }
+  function removeTier(idx: number) {
+    setTiers(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== idx))
+  }
+  function updateTier(idx: number, field: keyof TierDraft, value: string) {
+    setTiers(prev => prev.map((t, i) => i === idx ? { ...t, [field]: value } : t))
+  }
+
+  // Preset templates — quick-fill the tier list. Replaces whatever is
+  // currently entered (the form is otherwise empty when the user picks
+  // a template).
+  function applyTemplate(name: 'standard' | 'family' | 'vip') {
+    if (name === 'standard') {
+      setTiers([
+        { name: 'Early Bird',  name_en: 'Early Bird', price: '1500', max_quantity: '', description: 'Accès général' },
+        { name: 'Plein tarif', name_en: 'Full Price', price: '3000', max_quantity: '', description: 'Accès général' },
+        { name: 'Dernière minute', name_en: 'Last Minute', price: '4000', max_quantity: '', description: 'Accès général' },
+      ])
+    } else if (name === 'family') {
+      setTiers([
+        { name: 'Adulte',    name_en: 'Adult',  price: '3000', max_quantity: '', description: '' },
+        { name: 'Enfant',    name_en: 'Kids',   price: '0',    max_quantity: '', description: 'Moins de 12 ans' },
+        { name: 'Famille x4', name_en: 'Family of 4', price: '9000', max_quantity: '', description: '2 adultes + 2 enfants' },
+      ])
+    } else {
+      setTiers([
+        { name: 'Standard', name_en: 'Standard', price: '3000', max_quantity: '', description: '' },
+        { name: 'VIP',      name_en: 'VIP',      price: '10000', max_quantity: '20', description: 'Accès premium' },
+      ])
+    }
+  }
+
   function set(field: string, value: string | boolean) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
@@ -81,6 +130,30 @@ export default function SubmitEventPage() {
     if (!form.title || !form.date || !form.city || !form.category || !form.whatsapp || !form.organizer_name) {
       setError(t('evt.errorRequired'))
       return
+    }
+
+    // Tier-mode validation: at least one row, every row needs a name +
+    // numeric price (0 is fine — denotes a free tier).
+    let tierPayload: Array<{ name: string; name_en: string | null; price: number; max_quantity: number; description: string | null }> | null = null
+    if (useTiers) {
+      const cleaned = tiers
+        .map(t => ({
+          name:         t.name.trim(),
+          name_en:      t.name_en.trim() || null,
+          price:        Number.parseInt(t.price, 10),
+          max_quantity: Number.parseInt(t.max_quantity, 10) || 0,
+          description:  t.description.trim() || null,
+        }))
+        .filter(t => t.name.length > 0)
+      if (cleaned.length === 0) {
+        setError(bi('Ajoutez au moins un tarif.', 'Add at least one tier.'))
+        return
+      }
+      if (cleaned.some(t => !Number.isFinite(t.price) || t.price < 0)) {
+        setError(bi('Prix de tarif invalide.', 'Invalid tier price.'))
+        return
+      }
+      tierPayload = cleaned
     }
 
     setSubmitting(true)
@@ -120,6 +193,7 @@ export default function SubmitEventPage() {
         cover_photo:     cover_photo || null,
         whatsapp:        form.whatsapp,
         organizer_name:  form.organizer_name,
+        tiers:           tierPayload,
       }),
     })
     const data = await res.json()
@@ -273,14 +347,31 @@ export default function SubmitEventPage() {
             </Field>
           </div>
 
-          {/* Category + Price */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t('evt.catLbl')}>
-              <select className={INPUT} value={form.category} onChange={e => set('category', e.target.value)}>
-                <option value="">{t('evt.catPh')}</option>
-                {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
-              </select>
-            </Field>
+          {/* Category */}
+          <Field label={t('evt.catLbl')}>
+            <select className={INPUT} value={form.category} onChange={e => set('category', e.target.value)}>
+              <option value="">{t('evt.catPh')}</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+            </select>
+          </Field>
+
+          {/* Single-price or multi-tier mode. The toggle preserves the
+              existing flow for organizers who just want a flat price;
+              tier mode swaps in a dynamic list with templates. */}
+          <div className="flex items-center justify-between bg-surface-muted border border-divider rounded-xl px-3 py-2.5">
+            <label className="flex items-center gap-3 cursor-pointer text-sm flex-1">
+              <input
+                type="checkbox"
+                checked={useTiers}
+                onChange={e => setUseTiers(e.target.checked)}
+              />
+              <span className="text-ink-primary">
+                🎫 {bi('Plusieurs catégories de billets', 'Multiple ticket categories')}
+              </span>
+            </label>
+          </div>
+
+          {!useTiers && (
             <Field label={t('evt.priceLbl')}>
               <input
                 type="number"
@@ -291,7 +382,95 @@ export default function SubmitEventPage() {
                 placeholder="0"
               />
             </Field>
-          </div>
+          )}
+
+          {useTiers && (
+            <div className="space-y-3">
+              {/* Template presets — quick-fill */}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => applyTemplate('standard')}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-surface-muted text-ink-secondary hover:bg-divider">
+                  🎉 {bi('Standard', 'Standard')}
+                </button>
+                <button type="button" onClick={() => applyTemplate('family')}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-surface-muted text-ink-secondary hover:bg-divider">
+                  👶 {bi('Famille', 'Family')}
+                </button>
+                <button type="button" onClick={() => applyTemplate('vip')}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-surface-muted text-ink-secondary hover:bg-divider">
+                  ⭐ {bi('VIP', 'VIP')}
+                </button>
+              </div>
+
+              {/* Dynamic tier rows */}
+              {tiers.map((tier, idx) => (
+                <div key={idx} className="bg-white border border-divider rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-ink-secondary">
+                      🎫 {bi('Tarif', 'Tier')} #{idx + 1}
+                    </p>
+                    {tiers.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeTier(idx)}
+                        className="text-xs text-rose-600 hover:text-rose-700"
+                      >
+                        🗑️ {bi('Retirer', 'Remove')}
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      className={INPUT}
+                      value={tier.name}
+                      onChange={e => updateTier(idx, 'name', e.target.value)}
+                      placeholder={bi('Nom (FR)', 'Name (FR)')}
+                    />
+                    <input
+                      type="text"
+                      className={INPUT}
+                      value={tier.name_en}
+                      onChange={e => updateTier(idx, 'name_en', e.target.value)}
+                      placeholder={bi('Nom (EN, optionnel)', 'Name (EN, optional)')}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      className={INPUT}
+                      value={tier.price}
+                      onChange={e => updateTier(idx, 'price', e.target.value)}
+                      placeholder={bi('Prix FCFA (0 = gratuit)', 'Price FCFA (0 = free)')}
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      className={INPUT}
+                      value={tier.max_quantity}
+                      onChange={e => updateTier(idx, 'max_quantity', e.target.value)}
+                      placeholder={bi('Quantité (0 = illimité)', 'Qty (0 = unlimited)')}
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    className={INPUT}
+                    value={tier.description}
+                    onChange={e => updateTier(idx, 'description', e.target.value)}
+                    placeholder={bi('Description (optionnel)', 'Description (optional)')}
+                  />
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addTier}
+                className="w-full text-sm font-semibold text-brand hover:text-brand-dark py-2 border border-dashed border-brand-light rounded-xl"
+              >
+                ➕ {bi('Ajouter un tarif', 'Add tier')}
+              </button>
+            </div>
+          )}
 
           {/* Capacity + online payment toggle. Capacity 0 means unlimited
               (matches API behaviour). Online payment toggle is hidden for
