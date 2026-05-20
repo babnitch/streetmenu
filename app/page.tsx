@@ -16,6 +16,7 @@ import { formatPrepTime } from '@/lib/prepTime'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
 import { useMode } from '@/lib/modeContext'
+import { isInitialRedirectSuppressed, suppressInitialRedirect } from '@/lib/initialRedirect'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
@@ -146,15 +147,20 @@ export default function HomePage() {
   const { mode, hasRestaurantRole, loading: modeLoading } = useMode()
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Mode-driven redirect. Restaurant mode sends vendors straight to the
-  // dashboard; client mode keeps them on the public home feed. We wait for
-  // the mode probe to finish so a flash of the wrong surface is avoided.
+  // Vendor "land on / → bounce to /dashboard" convenience-redirect.
+  // Fires AT MOST ONCE per tab session and only when the user landed
+  // cold on /. Any in-app navigation (Link click, back/forward, etc.)
+  // arms the suppress flag via NavigationWatcher, so clicking
+  // "Restaurants" or visiting / on purpose never gets bounced.
   useEffect(() => {
     if (modeLoading) return
-    if (hasRestaurantRole && mode === 'restaurant') {
-      setRedirecting(true)
-      router.replace('/dashboard')
-    }
+    if (!(hasRestaurantRole && mode === 'restaurant')) return
+    if (isInitialRedirectSuppressed()) return
+    // Arm the flag synchronously BEFORE pushing so a fast back-button
+    // (which would re-fire this effect on remount) becomes a no-op.
+    suppressInitialRedirect()
+    setRedirecting(true)
+    router.replace('/dashboard')
   }, [modeLoading, hasRestaurantRole, mode, router])
 
   // Pending-orders banner for vendors currently in Client mode. Populated

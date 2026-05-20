@@ -7,6 +7,7 @@ import { CityProvider } from '@/lib/cityContext'
 import { ModeProvider } from '@/lib/modeContext'
 import { CLIENT_VERSION } from '@/lib/clientVersion'
 import BottomNav from '@/components/BottomNav'
+import NavigationWatcher from '@/components/NavigationWatcher'
 
 export const metadata: Metadata = {
   title: 'Tchop & Ndjoka',
@@ -35,6 +36,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <CartProvider>
               <CityProvider>
                 <ModeProvider>
+                  {/* NavigationWatcher must render BEFORE {children} so
+                      its effect runs first on every navigation — see
+                      the component's header comment. */}
+                  <NavigationWatcher />
                   {children}
                   <BottomNav />
                 </ModeProvider>
