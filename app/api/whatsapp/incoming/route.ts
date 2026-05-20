@@ -1887,9 +1887,15 @@ const SUB_KEYWORD_TO_CATEGORY: Record<string, string> = {
   'autre':    'Autre',   'other':    'Autre',
 }
 
+// Tokens that explicitly mean "all categories". When any of these are
+// present in the tail (or the tail is empty) we return null so the
+// caller treats it as "subscribe to everything".
+const SUB_ALL_TOKENS = new Set(['tout', 'tous', 'toutes', 'all', 'everything'])
+
 function parseSubscribeCategories(tail: string): string[] | null {
   const tokens = tail.trim().toLowerCase().split(/[\s,]+/).filter(Boolean)
   if (tokens.length === 0) return null
+  if (tokens.some(t => SUB_ALL_TOKENS.has(t))) return null
   const cats = new Set<string>()
   for (const t of tokens) {
     const c = SUB_KEYWORD_TO_CATEGORY[t]
@@ -1998,14 +2004,15 @@ async function handleSubscriptionCommand(
       metadata: { subscription_id: data.id, city: customer.city, categories, via: 'whatsapp' },
     })
 
-    const catLine = categories
-      ? `Catégories: ${categories.join(', ')}\nCategories: ${categories.join(', ')}\n\n`
-      : ''
+    // Compact confirmation: "🔔 Abonné: Cat1, Cat2 à City" (or "à tous"
+    // when no filter was set). Mirrored bilingual block follows.
+    const catFr = categories ? categories.join(', ') : 'toutes catégories'
+    const catEn = categories ? categories.join(', ') : 'all categories'
     await sendWhatsApp(from,
-      `🔔 Abonné aux événements à ${customer.city}!\n` +
-      `${catLine}` +
+      `🔔 Abonné: ${catFr} à ${customer.city}\n` +
       `Envoyez "desabonner" pour arrêter.\n\n` +
-      `Subscribed to events in ${customer.city}! Send "unsubscribe" to stop.`)
+      `Subscribed: ${catEn} in ${customer.city}\n` +
+      `Send "unsubscribe" to stop.`)
     return ok()
   }
 

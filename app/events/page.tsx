@@ -476,8 +476,21 @@ export default function EventsPage() {
               </div>
 
               <div className="mb-4">
-                <div className="text-xs font-semibold text-ink-secondary mb-2">
-                  {bi('Catégories', 'Categories')}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-ink-secondary">
+                    {bi('Catégories', 'Categories')}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSubCategories(prev =>
+                      prev.size === CATEGORIES.length ? new Set() : new Set(CATEGORIES),
+                    )}
+                    className="text-xs font-semibold text-brand hover:text-brand-dark"
+                  >
+                    {subCategories.size === CATEGORIES.length
+                      ? bi('Tout désélectionner', 'Deselect all')
+                      : bi('Tout sélectionner', 'Select all')}
+                  </button>
                 </div>
                 <div className="space-y-1.5">
                   {CATEGORIES.map(cat => (
