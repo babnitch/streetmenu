@@ -516,6 +516,12 @@ export default function EventDetailPage() {
                         disabled={submitting}
                       />
                     </div>
+                    <p className="text-[11px] text-ink-tertiary mb-1.5">
+                      {bi(
+                        'Le paiement Mobile Money est disponible pour les numéros africains uniquement.',
+                        'Mobile Money payment is available for African numbers only.',
+                      )}
+                    </p>
                     {trimmedMomo && !momoValid && (
                       <p className="text-xs text-danger mb-3">
                         {bi(

@@ -825,6 +825,12 @@ export default function OrderPage() {
                 defaultCountry={restaurantCity ? getCountryFromCity(restaurantCity).iso : undefined}
                 required
               />
+              <p className="mt-1.5 text-[11px] text-ink-tertiary">
+                {bi(
+                  'Le paiement Mobile Money est disponible pour les numéros africains uniquement (CM, CI, SN, BJ).',
+                  'Mobile Money payment is available for African numbers only (CM, CI, SN, BJ).',
+                )}
+              </p>
               <div className="mt-2">
                 {mnoPreview ? (
                   <div className="flex items-center gap-2 text-sm text-ink-secondary">
@@ -838,8 +844,8 @@ export default function OrderPage() {
                 ) : trimmedMomoPhone && !momoPrefixValid ? (
                   <p className="text-xs text-danger">
                     {bi(
-                      "Sélectionnez un pays supporté (CM, CI, SN, BJ).",
-                      'Pick a supported country (CM, CI, SN, BJ).',
+                      "Sélectionnez un pays supporté pour MoMo (CM, CI, SN, BJ).",
+                      'Pick a supported country for MoMo (CM, CI, SN, BJ).',
                     )}
                   </p>
                 ) : null}
