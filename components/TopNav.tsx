@@ -195,20 +195,20 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             public browse surface; restaurant-mode shows operations tabs
             gated by the user's highest team role. */}
         <nav className="hidden md:flex items-center gap-1 flex-shrink-0 whitespace-nowrap">
-          {effectiveMode === 'client' && (
-            <>
-              <TopNavLink href="/" active={isRestaurants}>
-                🏠 {bi('Restaurants', 'Restaurants')}
-              </TopNavLink>
-              <TopNavLink href="/events" active={isEvents}>
-                🎉 {bi('Événements', 'Events')}
-              </TopNavLink>
-              {me && (
-                <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
-                  📦 {bi('Commandes', 'Orders')}
-                </TopNavLink>
-              )}
-            </>
+          {/* Restaurants + Events are always visible — vendors need to be
+              able to jump back to the public side without flipping modes
+              first. In restaurant mode they sit alongside the dashboard
+              tabs (Orders/Menu/Vouchers/Settings). */}
+          <TopNavLink href="/" active={isRestaurants}>
+            🏠 {bi('Restaurants', 'Restaurants')}
+          </TopNavLink>
+          <TopNavLink href="/events" active={isEvents}>
+            🎉 {bi('Événements', 'Events')}
+          </TopNavLink>
+          {effectiveMode === 'client' && me && (
+            <TopNavLink href="/account?tab=orders" active={isOrdersPage}>
+              📦 {bi('Commandes', 'Orders')}
+            </TopNavLink>
           )}
           {effectiveMode === 'restaurant' && (
             <>
