@@ -5,6 +5,7 @@ import { LanguageProvider } from '@/lib/languageContext'
 import { AuthProvider } from '@/lib/authContext'
 import { CityProvider } from '@/lib/cityContext'
 import { ModeProvider } from '@/lib/modeContext'
+import { DataModeProvider } from '@/lib/dataMode'
 import { CLIENT_VERSION } from '@/lib/clientVersion'
 import BottomNav from '@/components/BottomNav'
 
@@ -35,8 +36,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <CartProvider>
               <CityProvider>
                 <ModeProvider>
-                  {children}
-                  <BottomNav />
+                  <DataModeProvider>
+                    {children}
+                    <BottomNav />
+                  </DataModeProvider>
                 </ModeProvider>
               </CityProvider>
             </CartProvider>

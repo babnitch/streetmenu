@@ -12,6 +12,7 @@ import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { useCity } from '@/lib/cityContext'
+import { useDataMode } from '@/lib/dataMode'
 import { arrangePromoted, FEED_INJECT_EVERY_EVENT } from '@/lib/promotions'
 import TopNav from '@/components/TopNav'
 
@@ -31,6 +32,7 @@ const CATEGORIES = [
 
 function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[] }) {
   const bi = useBi()
+  const { isLowData } = useDataMode()
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
   })
@@ -56,7 +58,7 @@ function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promot
   return (
     <div ref={cardRef} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-brand-light">
       <div className="relative h-36 bg-gradient-to-br from-brand-badge to-brand">
-        {event.cover_photo ? (
+        {event.cover_photo && !isLowData ? (
           <Image
             src={event.cover_photo}
             alt={event.title}

@@ -21,14 +21,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Non autorisé / Not authorized' }, { status: 403 })
   }
 
-  const { image_url } = await req.json()
+  const { image_url, blur_hash } = await req.json()
   if (typeof image_url !== 'string' || !image_url.startsWith('http')) {
     return NextResponse.json({ error: 'URL invalide / Invalid URL' }, { status: 400 })
   }
 
+  // blur_hash is optional — the column is nullable. Empty / non-string
+  // values are skipped so the existing placeholder isn't blanked out
+  // when the optimizer couldn't produce one.
+  const updates: Record<string, unknown> = { image_url }
+  if (typeof blur_hash === 'string' && blur_hash.length > 0) {
+    updates.blur_hash = blur_hash
+  }
+
   const { error } = await supabaseAdmin
     .from('restaurants')
-    .update({ image_url })
+    .update(updates)
     .eq('id', params.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

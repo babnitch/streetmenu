@@ -307,11 +307,24 @@ async function downloadTwilioMedia(mediaUrl: string): Promise<{ buffer: Buffer; 
 }
 
 async function uploadToStorage(bucket: string, buffer: Buffer, contentType: string): Promise<string | null> {
-  const ext  = contentType.split('/')[1]?.split(';')[0] ?? 'jpg'
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-  console.log(`[whatsapp] Uploading to Supabase bucket "${bucket}" at ${path}`)
+  // Compress + re-encode via sharp before upload. WhatsApp media that
+  // failed to decode (e.g. an unsupported HEIC) falls back to the
+  // original bytes via safeCompress. Bucket name picks the kind:
+  // restaurant-images → hero, menu-images → square thumb.
+  const { safeCompress } = await import('@/lib/imageOptimizer')
+  const kind =
+    bucket === 'restaurant-images' ? 'restaurant_hero'
+    : bucket === 'menu-images'     ? 'menu_item'
+    : 'generic'
+  const out  = await safeCompress(buffer, kind, contentType)
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${out.extension}`
+  console.log(`[whatsapp] Uploading to Supabase bucket "${bucket}" at ${path} (${out.bytes}B)`)
   const { error } = await supabaseAdmin.storage
-    .from(bucket).upload(path, buffer, { contentType, upsert: false })
+    .from(bucket).upload(path, out.buffer, {
+      contentType:  out.contentType,
+      cacheControl: '86400',  // 24h browser cache
+      upsert:       false,
+    })
   if (error) { console.error(`[whatsapp] ${bucket} upload error:`, error.message); return null }
   const { data } = supabaseAdmin.storage.from(bucket).getPublicUrl(path)
   console.log(`[whatsapp] Uploaded — public URL: ${data.publicUrl}`)

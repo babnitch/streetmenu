@@ -14,6 +14,7 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
+import { useDataMode } from '@/lib/dataMode'
 import { arrangePromoted, FEED_INJECT_EVERY_RESTAURANT } from '@/lib/promotions'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
@@ -44,6 +45,7 @@ function RestaurantCard({
   promotionId?: string
 }) {
   const bi = useBi()
+  const { isLowData } = useDataMode()
   const [imgError, setImgError] = useState(false)
   const cardRef = useRef<HTMLAnchorElement>(null)
 
@@ -73,7 +75,10 @@ function RestaurantCard({
   const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
   const initial = (restaurant.name?.[0] ?? '?').toUpperCase()
   const heroImage = restaurant.image_url || restaurant.logo_url
-  const showImage = heroImage && !imgError
+  // Low-data mode: skip the image regardless of whether one exists, so
+  // the user's bandwidth budget stays predictable. The gradient + initial
+  // fallback already shipped as the empty-image state — we reuse it.
+  const showImage = !isLowData && heroImage && !imgError
 
   return (
     <Link

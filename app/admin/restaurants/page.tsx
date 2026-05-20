@@ -204,11 +204,14 @@ export default function AdminRestaurantsPage() {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
-    const path = `restaurants/${Date.now()}-${file.name.replace(/\s+/g, '-')}`
-    const { error } = await supabase.storage.from('photos').upload(path, file)
-    if (!error) {
-      const { data } = supabase.storage.from('photos').getPublicUrl(path)
-      setForm(f => ({ ...f, logo_url: data.publicUrl }))
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('kind', 'restaurant_logo')
+    fd.append('pathPrefix', 'restaurants')
+    const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
+    if (r.ok) {
+      const j = await r.json()
+      if (typeof j?.url === 'string') setForm(f => ({ ...f, logo_url: j.url }))
     }
     setUploading(false)
   }

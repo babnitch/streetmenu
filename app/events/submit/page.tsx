@@ -5,7 +5,6 @@ export const dynamic = 'force-dynamic'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
@@ -160,14 +159,16 @@ export default function SubmitEventPage() {
 
     let cover_photo = ''
     if (photo) {
-      const ext = photo.name.split('.').pop()
-      const path = `events/${Date.now()}.${ext}`
-      const { error: uploadErr } = await supabase.storage
-        .from('photos')
-        .upload(path, photo, { upsert: true })
-      if (!uploadErr) {
-        const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path)
-        cover_photo = urlData.publicUrl
+      // Server-side compression via sharp → WebP / 800×450 / EXIF
+      // stripped / blur placeholder. See /api/upload/image.
+      const fd = new FormData()
+      fd.append('file', photo)
+      fd.append('kind', 'event_cover')
+      fd.append('pathPrefix', 'events')
+      const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
+      if (r.ok) {
+        const j = await r.json()
+        if (typeof j?.url === 'string') cover_photo = j.url
       }
     }
 

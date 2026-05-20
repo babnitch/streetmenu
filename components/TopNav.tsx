@@ -8,6 +8,7 @@ import { useBi } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
+import { useDataMode } from '@/lib/dataMode'
 
 interface TopNavProps {
   // Retained for compatibility with pages that pass a Join CTA. New layout
@@ -46,6 +47,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const [pendingCount, setPendingCount] = useState(0)
 
   const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab } = useMode()
+  const { isLowData, toggle: toggleLowData } = useDataMode()
 
   useEffect(() => {
     let cancelled = false
@@ -281,6 +283,20 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors"
             >
               🗺
+            </button>
+          )}
+
+          {/* Low-data indicator — only shows when the toggle is on.
+              Tappable to flip it back off without going to /account. */}
+          {isLowData && (
+            <button
+              type="button"
+              onClick={toggleLowData}
+              title={bi('Mode économique actif', 'Low-data mode on')}
+              aria-label={bi('Mode économique actif', 'Low-data mode on')}
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+            >
+              📶
             </button>
           )}
 

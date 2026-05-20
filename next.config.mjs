@@ -2,19 +2,23 @@
 const nextConfig = {
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**.supabase.co',
-      },
-      {
-        protocol: 'https',
-        hostname: 'images.unsplash.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.unsplash.com',
-      },
+      { protocol: 'https', hostname: '**.supabase.co' },
+      { protocol: 'https', hostname: 'images.unsplash.com' },
+      { protocol: 'https', hostname: '**.unsplash.com' },
     ],
+    // Prefer WebP / AVIF (smaller than JPEG) when the browser supports
+    // the Accept header. Vercel does the encoding on the edge.
+    formats: ['image/webp', 'image/avif'],
+    // Device + image sizes mostly match our card layouts (320 mobile,
+    // 640 tablet, 1024 desktop) plus the thumb (80) + thumbnail (200)
+    // sizes used by menu items and logos. Trimming the size set keeps
+    // the on-demand encoded variant count down.
+    deviceSizes: [320, 420, 640, 768, 1024],
+    imageSizes: [80, 200, 400, 800],
+    // 24h CDN cache for upstream images — anything served from
+    // Supabase already declares cacheControl=86400 on upload, but
+    // Next can still re-fetch sooner if minimumCacheTTL is short.
+    minimumCacheTTL: 86400,
   },
 
   // Cache policy — written from "most generic" to "most specific" because

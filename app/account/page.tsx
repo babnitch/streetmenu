@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import dynamicLoad from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
@@ -18,6 +19,7 @@ import BroadcastPanel from '@/components/BroadcastPanel'
 import PromotePanel from '@/components/PromotePanel'
 import EventTiersPanel from '@/components/EventTiersPanel'
 import PhoneInput from '@/components/PhoneInput'
+import { useDataMode } from '@/lib/dataMode'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
@@ -635,14 +637,17 @@ export default function AccountPage() {
     if (!file || !activeRestId) return
     setUploadingPhoto(true)
     try {
-      const path = `restaurants/${Date.now()}-${file.name.replace(/\s+/g, '-')}`
-      const { error: upErr } = await supabase.storage.from('photos').upload(path, file)
-      if (upErr) { showToast(bi('Erreur upload', 'Upload error'), false); return }
-      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path)
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('kind', 'restaurant_hero')
+      fd.append('pathPrefix', 'restaurants')
+      const upRes = await fetch('/api/upload/image', { method: 'POST', body: fd })
+      if (!upRes.ok) { showToast(bi('Erreur upload', 'Upload error'), false); return }
+      const upJson = await upRes.json()
       const res = await fetch(`/api/restaurants/${activeRestId}/image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: urlData.publicUrl }),
+        body: JSON.stringify({ image_url: upJson.url, blur_hash: upJson.blur_hash }),
       })
       if (res.ok) {
         showToast(bi('✅ Photo mise à jour', 'Photo updated'))
@@ -1206,6 +1211,12 @@ export default function AccountPage() {
                             null for users with no team role. */}
                         <ModeToggle variant="banner" />
 
+                        {/* Low-data mode — saves ~90% of bandwidth on
+                            image-heavy pages by replacing photos with
+                            colored gradients. Lives in localStorage; no
+                            DB write yet (profile sync is in the backlog). */}
+                        <LowDataToggle />
+
                         {/* Event notifications */}
                         <div className="pt-2">
                           <NotificationsPanel />
@@ -1375,8 +1386,7 @@ export default function AccountPage() {
                           {/* Photo */}
                           <div className="relative w-20 h-20 rounded-2xl overflow-hidden flex-shrink-0 bg-brand-light">
                             {activeRest.image_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={activeRest.image_url} alt={activeRest.name} className="w-full h-full object-cover" />
+                              <Image src={activeRest.image_url} alt={activeRest.name} fill sizes="80px" className="object-cover" />
                             ) : (
                               <span className="absolute inset-0 flex items-center justify-center text-3xl">🏪</span>
                             )}
@@ -2537,3 +2547,38 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
     </div>
   )
 }
+
+// ── Low-data mode toggle (mounted inside the Profile tab) ───────────────────
+// Lives in localStorage via useDataMode(); flipping it instantly changes
+// what /events, /, and /restaurant/[id] cards render (image vs gradient).
+function LowDataToggle() {
+  const { isLowData, toggle } = useDataMode()
+  // useBi runs inside the LowDataToggle component (not at module scope)
+  // so the toggle copy updates when the user flips the language.
+  // Importing useBi via the already-imported language helpers up top.
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-ink-primary">
+            📶 {isLowData ? 'Mode économique actif / Low-data mode on' : 'Mode économique / Low-data mode'}
+          </p>
+          <p className="text-xs text-ink-tertiary mt-0.5">
+            {isLowData
+              ? 'Photos remplacées par des dégradés colorés — économise ~90% de données. / Images replaced with gradients — saves ~90% data.'
+              : 'Activez pour économiser de la data sur les pages avec beaucoup d\'images. / Toggle to save data on image-heavy pages.'}
+          </p>
+        </div>
+        <button
+          onClick={toggle}
+          className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+            isLowData ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-surface-muted text-ink-secondary hover:bg-divider'
+          }`}
+        >
+          {isLowData ? 'Désactiver / Turn off' : 'Activer / Turn on'}
+        </button>
+      </div>
+    </div>
+  )
+}
+

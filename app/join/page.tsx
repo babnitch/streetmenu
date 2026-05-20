@@ -83,11 +83,16 @@ export default function JoinPage() {
     let logo_url = ''
     if (coverPhoto) {
       setUploading(true)
-      const path = `restaurants/${Date.now()}-${coverPhoto.name.replace(/\s+/g, '-')}`
-      const { error: uploadError } = await supabase.storage.from('photos').upload(path, coverPhoto)
-      if (!uploadError) {
-        const { data } = supabase.storage.from('photos').getPublicUrl(path)
-        logo_url = data.publicUrl
+      // Server-side compression via sharp — WebP, resize, EXIF stripped,
+      // blur placeholder generated. See /api/upload/image.
+      const fd = new FormData()
+      fd.append('file', coverPhoto)
+      fd.append('kind', 'restaurant_hero')
+      fd.append('pathPrefix', 'restaurants')
+      const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
+      if (r.ok) {
+        const j = await r.json()
+        if (typeof j?.url === 'string') logo_url = j.url
       }
       setUploading(false)
     }
