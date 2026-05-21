@@ -106,7 +106,7 @@ DROP POLICY IF EXISTS "service_role_only" ON event_comments;
 DROP POLICY IF EXISTS "public_read"       ON event_comments;
 CREATE POLICY "public_read" ON event_comments
   FOR SELECT TO anon, authenticated
-  USING (COALESCE(is_hidden, FALSE) = FALSE);
+  USING (COALESCE(is_deleted, FALSE) = FALSE);
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 7. EVENT_TICKET_TIERS — public read, service-only writes
