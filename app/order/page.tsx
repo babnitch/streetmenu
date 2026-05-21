@@ -177,18 +177,19 @@ export default function OrderPage() {
 
   useEffect(() => {
     if (!me) return
-    supabase
-      .from('customer_vouchers')
-      .select('*, vouchers(*)')
-      .eq('customer_id', me.id)
-      .is('used_at', null)
-      .then(({ data }) => {
-        if (!data) return
-        // Hide vouchers the server would reject anyway. Without the
-        // expires_at filter, an expired BIENVENUE chip stayed clickable
-        // and showed "Code expiré" only after the customer tapped it.
+    // customer_vouchers is service-role-only after the RLS migration,
+    // so we route through /api/customer/vouchers/my (which uses
+    // supabaseAdmin under our JWT). Filter expired / inactive client-
+    // side — the server returns the raw list so other surfaces can
+    // decide which subset to show.
+    let cancelled = false
+    fetch('/api/customer/vouchers/my', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled || !Array.isArray(d?.vouchers)) return
         const now = Date.now()
-        setMyVouchers(data.filter(cv => {
+        setMyVouchers(d.vouchers.filter((cv: CustomerVoucher) => {
+          if (cv.used_at) return false
           const v = cv.vouchers
           if (!v) return false
           if (!v.is_active) return false
@@ -196,6 +197,8 @@ export default function OrderPage() {
           return true
         }))
       })
+      .catch(() => null)
+    return () => { cancelled = true }
   }, [me])
 
   // Cleanup on unmount — stale poll/timeout would keep firing after the
@@ -277,21 +280,27 @@ export default function OrderPage() {
     const customerName  = me?.name  ?? name.trim()
     const customerPhone = me?.phone ?? phone.trim()
 
-    const { data, error } = await supabase.from('orders').insert({
-      restaurant_id: restaurantId,
-      customer_name: customerName,
-      customer_phone: customerPhone,
-      items: items,
-      total_price: finalPrice,
-      status: 'pending',
-      customer_id: me?.id ?? null,
-      voucher_code: appliedVoucher?.code ?? null,
-      discount_amount: discountAmount > 0 ? discountAmount : null,
-      order_type: orderType,
-      payment_status: orderType === 'paid_order' ? 'pending' : 'not_required',
-    }).select().single()
-
-    if (error || !data) return null
+    // orders table is service-role-only after the RLS migration — route
+    // through /api/orders/create which authenticates via our JWT and
+    // sanitises every field server-side before inserting.
+    const res = await fetch('/api/orders/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurant_id:   restaurantId,
+        customer_name:   customerName,
+        customer_phone:  customerPhone,
+        items,
+        total_price:     finalPrice,
+        voucher_code:    appliedVoucher?.code ?? null,
+        discount_amount: discountAmount > 0 ? discountAmount : null,
+        order_type:      orderType,
+      }),
+    })
+    if (!res.ok) return null
+    const json = await res.json().catch(() => ({}))
+    const data: { id: string } | null = json?.order ?? null
+    if (!data) return null
 
     if (appliedVoucher) {
       fetch('/api/customer/vouchers/consume', {

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sanitizeTags } from '@/lib/ratings'
+import { rateLimit, rateLimitedResponse } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!session || session.role !== 'customer') {
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
   }
+
+  // 5 rating writes per customer per hour. Higher than the spec's
+  // "1 per restaurant" because users may edit / re-rate multiple
+  // restaurants in a short session.
+  const limited = rateLimit({ key: `rate:${session.id}`, max: 5, windowMs: 3600_000 })
+  if (limited) return rateLimitedResponse(limited)
 
   const body = await req.json().catch(() => ({}))
   const rating = Number(body?.rating)

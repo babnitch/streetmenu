@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { isReason, isTargetType } from '@/lib/reports'
+import { rateLimit, rateLimitedResponse } from '@/lib/rateLimit'
+import { sanitizeText } from '@/lib/sanitize'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +22,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
   }
 
+  // 5 reports per customer per hour — caps abuse-button mash.
+  const limited = rateLimit({ key: `reports:${session.id}`, max: 5, windowMs: 3600_000 })
+  if (limited) return rateLimitedResponse(limited)
+
   const body = await req.json().catch(() => ({}))
   if (!isTargetType(body?.target_type)) {
     return NextResponse.json({ error: 'target_type invalide / invalid' }, { status: 400 })
@@ -31,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (!targetId) {
     return NextResponse.json({ error: 'target_id requis / required' }, { status: 400 })
   }
-  const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 500) : null
+  const description = sanitizeText(body?.description, 500) || null
 
   // Verify the target exists. Cheap existence check per target type — the
   // CHECK on reports.target_type already restricts the set.

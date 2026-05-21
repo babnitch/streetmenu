@@ -734,12 +734,15 @@ export default function DashboardPage() {
                   <button
                     onClick={async () => {
                       setConfirming(true)
-                      await supabase.from('customer_vouchers').update({ used_at: new Date().toISOString() }).eq('id', validateDetails.cvId)
-                      const { data: cv } = await supabase.from('customer_vouchers').select('voucher_id').eq('id', validateDetails.cvId).single()
-                      if (cv) {
-                        const { data: vData } = await supabase.from('vouchers').select('uses_count').eq('id', cv.voucher_id).single()
-                        if (vData) await supabase.from('vouchers').update({ uses_count: (vData.uses_count ?? 0) + 1 }).eq('id', cv.voucher_id)
-                      }
+                      // Server-side consume wraps the cv.used_at +
+                      // vouchers.uses_count writes that used to fire
+                      // directly from the browser. Required after the
+                      // RLS lockdown of both tables.
+                      await fetch('/api/vendor/vouchers/consume', {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body:    JSON.stringify({ customer_voucher_id: validateDetails.cvId }),
+                      }).catch(() => null)
                       setConfirming(false)
                       setValidateDone(true)
                       setValidateResult(null)

@@ -3,19 +3,26 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { setSessionCookie, SessionPayload } from '@/lib/auth'
 import { normalizePhone } from '@/lib/phone'
 import { assignWelcomeVoucher } from '@/lib/vouchers'
+import { rateLimit, rateLimitedResponse } from '@/lib/rateLimit'
+import { sanitizeText } from '@/lib/sanitize'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   const body  = await req.json()
   const phone: string = normalizePhone(body.phone)
-  const code:  string = (body.code  ?? '').trim()
-  const name:  string = (body.name  ?? '').trim()
-  const city:  string = (body.city  ?? '').trim()
+  const code:  string = sanitizeText(body.code, 8).trim()
+  const name:  string = sanitizeText(body.name, 60)
+  const city:  string = sanitizeText(body.city, 40)
 
   if (!phone || !code) {
     return NextResponse.json({ error: 'Phone and code required' }, { status: 400 })
   }
+
+  // 10 attempts per phone per hour — caps both a script and a
+  // typo-prone user without locking out a legitimate retry.
+  const limited = rateLimit({ key: `verify-code:${phone}`, max: 10, windowMs: 3600_000 })
+  if (limited) return rateLimitedResponse(limited)
 
   // Find matching, unused, non-expired code
   const { data: record } = await supabaseAdmin

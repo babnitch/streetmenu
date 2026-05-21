@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import dynamicLoad from 'next/dynamic'
-import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
 import LanguageToggle from '@/components/LanguageToggle'
@@ -286,16 +285,20 @@ export default function AccountPage() {
 
   const loadCustomerData = useCallback(async (customerId: string) => {
     setLoadingData(true)
-    const [{ data: cvData }, { data: ordersData }, resvRes, myEvRes] = await Promise.all([
-      supabase.from('customer_vouchers').select('*, vouchers(*, restaurants(name))').eq('customer_id', customerId).order('claimed_at', { ascending: false }),
-      supabase.from('orders').select('*, restaurants(name, city)').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(20),
-      // event_reservations + organized-events are service-role-only — go
-      // through API routes so RLS isn't a footgun.
+    // All four reads now go through API routes that authenticate via
+    // our JWT and run as supabaseAdmin (bypassing RLS). The previous
+    // direct supabase.from('customer_vouchers' | 'orders') reads only
+    // worked because RLS was open — supabase-rls-policies.sql locked
+    // both tables to service-role-only.
+    void customerId
+    const [cvRes, ordersRes, resvRes, myEvRes] = await Promise.all([
+      fetch('/api/customer/vouchers/my',  { cache: 'no-store' }).then(r => r.json()).catch(() => ({ vouchers: [] })),
+      fetch('/api/customer/orders',       { cache: 'no-store' }).then(r => r.json()).catch(() => ({ orders: [] })),
       fetch('/api/customer/reservations', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ reservations: [] })),
-      fetch('/api/events/my', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ events: [] })),
+      fetch('/api/events/my',             { cache: 'no-store' }).then(r => r.json()).catch(() => ({ events: [] })),
     ])
-    if (cvData) setCustomerVouchers(cvData)
-    if (ordersData) setOrders(ordersData)
+    if (Array.isArray(cvRes?.vouchers))      setCustomerVouchers(cvRes.vouchers)
+    if (Array.isArray(ordersRes?.orders))    setOrders(ordersRes.orders)
     if (Array.isArray(resvRes?.reservations)) setEventReservations(resvRes.reservations)
     if (Array.isArray(myEvRes?.events)) setMyEvents(myEvRes.events)
     if (myEvRes?.trust) setOrganizerTrust(myEvRes.trust as OrganizerTrust)

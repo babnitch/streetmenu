@@ -351,8 +351,57 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const params  = Object.fromEntries(new URLSearchParams(rawBody))
 
-  const from      = params['From'] ?? ''
-  const body      = (params['Body'] ?? '').trim()
+  // ── Twilio signature validation ───────────────────────────────────────────
+  // Twilio signs every webhook with HMAC-SHA1(url + sorted-form-fields)
+  // using the account auth token. Without this check anyone with the
+  // public webhook URL can spoof messages from any phone.
+  // Skipped (with a console warning) when TWILIO_AUTH_TOKEN is missing,
+  // so dev / sandbox without the variable keeps working.
+  const authToken = process.env.TWILIO_AUTH_TOKEN
+  if (authToken) {
+    const sig = req.headers.get('x-twilio-signature') ?? ''
+    const url = process.env.TWILIO_WEBHOOK_URL
+      ?? `${process.env.NEXT_PUBLIC_BASE_URL ?? 'https://streetmenu.vercel.app'}/api/whatsapp/incoming`
+    try {
+      const twilio = (await import('twilio')).default
+      const valid = twilio.validateRequest(authToken, sig, url, params)
+      if (!valid) {
+        console.warn('[whatsapp] Twilio signature validation FAILED — request rejected.')
+        return new NextResponse(EMPTY_TWIML, { status: 403, headers: TWIML_HEADERS })
+      }
+    } catch (e) {
+      console.error('[whatsapp] Twilio validateRequest threw:', (e as Error).message)
+      return new NextResponse(EMPTY_TWIML, { status: 500, headers: TWIML_HEADERS })
+    }
+  } else {
+    console.warn('[whatsapp] TWILIO_AUTH_TOKEN not set — skipping signature validation (dev mode).')
+  }
+
+  // ── Per-phone rate-limit ──────────────────────────────────────────────────
+  // Prevents a flood of WhatsApp messages from a single phone from
+  // tying up the route. 100/min is generous for a real user and
+  // restrictive enough to bounce a script.
+  const rawFrom = params['From'] ?? ''
+  const phoneForLimit = rawFrom.replace(/^whatsapp:/i, '').replace(/[^\d+]/g, '') || 'anon'
+  const { rateLimit } = await import('@/lib/rateLimit')
+  const limited = rateLimit({
+    key:      `whatsapp:${phoneForLimit}`,
+    max:      100,
+    windowMs: 60_000,
+  })
+  if (limited) {
+    // 200 to Twilio so it doesn't retry; the user just doesn't get a
+    // reply for this turn.
+    console.warn(`[whatsapp] rate-limited ${phoneForLimit} — ${limited.retryAfterSec}s`)
+    return ok()
+  }
+
+  // ── Sanitise body before any downstream use ───────────────────────────────
+  const { sanitizeText } = await import('@/lib/sanitize')
+  const rawBody2 = params['Body'] ?? ''
+  const body      = sanitizeText(rawBody2, 1000).trim()
+
+  const from      = rawFrom
   const numMedia  = parseInt(params['NumMedia'] ?? '0', 10)
   const mediaUrl  = params['MediaUrl0'] ?? ''
   const mediaType = params['MediaContentType0'] ?? ''

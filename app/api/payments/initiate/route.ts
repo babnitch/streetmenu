@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
+import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,11 @@ export async function POST(req: NextRequest) {
     if (!orderId || !phoneNumber) {
       return NextResponse.json({ error: 'orderId et phoneNumber requis / required' }, { status: 400 })
     }
+
+    // 10 deposits per IP per hour — prevents a script from spamming
+    // PawaPay USSD prompts at someone else's wallet.
+    const limited = rateLimit({ key: `pay-init:${clientIP(req)}`, max: 10, windowMs: 3600_000 })
+    if (limited) return rateLimitedResponse(limited)
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp } from '@/lib/whatsapp'
 import { normalizePhone } from '@/lib/phone'
+import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
+import { sanitizeText } from '@/lib/sanitize'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,12 +14,20 @@ function generateCode(): string {
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const phone: string = normalizePhone(body.phone)
-  const name: string  = (body.name  ?? '').trim()
-  const city: string  = (body.city  ?? '').trim()
+  const name: string  = sanitizeText(body.name, 60)
+  const city: string  = sanitizeText(body.city, 40)
 
   if (!phone) {
     return NextResponse.json({ error: 'Phone required' }, { status: 400 })
   }
+
+  // Per-phone (primary) + per-IP (secondary) rate limit. The phone
+  // cap prevents brute-forcing OTPs against a victim; the IP cap
+  // catches a script cycling through phones.
+  const phoneLimited = rateLimit({ key: `send-code:phone:${phone}`, max: 5, windowMs: 3600_000 })
+  if (phoneLimited) return rateLimitedResponse(phoneLimited)
+  const ipLimited    = rateLimit({ key: `send-code:ip:${clientIP(req)}`, max: 20, windowMs: 3600_000 })
+  if (ipLimited)    return rateLimitedResponse(ipLimited)
 
   // Check if customer already exists (normalized lookup matches stored format)
   const { data: existing } = await supabaseAdmin

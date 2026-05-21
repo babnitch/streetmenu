@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { displayNickname } from '@/lib/nickname'
+import { rateLimit, rateLimitedResponse } from '@/lib/rateLimit'
+import { sanitizeText } from '@/lib/sanitize'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,13 +55,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
   }
 
+  // 20 comments per customer per hour — caps a spam loop without
+  // bothering a chatty user.
+  const limited = rateLimit({ key: `comment:${session.id}`, max: 20, windowMs: 3600_000 })
+  if (limited) return rateLimitedResponse(limited)
+
   const body = await req.json().catch(() => ({}))
-  const comment = String(body?.comment ?? '').trim()
+  const comment = sanitizeText(body?.comment, MAX_LEN)
   if (!comment) {
     return NextResponse.json({ error: 'Commentaire vide / Empty comment' }, { status: 400 })
-  }
-  if (comment.length > MAX_LEN) {
-    return NextResponse.json({ error: `Max ${MAX_LEN} caractères / chars` }, { status: 400 })
   }
 
   const { data: c } = await supabaseAdmin
