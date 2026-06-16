@@ -1029,6 +1029,25 @@ async function handleVendor(
   const canEditMenu   = isOwner || isManager
   const canViewOrders = isOwner || isManager || teamRole === 'staff'
 
+  // ── LANGUAGE TOGGLE ───────────────────────────────────────────────────────
+  // Mirrors the customer-side toggle (see handleCustomer). Kept at the very top
+  // so it can't fall through to the "Je n'ai pas compris" fallback below — that
+  // was the bug: vendors/team members had no language handler at all. Persists
+  // to the matching customer row by phone (harmless no-op if none exists) and
+  // confirms in the target language.
+  if (cmd === 'en' || cmd === 'english' || cmd === 'anglais') {
+    console.log(`[whatsapp] command parsed: '${cmd}' → language switch (vendor, en)`)
+    await supabaseAdmin.from('customers').update({ preferred_language: 'en' }).eq('phone', phone)
+    await sendWhatsApp(from, `🌐 Language set to English. Send "fr" to switch back to French.`)
+    return ok()
+  }
+  if (cmd === 'fr' || cmd === 'francais' || cmd === 'français' || cmd === 'french') {
+    console.log(`[whatsapp] command parsed: '${cmd}' → language switch (vendor, fr)`)
+    await supabaseAdmin.from('customers').update({ preferred_language: 'fr' }).eq('phone', phone)
+    await sendWhatsApp(from, `🌐 Langue définie en français. Envoyez "en" pour passer à l'anglais.`)
+    return ok()
+  }
+
   // ── AIDE / HELP ──────────────────────────────────────────────────────────
   // Short list of the highest-frequency commands. The full reference lives
   // behind "aide+" / "help+" so this stays under Twilio's 1600-char body
@@ -1911,6 +1930,7 @@ async function handleCustomer(
   // confirms in the *target* language so the user immediately sees the
   // switch took effect.
   if (cmd === 'en' || cmd === 'english' || cmd === 'anglais') {
+    console.log(`[whatsapp] command parsed: '${cmd}' → language switch (customer, en)`)
     await supabaseAdmin.from('customers')
       .update({ preferred_language: 'en' })
       .eq('id', customer.id)
@@ -1918,6 +1938,7 @@ async function handleCustomer(
     return ok()
   }
   if (cmd === 'fr' || cmd === 'francais' || cmd === 'français' || cmd === 'french') {
+    console.log(`[whatsapp] command parsed: '${cmd}' → language switch (customer, fr)`)
     await supabaseAdmin.from('customers')
       .update({ preferred_language: 'fr' })
       .eq('id', customer.id)
