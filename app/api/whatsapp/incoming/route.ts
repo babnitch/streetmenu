@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
+import { sendWhatsApp, pickLang, normalizeLang, getLangByPhone, type Lang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import {
@@ -1029,6 +1029,10 @@ async function handleVendor(
   const canEditMenu   = isOwner || isManager
   const canViewOrders = isOwner || isManager || teamRole === 'staff'
 
+  // Vendor's preferred language (by phone — falls back to FR). Drives the
+  // single-language help text below; command names stay bilingual.
+  const lang = await getLangByPhone(phone)
+
   // ── LANGUAGE TOGGLE ───────────────────────────────────────────────────────
   // Mirrors the customer-side toggle (see handleCustomer). Kept at the very top
   // so it can't fall through to the "Je n'ai pas compris" fallback below — that
@@ -1053,51 +1057,52 @@ async function handleVendor(
   // behind "aide+" / "help+" so this stays under Twilio's 1600-char body
   // limit even for an owner with all sections unlocked (error 21617).
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
+    const en = lang === 'en'
     const lines: string[] = [
       `🍽️ *Tchop & Ndjoka — ${restaurant.name}*`,
-      `Rôle / Role: ${teamRole}`,
+      en ? `Role: ${teamRole}` : `Rôle: ${teamRole}`,
       ``,
-      `📋 *Commandes essentielles / Essential commands:*`,
+      en ? `📋 *Essential commands:*` : `📋 *Commandes essentielles:*`,
     ]
     if (canViewOrders) {
       lines.push(
         ``,
-        `📦 *Commandes / Orders:*`,
-        `📦 "commandes" → Voir / View`,
-        `✅ "ok XXXX" → Confirmer / Confirm`,
-        `🍳 "preparer XXXX" → Préparer / Prepare`,
-        `🎉 "pret XXXX" → Prêt / Ready`,
-        `📦 "recupere XXXX" → Récupéré / Picked up`,
+        en ? `📦 *Orders:*` : `📦 *Commandes:*`,
+        en ? `📦 "commandes" → View pending orders` : `📦 "commandes" → Voir les commandes en attente`,
+        en ? `✅ "ok XXXX" → Confirm`             : `✅ "ok XXXX" → Confirmer`,
+        en ? `🍳 "preparer XXXX" → Start preparing` : `🍳 "preparer XXXX" → Démarrer la préparation`,
+        en ? `🎉 "pret XXXX" → Ready`             : `🎉 "pret XXXX" → Prêt`,
+        en ? `📦 "recupere XXXX" → Picked up`     : `📦 "recupere XXXX" → Récupéré`,
       )
     }
     lines.push(
       ``,
       `🍽️ *Menu:*`,
-      `🍽️ "menu" → Voir votre menu / View menu`,
+      en ? `🍽️ "menu" → View your menu` : `🍽️ "menu" → Voir votre menu`,
     )
     if (canEditMenu) {
-      lines.push(`📸 Photo + "Nom - Prix" → Ajouter un plat / Add a dish`)
+      lines.push(en ? `📸 Photo + "Name - Price" → Add a dish` : `📸 Photo + "Nom - Prix" → Ajouter un plat`)
     }
     if (isOwner || isManager) {
       lines.push(
         ``,
-        `🕐 *Statut / Status:*`,
+        en ? `🕐 *Status:*` : `🕐 *Statut:*`,
         `🟢 "ouvrir" / 🔴 "fermer" / ↩️ "auto"`,
-        `🕐 "horaire" → Voir horaires / View hours`,
-        `⏱️ "temps" → Temps de préparation / Prep time`,
+        en ? `🕐 "horaire" → View hours` : `🕐 "horaire" → Voir les horaires`,
+        en ? `⏱️ "temps" → Prep time`   : `⏱️ "temps" → Temps de préparation`,
       )
     }
     if (isOwner) {
       lines.push(
         ``,
-        `👥 *Équipe / Team:*`,
-        `📋 "equipe" → Voir l'équipe / View team`,
-        `➕ "ajouter +XXX manager" → Ajouter / Add`,
+        en ? `👥 *Team:*` : `👥 *Équipe:*`,
+        en ? `📋 "equipe" → View team` : `📋 "equipe" → Voir l'équipe`,
+        en ? `➕ "ajouter +XXX manager" → Add` : `➕ "ajouter +XXX manager" → Ajouter`,
       )
     }
     lines.push(
       ``,
-      `❓ "aide+" → Toutes les commandes / All commands`,
+      en ? `❓ "aide+" → All commands` : `❓ "aide+" → Toutes les commandes`,
     )
     await sendWhatsApp(from, lines.join('\n'))
     return ok()
@@ -1107,58 +1112,93 @@ async function handleVendor(
   // The exhaustive list. sendWhatsApp auto-splits when this exceeds 1500
   // chars, so we don't have to manually chunk by role.
   if (cmd === 'aide+' || cmd === 'help+' || cmd === 'aide plus' || cmd === 'help plus') {
+    const en = lang === 'en'
     const ownerCmds = isOwner
-      ? `\n👥 Équipe / Team:\n` +
-        `📋 "equipe" → Voir l'équipe / View team\n` +
-        `➕ "ajouter +XXX manager" → Ajouter ou inviter / Add or invite\n` +
-        `💌 "inviter +XXX staff" → Inviter un nouveau numéro / Invite a new number\n` +
-        `📨 "invitations" → Invitations en attente / Pending invitations\n` +
-        `❌ "annuler invitation +XXX" → Annuler / Cancel\n` +
-        `➖ "retirer +XXX" → Retirer membre / Remove member\n` +
-        `🏪 "mes restaurants" → Voir tous mes restaurants\n` +
-        `⏸️ "suspendre" → Suspendre le restaurant\n` +
-        `✅ "reactiver" → Réactiver le restaurant\n`
+      ? (en
+        ? `\n👥 Team:\n` +
+          `📋 "equipe" → View team\n` +
+          `➕ "ajouter +XXX manager" → Add or invite\n` +
+          `💌 "inviter +XXX staff" → Invite a new number\n` +
+          `📨 "invitations" → Pending invitations\n` +
+          `❌ "annuler invitation +XXX" → Cancel\n` +
+          `➖ "retirer +XXX" → Remove member\n` +
+          `🏪 "mes restaurants" → View all my restaurants\n` +
+          `⏸️ "suspendre" → Suspend the restaurant\n` +
+          `✅ "reactiver" → Reactivate the restaurant\n`
+        : `\n👥 Équipe:\n` +
+          `📋 "equipe" → Voir l'équipe\n` +
+          `➕ "ajouter +XXX manager" → Ajouter ou inviter\n` +
+          `💌 "inviter +XXX staff" → Inviter un nouveau numéro\n` +
+          `📨 "invitations" → Invitations en attente\n` +
+          `❌ "annuler invitation +XXX" → Annuler\n` +
+          `➖ "retirer +XXX" → Retirer un membre\n` +
+          `🏪 "mes restaurants" → Voir tous mes restaurants\n` +
+          `⏸️ "suspendre" → Suspendre le restaurant\n` +
+          `✅ "reactiver" → Réactiver le restaurant\n`)
       : ''
 
     await sendWhatsApp(from,
       `🍽️ *Tchop & Ndjoka — ${restaurant.name}*\n` +
-      `Rôle / Role: ${teamRole}\n\n` +
-      `📋 *Toutes les commandes / All commands:*\n\n` +
+      (en ? `Role: ${teamRole}\n\n` : `Rôle: ${teamRole}\n\n`) +
+      (en ? `📋 *All commands:*\n\n` : `📋 *Toutes les commandes:*\n\n`) +
       (canEditMenu
-        ? `📸 Photo + "Nom - Prix" → Ajouter un plat / Add a dish\n` +
-          `💰 "prix [nom] [prix]" → Changer le prix / Update price\n` +
-          `✅ "dispo [nom]" → Marquer disponible / Mark available\n` +
-          `❌ "indispo [nom]" → Marquer indisponible / Mark unavailable\n` +
-          `🗑️ "supprimer [nom]" → Supprimer un plat / Delete a dish\n` +
-          `📷 "photo restaurant" → Changer la photo / Update restaurant photo\n` +
-          `🍽️ "menu" → Voir votre menu / View your menu\n`
-        : `🍽️ "menu" → Voir le menu / View menu\n`) +
+        ? (en
+          ? `📸 Photo + "Name - Price" → Add a dish\n` +
+            `💰 "prix [name] [price]" → Update price\n` +
+            `✅ "dispo [name]" → Mark available\n` +
+            `❌ "indispo [name]" → Mark unavailable\n` +
+            `🗑️ "supprimer [name]" → Delete a dish\n` +
+            `📷 "photo restaurant" → Update restaurant photo\n` +
+            `🍽️ "menu" → View your menu\n`
+          : `📸 Photo + "Nom - Prix" → Ajouter un plat\n` +
+            `💰 "prix [nom] [prix]" → Changer le prix\n` +
+            `✅ "dispo [nom]" → Marquer disponible\n` +
+            `❌ "indispo [nom]" → Marquer indisponible\n` +
+            `🗑️ "supprimer [nom]" → Supprimer un plat\n` +
+            `📷 "photo restaurant" → Changer la photo\n` +
+            `🍽️ "menu" → Voir votre menu\n`)
+        : (en ? `🍽️ "menu" → View menu\n` : `🍽️ "menu" → Voir le menu\n`)) +
       (canViewOrders
-        ? `\n📦 *Commandes / Orders:*\n` +
-          `📦 "commandes" → Voir les commandes / View orders\n` +
-          `✅ "ok XXXX" → Confirmer / Confirm\n` +
-          `🍳 "preparer XXXX" → En préparation / Start preparing\n` +
-          `🎉 "pret XXXX" → Prêt / Ready\n` +
-          `📦 "recupere XXXX" → Récupéré / Picked up\n` +
-          `❌ "annuler XXXX" → Annuler / Cancel\n` +
-          `💰 "paye XXXX cash" → Marquer payé en espèces / Mark paid cash\n` +
-          `💰 "paye XXXX mtn 237..." → Marquer payé MTN / Mark paid MTN\n` +
-          `💰 "paye XXXX orange 237..." → Marquer payé Orange / Mark paid Orange\n`
+        ? (en
+          ? `\n📦 *Orders:*\n` +
+            `📦 "commandes" → View orders\n` +
+            `✅ "ok XXXX" → Confirm\n` +
+            `🍳 "preparer XXXX" → Start preparing\n` +
+            `🎉 "pret XXXX" → Ready\n` +
+            `📦 "recupere XXXX" → Picked up\n` +
+            `❌ "annuler XXXX" → Cancel\n` +
+            `💰 "paye XXXX cash" → Mark paid cash\n` +
+            `💰 "paye XXXX mtn 237..." → Mark paid MTN\n` +
+            `💰 "paye XXXX orange 237..." → Mark paid Orange\n`
+          : `\n📦 *Commandes:*\n` +
+            `📦 "commandes" → Voir les commandes\n` +
+            `✅ "ok XXXX" → Confirmer\n` +
+            `🍳 "preparer XXXX" → En préparation\n` +
+            `🎉 "pret XXXX" → Prêt\n` +
+            `📦 "recupere XXXX" → Récupéré\n` +
+            `❌ "annuler XXXX" → Annuler\n` +
+            `💰 "paye XXXX cash" → Marquer payé en espèces\n` +
+            `💰 "paye XXXX mtn 237..." → Marquer payé MTN\n` +
+            `💰 "paye XXXX orange 237..." → Marquer payé Orange\n`)
         : '') +
-      `\n🔗 "restaurant" → Voir votre page / View your page\n\n` +
-      `🕐 *Horaires / Hours:*\n` +
-      `🕐 "horaire" → Voir l'horaire + statut / View schedule + status\n` +
+      (en ? `\n🔗 "restaurant" → View your page\n\n` : `\n🔗 "restaurant" → Voir votre page\n\n`) +
+      (en ? `🕐 *Hours:*\n` : `🕐 *Horaires:*\n`) +
+      (en ? `🕐 "horaire" → View schedule + status\n` : `🕐 "horaire" → Voir l'horaire + statut\n`) +
       ((isOwner || isManager)
-        ? `🟢 "ouvrir" → Ouvrir manuellement / Manually open\n` +
-          `🔴 "fermer" → Fermer manuellement / Manually close\n` +
-          `↩️ "auto" → Suivre l'horaire / Follow schedule\n`
+        ? (en
+          ? `🟢 "ouvrir" → Manually open\n` +
+            `🔴 "fermer" → Manually close\n` +
+            `↩️ "auto" → Follow schedule\n`
+          : `🟢 "ouvrir" → Ouvrir manuellement\n` +
+            `🔴 "fermer" → Fermer manuellement\n` +
+            `↩️ "auto" → Suivre l'horaire\n`)
         : '') +
-      `⏱️ "temps" → Voir le temps de préparation / View prep time\n` +
+      (en ? `⏱️ "temps" → View prep time\n` : `⏱️ "temps" → Voir le temps de préparation\n`) +
       ((isOwner || isManager)
-        ? `⏱️ "temps 20 35" → Définir le temps de préparation / Set prep time\n`
+        ? (en ? `⏱️ "temps 20 35" → Set prep time\n` : `⏱️ "temps 20 35" → Définir le temps de préparation\n`)
         : '') +
       ownerCmds +
-      `\n❓ "aide" → Liste courte / Short list`)
+      (en ? `\n❓ "aide" → Short list` : `\n❓ "aide" → Liste courte`))
     return ok()
   }
 
