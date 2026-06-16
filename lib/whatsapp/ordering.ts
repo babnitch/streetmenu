@@ -11,19 +11,26 @@ import {
   notifyCustomerOrderReady,
   notifyCustomerOrderDelivered,
   notifyCustomerOrderCancelled,
+  pickLang,
+  getLangByPhone,
+  normalizeLang,
+  type Lang,
 } from '@/lib/whatsapp'
 import { validateVoucher, consumeVoucherForOrder, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
 import { formatPrepTime } from '@/lib/prepTime'
 
-// Reads the restaurant's estimated prep range and formats a bilingual
-// WhatsApp line like "🕐 Temps estimé / Estimated time: 20-35 min", or ''
-// when the vendor hasn't set one. The leading emoji is caller-supplied so
-// the vendor ping can use ⏱️ while customer messages use 🕐. Shared so
-// both sides stay consistent.
+// Reads the restaurant's estimated prep range and formats a single-language
+// WhatsApp line like "🕐 Temps estimé: 20-35 min", or '' when the vendor
+// hasn't set one. The leading emoji is caller-supplied so the vendor ping
+// can use ⏱️ while customer messages use 🕐. `lang` controls FR vs EN —
+// callers pass the recipient's preferred_language. Vendor pings default to
+// FR (the most common vendor language) until vendor preference threading
+// lands.
 export async function prepTimeLine(
   restaurantId: string,
   emoji = '🕐',
+  lang: Lang = 'fr',
 ): Promise<string> {
   const { data } = await supabaseAdmin
     .from('restaurants')
@@ -31,7 +38,8 @@ export async function prepTimeLine(
     .eq('id', restaurantId)
     .maybeSingle()
   const label = formatPrepTime(data?.prep_time_min, data?.prep_time_max)
-  return label ? `${emoji} Temps estimé / Estimated time: ${label}` : ''
+  if (!label) return ''
+  return `${emoji} ${pickLang('Temps estimé', 'Estimated time', lang)}: ${label}`
 }
 
 // ── TwiML ack ────────────────────────────────────────────────────────────────
@@ -54,6 +62,7 @@ export interface OrderingCustomer {
   name: string
   phone: string
   city: string
+  preferred_language?: string | null
 }
 
 interface MenuItemRef { menu_item_id: string; name: string; price: number }
@@ -452,6 +461,7 @@ export async function handleOrderCommand(
 
   // ── Voucher commands ──────────────────────────────────────────────────────
   if (cmd === 'mes bons' || cmd === 'my vouchers') {
+    const lang = normalizeLang(customer.preferred_language)
     const { data } = await supabaseAdmin
       .from('customer_vouchers')
       .select('id, used_at, vouchers(id, code, discount_type, discount_value, expires_at, min_order, is_active, restaurant_id, restaurants(name))')
@@ -460,12 +470,17 @@ export async function handleOrderCommand(
       .limit(10)
 
     if (!data || data.length === 0) {
-      await sendWhatsApp(from,
-        `🎫 Aucun bon. Envoyez "bon CODE" pour en ajouter un (ex: bon BIENVENUE).\n` +
-        `No vouchers. Send "voucher CODE" to add one (e.g. voucher BIENVENUE).`)
+      await sendWhatsApp(from, pickLang(
+        `🎫 Aucun bon. Envoyez "bon CODE" pour en ajouter un (ex: bon BIENVENUE).`,
+        `🎫 No vouchers. Send "voucher CODE" to add one (e.g. voucher BIENVENUE).`,
+        lang,
+      ))
       return ok()
     }
     const now = Date.now()
+    const statusFr = { used: '✅ Utilisé', expired: '⏰ Expiré', inactive: '⚪ Inactif', available: '🟢 Disponible' }
+    const statusEn = { used: '✅ Used',    expired: '⏰ Expired', inactive: '⚪ Inactive', available: '🟢 Available' }
+    const labels = lang === 'en' ? statusEn : statusFr
     const lines = data.map((cv, i) => {
       const v = cv.vouchers as unknown as {
         id: string; code: string; discount_type: 'percent' | 'fixed'; discount_value: number
@@ -477,15 +492,16 @@ export async function handleOrderCommand(
         : `-${Number(v.discount_value).toLocaleString()} FCFA`
       const used    = !!cv.used_at
       const expired = v.expires_at ? new Date(v.expires_at).getTime() < now : false
-      const status  = used ? '✅ Utilisé / Used'
-                    : expired ? '⏰ Expiré / Expired'
-                    : !v.is_active ? '⚪ Inactif / Inactive'
-                    : '🟢 Disponible / Available'
+      const status  = used ? labels.used
+                    : expired ? labels.expired
+                    : !v.is_active ? labels.inactive
+                    : labels.available
       const scope = v.restaurants?.name ? ` · ${v.restaurants.name}` : ''
       return `${i + 1}. *${v.code}* ${value}${scope}\n   ${status}`
     }).filter(Boolean)
 
-    await sendWhatsApp(from, `🎫 *Vos bons / Your vouchers:*\n\n${lines.join('\n\n')}`)
+    const header = pickLang('Vos bons', 'Your vouchers', lang)
+    await sendWhatsApp(from, `🎫 *${header}:*\n\n${lines.join('\n\n')}`)
     return ok()
   }
 
@@ -547,6 +563,7 @@ export async function handleOrderCommand(
   }
 
   if (cmd === 'mes commandes' || cmd === 'my orders') {
+    const lang = normalizeLang(customer.preferred_language)
     const { data } = await supabaseAdmin
       .from('orders')
       .select('id, status, total_price, created_at, order_type, payment_status, restaurants(name)')
@@ -555,24 +572,42 @@ export async function handleOrderCommand(
       .limit(5)
 
     if (!data || data.length === 0) {
-      await sendWhatsApp(from, '📦 Aucune commande. Envoyez "commander" pour en passer une!\n\nNo orders. Send "commander" to place one!')
+      await sendWhatsApp(from, pickLang(
+        '📦 Aucune commande. Envoyez "commander" pour en passer une!',
+        '📦 No orders. Send "commander" to place one!',
+        lang,
+      ))
       return ok()
     }
-    const statusLabel: Record<string, string> = {
-      pending:    '⏳ En attente / Pending',
-      confirmed:  '✅ Confirmée / Confirmed',
-      preparing:  '👨‍🍳 En préparation / Preparing',
-      ready:      '🎉 Prête / Ready',
-      delivered:  '📦 Récupérée / Picked up',
-      completed:  '🏁 Terminée / Completed',
-      cancelled:  '❌ Annulée / Cancelled',
+    const statusLabel: Record<string, string> = lang === 'en' ? {
+      pending:    '⏳ Pending',
+      confirmed:  '✅ Confirmed',
+      preparing:  '👨‍🍳 Preparing',
+      ready:      '🎉 Ready',
+      delivered:  '📦 Picked up',
+      completed:  '🏁 Completed',
+      cancelled:  '❌ Cancelled',
+    } : {
+      pending:    '⏳ En attente',
+      confirmed:  '✅ Confirmée',
+      preparing:  '👨‍🍳 En préparation',
+      ready:      '🎉 Prête',
+      delivered:  '📦 Récupérée',
+      completed:  '🏁 Terminée',
+      cancelled:  '❌ Annulée',
     }
-    const payLabel: Record<string, string> = {
+    const payLabel: Record<string, string> = lang === 'en' ? {
+      paid:         '💰 Paid',
+      pending:      '⏳ Payment pending',
+      failed:       '❌ Payment failed',
+      refunded:     '↩️ Refunded',
+      not_required: '',
+    } : {
       paid:         '💰 Payé',
       pending:      '⏳ Paiement en attente',
       failed:       '❌ Paiement échoué',
       refunded:     '↩️ Remboursé',
-      not_required: '',  // reservations don't need a payment pill
+      not_required: '',
     }
     let hasUnpaid = false
     const lines = data.map((o, i) => {
@@ -585,9 +620,14 @@ export async function handleOrderCommand(
       return `${i + 1}. #${last4(o.id)} - ${rest} - ${Number(o.total_price).toLocaleString()} FCFA - ${label}${pay ? ` - ${pay}` : ''}`
     })
     const tail = hasUnpaid
-      ? `\n\n💳 Envoyez "payer" pour réessayer le paiement. / Send "pay" to retry payment.`
+      ? pickLang(
+          `\n\n💳 Envoyez "payer" pour réessayer le paiement.`,
+          `\n\n💳 Send "pay" to retry payment.`,
+          lang,
+        )
       : ''
-    await sendWhatsApp(from, `📦 *Vos commandes / Your orders:*\n\n${lines.join('\n')}${tail}`)
+    const header = pickLang('Vos commandes', 'Your orders', lang)
+    await sendWhatsApp(from, `📦 *${header}:*\n\n${lines.join('\n')}${tail}`)
     return ok()
   }
 
@@ -1807,19 +1847,23 @@ export async function handleOrderingSession(
 
       // ── Reservation path (default): notify vendors immediately. ───────────
       const id4 = last4(newOrder.id)
+      const custLang = normalizeLang(customer.preferred_language)
       const confirmLines = [
-        `✅ *Commande confirmée!*`,
-        `🧾 Commande #${id4}`,
+        pickLang(`✅ *Commande confirmée!*`, `✅ *Order confirmed!*`, custLang),
+        pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, custLang),
         `🏪 ${data.restaurant_name}`,
       ]
       if (discount > 0 && data.voucher_code) {
         confirmLines.push(`🏷️ ${data.voucher_code} (−${discount.toLocaleString()} FCFA)`)
       }
       confirmLines.push(`💰 Total: ${total.toLocaleString()} FCFA`)
-      const custPrepLine = await prepTimeLine(data.restaurant_id)
+      const custPrepLine = await prepTimeLine(data.restaurant_id, '🕐', custLang)
       if (custPrepLine) confirmLines.push(custPrepLine)
-      confirmLines.push(``, `Le restaurant a été notifié. Vous recevrez un message quand votre commande sera prête!`)
-      confirmLines.push(`The restaurant has been notified. You'll receive a message when your order is ready!`)
+      confirmLines.push(``, pickLang(
+        `Le restaurant a été notifié. Vous recevrez un message quand votre commande sera prête!`,
+        `The restaurant has been notified. You'll receive a message when your order is ready!`,
+        custLang,
+      ))
       await sendWhatsApp(from, confirmLines.join('\n'))
 
       // Fan out to vendors — must be awaited. Fire-and-forget here dies with
@@ -2089,7 +2133,8 @@ export async function handleVendorOrderAction(
     }
     await writeAudit({ action: 'order_cancelled', targetType: 'order', targetId: order.id, performedBy: restaurant.id, performedByType: 'vendor' })
     await sendWhatsApp(from, `❌ Commande #${upper} annulée. Le client est notifié. / cancelled, customer notified.`)
-    await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurant.name)
+    const cancLang = await getLangByPhone(order.customer_phone)
+    await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurant.name, cancLang)
     return ok()
   }
 
@@ -2141,19 +2186,22 @@ export async function handleVendorOrderAction(
     previousData:    { status: order.status },
   })
 
-  // Vendor ack + customer ping per target.
+  // Vendor ack + customer ping per target. Vendor ack stays bilingual for
+  // now (vendors don't yet have a preferred_language); customer ping uses
+  // the customer's stored preference.
+  const custLang = await getLangByPhone(order.customer_phone)
   if (target === 'confirmed') {
     await sendWhatsApp(from, `✅ Commande #${upper} confirmée. Le client est notifié. / confirmed, customer notified.`)
-    await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurant.name)
+    await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'preparing') {
     await sendWhatsApp(from, `🍳 Commande #${upper} en préparation. Le client est notifié. / preparing, customer notified.`)
-    await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurant.name)
+    await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'ready') {
     await sendWhatsApp(from, `🎉 Commande #${upper} prête. Le client est notifié. / ready, customer notified.`)
-    await notifyCustomerOrderReady(order.customer_phone, payload, restaurant.name)
+    await notifyCustomerOrderReady(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'delivered') {
     await sendWhatsApp(from, `📦 Commande #${upper} récupérée. Le client est notifié. / picked up, customer notified.`)
-    await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name)
+    await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name, custLang)
   }
   return ok()
 }

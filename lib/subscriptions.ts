@@ -4,7 +4,7 @@
 // (`active subscribers in city X matching category Y`).
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, normalizeLang, pickLang, type Lang } from '@/lib/whatsapp'
 import { categoryLabelBilingual } from '@/lib/categoryLabels'
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ export interface SubscriberRow {
   customer_id: string
   city:        string
   categories:  string[] | null
-  customers:   { phone: string; name: string } | null
+  customers:   { phone: string; name: string; preferred_language?: string | null } | null
 }
 
 interface MatchOpts {
@@ -51,7 +51,7 @@ export async function findMatchingSubscribers(opts: MatchOpts): Promise<Subscrib
   // categories IS NULL` is awkward through PostgREST.
   const q = supabaseAdmin
     .from('event_subscriptions')
-    .select('id, customer_id, city, categories, customers(phone, name)')
+    .select('id, customer_id, city, categories, customers(phone, name, preferred_language)')
     .eq('city', city)
     .eq('is_active', true)
 
@@ -185,19 +185,22 @@ interface EventForNotify {
   ticket_price: number | null
 }
 
-function formatEventLine(e: EventForNotify): string {
-  const date = new Date(e.date).toLocaleDateString('fr-FR', {
+function formatEventLine(e: EventForNotify, lang: Lang): string {
+  const locale = lang === 'en' ? 'en-GB' : 'fr-FR'
+  const date = new Date(e.date).toLocaleDateString(locale, {
     day: '2-digit', month: 'short', year: 'numeric',
   })
   const price = e.ticket_price ?? e.price
   const priceLine = price && price > 0
     ? `🎫 ${Number(price).toLocaleString()} FCFA`
-    : `🎫 Gratuit / Free`
-  // Bilingual badge because the WhatsApp recipient has no locale we can
-  // read — `categoryLabelBilingual` returns e.g. "👶 Enfants / 👶 Kids".
-  const cat = categoryLabelBilingual(e.category)
+    : `🎫 ${pickLang('Gratuit', 'Free', lang)}`
+  // `categoryLabelBilingual` returns e.g. "👶 Enfants / 👶 Kids" — we strip
+  // to the half matching `lang` so the badge stays single-language.
+  const catBi = categoryLabelBilingual(e.category)
+  const catParts = catBi.split(' / ')
+  const cat = catParts.length === 2 ? (lang === 'en' ? catParts[1] : catParts[0]) : catBi
   const lines = [
-    `🎉 *Nouvel événement à ${e.city}! / New event in ${e.city}!*`,
+    pickLang(`🎉 *Nouvel événement à ${e.city}!*`, `🎉 *New event in ${e.city}!*`, lang),
     ``,
     e.title,
     `📅 ${date}${e.time ? ` — ${e.time}` : ''}`,
@@ -206,10 +209,13 @@ function formatEventLine(e: EventForNotify): string {
   lines.push(priceLine)
   lines.push(`🏷️ ${cat}`)
   lines.push('')
-  lines.push(`Voir les détails / See details: ${BASE_URL}/events/${e.id}`)
+  lines.push(`${pickLang('Voir les détails', 'See details', lang)}: ${BASE_URL}/events/${e.id}`)
   lines.push('')
-  lines.push(`Envoyez 'desabonner' pour ne plus recevoir ces notifications.`)
-  lines.push(`Send 'unsubscribe' to stop receiving these notifications.`)
+  lines.push(pickLang(
+    `Envoyez 'desabonner' pour ne plus recevoir ces notifications.`,
+    `Send 'unsubscribe' to stop receiving these notifications.`,
+    lang,
+  ))
   return lines.join('\n')
 }
 
@@ -228,10 +234,14 @@ export async function notifyEventSubscribers(event: EventForNotify): Promise<{
   })
   if (subs.length === 0) return { recipient_count: 0, ok: 0, failed: 0 }
 
-  const message = formatEventLine(event)
+  // Each subscriber gets the message rendered in their preferred_language.
+  // Cheap because formatEventLine is pure string assembly (no I/O).
   const items = subs
     .filter(s => s.customers?.phone)
-    .map(s => ({ phone: s.customers!.phone, message }))
+    .map(s => {
+      const lang = normalizeLang(s.customers!.preferred_language)
+      return { phone: s.customers!.phone, message: formatEventLine(event, lang) }
+    })
 
   const { ok, failed } = await fanoutBatched(items)
   return { recipient_count: items.length, ok, failed }

@@ -10,6 +10,44 @@ const FROM           = process.env.TWILIO_WHATSAPP_NUMBER ?? 'whatsapp:+14155238
 // still fits.
 const MAX_WHATSAPP_LENGTH = 1500
 
+// ── Language preference ──────────────────────────────────────────────────────
+// Customers see notifications in one language at a time. 'fr' is the
+// global default — the majority of users are in francophone West Africa.
+// Lookup is intentionally lazy + cached-free; the column is small and on
+// the customer row we usually already fetched for routing.
+export type Lang = 'fr' | 'en'
+
+export const DEFAULT_LANG: Lang = 'fr'
+
+// Picks the right localised string. Pass both versions inline at the call
+// site — keeps the translation visible next to the surrounding code and
+// avoids a sprawl of id → string lookup tables.
+export function pickLang(fr: string, en: string, lang: Lang | null | undefined): string {
+  return lang === 'en' ? en : fr
+}
+
+// Convenience normaliser for things read out of the DB (column may be null
+// for legacy rows that predate the column).
+export function normalizeLang(value: string | null | undefined): Lang {
+  return value === 'en' ? 'en' : 'fr'
+}
+
+// Lazy lookup of a customer's preferred_language by phone number — used by
+// notifier helpers that only have the recipient phone (not the customer
+// row) at hand. Falls back to DEFAULT_LANG when the row isn't found or the
+// column is null. Imports supabaseAdmin locally to keep lib/whatsapp.ts's
+// surface narrow when it's used from edge contexts.
+export async function getLangByPhone(phone: string | null | undefined): Promise<Lang> {
+  if (!phone) return DEFAULT_LANG
+  const { supabaseAdmin } = await import('@/lib/supabaseAdmin')
+  const { data } = await supabaseAdmin
+    .from('customers')
+    .select('preferred_language')
+    .eq('phone', phone)
+    .maybeSingle()
+  return normalizeLang(data?.preferred_language)
+}
+
 // ── Core send ─────────────────────────────────────────────────────────────────
 
 export interface SendResult {
@@ -138,36 +176,43 @@ function last4(orderId: string): string {
 // Sent to a customer right after their web order is inserted, before the
 // vendor has accepted/prepared anything. "Placed" distinguishes it from
 // notifyCustomerOrderConfirmed, which fires when the vendor sends "ok XXXX".
+//
+// `prepLine` is a pre-formatted single-language estimate (callers localise
+// it via prepTimeLine in lib/whatsapp/ordering.ts). Empty string when the
+// restaurant hasn't set a range.
 export async function notifyCustomerOrderPlaced(
   customerPhone: string,
   order: OrderPayload,
   restaurantName: string,
   trackingUrl: string,
-  // Pre-formatted bilingual estimate, e.g.
-  // "🕐 Temps estimé / Estimated time: 20-35 min". '' (default) when the
-  // restaurant hasn't set a range — the line is then omitted entirely.
   prepLine = '',
+  lang: Lang = DEFAULT_LANG,
 ): Promise<void> {
   const id4 = last4(order.id)
   const items = Array.isArray(order.items) ? order.items : []
-  const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} — ${Number(i.price).toLocaleString()} FCFA`).join('\n')
+  const itemsLabel = pickLang('Articles', 'Items', lang)
+  const itemBullet = lang === 'en' ? '  • ' : '  • '
+  const itemLines = items.map(i => `${itemBullet}${i.quantity}× ${i.name} — ${Number(i.price).toLocaleString()} FCFA`).join('\n')
 
   const msg = [
-    `✅ *Commande confirmée / Order confirmed!*`,
+    pickLang(`✅ *Commande confirmée!*`, `✅ *Order confirmed!*`, lang),
     ``,
-    `🧾 Commande #${id4}`,
+    pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
     `🏪 ${restaurantName}`,
     ``,
-    `🍽️ *Articles / Items:*`,
+    `🍽️ *${itemsLabel}:*`,
     itemLines,
     ``,
     `💰 *Total: ${Number(order.total_price).toLocaleString()} FCFA*`,
     ...(prepLine ? [``, prepLine] : []),
     ``,
-    `Le restaurant a été notifié et prépare votre commande!`,
-    `The restaurant has been notified and is preparing your order!`,
+    pickLang(
+      `Le restaurant a été notifié et prépare votre commande!`,
+      `The restaurant has been notified and is preparing your order!`,
+      lang,
+    ),
     ``,
-    `Suivez votre commande ici / Track your order here:`,
+    pickLang(`Suivez votre commande ici:`, `Track your order here:`, lang),
     trackingUrl,
   ].join('\n')
 
@@ -177,77 +222,74 @@ export async function notifyCustomerOrderPlaced(
 export async function notifyCustomerOrderConfirmed(
   customerPhone: string,
   order: OrderPayload,
-  restaurantName: string
+  restaurantName: string,
+  lang: Lang = DEFAULT_LANG,
 ): Promise<void> {
   const id4 = last4(order.id)
-  const msg = [
-    `✅ Votre commande #${id4} a été confirmée! En attente de préparation.`,
-    ``,
-    `/ Your order #${id4} has been confirmed! Waiting to be prepared. — ${restaurantName}`,
-  ].join('\n')
-
+  const msg = pickLang(
+    `✅ Votre commande #${id4} a été confirmée! En attente de préparation. — ${restaurantName}`,
+    `✅ Your order #${id4} has been confirmed! Waiting to be prepared. — ${restaurantName}`,
+    lang,
+  )
   await sendWhatsApp(customerPhone, msg)
 }
 
 export async function notifyCustomerOrderPreparing(
   customerPhone: string,
   order: OrderPayload,
-  restaurantName: string
+  restaurantName: string,
+  lang: Lang = DEFAULT_LANG,
 ): Promise<void> {
   const id4 = last4(order.id)
-  const msg = [
-    `🍳 Votre commande #${id4} est en cours de préparation!`,
-    ``,
-    `/ Your order #${id4} is being prepared! — ${restaurantName}`,
-  ].join('\n')
-
+  const msg = pickLang(
+    `🍳 Votre commande #${id4} est en cours de préparation! — ${restaurantName}`,
+    `🍳 Your order #${id4} is being prepared! — ${restaurantName}`,
+    lang,
+  )
   await sendWhatsApp(customerPhone, msg)
 }
 
 export async function notifyCustomerOrderReady(
   customerPhone: string,
   order: OrderPayload,
-  restaurantName: string
+  restaurantName: string,
+  lang: Lang = DEFAULT_LANG,
 ): Promise<void> {
   const id4 = last4(order.id)
-  const msg = [
+  const msg = pickLang(
     `🎉 Votre commande #${id4} est prête! Venez la récupérer chez ${restaurantName}.`,
-    ``,
-    `/ Your order #${id4} is ready! Come pick it up at ${restaurantName}.`,
-  ].join('\n')
-
+    `🎉 Your order #${id4} is ready! Come pick it up at ${restaurantName}.`,
+    lang,
+  )
   await sendWhatsApp(customerPhone, msg)
 }
 
 export async function notifyCustomerOrderDelivered(
   customerPhone: string,
   order: OrderPayload,
-  restaurantName: string
+  restaurantName: string,
+  lang: Lang = DEFAULT_LANG,
 ): Promise<void> {
   const id4 = last4(order.id)
-  const msg = [
-    `✅ Commande #${id4} récupérée. Merci et bon appétit!`,
-    ``,
-    `/ Order #${id4} picked up. Thank you and enjoy! — ${restaurantName}`,
-  ].join('\n')
-
+  const msg = pickLang(
+    `✅ Commande #${id4} récupérée. Merci et bon appétit! — ${restaurantName}`,
+    `✅ Order #${id4} picked up. Thank you and enjoy! — ${restaurantName}`,
+    lang,
+  )
   await sendWhatsApp(customerPhone, msg)
 }
 
 export async function notifyCustomerOrderCancelled(
   customerPhone: string,
   order: OrderPayload,
-  restaurantName: string
+  restaurantName: string,
+  lang: Lang = DEFAULT_LANG,
 ): Promise<void> {
   const id4 = last4(order.id)
-  const msg = [
-    `❌ Votre commande #${id4} a été annulée par *${restaurantName}*.`,
-    ``,
-    `/ Your order #${id4} has been cancelled by *${restaurantName}*.`,
-    ``,
-    `Envoyez "commander" pour passer une nouvelle commande.`,
-    `Send "commander" to place a new order.`,
-  ].join('\n')
-
+  const msg = pickLang(
+    `❌ Votre commande #${id4} a été annulée par *${restaurantName}*.\n\nEnvoyez "commander" pour passer une nouvelle commande.`,
+    `❌ Your order #${id4} has been cancelled by *${restaurantName}*.\n\nSend "commander" to place a new order.`,
+    lang,
+  )
   await sendWhatsApp(customerPhone, msg)
 }

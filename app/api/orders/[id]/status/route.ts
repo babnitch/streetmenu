@@ -169,12 +169,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let customerNotified = false
   if (order.customer_phone) {
     try {
+      const { getLangByPhone } = await import('@/lib/whatsapp')
+      const lang = await getLangByPhone(order.customer_phone)
       switch (targetStatus) {
-        case 'confirmed': await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurantName); break
-        case 'preparing': await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurantName); break
-        case 'ready':     await notifyCustomerOrderReady    (order.customer_phone, payload, restaurantName); break
-        case 'delivered': await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurantName); break
-        case 'cancelled': await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurantName); break
+        case 'confirmed': await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurantName, lang); break
+        case 'preparing': await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurantName, lang); break
+        case 'ready':     await notifyCustomerOrderReady    (order.customer_phone, payload, restaurantName, lang); break
+        case 'delivered': await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurantName, lang); break
+        case 'cancelled': await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurantName, lang); break
       }
       customerNotified = true
     } catch (e) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import {
@@ -456,7 +456,7 @@ export async function POST(req: NextRequest) {
 
   // Look up registered customer (or check suspension)
   const { data: customer } = await supabaseAdmin
-    .from('customers').select('id, name, phone, city, status, deleted_at')
+    .from('customers').select('id, name, phone, city, status, deleted_at, preferred_language')
     .eq('phone', phone).maybeSingle()
 
   if (customer?.deleted_at || customer?.status === 'deleted') {
@@ -547,7 +547,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (customer) {
-    return handleCustomer(from, phone, cmd, customer)
+    return handleCustomer(from, phone, cmd, customer as Parameters<typeof handleCustomer>[3])
   }
 
   // Brand-new user → start customer signup
@@ -635,7 +635,7 @@ async function handleSession(
   // ── Ordering session — handed off to lib/whatsapp/ordering.ts ────────────
   if (user_type === 'ordering') {
     const { data: customer } = await supabaseAdmin
-      .from('customers').select('id, name, phone, city')
+      .from('customers').select('id, name, phone, city, preferred_language')
       .eq('phone', phone).maybeSingle()
     if (!customer) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -652,7 +652,7 @@ async function handleSession(
   // ── Event browse / detail / reserve session ──────────────────────────────
   if (user_type === 'event_browse' || user_type === 'event_detail' || user_type === 'event_reserve') {
     const { data: customer } = await supabaseAdmin
-      .from('customers').select('id, name, phone, city')
+      .from('customers').select('id, name, phone, city, preferred_language')
       .eq('phone', phone).maybeSingle()
     if (!customer) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -1901,30 +1901,71 @@ async function handleCustomer(
   from:     string,
   phone:    string,
   cmd:      string,
-  customer: { id: string; name: string; phone: string; city: string },
+  customer: { id: string; name: string; phone: string; city: string; preferred_language?: string | null },
 ): Promise<NextResponse> {
+  const lang: Lang = normalizeLang(customer.preferred_language)
+
+  // ── LANGUAGE TOGGLE ───────────────────────────────────────────────────────
+  // Stays at the top of the handler so it can't get swallowed by a fuzzy
+  // intent match further down. Persists to customers.preferred_language and
+  // confirms in the *target* language so the user immediately sees the
+  // switch took effect.
+  if (cmd === 'en' || cmd === 'english' || cmd === 'anglais') {
+    await supabaseAdmin.from('customers')
+      .update({ preferred_language: 'en' })
+      .eq('id', customer.id)
+    await sendWhatsApp(from, `🌐 Language set to English. Send "fr" to switch back to French.`)
+    return ok()
+  }
+  if (cmd === 'fr' || cmd === 'francais' || cmd === 'français' || cmd === 'french') {
+    await supabaseAdmin.from('customers')
+      .update({ preferred_language: 'fr' })
+      .eq('id', customer.id)
+    await sendWhatsApp(from, `🌐 Langue définie en français. Envoyez "en" pour passer à l'anglais.`)
+    return ok()
+  }
+
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
     // Short list of the highest-frequency commands. The full reference is
     // behind "aide+" / "help+" so this stays under Twilio's 1600-char body
-    // limit (error 21617).
-    await sendWhatsApp(from,
-      `👋 *Bonjour ${customer.name}!* / *Hello ${customer.name}!*\n\n` +
-      `📋 *Commandes essentielles / Essential commands:*\n\n` +
-      `🍽️ *Commander / Order:*\n` +
-      `🍽️ "commander" → Passer une commande / Place an order\n` +
-      `📦 "mes commandes" → Vos commandes / Your orders\n` +
-      `🎫 "mes bons" → Vos bons / Your vouchers\n\n` +
-      `🎉 *Événements / Events:*\n` +
-      `🎉 "evenements" → Parcourir / Browse\n` +
-      `🎟 "mes reservations" → Vos réservations / Your reservations\n` +
-      `📢 "publier" → Publier un événement / Publish an event\n\n` +
-      `🔔 *Notifications:*\n` +
-      `🔔 "abonner" → Nouveaux événements / Event alerts\n` +
-      `🔕 "desabonner" → Arrêter / Stop\n\n` +
-      `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n\n` +
-      `🌍 Parcourez / Browse: ${BASE_URL}\n` +
-      `🔑 Mon compte / My account: ${BASE_URL}/account\n\n` +
-      `❓ "aide+" → Toutes les commandes / All commands`)
+    // limit (error 21617). Single-language per the customer's preferred_language.
+    await sendWhatsApp(from, lang === 'en'
+      ? `👋 *Hello ${customer.name}!*\n\n` +
+        `📋 *Essential commands:*\n\n` +
+        `🍽️ *Order:*\n` +
+        `🍽️ "commander" → Place an order\n` +
+        `📦 "mes commandes" → Your orders\n` +
+        `🎫 "mes bons" → Your vouchers\n\n` +
+        `🎉 *Events:*\n` +
+        `🎉 "evenements" → Browse events\n` +
+        `🎟 "mes reservations" → Your reservations\n` +
+        `📢 "publier" → Publish an event\n\n` +
+        `🔔 *Notifications:*\n` +
+        `🔔 "abonner" → Event alerts\n` +
+        `🔕 "desabonner" → Stop\n\n` +
+        `🏪 "restaurant" → Register restaurant\n` +
+        `🌐 "fr" → Français\n\n` +
+        `🌍 Browse: ${BASE_URL}\n` +
+        `🔑 My account: ${BASE_URL}/account\n\n` +
+        `❓ "help+" → All commands`
+      : `👋 *Bonjour ${customer.name}!*\n\n` +
+        `📋 *Commandes essentielles:*\n\n` +
+        `🍽️ *Commander:*\n` +
+        `🍽️ "commander" → Passer une commande\n` +
+        `📦 "mes commandes" → Vos commandes\n` +
+        `🎫 "mes bons" → Vos bons\n\n` +
+        `🎉 *Événements:*\n` +
+        `🎉 "evenements" → Parcourir\n` +
+        `🎟 "mes reservations" → Vos réservations\n` +
+        `📢 "publier" → Publier un événement\n\n` +
+        `🔔 *Notifications:*\n` +
+        `🔔 "abonner" → Alertes événements\n` +
+        `🔕 "desabonner" → Arrêter\n\n` +
+        `🏪 "restaurant" → Inscrire votre restaurant\n` +
+        `🌐 "en" → English\n\n` +
+        `🌍 Parcourez: ${BASE_URL}\n` +
+        `🔑 Mon compte: ${BASE_URL}/account\n\n` +
+        `❓ "aide+" → Toutes les commandes`)
     return ok()
   }
 
@@ -1932,37 +1973,69 @@ async function handleCustomer(
   // The exhaustive list. sendWhatsApp auto-splits when this exceeds 1500
   // chars, so the customer reliably gets every command listed.
   if (cmd === 'aide+' || cmd === 'help+' || cmd === 'aide plus' || cmd === 'help plus') {
-    await sendWhatsApp(from,
-      `👋 *Bonjour ${customer.name}!* / *Hello ${customer.name}!*\n\n` +
-      `📋 *Toutes les commandes / All commands:*\n\n` +
-      `🍽️ *Commander / Order:*\n` +
-      `🍽️ "commander" → Passer une commande / Place an order\n` +
-      `📦 "mes commandes" → Voir vos commandes / View your orders\n` +
-      `💳 "payer" → Payer une commande / Pay an order\n` +
-      `🎫 "mes bons" → Voir vos bons / View vouchers\n` +
-      `🎫 "bon CODE" → Ajouter un bon / Claim a code\n` +
-      `⭐ "noter" → Noter votre dernier restaurant / Rate last restaurant\n` +
-      `🚩 "signaler" → Signaler un problème / Report an issue\n\n` +
-      `🎉 *Événements / Events:*\n` +
-      `🎉 "evenements" → Voir les événements / Browse events\n` +
-      `🎟 "mes reservations" → Voir vos réservations / View reservations\n` +
-      `🎟 "reserver XXXX" → Réserver un événement / Book an event\n` +
-      `📢 "publier" → Publier un événement / Publish an event\n` +
-      `📢 "mes evenements" → Voir vos événements publiés / View your events\n` +
-      `📋 "reservations XXXX" → Voir les réservations / View event reservations\n` +
-      `🔒 "fermer reservations XXXX" / "ouvrir reservations XXXX" → Fermer/ouvrir / Close/open\n` +
-      `✅ "confirmer reservation XXXX" / "rejeter reservation XXXX" → Confirmer/rejeter / Confirm/reject\n` +
-      `🎫 "tarifs XXXX" → Voir les tarifs / View tiers\n` +
-      `➕ "ajouter tarif XXXX nom prix [max]" → Ajouter un tarif / Add tier\n\n` +
-      `🔔 *Notifications:*\n` +
-      `🔔 "abonner" → Recevoir les nouveaux événements / Get new event alerts\n` +
-      `🔕 "desabonner" → Arrêter les notifications / Stop notifications\n` +
-      `📋 "mes abonnements" → Voir mes abonnements / View my subscriptions\n` +
-      `📢 "diffuser" → Diffuser un message (payant) / Broadcast a message (paid)\n\n` +
-      `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
-      `❓ "aide" → Liste courte / Short list\n\n` +
-      `🌍 Parcourez / Browse: ${BASE_URL}\n` +
-      `🔑 Mon compte / My account: ${BASE_URL}/account`)
+    await sendWhatsApp(from, lang === 'en'
+      ? `👋 *Hello ${customer.name}!*\n\n` +
+        `📋 *All commands:*\n\n` +
+        `🍽️ *Order:*\n` +
+        `🍽️ "commander" → Place an order\n` +
+        `📦 "mes commandes" → View your orders\n` +
+        `💳 "payer" → Pay an order\n` +
+        `🎫 "mes bons" → View vouchers\n` +
+        `🎫 "bon CODE" → Claim a code\n` +
+        `⭐ "noter" → Rate last restaurant\n` +
+        `🚩 "signaler" → Report an issue\n\n` +
+        `🎉 *Events:*\n` +
+        `🎉 "evenements" → Browse events\n` +
+        `🎟 "mes reservations" → View reservations\n` +
+        `🎟 "reserver XXXX" → Book an event\n` +
+        `📢 "publier" → Publish an event\n` +
+        `📢 "mes evenements" → View your events\n` +
+        `📋 "reservations XXXX" → View event reservations\n` +
+        `🔒 "fermer/ouvrir reservations XXXX" → Close/open\n` +
+        `✅ "confirmer/rejeter reservation XXXX" → Confirm/reject\n` +
+        `🎫 "tarifs XXXX" → View tiers\n` +
+        `➕ "ajouter tarif XXXX name price [max]" → Add tier\n\n` +
+        `🔔 *Notifications:*\n` +
+        `🔔 "abonner" → Get new event alerts\n` +
+        `🔕 "desabonner" → Stop notifications\n` +
+        `📋 "mes abonnements" → View my subscriptions\n` +
+        `📢 "diffuser" → Broadcast a message (paid)\n\n` +
+        `🏪 "restaurant" → Register restaurant\n` +
+        `🌐 "fr" → Français\n` +
+        `❓ "help" → Short list\n\n` +
+        `🌍 Browse: ${BASE_URL}\n` +
+        `🔑 My account: ${BASE_URL}/account`
+      : `👋 *Bonjour ${customer.name}!*\n\n` +
+        `📋 *Toutes les commandes:*\n\n` +
+        `🍽️ *Commander:*\n` +
+        `🍽️ "commander" → Passer une commande\n` +
+        `📦 "mes commandes" → Voir vos commandes\n` +
+        `💳 "payer" → Payer une commande\n` +
+        `🎫 "mes bons" → Voir vos bons\n` +
+        `🎫 "bon CODE" → Ajouter un bon\n` +
+        `⭐ "noter" → Noter votre dernier restaurant\n` +
+        `🚩 "signaler" → Signaler un problème\n\n` +
+        `🎉 *Événements:*\n` +
+        `🎉 "evenements" → Voir les événements\n` +
+        `🎟 "mes reservations" → Voir vos réservations\n` +
+        `🎟 "reserver XXXX" → Réserver un événement\n` +
+        `📢 "publier" → Publier un événement\n` +
+        `📢 "mes evenements" → Voir vos événements publiés\n` +
+        `📋 "reservations XXXX" → Voir les réservations\n` +
+        `🔒 "fermer/ouvrir reservations XXXX" → Fermer/ouvrir\n` +
+        `✅ "confirmer/rejeter reservation XXXX" → Confirmer/rejeter\n` +
+        `🎫 "tarifs XXXX" → Voir les tarifs\n` +
+        `➕ "ajouter tarif XXXX nom prix [max]" → Ajouter un tarif\n\n` +
+        `🔔 *Notifications:*\n` +
+        `🔔 "abonner" → Recevoir les nouveaux événements\n` +
+        `🔕 "desabonner" → Arrêter les notifications\n` +
+        `📋 "mes abonnements" → Voir mes abonnements\n` +
+        `📢 "diffuser" → Diffuser un message (payant)\n\n` +
+        `🏪 "restaurant" → Inscrire votre restaurant\n` +
+        `🌐 "en" → English\n` +
+        `❓ "aide" → Liste courte\n\n` +
+        `🌍 Parcourez: ${BASE_URL}\n` +
+        `🔑 Mon compte: ${BASE_URL}/account`)
     return ok()
   }
 
@@ -2013,8 +2086,11 @@ async function handleCustomer(
     return ok()
   }
 
-  await sendWhatsApp(from,
-    `Envoyez *aide* pour les options. / Send *help* for options.`)
+  await sendWhatsApp(from, pickLang(
+    `Envoyez *aide* pour les options.`,
+    `Send *help* for options.`,
+    lang,
+  ))
   return ok()
 }
 
@@ -2074,9 +2150,10 @@ function parseSubscribeCategories(tail: string): string[] | null {
 async function handleSubscriptionCommand(
   from: string,
   cmd: string,
-  customer: { id: string; name: string; phone: string; city: string },
+  customer: { id: string; name: string; phone: string; city: string; preferred_language?: string | null },
 ): Promise<NextResponse | null> {
   const { writeAudit } = await import('@/lib/audit')
+  const lang = normalizeLang(customer.preferred_language)
 
   // ── List
   if (cmd === 'mes abonnements' || cmd === 'my subscriptions' || cmd === 'mes abos') {
@@ -2088,21 +2165,25 @@ async function handleSubscriptionCommand(
 
     const active = (subs ?? []).filter(s => s.is_active)
     if (active.length === 0) {
-      await sendWhatsApp(from,
-        `📋 Aucun abonnement actif. / No active subscriptions.\n\n` +
-        `Envoyez "abonner" pour vous abonner aux événements à ${customer.city}.\n` +
-        `Send "subscribe" to subscribe to events in ${customer.city}.`)
+      await sendWhatsApp(from, pickLang(
+        `📋 Aucun abonnement actif.\n\nEnvoyez "abonner" pour vous abonner aux événements à ${customer.city}.`,
+        `📋 No active subscriptions.\n\nSend "subscribe" to subscribe to events in ${customer.city}.`,
+        lang,
+      ))
       return ok()
     }
+    const allLabel = pickLang('toutes', 'all', lang)
     const lines = active.map(s => {
       const cats = s.categories && s.categories.length > 0
         ? `(${s.categories.join(', ')})`
-        : '(toutes / all)'
+        : `(${allLabel})`
       return `📍 ${s.city} ${cats}`
     })
-    await sendWhatsApp(from,
-      `🔔 *Mes abonnements / My subscriptions*\n\n${lines.join('\n')}\n\n` +
-      `Envoyez "desabonner" pour tout arrêter. / Send "unsubscribe" to stop all.`)
+    await sendWhatsApp(from, pickLang(
+      `🔔 *Mes abonnements*\n\n${lines.join('\n')}\n\nEnvoyez "desabonner" pour tout arrêter.`,
+      `🔔 *My subscriptions*\n\n${lines.join('\n')}\n\nSend "unsubscribe" to stop all.`,
+      lang,
+    ))
     return ok()
   }
 
@@ -2125,10 +2206,11 @@ async function handleSubscriptionCommand(
         metadata: { subscription_id: r.id, city: r.city, via: 'whatsapp' },
       })
     }
-    await sendWhatsApp(from,
-      `🔕 Désabonné. Vous ne recevrez plus de notifications d'événements.\n` +
-      `Unsubscribed. You won't receive event notifications anymore.\n\n` +
-      `Envoyez "abonner" pour vous réabonner. / Send "subscribe" to opt back in.`)
+    await sendWhatsApp(from, pickLang(
+      `🔕 Désabonné. Vous ne recevrez plus de notifications d'événements.\n\nEnvoyez "abonner" pour vous réabonner.`,
+      `🔕 Unsubscribed. You won't receive event notifications anymore.\n\nSend "subscribe" to opt back in.`,
+      lang,
+    ))
     return ok()
   }
 
@@ -2136,9 +2218,11 @@ async function handleSubscriptionCommand(
   const subMatch = cmd.match(/^(?:abonner|subscribe|abonnement|abonne)\s*(.*)$/i)
   if (subMatch && (cmd.startsWith('abonner') || cmd.startsWith('subscribe') || cmd.startsWith('abonne') || cmd === 'abonnement')) {
     if (!customer.city) {
-      await sendWhatsApp(from,
-        `❌ Ville inconnue. Mettez à jour votre ville sur ${BASE_URL}/account.\n` +
-        `Unknown city. Update your city at ${BASE_URL}/account.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ Ville inconnue. Mettez à jour votre ville sur ${BASE_URL}/account.`,
+        `❌ Unknown city. Update your city at ${BASE_URL}/account.`,
+        lang,
+      ))
       return ok()
     }
     const tail = subMatch[1] ?? ''
@@ -2158,7 +2242,7 @@ async function handleSubscriptionCommand(
 
     if (error || !data) {
       console.error('[whatsapp/subscribe] upsert error:', error?.message)
-      await sendWhatsApp(from, `❌ Erreur. Réessayez. / Error. Retry.`)
+      await sendWhatsApp(from, pickLang(`❌ Erreur. Réessayez.`, `❌ Error. Retry.`, lang))
       return ok()
     }
 
@@ -2171,15 +2255,15 @@ async function handleSubscriptionCommand(
       metadata: { subscription_id: data.id, city: customer.city, categories, via: 'whatsapp' },
     })
 
-    // Compact confirmation: "🔔 Abonné: Cat1, Cat2 à City" (or "à tous"
-    // when no filter was set). Mirrored bilingual block follows.
-    const catFr = categories ? categories.join(', ') : 'toutes catégories'
-    const catEn = categories ? categories.join(', ') : 'all categories'
-    await sendWhatsApp(from,
-      `🔔 Abonné: ${catFr} à ${customer.city}\n` +
-      `Envoyez "desabonner" pour arrêter.\n\n` +
-      `Subscribed: ${catEn} in ${customer.city}\n` +
-      `Send "unsubscribe" to stop.`)
+    // Single-language confirmation per the recipient's preferred_language.
+    const cats = categories
+      ? categories.join(', ')
+      : pickLang('toutes catégories', 'all categories', lang)
+    await sendWhatsApp(from, pickLang(
+      `🔔 Abonné: ${cats} à ${customer.city}\nEnvoyez "desabonner" pour arrêter.`,
+      `🔔 Subscribed: ${cats} in ${customer.city}\nSend "unsubscribe" to stop.`,
+      lang,
+    ))
     return ok()
   }
 

@@ -10,7 +10,7 @@
 // response stays open until both messages land at Twilio.
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { vendorRecipients } from '@/lib/whatsapp/ordering'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 
@@ -42,15 +42,19 @@ export async function notifyPaidOrder(
   // ── Customer confirmation ──────────────────────────────────────────────────
   if (order.customer_phone) {
     console.log(`[payment] sending customer confirmation: order=${order.id} to=${order.customer_phone}`)
+    const lang = await getLangByPhone(order.customer_phone)
     const r = await sendWhatsApp(order.customer_phone, [
-      `✅ *Paiement confirmé! / Payment confirmed!*`,
+      pickLang(`✅ *Paiement confirmé!*`, `✅ *Payment confirmed!*`, lang),
       ``,
-      `🧾 Commande #${id4}`,
+      pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
       `🏪 ${restName}`,
       `💰 ${total.toLocaleString()} FCFA`,
       ``,
-      `Votre commande est confirmée et le restaurant prépare votre repas.`,
-      `Your order is confirmed and the restaurant is preparing your meal.`,
+      pickLang(
+        `Votre commande est confirmée et le restaurant prépare votre repas.`,
+        `Your order is confirmed and the restaurant is preparing your meal.`,
+        lang,
+      ),
     ].join('\n'))
     console.log(`[payment] customer notification result: ok=${r.ok} httpStatus=${r.status} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}${r.error ? ` error=${r.error.slice(0, 200)}` : ''}`)
   } else {
@@ -133,16 +137,21 @@ export async function notifyPaidReservation(
   // ── Customer ticket ────────────────────────────────────────────────────────
   if (r.customer_phone) {
     console.log(`[payment] sending reservation customer confirmation: reservation=${r.id} to=${r.customer_phone}`)
+    const lang = await getLangByPhone(r.customer_phone)
     const sent = await sendWhatsApp(r.customer_phone, [
-      `🎟 *Réservation payée! / Reservation paid!*`,
+      pickLang(`🎟 *Réservation payée!*`, `🎟 *Reservation paid!*`, lang),
       ``,
       `🎉 ${event.title}`,
       `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
       event.venue ? `📍 ${event.venue}` : '',
-      `🎟 ${r.quantity} place(s) / ticket(s)`,
+      pickLang(
+        `🎟 ${r.quantity} place(s)`,
+        `🎟 ${r.quantity} ticket(s)`,
+        lang,
+      ),
       `💰 ${total.toLocaleString()} FCFA · ${mno}`,
       ``,
-      `À bientôt! / See you soon!`,
+      pickLang(`À bientôt!`, `See you soon!`, lang),
     ].filter(Boolean).join('\n'))
     console.log(`[payment] reservation customer result: ok=${sent.ok} sid=${sent.sid ?? '-'} twilioStatus=${sent.twilioStatus ?? '-'}${sent.error ? ` error=${sent.error.slice(0, 200)}` : ''}`)
   } else {
