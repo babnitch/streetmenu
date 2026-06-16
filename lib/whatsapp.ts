@@ -5,6 +5,11 @@ const API_KEY_SID   = process.env.TWILIO_API_KEY_SID!
 const API_KEY_SECRET = process.env.TWILIO_API_KEY_SECRET!
 const FROM           = process.env.TWILIO_WHATSAPP_NUMBER ?? 'whatsapp:+14155238886'
 
+// Twilio rejects WhatsApp bodies over 1600 chars (error 21617). We use a
+// slightly tighter cap so the suffix added when continuing across parts
+// still fits.
+const MAX_WHATSAPP_LENGTH = 1500
+
 // ── Core send ─────────────────────────────────────────────────────────────────
 
 export interface SendResult {
@@ -15,16 +20,10 @@ export interface SendResult {
   error?: string            // Short error string when ok=false
 }
 
-// Sends a WhatsApp message via Twilio. Always resolves with a SendResult;
-// never throws. Keep callers resilient to individual recipient failures.
-//
-// IMPORTANT (Twilio sandbox): recipients that have not sent `join <keyword>`
-// to the sandbox number receive NOTHING, but Twilio's API still returns
-// 201 + an SID. Delivery failures only show up in Twilio's async status
-// callback or the Twilio console. At this layer we can detect protocol
-// errors (401, 4xx on bad To/From, 429 rate limits, network failures)
-// but not post-accept silent drops.
-export async function sendWhatsApp(to: string, message: string): Promise<SendResult> {
+// Low-level single-shot send via Twilio. Does not split; callers that may
+// hand in a body longer than 1600 chars should go through sendWhatsApp (or
+// the explicit sendLongWhatsApp alias) which chunks first.
+async function sendWhatsAppRaw(to: string, message: string): Promise<SendResult> {
   const destination = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
   const url = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`
   const body = new URLSearchParams({ From: FROM, To: destination, Body: message })
@@ -56,6 +55,67 @@ export async function sendWhatsApp(to: string, message: string): Promise<SendRes
     console.error(`[whatsapp] send THREW to=${destination}: ${msg}`)
     return { ok: false, status: 0, error: msg }
   }
+}
+
+// Splits a long WhatsApp body into chunks ≤ MAX_WHATSAPP_LENGTH. Prefers
+// breaks at double-newline (section boundaries), then single newline, then
+// the last space, and finally a hard cut. Exported for tests; production
+// callers should use sendWhatsApp / sendLongWhatsApp.
+export function splitWhatsAppMessage(message: string, max = MAX_WHATSAPP_LENGTH): string[] {
+  if (message.length <= max) return [message]
+  const parts: string[] = []
+  let remaining = message
+  while (remaining.length > max) {
+    const slice = remaining.slice(0, max)
+    const minSplit = Math.floor(max * 0.5)
+    let splitAt = slice.lastIndexOf('\n\n')
+    if (splitAt < minSplit) {
+      const nl = slice.lastIndexOf('\n')
+      if (nl >= minSplit) splitAt = nl
+    }
+    if (splitAt < minSplit) {
+      const sp = slice.lastIndexOf(' ')
+      if (sp >= minSplit) splitAt = sp
+    }
+    if (splitAt < minSplit) splitAt = max
+    parts.push(remaining.slice(0, splitAt).trimEnd())
+    remaining = remaining.slice(splitAt).replace(/^\s+/, '')
+  }
+  if (remaining.length > 0) parts.push(remaining)
+  return parts
+}
+
+// Sends a WhatsApp message via Twilio. Always resolves with a SendResult;
+// never throws. Keep callers resilient to individual recipient failures.
+//
+// Long bodies are split at natural breakpoints so we never hit Twilio's
+// 1600-char limit (error 21617). The returned SendResult reflects the last
+// chunk — if any earlier chunk failed, we still attempt the rest so the
+// recipient at least gets partial output.
+//
+// IMPORTANT (Twilio sandbox): recipients that have not sent `join <keyword>`
+// to the sandbox number receive NOTHING, but Twilio's API still returns
+// 201 + an SID. Delivery failures only show up in Twilio's async status
+// callback or the Twilio console. At this layer we can detect protocol
+// errors (401, 4xx on bad To/From, 429 rate limits, network failures)
+// but not post-accept silent drops.
+export async function sendWhatsApp(to: string, message: string): Promise<SendResult> {
+  if (message.length <= MAX_WHATSAPP_LENGTH) {
+    return sendWhatsAppRaw(to, message)
+  }
+  const parts = splitWhatsAppMessage(message)
+  let last: SendResult = { ok: true, status: 0 }
+  for (const part of parts) {
+    last = await sendWhatsAppRaw(to, part)
+  }
+  return last
+}
+
+// Explicit alias for callers that want to signal "this body might be long."
+// Behaviour is identical to sendWhatsApp — both auto-split — but the name
+// documents intent at the call site.
+export async function sendLongWhatsApp(to: string, message: string): Promise<SendResult> {
+  return sendWhatsApp(to, message)
 }
 
 // ── Notification templates ────────────────────────────────────────────────────

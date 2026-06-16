@@ -1030,7 +1030,64 @@ async function handleVendor(
   const canViewOrders = isOwner || isManager || teamRole === 'staff'
 
   // ── AIDE / HELP ──────────────────────────────────────────────────────────
+  // Short list of the highest-frequency commands. The full reference lives
+  // behind "aide+" / "help+" so this stays under Twilio's 1600-char body
+  // limit even for an owner with all sections unlocked (error 21617).
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
+    const lines: string[] = [
+      `🍽️ *Tchop & Ndjoka — ${restaurant.name}*`,
+      `Rôle / Role: ${teamRole}`,
+      ``,
+      `📋 *Commandes essentielles / Essential commands:*`,
+    ]
+    if (canViewOrders) {
+      lines.push(
+        ``,
+        `📦 *Commandes / Orders:*`,
+        `📦 "commandes" → Voir / View`,
+        `✅ "ok XXXX" → Confirmer / Confirm`,
+        `🍳 "preparer XXXX" → Préparer / Prepare`,
+        `🎉 "pret XXXX" → Prêt / Ready`,
+        `📦 "recupere XXXX" → Récupéré / Picked up`,
+      )
+    }
+    lines.push(
+      ``,
+      `🍽️ *Menu:*`,
+      `🍽️ "menu" → Voir votre menu / View menu`,
+    )
+    if (canEditMenu) {
+      lines.push(`📸 Photo + "Nom - Prix" → Ajouter un plat / Add a dish`)
+    }
+    if (isOwner || isManager) {
+      lines.push(
+        ``,
+        `🕐 *Statut / Status:*`,
+        `🟢 "ouvrir" / 🔴 "fermer" / ↩️ "auto"`,
+        `🕐 "horaire" → Voir horaires / View hours`,
+        `⏱️ "temps" → Temps de préparation / Prep time`,
+      )
+    }
+    if (isOwner) {
+      lines.push(
+        ``,
+        `👥 *Équipe / Team:*`,
+        `📋 "equipe" → Voir l'équipe / View team`,
+        `➕ "ajouter +XXX manager" → Ajouter / Add`,
+      )
+    }
+    lines.push(
+      ``,
+      `❓ "aide+" → Toutes les commandes / All commands`,
+    )
+    await sendWhatsApp(from, lines.join('\n'))
+    return ok()
+  }
+
+  // ── AIDE+ / HELP+ — full command reference ────────────────────────────────
+  // The exhaustive list. sendWhatsApp auto-splits when this exceeds 1500
+  // chars, so we don't have to manually chunk by role.
+  if (cmd === 'aide+' || cmd === 'help+' || cmd === 'aide plus' || cmd === 'help plus') {
     const ownerCmds = isOwner
       ? `\n👥 Équipe / Team:\n` +
         `📋 "equipe" → Voir l'équipe / View team\n` +
@@ -1047,7 +1104,7 @@ async function handleVendor(
     await sendWhatsApp(from,
       `🍽️ *Tchop & Ndjoka — ${restaurant.name}*\n` +
       `Rôle / Role: ${teamRole}\n\n` +
-      `📋 *Commandes disponibles / Available commands:*\n\n` +
+      `📋 *Toutes les commandes / All commands:*\n\n` +
       (canEditMenu
         ? `📸 Photo + "Nom - Prix" → Ajouter un plat / Add a dish\n` +
           `💰 "prix [nom] [prix]" → Changer le prix / Update price\n` +
@@ -1058,7 +1115,7 @@ async function handleVendor(
           `🍽️ "menu" → Voir votre menu / View your menu\n`
         : `🍽️ "menu" → Voir le menu / View menu\n`) +
       (canViewOrders
-        ? `📦 *Commandes / Orders:*\n` +
+        ? `\n📦 *Commandes / Orders:*\n` +
           `📦 "commandes" → Voir les commandes / View orders\n` +
           `✅ "ok XXXX" → Confirmer / Confirm\n` +
           `🍳 "preparer XXXX" → En préparation / Start preparing\n` +
@@ -1069,7 +1126,7 @@ async function handleVendor(
           `💰 "paye XXXX mtn 237..." → Marquer payé MTN / Mark paid MTN\n` +
           `💰 "paye XXXX orange 237..." → Marquer payé Orange / Mark paid Orange\n`
         : '') +
-      `🔗 "restaurant" → Voir votre page / View your page\n` +
+      `\n🔗 "restaurant" → Voir votre page / View your page\n\n` +
       `🕐 *Horaires / Hours:*\n` +
       `🕐 "horaire" → Voir l'horaire + statut / View schedule + status\n` +
       ((isOwner || isManager)
@@ -1082,7 +1139,7 @@ async function handleVendor(
         ? `⏱️ "temps 20 35" → Définir le temps de préparation / Set prep time\n`
         : '') +
       ownerCmds +
-      `❓ "aide" → Ce message / This message`)
+      `\n❓ "aide" → Liste courte / Short list`)
     return ok()
   }
 
@@ -1847,32 +1904,63 @@ async function handleCustomer(
   customer: { id: string; name: string; phone: string; city: string },
 ): Promise<NextResponse> {
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
+    // Short list of the highest-frequency commands. The full reference is
+    // behind "aide+" / "help+" so this stays under Twilio's 1600-char body
+    // limit (error 21617).
     await sendWhatsApp(from,
       `👋 *Bonjour ${customer.name}!* / *Hello ${customer.name}!*\n\n` +
-      `📋 *Commandes disponibles / Available commands:*\n` +
+      `📋 *Commandes essentielles / Essential commands:*\n\n` +
+      `🍽️ *Commander / Order:*\n` +
+      `🍽️ "commander" → Passer une commande / Place an order\n` +
+      `📦 "mes commandes" → Vos commandes / Your orders\n` +
+      `🎫 "mes bons" → Vos bons / Your vouchers\n\n` +
+      `🎉 *Événements / Events:*\n` +
+      `🎉 "evenements" → Parcourir / Browse\n` +
+      `🎟 "mes reservations" → Vos réservations / Your reservations\n` +
+      `📢 "publier" → Publier un événement / Publish an event\n\n` +
+      `🔔 *Notifications:*\n` +
+      `🔔 "abonner" → Nouveaux événements / Event alerts\n` +
+      `🔕 "desabonner" → Arrêter / Stop\n\n` +
+      `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n\n` +
+      `🌍 Parcourez / Browse: ${BASE_URL}\n` +
+      `🔑 Mon compte / My account: ${BASE_URL}/account\n\n` +
+      `❓ "aide+" → Toutes les commandes / All commands`)
+    return ok()
+  }
+
+  // ── AIDE+ / HELP+ — full command reference ────────────────────────────────
+  // The exhaustive list. sendWhatsApp auto-splits when this exceeds 1500
+  // chars, so the customer reliably gets every command listed.
+  if (cmd === 'aide+' || cmd === 'help+' || cmd === 'aide plus' || cmd === 'help plus') {
+    await sendWhatsApp(from,
+      `👋 *Bonjour ${customer.name}!* / *Hello ${customer.name}!*\n\n` +
+      `📋 *Toutes les commandes / All commands:*\n\n` +
+      `🍽️ *Commander / Order:*\n` +
       `🍽️ "commander" → Passer une commande / Place an order\n` +
       `📦 "mes commandes" → Voir vos commandes / View your orders\n` +
       `💳 "payer" → Payer une commande / Pay an order\n` +
       `🎫 "mes bons" → Voir vos bons / View vouchers\n` +
       `🎫 "bon CODE" → Ajouter un bon / Claim a code\n` +
+      `⭐ "noter" → Noter votre dernier restaurant / Rate last restaurant\n` +
+      `🚩 "signaler" → Signaler un problème / Report an issue\n\n` +
+      `🎉 *Événements / Events:*\n` +
       `🎉 "evenements" → Voir les événements / Browse events\n` +
-      `⭐ "noter" → Noter votre dernier restaurant / Rate your last restaurant\n` +
-      `🚩 "signaler" → Signaler un problème / Report an issue\n` +
       `🎟 "mes reservations" → Voir vos réservations / View reservations\n` +
       `🎟 "reserver XXXX" → Réserver un événement / Book an event\n` +
       `📢 "publier" → Publier un événement / Publish an event\n` +
       `📢 "mes evenements" → Voir vos événements publiés / View your events\n` +
-      `📋 "reservations XXXX" → Voir les réservations d'un événement / View event reservations\n` +
-      `🔒 "fermer reservations XXXX" / "ouvrir reservations XXXX" → Fermer/ouvrir les réservations / Close/open reservations\n` +
+      `📋 "reservations XXXX" → Voir les réservations / View event reservations\n` +
+      `🔒 "fermer reservations XXXX" / "ouvrir reservations XXXX" → Fermer/ouvrir / Close/open\n` +
       `✅ "confirmer reservation XXXX" / "rejeter reservation XXXX" → Confirmer/rejeter / Confirm/reject\n` +
       `🎫 "tarifs XXXX" → Voir les tarifs / View tiers\n` +
-      `➕ "ajouter tarif XXXX nom prix [max]" → Ajouter un tarif / Add tier\n` +
+      `➕ "ajouter tarif XXXX nom prix [max]" → Ajouter un tarif / Add tier\n\n` +
+      `🔔 *Notifications:*\n` +
       `🔔 "abonner" → Recevoir les nouveaux événements / Get new event alerts\n` +
       `🔕 "desabonner" → Arrêter les notifications / Stop notifications\n` +
       `📋 "mes abonnements" → Voir mes abonnements / View my subscriptions\n` +
-      `📢 "diffuser" → Diffuser un message (payant) / Broadcast a message (paid)\n` +
+      `📢 "diffuser" → Diffuser un message (payant) / Broadcast a message (paid)\n\n` +
       `🏪 "restaurant" → Inscrire votre restaurant / Register restaurant\n` +
-      `❓ "aide" → Ce message / This message\n\n` +
+      `❓ "aide" → Liste courte / Short list\n\n` +
       `🌍 Parcourez / Browse: ${BASE_URL}\n` +
       `🔑 Mon compte / My account: ${BASE_URL}/account`)
     return ok()
