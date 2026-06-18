@@ -1729,36 +1729,57 @@ async function handleVendor(
   if (cmd === 'commandes' || cmd === 'orders') {
     const { data: orders } = await supabaseAdmin
       .from('orders')
-      .select('id, customer_name, customer_phone, items, total_price, status, created_at')
+      .select('id, customer_name, items, total_price, status, created_at')
       .eq('restaurant_id', restaurant.id)
-      .in('status', ['pending', 'confirmed', 'preparing'])
-      .order('created_at', { ascending: false }).limit(10)
+      .in('status', ['pending', 'confirmed', 'preparing', 'ready'])
+      .order('created_at', { ascending: false }).limit(60)
     if (!orders || orders.length === 0) {
-      await sendWhatsApp(from, pickLang('Aucune commande en attente. ✅', 'No pending orders. ✅', lang))
+      await sendWhatsApp(from, pickLang('Aucune commande en cours. ✅', 'No active orders. ✅', lang))
       return ok()
     }
-    const statusLabel: Record<string, string> = {
-      pending:   pickLang('En attente', 'Pending', lang),
-      confirmed: pickLang('Confirmée', 'Confirmed', lang),
-      preparing: pickLang('En préparation', 'Preparing', lang),
-      ready:     pickLang('Prête', 'Ready', lang),
+
+    // Short code = last 4 hex of the (dash-stripped) UUID, the same value the
+    // "ok XXXX" parser matches against (case-insensitive endsWith).
+    const code = (id: string) => id.replace(/-/g, '').slice(-4).toUpperCase()
+    const itemsOf = (o: { items: unknown }) => Array.isArray(o.items)
+      ? (o.items as { name: string; quantity: number }[]).map(i => `${i.quantity}× ${i.name}`).join(', ')
+      : ''
+    const orderLine = (o: typeof orders[number]) =>
+      `#${code(o.id)} — ${o.customer_name} — ${Number(o.total_price).toLocaleString()} FCFA — ${itemsOf(o)}`
+
+    // Workflow order; each group shows only the next relevant action.
+    const GROUPS = [
+      { status: 'pending',   emoji: '📦', hFr: 'En attente',     hEn: 'Pending',   hintFr: `💡 'ok XXXX' → Confirmer`,      hintEn: `💡 'ok XXXX' → Confirm` },
+      { status: 'confirmed', emoji: '✅', hFr: 'Confirmées',     hEn: 'Confirmed', hintFr: `💡 'preparer XXXX' → Démarrer`, hintEn: `💡 'preparing XXXX' → Start` },
+      { status: 'preparing', emoji: '🍳', hFr: 'En préparation', hEn: 'Preparing', hintFr: `💡 'pret XXXX' → Marquer prêt`,  hintEn: `💡 'ready XXXX' → Mark ready` },
+      { status: 'ready',     emoji: '🎉', hFr: 'Prêtes',         hEn: 'Ready',     hintFr: `💡 'recupere XXXX' → Récupéré`, hintEn: `💡 'picked XXXX' → Picked up` },
+    ] as const
+
+    // Build with up to `perGroup` orders per status, the rest folded into a
+    // "… and X more" line. Default to 5 most recent; shrink only if the body
+    // would blow Twilio's 1500-char limit (busy day, all statuses full).
+    const title = pickLang(`🛒 *Commandes en cours — ${restaurant.name}*`, `🛒 *Active orders — ${restaurant.name}*`, lang)
+    const buildMessage = (perGroup: number): string => {
+      const sections = GROUPS.flatMap(g => {
+        const all = orders.filter(o => o.status === g.status)
+        if (all.length === 0) return []
+        const shown = all.slice(0, perGroup)
+        const extra = all.length - shown.length
+        const more = extra > 0
+          ? `\n` + pickLang(`… et ${extra} autre${extra > 1 ? 's' : ''}`, `… and ${extra} more`, lang)
+          : ``
+        return [
+          `${g.emoji} *${pickLang(g.hFr, g.hEn, lang)} (${all.length}):*\n` +
+          shown.map(orderLine).join('\n') + more + `\n` +
+          pickLang(g.hintFr, g.hintEn, lang),
+        ]
+      })
+      return `${title}\n\n${sections.join('\n\n')}`
     }
-    const lines = orders.map(o => {
-      const time = new Date(o.created_at).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'fr-FR', { hour: '2-digit', minute: '2-digit' })
-      const items = Array.isArray(o.items)
-        ? o.items.map((i: { name: string; quantity: number }) => `${i.quantity}× ${i.name}`).join(', ')
-        : ''
-      const status = statusLabel[o.status] ?? o.status
-      return `[${time}] ${o.customer_name} — ${Number(o.total_price).toLocaleString()} FCFA (${status})\n  ${items}`
-    })
-    const count = orders.length
-    await sendWhatsApp(from,
-      pickLang(`🛒 *Commandes en cours — ${restaurant.name}*`, `🛒 *Active orders — ${restaurant.name}*`, lang) + `\n` +
-      pickLang(`(${count} commande${count > 1 ? 's' : ''})`, `(${count} order${count > 1 ? 's' : ''})`, lang) + `\n\n` +
-      lines.join('\n\n') + `\n\n` +
-      pickLang(
-        `💡 Répondez 'ok XXXX' pour confirmer, 'preparer XXXX' pour démarrer, 'pret XXXX' quand c'est prêt, 'recupere XXXX' une fois récupéré.`,
-        `💡 Reply 'ok XXXX' to confirm, 'preparing XXXX' to start, 'ready XXXX' when ready, 'picked XXXX' once picked up.`, lang))
+    let message = buildMessage(5)
+    for (let per = 4; per >= 1 && message.length > 1500; per--) message = buildMessage(per)
+
+    await sendWhatsApp(from, message)
     return ok()
   }
 
