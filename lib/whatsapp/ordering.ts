@@ -603,69 +603,112 @@ export async function handleOrderCommand(
   if (cmd === 'mes commandes' || cmd === 'my orders') {
     const { data } = await supabaseAdmin
       .from('orders')
-      .select('id, status, total_price, created_at, order_type, payment_status, restaurants(name)')
+      .select('id, status, total_price, created_at, order_type, payment_status, items, restaurants(name, prep_time_min, prep_time_max)')
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false })
-      .limit(5)
+      .limit(20)
 
     if (!data || data.length === 0) {
       await sendWhatsApp(from, pickLang(
-        '📦 Aucune commande. Envoyez "commander" pour en passer une!',
-        '📦 No orders. Send "commander" to place one!',
+        `📦 Aucune commande pour le moment.\n\n💡 Envoyez 'commander' pour en passer une!`,
+        `📦 No orders yet.\n\n💡 Send 'order' to place one!`,
         lang,
       ))
       return ok()
     }
-    const statusLabel: Record<string, string> = lang === 'en' ? {
-      pending:    '⏳ Pending',
-      confirmed:  '✅ Confirmed',
-      preparing:  '👨‍🍳 Preparing',
-      ready:      '🎉 Ready',
-      delivered:  '📦 Picked up',
-      completed:  '🏁 Completed',
-      cancelled:  '❌ Cancelled',
-    } : {
-      pending:    '⏳ En attente',
-      confirmed:  '✅ Confirmée',
-      preparing:  '👨‍🍳 En préparation',
-      ready:      '🎉 Prête',
-      delivered:  '📦 Récupérée',
-      completed:  '🏁 Terminée',
-      cancelled:  '❌ Annulée',
+
+    const en = lang === 'en'
+    type OrderRow = typeof data[number]
+    type OrderItem = { name: string; quantity: number; price: number }
+    const restOf  = (o: OrderRow) => (o.restaurants as unknown as { name: string; prep_time_min: number | null; prep_time_max: number | null } | null)
+    const restName = (o: OrderRow) => restOf(o)?.name ?? '—'
+
+    // Full status line for active orders — emoji + label + what-to-expect.
+    const statusDesc = (status: string, rest: string): string => {
+      switch (status) {
+        case 'pending':   return en ? '⏳ Pending — waiting for restaurant to confirm'  : '⏳ En attente — en attente de confirmation du restaurant'
+        case 'confirmed': return en ? '✅ Confirmed — restaurant accepted your order'   : '✅ Confirmée — le restaurant a accepté votre commande'
+        case 'preparing': return en ? '🍳 Preparing — your food is being prepared'      : '🍳 En préparation — votre plat est en cours de préparation'
+        case 'ready':     return en ? `🎉 Ready — ready for pickup at ${rest}!`          : `🎉 Prête — prête à récupérer chez ${rest}!`
+        case 'delivered':
+        case 'completed': return en ? '📦 Picked up — enjoy your meal!'                 : '📦 Récupérée — bon appétit!'
+        case 'cancelled': return en ? '❌ Cancelled'                                     : '❌ Annulée'
+        default:          return status
+      }
     }
-    const payLabel: Record<string, string> = lang === 'en' ? {
-      paid:         '💰 Paid',
-      pending:      '⏳ Payment pending',
-      failed:       '❌ Payment failed',
-      refunded:     '↩️ Refunded',
-      not_required: '',
-    } : {
-      paid:         '💰 Payé',
-      pending:      '⏳ Paiement en attente',
-      failed:       '❌ Paiement échoué',
-      refunded:     '↩️ Remboursé',
-      not_required: '',
+    // Compact status pill for the recent-orders one-liners.
+    const statusShort = (status: string): string => {
+      switch (status) {
+        case 'pending':   return en ? '⏳ Pending'   : '⏳ En attente'
+        case 'confirmed': return en ? '✅ Confirmed' : '✅ Confirmée'
+        case 'preparing': return en ? '🍳 Preparing' : '🍳 En préparation'
+        case 'ready':     return en ? '🎉 Ready'     : '🎉 Prête'
+        case 'delivered':
+        case 'completed': return en ? '📦 Picked up' : '📦 Récupérée'
+        case 'cancelled': return en ? '❌ Cancelled' : '❌ Annulée'
+        default:          return status
+      }
     }
+    // Payment pill — only when payment is actually relevant (paid orders).
+    const paymentPill = (o: OrderRow): string => {
+      if (o.order_type !== 'paid_order') return ''
+      if (o.payment_status === 'paid')     return en ? '💰 Paid'           : '💰 Payé'
+      if (o.payment_status === 'refunded') return en ? '↩️ Refunded'       : '↩️ Remboursé'
+      return en ? '⏳ Payment pending' : '⏳ Paiement en attente'
+    }
+    const itemsLine = (o: OrderRow): string => {
+      const items = (o.items as unknown as OrderItem[] | null) ?? []
+      const summary = items.length ? items.map(it => `${it.quantity}× ${it.name}`).join(', ') : ''
+      const price = `${Number(o.total_price).toLocaleString()} FCFA`
+      return summary ? `${summary} — ${price}` : price
+    }
+
+    const ACTIVE = new Set(['pending', 'confirmed', 'preparing', 'ready'])
+    const active = data.filter(o => ACTIVE.has(o.status))
+    const recent = data.filter(o => !ACTIVE.has(o.status)).slice(0, 3)
+
     let hasUnpaid = false
-    const lines = data.map((o, i) => {
-      const rest = (o.restaurants as unknown as { name: string } | null)?.name ?? '—'
-      const label = statusLabel[o.status] ?? o.status
-      const pay   = payLabel[o.payment_status ?? 'not_required'] ?? ''
+    const activeBlocks = active.map(o => {
+      const rest = restName(o)
+      const block = [
+        `#${last4(o.id)} — ${rest}`,
+        itemsLine(o),
+        statusDesc(o.status, rest),
+      ]
+      // Prep-time estimate once the kitchen is engaged.
+      if (o.status === 'confirmed' || o.status === 'preparing') {
+        const r = restOf(o)
+        const label = formatPrepTime(r?.prep_time_min, r?.prep_time_max)
+        if (label) block.push(`🕐 ${en ? 'Ready in' : 'Prête dans'} ~${label}`)
+      }
+      const pill = paymentPill(o)
+      if (pill) block.push(pill)
       if (o.order_type === 'paid_order' && (o.payment_status === 'pending' || o.payment_status === 'failed')) {
         hasUnpaid = true
       }
-      return `${i + 1}. #${last4(o.id)} - ${rest} - ${Number(o.total_price).toLocaleString()} FCFA - ${label}${pay ? ` - ${pay}` : ''}`
+      return block.join('\n')
     })
-    const tail = hasUnpaid
-      ? pickLang(
-          `\n\n💳 Envoyez "payer" pour réessayer le paiement.`,
-          `\n\n💳 Send "pay" to retry payment.`,
-          lang,
-        )
-      : ''
-    const header = pickLang('Vos commandes', 'Your orders', lang)
-    await sendWhatsApp(from, `📦 *${header}:*\n\n${lines.join('\n')}${tail}` + `\n\n` +
-      pickLang(`💡 Envoyez 'commander' pour passer une nouvelle commande.`, `💡 Send 'order' to place a new order.`, lang))
+
+    const recentLines = recent.map(o => {
+      const date = new Date(o.created_at).toLocaleDateString(en ? 'en-US' : 'fr-FR', { day: 'numeric', month: 'short' })
+      return `#${last4(o.id)} — ${restName(o)} — ${statusShort(o.status)} — ${date}`
+    })
+
+    const parts: string[] = []
+    if (activeBlocks.length) {
+      parts.push(`📦 *${en ? 'Your active orders' : 'Vos commandes en cours'}:*`, '', activeBlocks.join('\n\n'))
+    } else {
+      parts.push(`📦 ${en ? 'No active orders.' : 'Aucune commande en cours.'}`)
+    }
+    if (recentLines.length) {
+      parts.push('', `📜 *${en ? 'Recent orders' : 'Commandes récentes'}:*`, recentLines.join('\n'))
+    }
+    if (hasUnpaid) {
+      parts.push('', en ? '💳 Send "pay" to retry payment.' : '💳 Envoyez "payer" pour réessayer le paiement.')
+    }
+    parts.push('', en ? `💡 Send 'order' to place a new order.` : `💡 Envoyez 'commander' pour passer une nouvelle commande.`)
+
+    await sendWhatsApp(from, parts.join('\n'))
     return ok()
   }
 
