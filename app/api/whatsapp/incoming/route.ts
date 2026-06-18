@@ -1121,7 +1121,7 @@ async function handleVendor(
     }
     lines.push(
       ``,
-      en ? `🌐 Passer au français → envoyez "fr"` : `🌐 Switch to English → send "en"`,
+      en ? `🌐 Switch to French → send 'fr'` : `🌐 Passer en anglais → envoyez 'en'`,
       ``,
       en ? `💡 Send "help+" for the full list of commands.` : `💡 Envoyez "aide+" pour la liste complète des commandes.`,
     )
@@ -1215,7 +1215,7 @@ async function handleVendor(
 
     // ── Language ──
     lines.push('',
-      en ? `🌐 Passer au français → send 'fr'` : `🌐 Switch to English → envoyez 'en'`)
+      en ? `🌐 Switch to French → send 'fr'` : `🌐 Passer en anglais → envoyez 'en'`)
 
     await sendWhatsApp(from, lines.join('\n'))
     return ok()
@@ -2124,7 +2124,7 @@ async function handleCustomer(
         `Send "subscribe" to be notified about new events.\n\n` +
         `🏪 *Own a restaurant?*\n` +
         `Send "restaurant" to register it on the platform.\n\n` +
-        `🌐 Passer au français → envoyez "fr"\n\n` +
+        `🌐 Switch to French → send 'fr'\n\n` +
         `💡 Send "help+" to see all advanced commands.`
       : `👋 Bonjour ${customer.name}! Bienvenue sur Tchop & Ndjoka 🍽️\n\n` +
         `Voici ce que vous pouvez faire ici:\n\n` +
@@ -2140,7 +2140,7 @@ async function handleCustomer(
         `Envoyez "abonner" pour être notifié des nouveaux événements.\n\n` +
         `🏪 *Vous avez un restaurant?*\n` +
         `Envoyez "restaurant" pour l'inscrire sur la plateforme.\n\n` +
-        `🌐 Switch to English → send "en"\n\n` +
+        `🌐 Passer en anglais → envoyez 'en'\n\n` +
         `💡 Envoyez "aide+" pour voir toutes les commandes avancées.`)
     return ok()
   }
@@ -2177,7 +2177,7 @@ async function handleCustomer(
         `📋 "my subscriptions" → View my subscriptions\n` +
         `📢 "broadcast" → Broadcast a message (paid)\n\n` +
         `🏪 "restaurant" → Register restaurant\n` +
-        `🌐 "fr" → Français\n` +
+        `🌐 Switch to French → send 'fr'\n` +
         `❓ "help" → Short list\n\n` +
         `🌍 Browse: ${BASE_URL}\n` +
         `🔑 My account: ${BASE_URL}/account`
@@ -2208,7 +2208,7 @@ async function handleCustomer(
         `📋 "mes abonnements" → Voir mes abonnements\n` +
         `📢 "diffuser" → Diffuser un message (payant)\n\n` +
         `🏪 "restaurant" → Inscrire votre restaurant\n` +
-        `🌐 "en" → English\n` +
+        `🌐 Passer en anglais → envoyez 'en'\n` +
         `❓ "aide" → Liste courte\n\n` +
         `🌍 Parcourez: ${BASE_URL}\n` +
         `🔑 Mon compte: ${BASE_URL}/account`)
