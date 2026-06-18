@@ -1747,13 +1747,25 @@ async function handleVendor(
     const orderLine = (o: typeof orders[number]) =>
       `#${code(o.id)} — ${o.customer_name} — ${Number(o.total_price).toLocaleString()} FCFA — ${itemsOf(o)}`
 
-    // Workflow order; each group shows only the next relevant action.
-    const GROUPS = [
-      { status: 'pending',   emoji: '📦', hFr: 'En attente',     hEn: 'Pending',   hintFr: `💡 'ok XXXX' → Confirmer`,      hintEn: `💡 'ok XXXX' → Confirm` },
-      { status: 'confirmed', emoji: '✅', hFr: 'Confirmées',     hEn: 'Confirmed', hintFr: `💡 'preparer XXXX' → Démarrer`, hintEn: `💡 'preparing XXXX' → Start` },
-      { status: 'preparing', emoji: '🍳', hFr: 'En préparation', hEn: 'Preparing', hintFr: `💡 'pret XXXX' → Marquer prêt`,  hintEn: `💡 'ready XXXX' → Mark ready` },
-      { status: 'ready',     emoji: '🎉', hFr: 'Prêtes',         hEn: 'Ready',     hintFr: `💡 'recupere XXXX' → Récupéré`, hintEn: `💡 'picked XXXX' → Picked up` },
-    ] as const
+    // Workflow order; each group shows only the next relevant action, with a
+    // real code from that group's first order as a copy-pasteable example.
+    const GROUPS: {
+      status: string; emoji: string; hFr: string; hEn: string;
+      hintFr: (ex: string) => string; hintEn: (ex: string) => string;
+    }[] = [
+      { status: 'pending',   emoji: '📦', hFr: 'En attente',     hEn: 'Pending',
+        hintFr: ex => `💡 Pour confirmer une commande, répondez: ok [code] (ex: ok ${ex})`,
+        hintEn: ex => `💡 To confirm an order, reply: ok [code] (e.g. ok ${ex})` },
+      { status: 'confirmed', emoji: '✅', hFr: 'Confirmées',     hEn: 'Confirmed',
+        hintFr: ex => `💡 Vous commencez à préparer? Répondez: preparer [code] (ex: preparer ${ex})`,
+        hintEn: ex => `💡 Started cooking? Reply: preparing [code] (e.g. preparing ${ex})` },
+      { status: 'preparing', emoji: '🍳', hFr: 'En préparation', hEn: 'Preparing',
+        hintFr: ex => `💡 C'est prêt? Répondez: pret [code] (ex: pret ${ex})`,
+        hintEn: ex => `💡 Food is ready? Reply: ready [code] (e.g. ready ${ex})` },
+      { status: 'ready',     emoji: '🎉', hFr: 'Prêtes',         hEn: 'Ready',
+        hintFr: ex => `💡 Le client a récupéré? Répondez: recupere [code] (ex: recupere ${ex})`,
+        hintEn: ex => `💡 Customer picked up? Reply: picked [code] (e.g. picked ${ex})` },
+    ]
 
     // Build with up to `perGroup` orders per status, the rest folded into a
     // "… and X more" line. Default to 5 most recent; shrink only if the body
@@ -1768,10 +1780,11 @@ async function handleVendor(
         const more = extra > 0
           ? `\n` + pickLang(`… et ${extra} autre${extra > 1 ? 's' : ''}`, `… and ${extra} more`, lang)
           : ``
+        const exampleCode = code(all[0].id)
         return [
           `${g.emoji} *${pickLang(g.hFr, g.hEn, lang)} (${all.length}):*\n` +
           shown.map(orderLine).join('\n') + more + `\n` +
-          pickLang(g.hintFr, g.hintEn, lang),
+          pickLang(g.hintFr(exampleCode), g.hintEn(exampleCode), lang),
         ]
       })
       return `${title}\n\n${sections.join('\n\n')}`
