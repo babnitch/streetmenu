@@ -535,7 +535,7 @@ export async function POST(req: NextRequest) {
     return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurant)
   }
   if (directRestaurant && !directRestaurant.is_active) {
-    return handlePendingVendor(from, directRestaurant.name)
+    return handlePendingVendor(from, phone, directRestaurant.name)
   }
 
   // Check team-based restaurant access
@@ -574,12 +574,14 @@ async function handleMultiRestaurantSelection(
   mediaUrl: string,
   restaurants: Array<{ id: string; name: string; whatsapp: string; is_active: boolean; customer_id: string | null; teamRole: string; status: string; deleted_at: string | null; suspended_by: string | null }>,
 ): Promise<NextResponse> {
+  const lang = await getLangByPhone(phone)
+
   // Commands "mes restaurants" or "my restaurants"
   if (cmd === 'mes restaurants' || cmd === 'my restaurants') {
     const lines = restaurants.map((r, i) => `${i + 1}. ${r.name} — ${r.status}`)
     await sendWhatsApp(from,
-      `🏪 *Vos restaurants / Your restaurants:*\n\n${lines.join('\n')}\n\n` +
-      `Envoyez le numéro pour sélectionner. / Send the number to select.`)
+      pickLang(`🏪 *Vos restaurants:*`, `🏪 *Your restaurants:*`, lang) + `\n\n${lines.join('\n')}\n\n` +
+      pickLang(`Envoyez le numéro pour sélectionner.`, `Send the number to select.`, lang))
     return ok()
   }
 
@@ -596,7 +598,9 @@ async function handleMultiRestaurantSelection(
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, chosen)
     }
-    await sendWhatsApp(from, `Envoyez un numéro entre 1 et ${restaurants.length}. / Send a number between 1 and ${restaurants.length}.`)
+    await sendWhatsApp(from, pickLang(
+      `Envoyez un numéro entre 1 et ${restaurants.length}.`,
+      `Send a number between 1 and ${restaurants.length}.`, lang))
     return ok()
   }
 
@@ -612,9 +616,9 @@ async function handleMultiRestaurantSelection(
     phone, user_type: 'restaurant_select', step: 1, data: {}, expires_at: sessionExpiry(10),
   })
   await sendWhatsApp(from,
-    `Vous avez ${restaurants.length} restaurants. Lequel? / Which restaurant?\n\n` +
+    pickLang(`Vous avez ${restaurants.length} restaurants. Lequel?`, `You have ${restaurants.length} restaurants. Which one?`, lang) + `\n\n` +
     lines.join('\n') + '\n\n' +
-    'Envoyez le numéro. / Send the number.')
+    pickLang('Envoyez le numéro.', 'Send the number.', lang))
   return ok()
 }
 
@@ -1223,8 +1227,9 @@ async function handleVendor(
   // can flip; staff can only read the current state.
   if (cmd === 'ouvrir' || cmd === 'open' || cmd === 'fermer' || cmd === 'close' || cmd === 'auto') {
     if (!(isOwner || isManager)) {
-      await sendWhatsApp(from,
-        `Vous n'avez pas la permission de modifier le statut. / You don't have permission.`)
+      await sendWhatsApp(from, pickLang(
+        `Vous n'avez pas la permission de modifier le statut.`,
+        `You don't have permission.`, lang))
       return ok()
     }
     const next: 'open' | 'closed' | null =
@@ -1238,7 +1243,7 @@ async function handleVendor(
       })
       .eq('id', restaurant.id)
     if (error) {
-      await sendWhatsApp(from, `⚠️ Erreur: ${error.message} / Error.`)
+      await sendWhatsApp(from, pickLang(`⚠️ Erreur: ${error.message}`, `⚠️ Error: ${error.message}`, lang))
       return ok()
     }
     const { writeAudit } = await import('@/lib/audit')
@@ -1251,12 +1256,12 @@ async function handleVendor(
       metadata:        { override: next, via: 'whatsapp' },
     })
     const ack =
-      next === 'open'   ? `🟢 *Ouvert manuellement / Manually open*` :
-      next === 'closed' ? `🔴 *Fermé manuellement / Manually closed*` :
-      `↩️ *Mode automatique / Auto mode*`
+      next === 'open'   ? pickLang(`🟢 *Ouvert manuellement*`, `🟢 *Manually open*`, lang) :
+      next === 'closed' ? pickLang(`🔴 *Fermé manuellement*`, `🔴 *Manually closed*`, lang) :
+      pickLang(`↩️ *Mode automatique*`, `↩️ *Auto mode*`, lang)
     const hint = next === null
-      ? `Le restaurant suit à nouveau l'horaire. / Following the schedule again.`
-      : `Envoyez "auto" pour revenir à l'horaire. / Send "auto" to follow the schedule.`
+      ? pickLang(`Le restaurant suit à nouveau l'horaire.`, `Following the schedule again.`, lang)
+      : pickLang(`Envoyez "auto" pour revenir à l'horaire.`, `Send "auto" to follow the schedule.`, lang)
     await sendWhatsApp(from, `${ack}\n${restaurant.name}\n\n${hint}`)
     return ok()
   }
@@ -1287,15 +1292,15 @@ async function handleVendor(
     })
     const statusLine = status.source === 'override'
       ? (status.open
-          ? `🟢 *Ouvert (manuel) / Open (manual)*`
-          : `🔴 *Fermé (manuel) / Closed (manual)*`)
+          ? pickLang(`🟢 *Ouvert (manuel)*`, `🟢 *Open (manual)*`, lang)
+          : pickLang(`🔴 *Fermé (manuel)*`, `🔴 *Closed (manual)*`, lang))
       : (status.open
-          ? `🟢 *Ouvert (horaire) / Open (scheduled)*`
-          : `🔴 *Fermé (horaire) / Closed (scheduled)*`)
+          ? pickLang(`🟢 *Ouvert (horaire)*`, `🟢 *Open (scheduled)*`, lang)
+          : pickLang(`🔴 *Fermé (horaire)*`, `🔴 *Closed (scheduled)*`, lang))
     const nextLine = status.next_transition
       ? (status.next_transition.kind === 'opens'
-          ? `· Ouvre à ${status.next_transition.at} / Opens at ${status.next_transition.at}`
-          : `· Ferme à ${status.next_transition.at} / Closes at ${status.next_transition.at}`)
+          ? pickLang(`· Ouvre à ${status.next_transition.at}`, `· Opens at ${status.next_transition.at}`, lang)
+          : pickLang(`· Ferme à ${status.next_transition.at}`, `· Closes at ${status.next_transition.at}`, lang))
       : ''
     const weekLines = formatHoursForDisplay(
       (hours ?? []).map(h => ({
@@ -1304,15 +1309,22 @@ async function handleVendor(
         close_time:  String(h.close_time).slice(0, 5),
         is_closed:   !!h.is_closed,
       })),
-      'fr',
+      lang,
     )
     await sendWhatsApp(from,
       `${statusLine} ${nextLine}\n${restaurant.name}\n\n` +
-      `🕐 Horaires / Hours:\n${weekLines.join('\n')}\n\n` +
-      `Commandes / Commands:\n` +
-      `🟢 "ouvrir" / "open" → Ouvrir manuellement\n` +
-      `🔴 "fermer" / "close" → Fermer manuellement\n` +
-      `↩️ "auto" → Suivre l'horaire / Follow schedule`)
+      pickLang(
+        `🕐 Horaires:\n${weekLines.join('\n')}\n\n` +
+        `Commandes:\n` +
+        `🟢 "ouvrir" → Ouvrir manuellement\n` +
+        `🔴 "fermer" → Fermer manuellement\n` +
+        `↩️ "auto" → Suivre l'horaire`,
+        `🕐 Hours:\n${weekLines.join('\n')}\n\n` +
+        `Commands:\n` +
+        `🟢 "ouvrir" → Manually open\n` +
+        `🔴 "fermer" → Manually close\n` +
+        `↩️ "auto" → Follow schedule`,
+        lang))
     return ok()
   }
 
@@ -1331,29 +1343,36 @@ async function handleVendor(
           .eq('id', restaurant.id).maybeSingle()
         const label = formatPrepTime(r?.prep_time_min, r?.prep_time_max)
         await sendWhatsApp(from,
-          `🕐 *Temps de préparation / Prep time — ${restaurant.name}*\n\n` +
+          pickLang(`🕐 *Temps de préparation — ${restaurant.name}*`, `🕐 *Prep time — ${restaurant.name}*`, lang) + `\n\n` +
           (label
-            ? `Actuel / Current: *${label}*\n\n`
-            : `Aucun temps défini. / No prep time set.\n\n`) +
+            ? pickLang(`Actuel: *${label}*`, `Current: *${label}*`, lang) + `\n\n`
+            : pickLang(`Aucun temps défini.`, `No prep time set.`, lang) + `\n\n`) +
           (isOwner || isManager
-            ? `Pour changer / To change:\n` +
-              `"temps 20 35" → min 20 min, max 35 min\n\n` +
-              `💡 La plupart des restaurants mettent ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min / ` +
-              `Most restaurants set ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min`
-            : `Seuls le propriétaire et le manager peuvent le modifier. / Only the owner and manager can change it.`))
+            ? pickLang(
+                `Pour changer:\n` +
+                `"temps 20 35" → min 20 min, max 35 min\n\n` +
+                `💡 La plupart des restaurants mettent ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min`,
+                `To change:\n` +
+                `"temps 20 35" → min 20 min, max 35 min\n\n` +
+                `💡 Most restaurants set ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min`,
+                lang)
+            : pickLang(`Seuls le propriétaire et le manager peuvent le modifier.`, `Only the owner and manager can change it.`, lang)))
         return ok()
       }
       // Set path
       if (!(isOwner || isManager)) {
-        await sendWhatsApp(from,
-          `Vous n'avez pas la permission de modifier le temps de préparation. / You don't have permission.`)
+        await sendWhatsApp(from, pickLang(
+          `Vous n'avez pas la permission de modifier le temps de préparation.`,
+          `You don't have permission.`, lang))
         return ok()
       }
       const v = validatePrepTime(Number(prepSet![1]), Number(prepSet![2]))
       if (!v.ok) {
         await sendWhatsApp(from,
           `❌ ${v.error}\n\n` +
-          `Format: "temps 20 35" (min ≥ 5, max ≤ 120, min < max)`)
+          pickLang(
+            `Format: "temps 20 35" (min ≥ 5, max ≤ 120, min < max)`,
+            `Format: "temps 20 35" (min ≥ 5, max ≤ 120, min < max)`, lang))
         return ok()
       }
       const { data: before } = await supabaseAdmin
@@ -1364,7 +1383,7 @@ async function handleVendor(
         .update({ prep_time_min: v.min, prep_time_max: v.max })
         .eq('id', restaurant.id)
       if (error) {
-        await sendWhatsApp(from, `⚠️ Erreur: ${error.message} / Error.`)
+        await sendWhatsApp(from, pickLang(`⚠️ Erreur: ${error.message}`, `⚠️ Error: ${error.message}`, lang))
         return ok()
       }
       await writeAudit({
@@ -1377,10 +1396,10 @@ async function handleVendor(
         metadata:        { prep_time_min: v.min, prep_time_max: v.max, via: 'whatsapp' },
       })
       await sendWhatsApp(from,
-        `✅ *Temps de préparation mis à jour / Prep time updated*\n` +
+        pickLang(`✅ *Temps de préparation mis à jour*`, `✅ *Prep time updated*`, lang) + `\n` +
         `${restaurant.name}\n\n` +
         `🕐 ${v.min}-${v.max} min\n\n` +
-        `Affiché aux clients. / Shown to customers.`)
+        pickLang(`Affiché aux clients.`, `Shown to customers.`, lang))
       return ok()
     }
   }
@@ -1388,7 +1407,9 @@ async function handleVendor(
   // ── TEAM MANAGEMENT (owner only) ─────────────────────────────────────────
   if (cmd === 'equipe' || cmd === 'team') {
     if (!isOwner) {
-      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission. Contactez le propriétaire / Contact the owner.')
+      await sendWhatsApp(from, pickLang(
+        'Vous n\'avez pas la permission. Contactez le propriétaire.',
+        'You don\'t have permission. Contact the owner.', lang))
       return ok()
     }
     const { data: members } = await supabaseAdmin
@@ -1398,14 +1419,16 @@ async function handleVendor(
       .eq('status', 'active')
 
     if (!members || members.length === 0) {
-      await sendWhatsApp(from, `👥 *Équipe — ${restaurant.name}*\n\nAucun membre. Ajoutez avec:\n"ajouter +XXX manager"\n\nNo members. Add with:\n"ajouter +XXX manager"`)
+      await sendWhatsApp(from, pickLang(
+        `👥 *Équipe — ${restaurant.name}*\n\nAucun membre. Ajoutez avec:\n"ajouter +XXX manager"`,
+        `👥 *Team — ${restaurant.name}*\n\nNo members. Add with:\n"ajouter +XXX manager"`, lang))
       return ok()
     }
     const lines = members.map(m => {
       const c = m.customers as unknown as { name: string; phone: string }
       return `• ${c.name} (${c.phone}) — ${m.role}`
     })
-    await sendWhatsApp(from, `👥 *Équipe — ${restaurant.name}*\n\n${lines.join('\n')}`)
+    await sendWhatsApp(from, pickLang(`👥 *Équipe — ${restaurant.name}*`, `👥 *Team — ${restaurant.name}*`, lang) + `\n\n${lines.join('\n')}`)
     return ok()
   }
 
@@ -1420,7 +1443,7 @@ async function handleVendor(
   const addMemberMatch = body.match(/^(?:ajouter|add|inviter|invite)\s+(\+?[\d\s-]+)\s+(manager|staff)$/i)
   if (addMemberMatch) {
     if (!isOwner) {
-      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
       return ok()
     }
     const rawMemberPhone = addMemberMatch[1].trim()
@@ -1434,7 +1457,7 @@ async function handleVendor(
     const fallbackCountry = getCountryFromCity(restRow?.city ?? '')
     const memberPhone = ensureInternational(rawMemberPhone, fallbackCountry)
     if (!memberPhone || !/^\+\d{8,}$/.test(memberPhone)) {
-      await sendWhatsApp(from, '❌ Numéro invalide. / Invalid phone number.')
+      await sendWhatsApp(from, pickLang('❌ Numéro invalide.', '❌ Invalid phone number.', lang))
       return ok()
     }
 
@@ -1457,7 +1480,9 @@ async function handleVendor(
         `*${ownerCustomer?.name ?? 'The owner'}* added you as *${memberRole}* at *${restaurant.name}*.\n` +
         `Log in to see your restaurant.`)
 
-      await sendWhatsApp(from, `✅ ${newMember.name} ajouté comme *${memberRole}*. / Added as *${memberRole}*.`)
+      await sendWhatsApp(from, pickLang(
+        `✅ ${newMember.name} ajouté comme *${memberRole}*.`,
+        `✅ ${newMember.name} added as *${memberRole}*.`, lang))
       return ok()
     }
 
@@ -1470,8 +1495,9 @@ async function handleVendor(
       .maybeSingle()
 
     if (stale && new Date(stale.expires_at) > new Date()) {
-      await sendWhatsApp(from,
-        `⏳ Une invitation est déjà en attente pour ${memberPhone}. / A pending invitation already exists.`)
+      await sendWhatsApp(from, pickLang(
+        `⏳ Une invitation est déjà en attente pour ${memberPhone}.`,
+        `⏳ A pending invitation already exists for ${memberPhone}.`, lang))
       return ok()
     }
     if (stale) {
@@ -1495,7 +1521,7 @@ async function handleVendor(
 
     if (invErr || !invitation) {
       console.error('[whatsapp] invitation insert error:', invErr?.message)
-      await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+      await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
       return ok()
     }
 
@@ -1522,16 +1548,16 @@ async function handleVendor(
       `Send *accept* to join — you'll be registered automatically.\n` +
       `Send *decline* to decline.`)
 
-    await sendWhatsApp(from,
-      `📨 Invitation envoyée à ${memberPhone}. En attente d'acceptation.\n` +
-      `Invitation sent. Waiting for acceptance.`)
+    await sendWhatsApp(from, pickLang(
+      `📨 Invitation envoyée à ${memberPhone}. En attente d'acceptation.`,
+      `📨 Invitation sent to ${memberPhone}. Waiting for acceptance.`, lang))
     return ok()
   }
 
   // ── INVITATIONS: list pending ────────────────────────────────────────────
   if (cmd === 'invitations' || cmd === 'invitation') {
     if (!isOwner) {
-      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
       return ok()
     }
     const { data: pending } = await supabaseAdmin
@@ -1543,18 +1569,20 @@ async function handleVendor(
     const nowMs = Date.now()
     const live = (pending ?? []).filter(p => new Date(p.expires_at).getTime() > nowMs)
     if (!live.length) {
-      await sendWhatsApp(from,
-        `📨 Aucune invitation en attente. / No pending invitations.\n\n` +
-        `Invitez avec: / Invite with:\n"inviter +237XXX manager"`)
+      await sendWhatsApp(from, pickLang(
+        `📨 Aucune invitation en attente.\n\n` +
+        `Invitez avec:\n"inviter +237XXX manager"`,
+        `📨 No pending invitations.\n\n` +
+        `Invite with:\n"inviter +237XXX manager"`, lang))
       return ok()
     }
     const lines = live.map((p, i) => {
       const daysAgo = Math.max(0, Math.floor((nowMs - new Date(p.created_at).getTime()) / 86_400_000))
-      return `${i + 1}. ${p.phone} — ${p.role} — ${daysAgo}j / ${daysAgo}d`
+      return `${i + 1}. ${p.phone} — ${p.role} — ${pickLang(`${daysAgo}j`, `${daysAgo}d`, lang)}`
     })
     await sendWhatsApp(from,
-      `📨 *Invitations en attente / Pending invitations*\n${lines.join('\n')}\n\n` +
-      `Annuler: / Cancel: "annuler invitation +237XXX"`)
+      pickLang(`📨 *Invitations en attente*`, `📨 *Pending invitations*`, lang) + `\n${lines.join('\n')}\n\n` +
+      pickLang(`Annuler: "annuler invitation +237XXX"`, `Cancel: "annuler invitation +237XXX"`, lang))
     return ok()
   }
 
@@ -1562,7 +1590,7 @@ async function handleVendor(
   const cancelInvMatch = body.match(/^(?:annuler\s+invitation|cancel\s+invitation)\s+(\+?[\d\s-]+)$/i)
   if (cancelInvMatch) {
     if (!isOwner) {
-      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
       return ok()
     }
     const rawTarget = cancelInvMatch[1].trim()
@@ -1575,7 +1603,9 @@ async function handleVendor(
       .eq('restaurant_id', restaurant.id).eq('phone', targetPhone).eq('status', 'pending')
       .maybeSingle()
     if (!inv) {
-      await sendWhatsApp(from, '❌ Aucune invitation en attente pour ce numéro. / No pending invitation for this number.')
+      await sendWhatsApp(from, pickLang(
+        '❌ Aucune invitation en attente pour ce numéro.',
+        '❌ No pending invitation for this number.', lang))
       return ok()
     }
     await supabaseAdmin.from('team_invitations').update({ status: 'cancelled' }).eq('id', inv.id)
@@ -1592,7 +1622,7 @@ async function handleVendor(
       metadata: { restaurant_id: restaurant.id, phone: targetPhone, via: 'whatsapp' },
     })
 
-    await sendWhatsApp(from, 'Invitation annulée. / Invitation cancelled.')
+    await sendWhatsApp(from, pickLang('Invitation annulée.', 'Invitation cancelled.', lang))
     return ok()
   }
 
@@ -1600,7 +1630,7 @@ async function handleVendor(
   const removeMemberMatch = body.match(/^(?:retirer|remove)\s+(\+?[\d\s-]+)$/i)
   if (removeMemberMatch) {
     if (!isOwner) {
-      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
       return ok()
     }
     const rawRemove = removeMemberMatch[1].trim()
@@ -1612,7 +1642,7 @@ async function handleVendor(
       .from('customers').select('id, name, phone').eq('phone', memberPhone).maybeSingle()
 
     if (!memberCustomer) {
-      await sendWhatsApp(from, `❌ Numéro introuvable. / Number not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Numéro introuvable.`, `❌ Number not found.`, lang))
       return ok()
     }
 
@@ -1622,22 +1652,24 @@ async function handleVendor(
 
     await sendWhatsApp(memberCustomer.phone,
       `👋 Vous avez été retiré de *${restaurant.name}*.\nYou have been removed from *${restaurant.name}*.`)
-    await sendWhatsApp(from, `✅ ${memberCustomer.name} retiré de l'équipe. / Removed from team.`)
+    await sendWhatsApp(from, pickLang(
+      `✅ ${memberCustomer.name} retiré de l'équipe.`,
+      `✅ ${memberCustomer.name} removed from team.`, lang))
     return ok()
   }
 
   // ── SUSPEND (owner only) ──────────────────────────────────────────────────
   if (cmd === 'suspendre' || cmd === 'suspend') {
     if (!isOwner) {
-      await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+      await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
       return ok()
     }
     await supabaseAdmin.from('restaurants').update({
       status: 'suspended', suspended_at: new Date().toISOString(), suspended_by: 'vendor',
     }).eq('id', restaurant.id)
-    await sendWhatsApp(from,
-      `⏸️ *${restaurant.name}* suspendu. Envoyez "reactiver" pour réactiver.\n` +
-      `Suspended. Send "reactiver" to reactivate.`)
+    await sendWhatsApp(from, pickLang(
+      `⏸️ *${restaurant.name}* suspendu. Envoyez "reactiver" pour réactiver.`,
+      `⏸️ *${restaurant.name}* suspended. Send "reactiver" to reactivate.`, lang))
     return ok()
   }
 
@@ -1647,10 +1679,11 @@ async function handleVendor(
       phone, user_type: 'photo_update', step: 1, data: {},
       expires_at: sessionExpiry(5), // 5-minute window
     })
-    await sendWhatsApp(from,
-      '📷 Envoyez la photo de votre restaurant maintenant.\n' +
-      'Send your restaurant photo now.\n\n' +
-      '_Expire dans 5 minutes. / Expires in 5 minutes._')
+    await sendWhatsApp(from, pickLang(
+      '📷 Envoyez la photo de votre restaurant maintenant.\n\n' +
+      '_Expire dans 5 minutes._',
+      '📷 Send your restaurant photo now.\n\n' +
+      '_Expires in 5 minutes._', lang))
     return ok()
   }
 
@@ -1660,22 +1693,27 @@ async function handleVendor(
       .from('menu_items').select('name, price, is_available')
       .eq('restaurant_id', restaurant.id).order('name')
     if (!items || items.length === 0) {
-      await sendWhatsApp(from,
-        'Votre menu est vide. / Your menu is empty.\n\n' +
-        'Ajoutez un plat: "Ndolé - 2500"\nAdd a dish: "Ndolé - 2500"')
+      await sendWhatsApp(from, pickLang(
+        'Votre menu est vide.\n\n' +
+        'Ajoutez un plat: "Ndolé - 2500"',
+        'Your menu is empty.\n\n' +
+        'Add a dish: "Ndolé - 2500"', lang))
       return ok()
     }
     const lines = items.map(i =>
       `${i.is_available ? '✅' : '❌'} ${i.name} — ${Number(i.price).toLocaleString()} FCFA`)
     await sendWhatsApp(from,
-      `🍽️ *Menu — ${restaurant.name}*\n(${items.length} plat${items.length > 1 ? 's' : ''})\n\n` +
+      `🍽️ *Menu — ${restaurant.name}*\n` +
+      pickLang(`(${items.length} plat${items.length > 1 ? 's' : ''})`, `(${items.length} dish${items.length > 1 ? 'es' : ''})`, lang) + `\n\n` +
       lines.join('\n'))
     return ok()
   }
 
   // ── PENDING ORDERS ───────────────────────────────────────────────────────
   if ((cmd === 'commandes' || cmd === 'orders') && !canViewOrders) {
-    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission. Contactez le propriétaire / Contact the owner.')
+    await sendWhatsApp(from, pickLang(
+      'Vous n\'avez pas la permission. Contactez le propriétaire.',
+      'You don\'t have permission. Contact the owner.', lang))
     return ok()
   }
   if (cmd === 'commandes' || cmd === 'orders') {
@@ -1686,19 +1724,27 @@ async function handleVendor(
       .in('status', ['pending', 'confirmed', 'preparing'])
       .order('created_at', { ascending: false }).limit(10)
     if (!orders || orders.length === 0) {
-      await sendWhatsApp(from, 'Aucune commande en attente. ✅\nNo pending orders. ✅')
+      await sendWhatsApp(from, pickLang('Aucune commande en attente. ✅', 'No pending orders. ✅', lang))
       return ok()
     }
+    const statusLabel: Record<string, string> = {
+      pending:   pickLang('En attente', 'Pending', lang),
+      confirmed: pickLang('Confirmée', 'Confirmed', lang),
+      preparing: pickLang('En préparation', 'Preparing', lang),
+      ready:     pickLang('Prête', 'Ready', lang),
+    }
     const lines = orders.map(o => {
-      const time = new Date(o.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+      const time = new Date(o.created_at).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'fr-FR', { hour: '2-digit', minute: '2-digit' })
       const items = Array.isArray(o.items)
         ? o.items.map((i: { name: string; quantity: number }) => `${i.quantity}× ${i.name}`).join(', ')
         : ''
-      return `[${time}] ${o.customer_name} — ${Number(o.total_price).toLocaleString()} FCFA\n  ${items}`
+      const status = statusLabel[o.status] ?? o.status
+      return `[${time}] ${o.customer_name} — ${Number(o.total_price).toLocaleString()} FCFA (${status})\n  ${items}`
     })
+    const count = orders.length
     await sendWhatsApp(from,
-      `🛒 *Commandes en cours — ${restaurant.name}*\n` +
-      `(${orders.length} commande${orders.length > 1 ? 's' : ''})\n\n` +
+      pickLang(`🛒 *Commandes en cours — ${restaurant.name}*`, `🛒 *Active orders — ${restaurant.name}*`, lang) + `\n` +
+      pickLang(`(${count} commande${count > 1 ? 's' : ''})`, `(${count} order${count > 1 ? 's' : ''})`, lang) + `\n\n` +
       lines.join('\n\n'))
     return ok()
   }
@@ -1706,19 +1752,23 @@ async function handleVendor(
   // ── UPDATE PRICE: "prix Ndolé 3000" or "price Ndolé 3000" ───────────────
   const priceMatch = body.match(/^(?:prix|price)\s+(.+?)\s+(\d[\d\s]*)$/i)
   if (priceMatch && !canEditMenu) {
-    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission. Contactez le propriétaire / Contact the owner.')
+    await sendWhatsApp(from, pickLang(
+      'Vous n\'avez pas la permission. Contactez le propriétaire.',
+      'You don\'t have permission. Contact the owner.', lang))
     return ok()
   }
   if (priceMatch) {
     const itemName = priceMatch[1].trim()
     const newPrice = parseInt(priceMatch[2].replace(/\s/g, ''), 10)
     if (isNaN(newPrice) || newPrice <= 0) {
-      await sendWhatsApp(from, 'Prix invalide. Ex: prix Ndolé 3000 / Invalid price.')
+      await sendWhatsApp(from, pickLang('Prix invalide. Ex: prix Ndolé 3000', 'Invalid price. Ex: prix Ndolé 3000', lang))
       return ok()
     }
     const item = await findMenuItem(restaurant.id, itemName)
     if (!item) {
-      await sendWhatsApp(from, `❌ "${itemName}" introuvable dans votre menu. / Not found in your menu.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ "${itemName}" introuvable dans votre menu.`,
+        `❌ "${itemName}" not found in your menu.`, lang))
       return ok()
     }
     await supabaseAdmin.from('menu_items').update({ price: newPrice }).eq('id', item.id)
@@ -1730,60 +1780,62 @@ async function handleVendor(
   // ── MARK AVAILABLE: "dispo Ndolé" or "available Ndolé" ──────────────────
   const dispoMatch = body.match(/^(?:dispo|available)\s+(.+)$/i)
   if (dispoMatch && !canEditMenu) {
-    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+    await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
     return ok()
   }
   if (dispoMatch) {
     const itemName = dispoMatch[1].trim()
     const item = await findMenuItem(restaurant.id, itemName)
     if (!item) {
-      await sendWhatsApp(from, `❌ "${itemName}" introuvable. / Not found.`)
+      await sendWhatsApp(from, pickLang(`❌ "${itemName}" introuvable.`, `❌ "${itemName}" not found.`, lang))
       return ok()
     }
     await supabaseAdmin.from('menu_items').update({ is_available: true }).eq('id', item.id)
-    await sendWhatsApp(from, `✅ *${item.name}* marqué disponible / marked available`)
+    await sendWhatsApp(from, pickLang(`✅ *${item.name}* marqué disponible`, `✅ *${item.name}* marked available`, lang))
     return ok()
   }
 
   // ── MARK UNAVAILABLE: "indispo Ndolé" or "unavailable Ndolé" ────────────
   const indispoMatch = body.match(/^(?:indispo|unavailable)\s+(.+)$/i)
   if (indispoMatch && !canEditMenu) {
-    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+    await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
     return ok()
   }
   if (indispoMatch) {
     const itemName = indispoMatch[1].trim()
     const item = await findMenuItem(restaurant.id, itemName)
     if (!item) {
-      await sendWhatsApp(from, `❌ "${itemName}" introuvable. / Not found.`)
+      await sendWhatsApp(from, pickLang(`❌ "${itemName}" introuvable.`, `❌ "${itemName}" not found.`, lang))
       return ok()
     }
     await supabaseAdmin.from('menu_items').update({ is_available: false }).eq('id', item.id)
-    await sendWhatsApp(from, `❌ *${item.name}* marqué indisponible / marked unavailable`)
+    await sendWhatsApp(from, pickLang(`❌ *${item.name}* marqué indisponible`, `❌ *${item.name}* marked unavailable`, lang))
     return ok()
   }
 
   // ── DELETE ITEM: "supprimer Ndolé" or "delete Ndolé" ────────────────────
   const deleteMatch = body.match(/^(?:supprimer|delete)\s+(.+)$/i)
   if (deleteMatch && !canEditMenu) {
-    await sendWhatsApp(from, 'Vous n\'avez pas la permission. / You don\'t have permission.')
+    await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
     return ok()
   }
   if (deleteMatch) {
     const itemName = deleteMatch[1].trim()
     const item = await findMenuItem(restaurant.id, itemName)
     if (!item) {
-      await sendWhatsApp(from, `❌ "${itemName}" introuvable. / Not found.`)
+      await sendWhatsApp(from, pickLang(`❌ "${itemName}" introuvable.`, `❌ "${itemName}" not found.`, lang))
       return ok()
     }
     await supabaseAdmin.from('menu_items').delete().eq('id', item.id)
-    await sendWhatsApp(from, `🗑️ *${item.name}* supprimé du menu / removed from menu`)
+    await sendWhatsApp(from, pickLang(`🗑️ *${item.name}* supprimé du menu`, `🗑️ *${item.name}* removed from menu`, lang))
     return ok()
   }
 
   // ── PHOTO WITH CAPTION ───────────────────────────────────────────────────
   if (hasPhoto && !canEditMenu) {
-    await sendWhatsApp(from, 'Vous n\'avez pas la permission de modifier le menu. / You don\'t have permission to edit the menu.')
+    await sendWhatsApp(from, pickLang(
+      'Vous n\'avez pas la permission de modifier le menu.',
+      'You don\'t have permission to edit the menu.', lang))
     return ok()
   }
   if (hasPhoto) {
@@ -1801,7 +1853,7 @@ async function handleVendor(
       const dishName = match[1].trim()
       const price    = parseInt(match[2].replace(/\s/g, ''), 10)
       if (!dishName || isNaN(price) || price <= 0) {
-        await sendWhatsApp(from, 'Format invalide. Ex: Ndolé - 2500')
+        await sendWhatsApp(from, pickLang('Format invalide. Ex: Ndolé - 2500', 'Invalid format. Ex: Ndolé - 2500', lang))
         return ok()
       }
       const media    = await downloadTwilioMedia(mediaUrl)
@@ -1810,7 +1862,7 @@ async function handleVendor(
       const category = threePart ? matchCategory(match[3]) : null
       if (threePart && !category) {
         await sendWhatsApp(from,
-          `❓ Catégorie "${match[3].trim()}" non reconnue. / Unknown category.\n\n` +
+          pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
           CATEGORY_PROMPT)
         await supabaseAdmin.from('signup_sessions').upsert({
           phone, user_type: 'menu_category', step: 1,
@@ -1828,13 +1880,13 @@ async function handleVendor(
         })
         if (error) {
           console.error('[whatsapp] menu insert error:', error.message)
-          await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+          await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
           return ok()
         }
         await sendWhatsApp(from,
-          `✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}\n` +
-          `Prix: ${price.toLocaleString()} FCFA\n` +
-          `Catégorie: ${category}`)
+          pickLang(`✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}`, `✅ *${dishName}* added${photoUrl ? ' 📸' : ''}`, lang) + `\n` +
+          pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, lang) + `\n` +
+          pickLang(`Catégorie: ${category}`, `Category: ${category}`, lang))
         return ok()
       }
 
@@ -1858,20 +1910,20 @@ async function handleVendor(
         const photoUrl = media ? await uploadToStorage('menu-images', media.buffer, media.contentType) : null
         if (photoUrl) {
           await supabaseAdmin.from('menu_items').update({ photo_url: photoUrl }).eq('id', item.id)
-          await sendWhatsApp(from, `📸 Photo de *${item.name}* mise à jour! / updated!`)
+          await sendWhatsApp(from, pickLang(`📸 Photo de *${item.name}* mise à jour!`, `📸 Photo of *${item.name}* updated!`, lang))
         } else {
-          await sendWhatsApp(from, '❌ Erreur upload photo. Réessayez. / Photo upload error. Retry.')
+          await sendWhatsApp(from, pickLang('❌ Erreur upload photo. Réessayez.', '❌ Photo upload error. Retry.', lang))
         }
         return ok()
       }
     }
 
     // No usable caption
-    await sendWhatsApp(from,
+    await sendWhatsApp(from, pickLang(
       'Ajoutez le nom et le prix dans la légende.\n' +
-      'Ex: *Ndolé - 2500*\n\n' +
+      'Ex: *Ndolé - 2500*',
       'Add the name and price in the caption.\n' +
-      'Ex: *Ndolé - 2500*')
+      'Ex: *Ndolé - 2500*', lang))
     return ok()
   }
 
@@ -1882,7 +1934,9 @@ async function handleVendor(
   const textTwoPart   = textThreePart ? null
     : body.match(/^(.+?)\s*[-–—]\s*([\d\s]+)\s*$/)
   if ((textThreePart || textTwoPart) && !canEditMenu) {
-    await sendWhatsApp(from, 'Vous n\'avez pas la permission de modifier le menu. / You don\'t have permission.')
+    await sendWhatsApp(from, pickLang(
+      'Vous n\'avez pas la permission de modifier le menu.',
+      'You don\'t have permission.', lang))
     return ok()
   }
   if (textThreePart || textTwoPart) {
@@ -1890,14 +1944,14 @@ async function handleVendor(
     const dishName = match[1].trim()
     const price    = parseInt(match[2].replace(/\s/g, ''), 10)
     if (!dishName || isNaN(price) || price <= 0) {
-      await sendWhatsApp(from, 'Format invalide. Ex: Ndolé - 2500')
+      await sendWhatsApp(from, pickLang('Format invalide. Ex: Ndolé - 2500', 'Invalid format. Ex: Ndolé - 2500', lang))
       return ok()
     }
     const category = textThreePart ? matchCategory(match[3]) : null
 
     if (textThreePart && !category) {
       await sendWhatsApp(from,
-        `❓ Catégorie "${match[3].trim()}" non reconnue. / Unknown category.\n\n` +
+        pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
         CATEGORY_PROMPT)
       await supabaseAdmin.from('signup_sessions').upsert({
         phone, user_type: 'menu_category', step: 1,
@@ -1915,15 +1969,16 @@ async function handleVendor(
       })
       if (error) {
         console.error('[whatsapp] menu insert error:', error.message)
-        await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+        await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
         return ok()
       }
       await sendWhatsApp(from,
-        `✅ *${dishName}* ajouté au menu\n` +
-        `Prix: ${price.toLocaleString()} FCFA\n` +
-        `Catégorie: ${category}\n\n` +
-        '📸 Envoyez une photo avec la même légende pour ajouter une image.\n' +
-        '📸 Send a photo with the same caption to add an image.')
+        pickLang(`✅ *${dishName}* ajouté au menu`, `✅ *${dishName}* added to the menu`, lang) + `\n` +
+        pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, lang) + `\n` +
+        pickLang(`Catégorie: ${category}`, `Category: ${category}`, lang) + `\n\n` +
+        pickLang(
+          '📸 Envoyez une photo avec la même légende pour ajouter une image.',
+          '📸 Send a photo with the same caption to add an image.', lang))
       return ok()
     }
 
@@ -1945,20 +2000,22 @@ async function handleVendor(
   }
 
   // ── Unknown ──────────────────────────────────────────────────────────────
-  await sendWhatsApp(from,
-    'Je n\'ai pas compris. Envoyez *aide* pour la liste des commandes.\n' +
-    'I didn\'t understand. Send *help* for the list of commands.')
+  await sendWhatsApp(from, pickLang(
+    'Je n\'ai pas compris. Envoyez *aide* pour la liste des commandes.',
+    'I didn\'t understand. Send *help* for the list of commands.', lang))
   return ok()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PENDING VENDOR
 // ─────────────────────────────────────────────────────────────────────────────
-async function handlePendingVendor(from: string, restaurantName: string): Promise<NextResponse> {
-  await sendWhatsApp(from,
-    `⏳ *${restaurantName}* est en attente de validation.\n` +
-    'Your restaurant is pending approval.\n\n' +
-    'Notre équipe vous contactera sous 24h. / Our team will contact you within 24h.')
+async function handlePendingVendor(from: string, phone: string, restaurantName: string): Promise<NextResponse> {
+  const lang = await getLangByPhone(phone)
+  await sendWhatsApp(from, pickLang(
+    `⏳ *${restaurantName}* est en attente de validation.\n\n` +
+    'Notre équipe vous contactera sous 24h.',
+    `⏳ *${restaurantName}* is pending approval.\n\n` +
+    'Our team will contact you within 24h.', lang))
   return ok()
 }
 
@@ -2114,19 +2171,25 @@ async function handleCustomer(
   // "diffuser" / "broadcast" → punt to the website (compose UI is too
   // heavy for chat, per spec).
   if (cmd === 'diffuser' || cmd === 'broadcast') {
-    await sendWhatsApp(from,
-      `📢 *Diffuser un message / Broadcast a message*\n\n` +
-      `Composez votre message sur le site / Compose on the website:\n` +
-      `${BASE_URL}/account?tab=profile`)
+    await sendWhatsApp(from, pickLang(
+      `📢 *Diffuser un message*\n\n` +
+      `Composez votre message sur le site:\n` +
+      `${BASE_URL}/account?tab=profile`,
+      `📢 *Broadcast a message*\n\n` +
+      `Compose on the website:\n` +
+      `${BASE_URL}/account?tab=profile`, lang))
     return ok()
   }
 
   // "promouvoir" / "promote" → same: too complex for chat, redirect.
   if (cmd === 'promouvoir' || cmd === 'promote') {
-    await sendWhatsApp(from,
-      `📢 *Promouvoir / Promote*\n\n` +
-      `Créez votre promotion sur le site / Create your promotion on the website:\n` +
-      `${BASE_URL}/account?tab=profile`)
+    await sendWhatsApp(from, pickLang(
+      `📢 *Promouvoir*\n\n` +
+      `Créez votre promotion sur le site:\n` +
+      `${BASE_URL}/account?tab=profile`,
+      `📢 *Promote*\n\n` +
+      `Create your promotion on the website:\n` +
+      `${BASE_URL}/account?tab=profile`, lang))
     return ok()
   }
 
@@ -2144,11 +2207,13 @@ async function handleCustomer(
       phone, user_type: 'vendor', step: 1,
       data: { customer_id: customer.id }, expires_at: sessionExpiry(),
     })
-    await sendWhatsApp(from,
-      `🏪 *Inscription restaurant / Restaurant registration*\n\n` +
-      'Quel est le *nom* de votre restaurant?\n' +
+    await sendWhatsApp(from, pickLang(
+      `🏪 *Inscription restaurant*\n\n` +
+      'Quel est le *nom* de votre restaurant?\n\n' +
+      '_Envoyez "annuler" pour annuler._',
+      `🏪 *Restaurant registration*\n\n` +
       'What is your *restaurant name*?\n\n' +
-      '_Envoyez "annuler" pour annuler. / Send "cancel" to cancel._')
+      '_Send "cancel" to cancel._', lang))
     return ok()
   }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,12 +48,14 @@ export async function POST(req: NextRequest, { params }: { params: { customerId:
   })
 
   if (customer.phone) {
-    const reasonLine = reason ? `\n📝 Raison / Reason: ${reason}` : ''
-    await sendWhatsApp(customer.phone,
-      `⚠️ *Auto-approbation révoquée / Auto-approve revoked*\n\n` +
-      `Vos prochains événements passeront à nouveau par la validation admin.${reasonLine}\n` +
-      `Your next events will require admin review again.`,
-    ).catch(() => null)
+    const lang = await getLangByPhone(customer.phone)
+    await sendWhatsApp(customer.phone, pickLang(
+      `⚠️ *Auto-approbation révoquée*\n\n` +
+      `Vos prochains événements passeront à nouveau par la validation admin.${reason ? `\n📝 Raison: ${reason}` : ''}`,
+      `⚠️ *Auto-approve revoked*\n\n` +
+      `Your next events will require admin review again.${reason ? `\n📝 Reason: ${reason}` : ''}`,
+      lang,
+    )).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

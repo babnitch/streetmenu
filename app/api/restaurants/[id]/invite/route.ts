@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { normalizePhone } from '@/lib/phone'
 
@@ -79,11 +79,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     })
 
-    await sendWhatsApp(existingCustomer.phone,
+    const addedLang = await getLangByPhone(existingCustomer.phone)
+    await sendWhatsApp(existingCustomer.phone, pickLang(
       `✅ *${session.name}* vous a ajouté comme *${role}* chez *${restaurant.name}*!\n` +
-      `Connectez-vous pour voir votre restaurant.\n\n` +
-      `*${session.name}* added you as *${role}* at *${restaurant.name}*.\n` +
-      `Log in to see your restaurant.`)
+      `Connectez-vous pour voir votre restaurant.`,
+      `✅ *${session.name}* added you as *${role}* at *${restaurant.name}*!\n` +
+      `Log in to see your restaurant.`,
+      addedLang,
+    ))
 
     return NextResponse.json({
       ok: true,
@@ -154,13 +157,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  await sendWhatsApp(phone,
+  const inviteLang = await getLangByPhone(phone)
+  await sendWhatsApp(phone, pickLang(
     `👋 *${session.name}* vous invite comme *${role}* chez *${restaurant.name}* sur Tchop & Ndjoka!\n\n` +
     `Envoyez *accepter* pour rejoindre. Vous serez inscrit automatiquement.\n` +
-    `Envoyez *refuser* pour décliner.\n\n` +
-    `*${session.name}* invites you as *${role}* at *${restaurant.name}* on Tchop & Ndjoka!\n` +
+    `Envoyez *refuser* pour décliner.`,
+    `👋 *${session.name}* invites you as *${role}* at *${restaurant.name}* on Tchop & Ndjoka!\n\n` +
     `Send *accept* to join — you'll be registered automatically.\n` +
-    `Send *decline* to decline.`)
+    `Send *decline* to decline.`,
+    inviteLang,
+  ))
 
   return NextResponse.json({
     ok: true,

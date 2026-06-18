@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -81,9 +81,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   // Notify new member
-  await sendWhatsApp(newMember.phone,
-    `👥 Vous avez été ajouté comme *${role}* chez *${restaurant?.name}* par ${session.name}.\n` +
-    `You've been added as *${role}* at *${restaurant?.name}* by ${session.name}.`)
+  const lang = await getLangByPhone(newMember.phone)
+  await sendWhatsApp(newMember.phone, pickLang(
+    `👥 Vous avez été ajouté comme *${role}* chez *${restaurant?.name}* par ${session.name}.`,
+    `👥 You've been added as *${role}* at *${restaurant?.name}* by ${session.name}.`,
+    lang,
+  ))
 
   return NextResponse.json({ ok: true, member: newMember })
 }

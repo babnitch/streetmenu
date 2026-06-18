@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -57,18 +57,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // Notify vendor via WhatsApp
   if (restaurant.whatsapp) {
+    const lang = await getLangByPhone(restaurant.whatsapp)
     if (suspendedBy === 'vendor') {
-      await sendWhatsApp(restaurant.whatsapp,
+      await sendWhatsApp(restaurant.whatsapp, pickLang(
         `⏸️ *${restaurant.name}* est suspendu.\n` +
-        `Envoyez "reactiver" pour le réactiver.\n\n` +
-        `*${restaurant.name}* is suspended.\n` +
-        `Send "reactiver" to reactivate.`)
+        `Envoyez "reactiver" pour le réactiver.`,
+        `⏸️ *${restaurant.name}* is suspended.\n` +
+        `Send "reactiver" to reactivate.`,
+        lang,
+      ))
     } else {
-      await sendWhatsApp(restaurant.whatsapp,
+      await sendWhatsApp(restaurant.whatsapp, pickLang(
         `⛔ *${restaurant.name}* a été suspendu par l'administration.\n` +
-        `Contactez le support pour plus d'informations.\n\n` +
-        `*${restaurant.name}* has been suspended by admin.\n` +
-        `Contact support for more information.`)
+        `Contactez le support pour plus d'informations.`,
+        `⛔ *${restaurant.name}* has been suspended by admin.\n` +
+        `Contact support for more information.`,
+        lang,
+      ))
     }
   }
 

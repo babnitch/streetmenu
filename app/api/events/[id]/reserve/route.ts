@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 
 export const dynamic = 'force-dynamic'
@@ -237,25 +237,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   // ── Customer + organizer pings ───────────────────────────────────────────
-  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
+  // Tier name lines are language-neutral data (name + FCFA); the non-tier
+  // fallback is the only piece that needs localising, so build it per lang.
+  const tierLinesFor = (lang: 'fr' | 'en') => useTiers
+    ? inserted.map(r => `🎟 ${r.tier_name} × ${r.quantity}${r.total_price > 0 ? ` — ${Number(r.total_price).toLocaleString()} FCFA` : ''}`)
+    : [pickLang(`🎟 ${totalQuantity} place(s)`, `🎟 ${totalQuantity} ticket(s)`, lang)]
+
+  const custLang = await getLangByPhone(custPhone)
+  const dateStr = new Date(event.date).toLocaleDateString(custLang === 'en' ? 'en-GB' : 'fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
-  const tierLines = useTiers
-    ? inserted.map(r => `🎟 ${r.tier_name} × ${r.quantity}${r.total_price > 0 ? ` — ${Number(r.total_price).toLocaleString()} FCFA` : ''}`)
-    : [`🎟 ${totalQuantity} place(s) / ticket(s)`]
   const priceLine = totalPrice > 0
-    ? `\n💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA / Pay at the door`
+    ? pickLang(
+        `\n💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA`,
+        `\n💰 Pay at the door: ${totalPrice.toLocaleString()} FCFA`,
+        custLang,
+      )
     : ''
   const customerHeader = needsApproval
-    ? `⏳ *Votre réservation est en attente / Your reservation is pending*\nL'organisateur doit la confirmer. / The organizer needs to confirm it.`
-    : `✅ *Réservation confirmée! / Reservation confirmed!*`
+    ? pickLang(
+        `⏳ *Votre réservation est en attente*\nL'organisateur doit la confirmer.`,
+        `⏳ *Your reservation is pending*\nThe organizer needs to confirm it.`,
+        custLang,
+      )
+    : pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, custLang)
   await sendWhatsApp(custPhone, [
     customerHeader,
     ``,
     `🎉 ${event.title}`,
     `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
     event.venue ? `📍 ${event.venue}` : '',
-    ...tierLines,
+    ...tierLinesFor(custLang),
     priceLine,
   ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] customer ping failed:', (e as Error).message))
 
@@ -268,18 +280,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
 
   if (organizerPhone) {
+    const orgLang = await getLangByPhone(organizerPhone)
+    const orgDateStr = new Date(event.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', {
+      day: '2-digit', month: 'long', year: 'numeric',
+    })
     const id4 = inserted[0].id.replace(/-/g, '').slice(-4).toUpperCase()
     const organizerHeader = needsApproval
-      ? `📋 *Nouvelle réservation en attente / New reservation pending*\nID #${id4} — répondez "confirmer reservation ${id4}" ou "rejeter reservation ${id4}". / Reply with the ID.`
-      : `🎟 *Nouvelle réservation / New reservation*`
+      ? pickLang(
+          `📋 *Nouvelle réservation en attente*\nID #${id4} — répondez "confirmer reservation ${id4}" ou "rejeter reservation ${id4}".`,
+          `📋 *New reservation pending*\nID #${id4} — reply "confirmer reservation ${id4}" or "rejeter reservation ${id4}".`,
+          orgLang,
+        )
+      : pickLang(`🎟 *Nouvelle réservation*`, `🎟 *New reservation*`, orgLang)
     await sendWhatsApp(organizerPhone, [
       organizerHeader,
       ``,
       `🎉 ${event.title}`,
-      `📅 ${dateStr}`,
+      `📅 ${orgDateStr}`,
       `👤 ${custName}`,
       `📱 ${custPhone}`,
-      ...tierLines,
+      ...tierLinesFor(orgLang),
       totalPrice > 0 ? `💰 ${totalPrice.toLocaleString()} FCFA` : '',
     ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] organizer ping failed:', (e as Error).message))
   }

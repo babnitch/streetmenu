@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,11 +49,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   if (organizerPhone) {
-    const reasonLine = reason ? `\n📝 Raison / Reason: ${reason}` : ''
-    await sendWhatsApp(organizerPhone,
-      `❌ *Événement non approuvé / Event not approved*\n\n🎉 ${event.title}${reasonLine}\n\n` +
-      `Contactez le support pour plus d'infos. / Contact support for more details.`,
-    ).catch(() => null)
+    const lang = await getLangByPhone(organizerPhone)
+    await sendWhatsApp(organizerPhone, pickLang(
+      `❌ *Événement non approuvé*\n\n🎉 ${event.title}${reason ? `\n📝 Raison: ${reason}` : ''}\n\n` +
+      `Contactez le support pour plus d'infos.`,
+      `❌ *Event not approved*\n\n🎉 ${event.title}${reason ? `\n📝 Reason: ${reason}` : ''}\n\n` +
+      `Contact support for more details.`,
+      lang,
+    )).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

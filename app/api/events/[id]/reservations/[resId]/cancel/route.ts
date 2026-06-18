@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,29 +97,35 @@ export async function POST(
       organizerPhone = ev2?.whatsapp ?? null
     }
     if (organizerPhone) {
+      const orgLang = await getLangByPhone(organizerPhone)
       await sendWhatsApp(organizerPhone, [
-        `❌ *Réservation annulée / Reservation cancelled*`,
+        pickLang(`❌ *Réservation annulée*`, `❌ *Reservation cancelled*`, orgLang),
         ``,
         `🎉 ${event.title}`,
         `📅 ${dateStr}`,
         `👤 ${r.customer_name}`,
         `📱 ${r.customer_phone}`,
-        `🎟 ${r.quantity} place(s)`,
+        pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
         reason ? `📝 ${reason}` : '',
       ].filter(Boolean).join('\n')).catch(() => null)
     }
   } else {
     // Organizer / admin cancelling. Tell the customer.
     if (r.customer_phone) {
+      const custLang = await getLangByPhone(r.customer_phone)
       const refundLine = r.payment_status === 'paid'
-        ? `\n💰 ${(r.total_price ?? 0).toLocaleString()} FCFA — l'organisateur vous contactera pour le remboursement. / The organizer will contact you for a refund.`
+        ? pickLang(
+            `\n💰 ${(r.total_price ?? 0).toLocaleString()} FCFA — l'organisateur vous contactera pour le remboursement.`,
+            `\n💰 ${(r.total_price ?? 0).toLocaleString()} FCFA — the organizer will contact you for a refund.`,
+            custLang,
+          )
         : ''
       await sendWhatsApp(r.customer_phone, [
-        `❌ *Réservation annulée / Reservation cancelled*`,
+        pickLang(`❌ *Réservation annulée*`, `❌ *Reservation cancelled*`, custLang),
         ``,
         `🎉 ${event.title}`,
         `📅 ${dateStr}`,
-        `🎟 ${r.quantity} place(s)`,
+        pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, custLang),
         reason ? `📝 ${reason}` : '',
         refundLine,
       ].filter(Boolean).join('\n')).catch(() => null)

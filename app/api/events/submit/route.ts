@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 
 export const dynamic = 'force-dynamic'
@@ -150,9 +150,18 @@ export async function POST(req: NextRequest) {
   // WhatsApp confirmation to the submitter. Best effort — submission has
   // already succeeded by this point.
   if (submitter.phone) {
+    const lang = await getLangByPhone(submitter.phone)
     const msg = autoApprove
-      ? `✅ *Événement publié! / Event published!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Tchop & Ndjoka. / Live immediately on Tchop & Ndjoka.`
-      : `✅ *Événement soumis! / Event submitted!*\n\n🎉 ${event.title}\n\nIl sera visible après approbation par un admin. / It will be visible after admin approval.`
+      ? pickLang(
+          `✅ *Événement publié!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Tchop & Ndjoka.`,
+          `✅ *Event published!*\n\n🎉 ${event.title}\n\nLive immediately on Tchop & Ndjoka.`,
+          lang,
+        )
+      : pickLang(
+          `✅ *Événement soumis!*\n\n🎉 ${event.title}\n\nIl sera visible après approbation par un admin.`,
+          `✅ *Event submitted!*\n\n🎉 ${event.title}\n\nIt will be visible after admin approval.`,
+          lang,
+        )
     await sendWhatsApp(submitter.phone, msg).catch(() => null)
   }
 

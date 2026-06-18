@@ -108,18 +108,18 @@ async function listRestaurantsForCity(city: string): Promise<Array<{ id: string;
   return all ?? []
 }
 
-function buildRestaurantListMessage(restaurants: Array<{ name: string; cuisine_type: string; city?: string }>, scopedToCity: string | null): string {
+function buildRestaurantListMessage(restaurants: Array<{ name: string; cuisine_type: string; city?: string }>, scopedToCity: string | null, lang: Lang = 'fr'): string {
   const header = scopedToCity
-    ? `🍽️ *Restaurants à ${scopedToCity} / Restaurants in ${scopedToCity}:*`
-    : `🍽️ *Tous les restaurants / All restaurants:*`
+    ? pickLang(`🍽️ *Restaurants à ${scopedToCity}:*`, `🍽️ *Restaurants in ${scopedToCity}:*`, lang)
+    : pickLang(`🍽️ *Tous les restaurants:*`, `🍽️ *All restaurants:*`, lang)
   const lines = restaurants.map((r, i) => `${i + 1}. ${r.name} — ${r.cuisine_type}`)
   return [
     header,
     '',
     lines.join('\n'),
     '',
-    `Envoyez le numéro du restaurant / Send the restaurant number`,
-    `_Envoyez "annuler" pour annuler / Send "cancel" to cancel_`,
+    pickLang(`Envoyez le numéro du restaurant`, `Send the restaurant number`, lang),
+    pickLang(`_Envoyez "annuler" pour annuler_`, `_Send "cancel" to cancel_`, lang),
   ].join('\n')
 }
 
@@ -134,9 +134,9 @@ async function loadAvailableMenu(restaurantId: string): Promise<MenuItemRef[]> {
   return (data ?? []).map(r => ({ menu_item_id: r.id, name: r.name, price: Number(r.price) }))
 }
 
-function buildMenuMessage(restaurantName: string, menu: MenuItemRef[]): string {
+function buildMenuMessage(restaurantName: string, menu: MenuItemRef[], lang: Lang = 'fr'): string {
   if (menu.length === 0) {
-    return `🍽️ *${restaurantName}*\n\nMenu vide. / Empty menu.\n\n_Envoyez "annuler" pour choisir un autre restaurant / Send "cancel" to pick another restaurant._`
+    return `🍽️ *${restaurantName}*\n\n${pickLang('Menu vide.', 'Empty menu.', lang)}\n\n${pickLang('_Envoyez "annuler" pour choisir un autre restaurant_', '_Send "cancel" to pick another restaurant_', lang)}`
   }
   const lines = menu.map((m, i) => `${i + 1}. ${m.name} — ${Number(m.price).toLocaleString()} FCFA`)
   return [
@@ -144,9 +144,9 @@ function buildMenuMessage(restaurantName: string, menu: MenuItemRef[]): string {
     '',
     lines.join('\n'),
     '',
-    `Envoyez votre commande / Send your order:`,
+    pickLang(`Envoyez votre commande:`, `Send your order:`, lang),
     `_Ex: 1 x2, 3 x1 (2 ${menu[0]?.name ?? 'item'} + 1 ${menu[2]?.name ?? menu[Math.min(1, menu.length - 1)]?.name ?? 'item'})_`,
-    `_Envoyez "annuler" pour annuler / Send "cancel" to cancel_`,
+    pickLang(`_Envoyez "annuler" pour annuler_`, `_Send "cancel" to cancel_`, lang),
   ].join('\n')
 }
 
@@ -200,18 +200,17 @@ export function parseOrder(raw: string, menu: MenuItemRef[]): ParseOk | ParseErr
   return { ok: true, items, total }
 }
 
-function buildSummaryMessage(restaurantName: string, items: CartItem[], total: number): string {
+function buildSummaryMessage(restaurantName: string, items: CartItem[], total: number, lang: Lang = 'fr'): string {
   const lines = items.map(i => `${i.quantity}× ${i.name} — ${(i.quantity * i.price).toLocaleString()} FCFA`)
   return [
-    `📦 *Votre commande / Your order:*`,
+    pickLang(`📦 *Votre commande:*`, `📦 *Your order:*`, lang),
     '',
     `🏪 ${restaurantName}`,
     ...lines,
     '',
     `💰 *Total: ${total.toLocaleString()} FCFA*`,
     '',
-    `Envoyez "oui" pour confirmer ou "non" pour annuler`,
-    `Send "yes" to confirm or "no" to cancel`,
+    pickLang(`Envoyez "oui" pour confirmer ou "non" pour annuler`, `Send "yes" to confirm or "no" to cancel`, lang),
   ].join('\n')
 }
 
@@ -315,13 +314,16 @@ async function initiateWhatsappPayment(
   total:          number,
   restaurantName: string,
   restaurantCity: string,
+  lang:           Lang = 'fr',
 ): Promise<boolean> {
   const country = countryFromCity(restaurantCity)
   const mno = detectMNO(customerPhone, country ?? undefined)
   if (!mno) {
-    await sendWhatsApp(from,
-      `❌ Numéro non supporté pour le paiement mobile.\n` +
-      `Phone not supported for mobile payment.`)
+    await sendWhatsApp(from, pickLang(
+      `❌ Numéro non supporté pour le paiement mobile.`,
+      `❌ Phone not supported for mobile payment.`,
+      lang,
+    ))
     return false
   }
 
@@ -369,16 +371,19 @@ async function initiateWhatsappPayment(
     },
   })
 
-  await sendWhatsApp(from, [
+  await sendWhatsApp(from, pickLang([
     `💰 *Commande de ${total.toLocaleString()} FCFA*`,
     ``,
     `Un prompt de paiement va apparaître sur votre téléphone. Confirmez le paiement avec votre code PIN mobile money.`,
     ``,
+    `_Si rien n'apparaît dans 30s, envoyez "payer" pour réessayer._`,
+  ].join('\n'), [
+    `💰 *Order of ${total.toLocaleString()} FCFA*`,
+    ``,
     `A payment prompt will appear on your phone. Confirm the payment with your mobile money PIN.`,
     ``,
-    `_Si rien n'apparaît dans 30s, envoyez "payer" pour réessayer._`,
     `_If nothing appears in 30s, send "pay" to retry._`,
-  ].join('\n'))
+  ].join('\n'), lang))
 
   return true
 }
@@ -392,6 +397,7 @@ export async function handlePaymentRetry(
   customer: OrderingCustomer,
 ): Promise<NextResponse | null> {
   if (cmd !== 'payer' && cmd !== 'pay') return null
+  const lang = normalizeLang(customer.preferred_language)
 
   const { data: order } = await supabaseAdmin
     .from('orders')
@@ -404,9 +410,11 @@ export async function handlePaymentRetry(
     .maybeSingle()
 
   if (!order) {
-    await sendWhatsApp(from,
-      `Aucune commande en attente de paiement. Envoyez "commander" pour en créer une.\n` +
-      `No order awaiting payment. Send "commander" to create one.`)
+    await sendWhatsApp(from, pickLang(
+      `Aucune commande en attente de paiement. Envoyez "commander" pour en créer une.`,
+      `No order awaiting payment. Send "commander" to create one.`,
+      lang,
+    ))
     return ok()
   }
 
@@ -419,11 +427,14 @@ export async function handlePaymentRetry(
     Number(order.total_price),
     rest?.name ?? '—',
     rest?.city ?? '',
+    lang,
   )
   if (!initiated) {
-    await sendWhatsApp(from,
-      `⚠️ Paiement indisponible pour le moment. Réessayez plus tard.\n` +
-      `Payment unavailable right now. Try again later.`)
+    await sendWhatsApp(from, pickLang(
+      `⚠️ Paiement indisponible pour le moment. Réessayez plus tard.`,
+      `⚠️ Payment unavailable right now. Try again later.`,
+      lang,
+    ))
   }
   return ok()
 }
@@ -435,17 +446,22 @@ export async function handleOrderCommand(
   cmd: string,
   customer: OrderingCustomer,
 ): Promise<NextResponse | null> {
+  const lang = normalizeLang(customer.preferred_language)
   if (cmd === 'commander' || cmd === 'order' || cmd === 'commande') {
     const restaurants = await listRestaurantsForCity(customer.city)
     if (restaurants.length === 0) {
-      await sendWhatsApp(from, '🚫 Aucun restaurant disponible pour le moment. / No restaurants available right now.')
+      await sendWhatsApp(from, pickLang('🚫 Aucun restaurant disponible pour le moment.', '🚫 No restaurants available right now.', lang))
       return ok()
     }
     const scoped = restaurants.some(r => r.city === customer.city) ? customer.city : null
     const msg = scoped
-      ? buildRestaurantListMessage(restaurants, scoped)
-      : `Aucun restaurant à ${customer.city}. Voici tous les restaurants / No restaurants in ${customer.city}. Here are all:\n\n` +
-        buildRestaurantListMessage(restaurants, null)
+      ? buildRestaurantListMessage(restaurants, scoped, lang)
+      : pickLang(
+          `Aucun restaurant à ${customer.city}. Voici tous les restaurants:`,
+          `No restaurants in ${customer.city}. Here are all:`,
+          lang,
+        ) + '\n\n' +
+        buildRestaurantListMessage(restaurants, null, lang)
 
     const { error: upsertErr } = await supabaseAdmin.from('signup_sessions').upsert({
       phone,
@@ -461,7 +477,6 @@ export async function handleOrderCommand(
 
   // ── Voucher commands ──────────────────────────────────────────────────────
   if (cmd === 'mes bons' || cmd === 'my vouchers') {
-    const lang = normalizeLang(customer.preferred_language)
     const { data } = await supabaseAdmin
       .from('customer_vouchers')
       .select('id, used_at, vouchers(id, code, discount_type, discount_value, expires_at, min_order, is_active, restaurant_id, restaurants(name))')
@@ -516,19 +531,19 @@ export async function handleOrderCommand(
       .select('id, code, discount_type, discount_value, expires_at, is_active, max_uses, current_uses, per_customer_max')
       .eq('code', code).maybeSingle()
     if (!v) {
-      await sendWhatsApp(from, `❌ Code introuvable / Code not found: ${code}`)
+      await sendWhatsApp(from, pickLang(`❌ Code introuvable: ${code}`, `❌ Code not found: ${code}`, lang))
       return ok()
     }
     if (!v.is_active) {
-      await sendWhatsApp(from, `❌ Code désactivé / Code deactivated`)
+      await sendWhatsApp(from, pickLang(`❌ Code désactivé`, `❌ Code deactivated`, lang))
       return ok()
     }
     if (v.expires_at && new Date(v.expires_at).getTime() < Date.now()) {
-      await sendWhatsApp(from, `❌ Code expiré / Code expired`)
+      await sendWhatsApp(from, pickLang(`❌ Code expiré`, `❌ Code expired`, lang))
       return ok()
     }
     if (v.max_uses != null && v.max_uses > 0 && (v.current_uses ?? 0) >= v.max_uses) {
-      await sendWhatsApp(from, `❌ Code épuisé / Code fully used`)
+      await sendWhatsApp(from, pickLang(`❌ Code épuisé`, `❌ Code fully used`, lang))
       return ok()
     }
     const { data: prior } = await supabaseAdmin
@@ -536,7 +551,7 @@ export async function handleOrderCommand(
       .eq('customer_id', customer.id).eq('voucher_id', v.id)
     const limit = (v.per_customer_max ?? 1)
     if (limit > 0 && (prior?.length ?? 0) >= limit) {
-      await sendWhatsApp(from, `Déjà réclamé / Already claimed: ${code}`)
+      await sendWhatsApp(from, pickLang(`Déjà réclamé: ${code}`, `Already claimed: ${code}`, lang))
       return ok()
     }
     const { data: inserted, error: insErr } = await supabaseAdmin
@@ -544,7 +559,7 @@ export async function handleOrderCommand(
       .select('id').single()
     if (insErr) {
       console.error('[whatsapp] voucher claim failed:', insErr.message)
-      await sendWhatsApp(from, `⚠️ Erreur / Error: ${insErr.message}`)
+      await sendWhatsApp(from, pickLang(`⚠️ Erreur: ${insErr.message}`, `⚠️ Error: ${insErr.message}`, lang))
       return ok()
     }
     await writeAudit({
@@ -555,15 +570,15 @@ export async function handleOrderCommand(
     const value = isPercentDiscount(v.discount_type)
       ? `-${v.discount_value}%`
       : `-${Number(v.discount_value).toLocaleString()} FCFA`
-    await sendWhatsApp(from,
-      `🎫 Code *${code}* ajouté (${value})!\n` +
-      `Voucher *${code}* added (${value})!\n\n` +
-      `Utilisez-le à votre prochaine commande. / Use it on your next order.`)
+    await sendWhatsApp(from, pickLang(
+      `🎫 Code *${code}* ajouté (${value})!\n\nUtilisez-le à votre prochaine commande.`,
+      `🎫 Voucher *${code}* added (${value})!\n\nUse it on your next order.`,
+      lang,
+    ))
     return ok()
   }
 
   if (cmd === 'mes commandes' || cmd === 'my orders') {
-    const lang = normalizeLang(customer.preferred_language)
     const { data } = await supabaseAdmin
       .from('orders')
       .select('id, status, total_price, created_at, order_type, payment_status, restaurants(name)')
@@ -644,17 +659,28 @@ export async function handleOrderCommand(
       .limit(10)
 
     if (!data || data.length === 0) {
-      await sendWhatsApp(from,
-        `🎟 Aucune réservation. Envoyez "evenements" pour parcourir.\n` +
-        `No reservations. Send "events" to browse.`)
+      await sendWhatsApp(from, pickLang(
+        `🎟 Aucune réservation. Envoyez "evenements" pour parcourir.`,
+        `🎟 No reservations. Send "events" to browse.`,
+        lang,
+      ))
       return ok()
     }
-    const statusLabel: Record<string, string> = {
-      confirmed: '✅ Confirmée / Confirmed',
-      cancelled: '❌ Annulée / Cancelled',
-      attended:  '🎉 Participée / Attended',
+    const statusLabel: Record<string, string> = lang === 'en' ? {
+      confirmed: '✅ Confirmed',
+      cancelled: '❌ Cancelled',
+      attended:  '🎉 Attended',
+    } : {
+      confirmed: '✅ Confirmée',
+      cancelled: '❌ Annulée',
+      attended:  '🎉 Participée',
     }
-    const payLabel: Record<string, string> = {
+    const payLabel: Record<string, string> = lang === 'en' ? {
+      paid:         '💰 Paid',
+      pending:      '⏳ Payment pending',
+      failed:       '❌ Payment failed',
+      not_required: '📋 Free',
+    } : {
       paid:         '💰 Payé',
       pending:      '⏳ Paiement en attente',
       failed:       '❌ Paiement échoué',
@@ -680,8 +706,8 @@ export async function handleOrderCommand(
     })
 
     await sendWhatsApp(from,
-      `🎟 *Vos réservations / Your reservations:*\n\n${lines.join('\n\n')}\n\n` +
-      `Envoyez "annuler reservation N" pour annuler / Send "cancel reservation N" to cancel`)
+      `${pickLang('🎟 *Vos réservations:*', '🎟 *Your reservations:*', lang)}\n\n${lines.join('\n\n')}\n\n` +
+      pickLang(`Envoyez "annuler reservation N" pour annuler`, `Send "cancel reservation N" to cancel`, lang))
     return ok()
   }
 
@@ -697,9 +723,11 @@ export async function handleOrderCommand(
       .maybeSingle()
     const ids = (sess?.data as { reservation_ids?: string[] } | undefined)?.reservation_ids ?? []
     if (!ids.length || n < 1 || n > ids.length) {
-      await sendWhatsApp(from,
-        `❌ Aucune réservation #${n}. Envoyez "mes reservations" d'abord.\n` +
-        `No reservation #${n}. Send "my reservations" first.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ Aucune réservation #${n}. Envoyez "mes reservations" d'abord.`,
+        `❌ No reservation #${n}. Send "my reservations" first.`,
+        lang,
+      ))
       return ok()
     }
     const resvId = ids[n - 1]
@@ -711,17 +739,17 @@ export async function handleOrderCommand(
       .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price')
       .eq('id', resvId).maybeSingle()
     if (!r || r.customer_id !== customer.id) {
-      await sendWhatsApp(from, `❌ Réservation introuvable / Reservation not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Réservation introuvable.`, `❌ Reservation not found.`, lang))
       return ok()
     }
     if (r.reservation_status === 'cancelled') {
-      await sendWhatsApp(from, `Déjà annulée. / Already cancelled.`)
+      await sendWhatsApp(from, pickLang(`Déjà annulée.`, `Already cancelled.`, lang))
       return ok()
     }
     const { data: ev } = await supabaseAdmin
       .from('events').select('id, title, date, organizer_id, whatsapp, tickets_sold').eq('id', r.event_id).maybeSingle()
     if (!ev) {
-      await sendWhatsApp(from, `❌ Événement introuvable / Event not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Événement introuvable.`, `❌ Event not found.`, lang))
       return ok()
     }
     const sold = Number(ev.tickets_sold ?? 0)
@@ -744,10 +772,13 @@ export async function handleOrderCommand(
     })
 
     const refundLine = r.payment_status === 'paid'
-      ? `\n⚠️ Cette réservation a été payée. Contactez l'organisateur pour un remboursement.\n` +
-        `This reservation was paid. Contact the organizer for a refund.`
+      ? '\n' + pickLang(
+          `⚠️ Cette réservation a été payée. Contactez l'organisateur pour un remboursement.`,
+          `⚠️ This reservation was paid. Contact the organizer for a refund.`,
+          lang,
+        )
       : ''
-    await sendWhatsApp(from, `✅ Réservation annulée. / Reservation cancelled.${refundLine}`)
+    await sendWhatsApp(from, `${pickLang('✅ Réservation annulée.', '✅ Reservation cancelled.', lang)}${refundLine}`)
 
     // Organizer ping — reuse the customer-cancel pathway from the API.
     let organizerPhone: string | null = null
@@ -796,16 +827,16 @@ export async function handleOrderCommand(
       cityScope = ''
     }
     if (!scoped || scoped.length === 0) {
-      await sendWhatsApp(from, `🎉 Aucun événement à venir. / No upcoming events.`)
+      await sendWhatsApp(from, pickLang(`🎉 Aucun événement à venir.`, `🎉 No upcoming events.`, lang))
       return ok()
     }
     const header = cityScope
-      ? `🎉 *Événements à ${cityScope} / Events in ${cityScope}:*`
-      : `🎉 *Événements à venir / Upcoming events:*`
+      ? pickLang(`🎉 *Événements à ${cityScope}:*`, `🎉 *Events in ${cityScope}:*`, lang)
+      : pickLang(`🎉 *Événements à venir:*`, `🎉 *Upcoming events:*`, lang)
     const lines = scoped.map((e, i) => {
       const d = new Date(e.date).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' })
       const price = !e.ticket_price || e.ticket_price <= 0
-        ? 'Gratuit / Free'
+        ? pickLang('Gratuit', 'Free', lang)
         : `${Number(e.ticket_price).toLocaleString()} FCFA`
       return `${i + 1}. *${e.title}* — ${d}${e.time ? ` · ${e.time}` : ''} — ${price}`
     })
@@ -818,7 +849,7 @@ export async function handleOrderCommand(
 
     await sendWhatsApp(from,
       `${header}\n\n${lines.join('\n')}\n\n` +
-      `Envoyez le numéro pour voir les détails / Send the number for details`)
+      pickLang(`Envoyez le numéro pour voir les détails`, `Send the number for details`, lang))
     return ok()
   }
 
@@ -834,7 +865,11 @@ export async function handleOrderCommand(
       .eq('organizer_id', customer.id).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
-      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable parmi vos événements. / Event not found in your events.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ Événement #${code4.toUpperCase()} introuvable parmi vos événements.`,
+        `❌ Event #${code4.toUpperCase()} not found in your events.`,
+        lang,
+      ))
       return ok()
     }
     const { data: resvs } = await supabaseAdmin
@@ -844,22 +879,22 @@ export async function handleOrderCommand(
       .order('created_at', { ascending: false })
       .limit(20)
     if (!resvs || resvs.length === 0) {
-      await sendWhatsApp(from, `📋 *${event.title}*\n\nAucune réservation pour le moment. / No reservations yet.`)
+      await sendWhatsApp(from, `📋 *${event.title}*\n\n${pickLang('Aucune réservation pour le moment.', 'No reservations yet.', lang)}`)
       return ok()
     }
     const lines = resvs.map((r, i) => {
-      const pay = r.payment_status === 'paid' ? '💰 Payé'
-        : r.payment_status === 'pending' ? '⏳ En attente'
-        : r.payment_status === 'failed' ? '❌ Échec'
-        : '📋 Gratuit'
-      const stat = r.reservation_status === 'cancelled' ? ' · ❌ Annulée'
-        : r.reservation_status === 'attended' ? ' · 🎉 Participée'
+      const pay = r.payment_status === 'paid' ? pickLang('💰 Payé', '💰 Paid', lang)
+        : r.payment_status === 'pending' ? pickLang('⏳ En attente', '⏳ Pending', lang)
+        : r.payment_status === 'failed' ? pickLang('❌ Échec', '❌ Failed', lang)
+        : pickLang('📋 Gratuit', '📋 Free', lang)
+      const stat = r.reservation_status === 'cancelled' ? pickLang(' · ❌ Annulée', ' · ❌ Cancelled', lang)
+        : r.reservation_status === 'attended' ? pickLang(' · 🎉 Participée', ' · 🎉 Attended', lang)
         : ''
-      return `${i + 1}. ${r.customer_name} — ${r.quantity} place(s) — ${pay}${stat}\n   📱 ${r.customer_phone}`
+      return `${i + 1}. ${r.customer_name} — ${pickLang(`${r.quantity} place(s)`, `${r.quantity} spot(s)`, lang)} — ${pay}${stat}\n   📱 ${r.customer_phone}`
     })
     await sendWhatsApp(from,
-      `📋 *Réservations — ${event.title}:*\n\n${lines.join('\n\n')}\n\n` +
-      `Gérez les présences sur le site / Manage attendance on the site:\n${BASE_URL}/account?tab=events`)
+      `${pickLang(`📋 *Réservations — ${event.title}:*`, `📋 *Reservations — ${event.title}:*`, lang)}\n\n${lines.join('\n\n')}\n\n` +
+      pickLang(`Gérez les présences sur le site:`, `Manage attendance on the site:`, lang) + `\n${BASE_URL}/account?tab=events`)
     return ok()
   }
 
@@ -875,7 +910,7 @@ export async function handleOrderCommand(
       .eq('organizer_id', customer.id).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
-      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
       return ok()
     }
     const { data: tiers } = await supabaseAdmin
@@ -884,16 +919,16 @@ export async function handleOrderCommand(
       .eq('event_id', event.id)
       .order('sort_order', { ascending: true })
     if (!tiers || tiers.length === 0) {
-      await sendWhatsApp(from, `🎫 *${event.title}*\n\nAucun tarif. / No tiers.\nAjoutez-en sur ${BASE_URL}/account.`)
+      await sendWhatsApp(from, `🎫 *${event.title}*\n\n${pickLang(`Aucun tarif.\nAjoutez-en sur ${BASE_URL}/account.`, `No tiers.\nAdd some at ${BASE_URL}/account.`, lang)}`)
       return ok()
     }
     const lines = tiers.map((t, i) => {
       const cap = t.max_quantity > 0 ? `${t.sold_count}/${t.max_quantity}` : `${t.sold_count}`
-      const inactive = t.is_active ? '' : ' (inactif)'
-      const priceLine = t.price === 0 ? 'Gratuit' : `${t.price.toLocaleString()} FCFA`
-      return `${i + 1}. ${t.name} — ${priceLine} · ${cap} vendus${inactive}`
+      const inactive = t.is_active ? '' : pickLang(' (inactif)', ' (inactive)', lang)
+      const priceLine = t.price === 0 ? pickLang('Gratuit', 'Free', lang) : `${t.price.toLocaleString()} FCFA`
+      return `${i + 1}. ${t.name} — ${priceLine} · ${pickLang(`${cap} vendus`, `${cap} sold`, lang)}${inactive}`
     })
-    await sendWhatsApp(from, `🎫 *Tarifs — ${event.title}:*\n\n${lines.join('\n')}`)
+    await sendWhatsApp(from, `${pickLang(`🎫 *Tarifs — ${event.title}:*`, `🎫 *Tiers — ${event.title}:*`, lang)}\n\n${lines.join('\n')}`)
     return ok()
   }
 
@@ -913,11 +948,11 @@ export async function handleOrderCommand(
       .eq('organizer_id', customer.id).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
-      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
       return ok()
     }
     if (!rawName || !Number.isFinite(price) || price < 0) {
-      await sendWhatsApp(from, `❌ Format: "ajouter tarif XXXX nom prix max" / "ajouter tarif XXXX name price max"`)
+      await sendWhatsApp(from, pickLang(`❌ Format: "ajouter tarif XXXX nom prix max"`, `❌ Format: "add tier XXXX name price max"`, lang))
       return ok()
     }
 
@@ -938,7 +973,7 @@ export async function handleOrderCommand(
       .select('id, name')
       .single()
     if (error || !inserted) {
-      await sendWhatsApp(from, `❌ Erreur. Réessayez. / Error. Retry.`)
+      await sendWhatsApp(from, pickLang(`❌ Erreur. Réessayez.`, `❌ Error. Retry.`, lang))
       return ok()
     }
 
@@ -952,9 +987,11 @@ export async function handleOrderCommand(
       metadata:        { tier_id: inserted.id, name: rawName, price, max_quantity: maxQty, via: 'whatsapp' },
     })
 
-    await sendWhatsApp(from,
-      `✅ Tarif *${inserted.name}* ajouté à *${event.title}* — ${price.toLocaleString()} FCFA.\n` +
-      `Added to your event.`)
+    await sendWhatsApp(from, pickLang(
+      `✅ Tarif *${inserted.name}* ajouté à *${event.title}* — ${price.toLocaleString()} FCFA.`,
+      `✅ Tier *${inserted.name}* added to *${event.title}* — ${price.toLocaleString()} FCFA.`,
+      lang,
+    ))
     return ok()
   }
 
@@ -972,7 +1009,7 @@ export async function handleOrderCommand(
       .eq('organizer_id', customer.id).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
-      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
       return ok()
     }
     await supabaseAdmin.from('events').update({ reservations_open: open }).eq('id', event.id)
@@ -988,8 +1025,8 @@ export async function handleOrderCommand(
     })
     await sendWhatsApp(from,
       open
-        ? `🔓 Réservations ouvertes pour *${event.title}*. / Reservations opened.`
-        : `🔒 Réservations fermées pour *${event.title}*. / Reservations closed.`)
+        ? pickLang(`🔓 Réservations ouvertes pour *${event.title}*.`, `🔓 Reservations opened for *${event.title}*.`, lang)
+        : pickLang(`🔒 Réservations fermées pour *${event.title}*.`, `🔒 Reservations closed for *${event.title}*.`, lang))
     return ok()
   }
 
@@ -1014,7 +1051,7 @@ export async function handleOrderCommand(
       .limit(100)
     const match = (pendings ?? []).find(r => r.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!match) {
-      await sendWhatsApp(from, `❌ Réservation #${code4.toUpperCase()} introuvable. / Reservation not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Réservation #${code4.toUpperCase()} introuvable.`, `❌ Reservation #${code4.toUpperCase()} not found.`, lang))
       return ok()
     }
 
@@ -1038,11 +1075,14 @@ export async function handleOrderCommand(
         .from('event_reservations').select('customer_phone, quantity, events(title)').eq('id', match.id).maybeSingle()
       const ev = r?.events as unknown as { title: string } | null
       if (r?.customer_phone) {
-        await sendWhatsApp(r.customer_phone,
-          `✅ *Votre réservation est confirmée! / Your reservation is confirmed!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} place(s)`,
-        ).catch(() => null)
+        const custLang = await getLangByPhone(r.customer_phone)
+        await sendWhatsApp(r.customer_phone, pickLang(
+          `✅ *Votre réservation est confirmée!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} place(s)`,
+          `✅ *Your reservation is confirmed!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} spot(s)`,
+          custLang,
+        )).catch(() => null)
       }
-      await sendWhatsApp(from, `✅ Réservation #${code4.toUpperCase()} confirmée. / Reservation confirmed.`)
+      await sendWhatsApp(from, pickLang(`✅ Réservation #${code4.toUpperCase()} confirmée.`, `✅ Reservation #${code4.toUpperCase()} confirmed.`, lang))
     } else {
       // Reject — also release seats.
       const { data: r } = await supabaseAdmin
@@ -1065,12 +1105,15 @@ export async function handleOrderCommand(
           metadata:        { event_id: match.event_id, via: 'whatsapp' },
         })
         if (r.customer_phone) {
-          await sendWhatsApp(r.customer_phone,
-            `❌ *Votre réservation a été refusée / Your reservation was declined*\n🎉 ${ev?.title ?? ''}`,
-          ).catch(() => null)
+          const custLang = await getLangByPhone(r.customer_phone)
+          await sendWhatsApp(r.customer_phone, pickLang(
+            `❌ *Votre réservation a été refusée*\n🎉 ${ev?.title ?? ''}`,
+            `❌ *Your reservation was declined*\n🎉 ${ev?.title ?? ''}`,
+            custLang,
+          )).catch(() => null)
         }
       }
-      await sendWhatsApp(from, `❌ Réservation #${code4.toUpperCase()} rejetée. / Reservation rejected.`)
+      await sendWhatsApp(from, pickLang(`❌ Réservation #${code4.toUpperCase()} rejetée.`, `❌ Reservation #${code4.toUpperCase()} rejected.`, lang))
     }
     return ok()
   }
@@ -1089,15 +1132,18 @@ export async function handleOrderCommand(
       .order('date', { ascending: true }).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
-      await sendWhatsApp(from, `❌ Événement #${code4.toUpperCase()} introuvable. / Event not found.`)
+      await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
       return ok()
     }
     if (event.reservations_open === false) {
-      await sendWhatsApp(from,
-        `🔒 Les réservations pour *${event.title}* sont fermées. / Reservations for *${event.title}* are closed.`)
+      await sendWhatsApp(from, pickLang(
+        `🔒 Les réservations pour *${event.title}* sont fermées.`,
+        `🔒 Reservations for *${event.title}* are closed.`,
+        lang,
+      ))
       return ok()
     }
-    return startReserveFlow(from, phone, event.id)
+    return startReserveFlow(from, phone, event.id, lang)
   }
 
   // "noter" / "rate" — when a customer has a recent delivered order, deep
@@ -1116,12 +1162,17 @@ export async function handleOrderCommand(
     if (lastDelivered?.restaurant_id) {
       const rest = lastDelivered.restaurants as unknown as { name: string } | null
       await sendWhatsApp(from,
-        `⭐ Notez ${rest?.name ?? 'votre dernier restaurant'} ici / Rate ${rest?.name ?? 'your last restaurant'} here:\n` +
-        `${BASE_URL}/restaurant/${lastDelivered.restaurant_id}#rate`)
+        pickLang(
+          `⭐ Notez ${rest?.name ?? 'votre dernier restaurant'} ici:`,
+          `⭐ Rate ${rest?.name ?? 'your last restaurant'} here:`,
+          lang,
+        ) + `\n${BASE_URL}/restaurant/${lastDelivered.restaurant_id}#rate`)
     } else {
-      await sendWhatsApp(from,
-        `🍽️ Aucune commande livrée pour le moment. Commandez d'abord, puis revenez pour noter.\n` +
-        `No delivered orders yet. Order first, then come back to rate.`)
+      await sendWhatsApp(from, pickLang(
+        `🍽️ Aucune commande livrée pour le moment. Commandez d'abord, puis revenez pour noter.`,
+        `🍽️ No delivered orders yet. Order first, then come back to rate.`,
+        lang,
+      ))
     }
     return ok()
   }
@@ -1144,21 +1195,23 @@ export async function handleOrderCommand(
         .eq('customer_id', customer.id)
         .order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ])
-    const lines: string[] = [`🚩 *Signaler un problème / Report an issue*`, '']
+    const lines: string[] = [pickLang(`🚩 *Signaler un problème*`, `🚩 *Report an issue*`, lang), '']
     if (lastOrder?.restaurant_id) {
       const r = lastOrder.restaurants as unknown as { name: string } | null
       lines.push(`🏪 ${r?.name ?? 'Restaurant'}: ${BASE_URL}/restaurant/${lastOrder.restaurant_id}`)
     }
     if (lastResv?.event_id) {
       const e = lastResv.events as unknown as { title: string } | null
-      lines.push(`🎉 ${e?.title ?? 'Événement'}: ${BASE_URL}/events/${lastResv.event_id}`)
+      lines.push(`🎉 ${e?.title ?? pickLang('Événement', 'Event', lang)}: ${BASE_URL}/events/${lastResv.event_id}`)
     }
     if (lines.length === 2) {
-      lines.push(
-        `Ouvrez la page d'un restaurant ou d'un événement et cliquez "🚩 Signaler".\n` +
-        `Open a restaurant or event page and click "🚩 Report".`)
+      lines.push(pickLang(
+        `Ouvrez la page d'un restaurant ou d'un événement et cliquez "🚩 Signaler".`,
+        `Open a restaurant or event page and click "🚩 Report".`,
+        lang,
+      ))
     } else {
-      lines.push('', `Cliquez "🚩 Signaler" en bas de la page / Click "🚩 Report" at the bottom.`)
+      lines.push('', pickLang(`Cliquez "🚩 Signaler" en bas de la page.`, `Click "🚩 Report" at the bottom.`, lang))
     }
     await sendWhatsApp(from, lines.join('\n'))
     return ok()
@@ -1169,9 +1222,11 @@ export async function handleOrderCommand(
   // state here.
   if (cmd === 'publier' || cmd === 'publish') {
     await sendWhatsApp(from,
-      `📢 *Publier un événement / Publish an event*\n\n` +
-      `Soumettez votre événement ici / Submit your event here:\n` +
-      `${BASE_URL}/events/submit`)
+      pickLang(
+        `📢 *Publier un événement*\n\nSoumettez votre événement ici:`,
+        `📢 *Publish an event*\n\nSubmit your event here:`,
+        lang,
+      ) + `\n${BASE_URL}/events/submit`)
     return ok()
   }
 
@@ -1187,10 +1242,11 @@ export async function handleOrderCommand(
       .limit(10)
 
     if (!data || data.length === 0) {
-      await sendWhatsApp(from,
-        `📢 Vous n'avez pas encore soumis d'événement.\n` +
-        `You haven't submitted an event yet.\n\n` +
-        `Envoyez "publier" pour en créer un. / Send "publish" to create one.`)
+      await sendWhatsApp(from, pickLang(
+        `📢 Vous n'avez pas encore soumis d'événement.\n\nEnvoyez "publier" pour en créer un.`,
+        `📢 You haven't submitted an event yet.\n\nSend "publish" to create one.`,
+        lang,
+      ))
       return ok()
     }
 
@@ -1202,21 +1258,25 @@ export async function handleOrderCommand(
       .eq('id', customer.id)
       .maybeSingle()
     const trustLine = trust?.event_auto_approve
-      ? `✅ *Éditeur vérifié / Verified publisher* — publication immédiate.`
-      : `🛡 ${trust?.events_approved_count ?? 0}/3 approuvés pour la publication automatique / approved for auto-publish.`
+      ? pickLang(`✅ *Éditeur vérifié* — publication immédiate.`, `✅ *Verified publisher* — instant publishing.`, lang)
+      : pickLang(
+          `🛡 ${trust?.events_approved_count ?? 0}/3 approuvés pour la publication automatique.`,
+          `🛡 ${trust?.events_approved_count ?? 0}/3 approved for auto-publish.`,
+          lang,
+        )
 
     const lines = data.map((e, i) => {
       const dateStr = new Date(e.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
       const statusLabel = e.event_status === 'cancelled'
-        ? '❌ Annulé / Cancelled'
+        ? pickLang('❌ Annulé', '❌ Cancelled', lang)
         : !e.is_active
-          ? '⏳ En attente d\'approbation / Pending'
+          ? pickLang('⏳ En attente d\'approbation', '⏳ Pending', lang)
           : e.auto_approved
-            ? '⚡ Auto-publié / Auto-published'
-            : '✅ Publié / Published'
+            ? pickLang('⚡ Auto-publié', '⚡ Auto-published', lang)
+            : pickLang('✅ Publié', '✅ Published', lang)
       return `${i + 1}. *${e.title}* (${dateStr})\n   ${statusLabel}`
     })
-    await sendWhatsApp(from, `📢 *Vos événements / Your events:*\n\n${trustLine}\n\n${lines.join('\n\n')}`)
+    await sendWhatsApp(from, `${pickLang('📢 *Vos événements:*', '📢 *Your events:*', lang)}\n\n${trustLine}\n\n${lines.join('\n\n')}`)
     return ok()
   }
 
@@ -1241,10 +1301,11 @@ export async function handleEventSession(
   customer: OrderingCustomer,
 ): Promise<NextResponse> {
   const { user_type, step, data } = session
+  const lang = normalizeLang(customer.preferred_language)
 
   if (cmd === 'annuler' || cmd === 'cancel') {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-    await sendWhatsApp(from, '❌ Annulé. / Cancelled.')
+    await sendWhatsApp(from, pickLang('❌ Annulé.', '❌ Cancelled.', lang))
     return ok()
   }
 
@@ -1253,12 +1314,14 @@ export async function handleEventSession(
     const n = parseInt(cmd, 10)
     const ids = (data?.event_ids as string[] | undefined) ?? []
     if (!Number.isFinite(n) || n < 1 || n > ids.length) {
-      await sendWhatsApp(from,
-        `Envoyez un numéro entre 1 et ${ids.length}, ou "annuler".\n` +
-        `Send a number between 1 and ${ids.length}, or "cancel".`)
+      await sendWhatsApp(from, pickLang(
+        `Envoyez un numéro entre 1 et ${ids.length}, ou "annuler".`,
+        `Send a number between 1 and ${ids.length}, or "cancel".`,
+        lang,
+      ))
       return ok()
     }
-    return showEventDetail(from, phone, ids[n - 1])
+    return showEventDetail(from, phone, ids[n - 1], lang)
   }
 
   // ── event_detail: "reserver" / "back" / arbitrary number for a new pick ──
@@ -1267,21 +1330,23 @@ export async function handleEventSession(
     if (cmd === 'reserver' || cmd === 'réserver' || cmd === 'reserve' || cmd === 'book') {
       if (!eventId) {
         await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-        await sendWhatsApp(from, 'Session expirée. Envoyez "evenements". / Session expired. Send "events".')
+        await sendWhatsApp(from, pickLang('Session expirée. Envoyez "evenements".', 'Session expired. Send "events".', lang))
         return ok()
       }
-      return startReserveFlow(from, phone, eventId)
+      return startReserveFlow(from, phone, eventId, lang)
     }
     if (cmd === 'retour' || cmd === 'back') {
       // The previous event_browse ids may have been overwritten; tell the
       // user to re-list rather than re-fetching from a stale state.
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, 'Envoyez "evenements" pour la liste. / Send "events" for the list.')
+      await sendWhatsApp(from, pickLang('Envoyez "evenements" pour la liste.', 'Send "events" for the list.', lang))
       return ok()
     }
-    await sendWhatsApp(from,
-      `Envoyez "reserver" pour réserver, "retour" pour la liste, ou "annuler".\n` +
-      `Send "reserve" to book, "back" for the list, or "cancel".`)
+    await sendWhatsApp(from, pickLang(
+      `Envoyez "reserver" pour réserver, "retour" pour la liste, ou "annuler".`,
+      `Send "reserve" to book, "back" for the list, or "cancel".`,
+      lang,
+    ))
     return ok()
   }
 
@@ -1289,7 +1354,7 @@ export async function handleEventSession(
   if (user_type === 'event_reserve' && step === 1) {
     const q = parseInt(cmd, 10)
     if (!Number.isFinite(q) || q < 1 || q > 10) {
-      await sendWhatsApp(from, `Envoyez un nombre entre 1 et 10, ou "annuler". / Send 1-10, or "cancel".`)
+      await sendWhatsApp(from, pickLang(`Envoyez un nombre entre 1 et 10, ou "annuler".`, `Send 1-10, or "cancel".`, lang))
       return ok()
     }
     const eventId       = data?.event_id as string | undefined
@@ -1298,7 +1363,7 @@ export async function handleEventSession(
     const paymentEnabled = !!data?.payment_enabled
     if (!eventId) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, 'Session expirée. / Session expired.')
+      await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
       return ok()
     }
 
@@ -1310,13 +1375,17 @@ export async function handleEventSession(
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, '❌ Événement clôturé. / Event closed.')
+      await sendWhatsApp(from, pickLang('❌ Événement clôturé.', '❌ Event closed.', lang))
       return ok()
     }
     const sold = Number(event.tickets_sold ?? 0)
     if (event.max_tickets && event.max_tickets > 0 && sold + q > event.max_tickets) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, `❌ Plus que ${Math.max(0, event.max_tickets - sold)} places. / Only ${Math.max(0, event.max_tickets - sold)} spots left.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ Plus que ${Math.max(0, event.max_tickets - sold)} places.`,
+        `❌ Only ${Math.max(0, event.max_tickets - sold)} spots left.`,
+        lang,
+      ))
       return ok()
     }
 
@@ -1341,7 +1410,7 @@ export async function handleEventSession(
         })
         .select('id').single()
       if (insErr || !reservation) {
-        await sendWhatsApp(from, `⚠️ Erreur. / Error.`)
+        await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
         return ok()
       }
       await supabaseAdmin.from('events').update({ tickets_sold: sold + q }).eq('id', event.id)
@@ -1357,15 +1426,19 @@ export async function handleEventSession(
 
       const dateStr = new Date(event.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
       const payLine = ticketPrice > 0
-        ? `\n💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA / Pay at the door`
+        ? '\n' + pickLang(
+            `💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA`,
+            `💰 Pay at the door: ${totalPrice.toLocaleString()} FCFA`,
+            lang,
+          )
         : ''
       await sendWhatsApp(from, [
-        `✅ *Réservation confirmée! / Reservation confirmed!*`,
+        pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, lang),
         ``,
         `🎉 ${event.title}`,
         `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
         event.venue ? `📍 ${event.venue}` : '',
-        `🎟 ${q} place(s)`,
+        pickLang(`🎟 ${q} place(s)`, `🎟 ${q} spot(s)`, lang),
         payLine,
       ].filter(Boolean).join('\n'))
 
@@ -1382,10 +1455,11 @@ export async function handleEventSession(
     })
     await sendWhatsApp(from,
       `💰 ${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\n` +
-      `Envoyez votre numéro Mobile Money pour payer.\n` +
-      `Send your Mobile Money number to pay.\n\n` +
-      `Ex: 237670000000\n\n` +
-      `Ou "annuler" / Or "cancel"`)
+      pickLang(
+        `Envoyez votre numéro Mobile Money pour payer.\n\nEx: 237670000000\n\nOu "annuler"`,
+        `Send your Mobile Money number to pay.\n\nEx: 237670000000\n\nOr "cancel"`,
+        lang,
+      ))
     return ok()
     // eventTitle unused at this step — silence by referencing in the log on success.
     void eventTitle
@@ -1399,12 +1473,12 @@ export async function handleEventSession(
     const commissionAmount = Number(data?.commission_amount ?? 0)
     if (!eventId || !quantity || !totalPrice) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, 'Session expirée. / Session expired.')
+      await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
       return ok()
     }
     const phoneNumber = cmd.replace(/[^\d+]/g, '')
     if (!phoneNumber) {
-      await sendWhatsApp(from, 'Envoyez un numéro MoMo (ex: 237670000000). / Send a MoMo number.')
+      await sendWhatsApp(from, pickLang('Envoyez un numéro MoMo (ex: 237670000000).', 'Send a MoMo number (e.g. 237670000000).', lang))
       return ok()
     }
 
@@ -1412,16 +1486,18 @@ export async function handleEventSession(
       .from('events').select('id, title, city, organizer_id, whatsapp, tickets_sold, max_tickets').eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, '❌ Événement introuvable. / Event not found.')
+      await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
       return ok()
     }
 
     const country = countryFromCity(event.city)
     const mno = detectMNO(phoneNumber, country ?? undefined)
     if (!mno) {
-      await sendWhatsApp(from,
-        `❌ Numéro non supporté. Réessayez avec un numéro MTN ou Orange avec l'indicatif pays.\n` +
-        `Unsupported number. Try an MTN or Orange number with country code.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ Numéro non supporté. Réessayez avec un numéro MTN ou Orange avec l'indicatif pays.`,
+        `❌ Unsupported number. Try an MTN or Orange number with country code.`,
+        lang,
+      ))
       return ok()
     }
 
@@ -1430,7 +1506,7 @@ export async function handleEventSession(
     const sold = Number(event.tickets_sold ?? 0)
     if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, '❌ Complet. / Sold out.')
+      await sendWhatsApp(from, pickLang('❌ Complet.', '❌ Sold out.', lang))
       return ok()
     }
     const { data: reservation, error: insErr } = await supabaseAdmin
@@ -1447,7 +1523,7 @@ export async function handleEventSession(
         reservation_status: 'confirmed',
       }).select('id').single()
     if (insErr || !reservation) {
-      await sendWhatsApp(from, `⚠️ Erreur. / Error.`)
+      await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
       return ok()
     }
     await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
@@ -1463,7 +1539,11 @@ export async function handleEventSession(
       })
     } catch (e) {
       const msg = (e as Error).message
-      await sendWhatsApp(from, `⚠️ PawaPay: ${msg}. Envoyez "annuler" et réessayez. / Try again.`)
+      await sendWhatsApp(from, pickLang(
+        `⚠️ PawaPay: ${msg}. Envoyez "annuler" et réessayez.`,
+        `⚠️ PawaPay: ${msg}. Send "cancel" and try again.`,
+        lang,
+      ))
       return ok()
     }
     await supabaseAdmin
@@ -1489,17 +1569,17 @@ export async function handleEventSession(
     })
 
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-    await sendWhatsApp(from,
-      `📱 *Validez sur votre téléphone / Confirm on your phone*\n\n` +
-      `Un prompt PawaPay va apparaître. Confirmez avec votre code PIN.\n` +
-      `A PawaPay prompt will appear. Confirm with your PIN.\n\n` +
-      `Vous recevrez un message à la confirmation. / You'll get a message on confirmation.`)
+    await sendWhatsApp(from, pickLang(
+      `📱 *Validez sur votre téléphone*\n\nUn prompt PawaPay va apparaître. Confirmez avec votre code PIN.\n\nVous recevrez un message à la confirmation.`,
+      `📱 *Confirm on your phone*\n\nA PawaPay prompt will appear. Confirm with your PIN.\n\nYou'll get a message on confirmation.`,
+      lang,
+    ))
     return ok()
   }
 
   // Unknown event session shape — quietly clear it.
   await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-  await sendWhatsApp(from, 'Session expirée. / Session expired.')
+  await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
   return ok()
 }
 
@@ -1507,14 +1587,14 @@ export async function handleEventSession(
 
 // Pulls a single event and shows the detail card. Pushes the event_detail
 // session so "reserver" without a code resolves to this event.
-async function showEventDetail(from: string, phone: string, eventId: string): Promise<NextResponse> {
+async function showEventDetail(from: string, phone: string, eventId: string, lang: Lang = 'fr'): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
     .select('id, title, date, time, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active')
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-    await sendWhatsApp(from, `❌ Événement indisponible. / Event unavailable.`)
+    await sendWhatsApp(from, pickLang(`❌ Événement indisponible.`, `❌ Event unavailable.`, lang))
     return ok()
   }
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
@@ -1524,18 +1604,18 @@ async function showEventDetail(from: string, phone: string, eventId: string): Pr
     ? `📍 ${event.venue}${event.neighborhood ? ', ' + event.neighborhood : ''}${event.city ? ' — ' + event.city : ''}`
     : ''
   const priceLine = !event.ticket_price || event.ticket_price <= 0
-    ? `🎫 Gratuit / Free`
-    : `🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / personne`
+    ? pickLang(`🎫 Gratuit`, `🎫 Free`, lang)
+    : pickLang(`🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / personne`, `🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / person`, lang)
   const remaining = event.max_tickets && event.max_tickets > 0
     ? Math.max(0, event.max_tickets - Number(event.tickets_sold ?? 0))
     : null
   const capacityLine = remaining != null
-    ? `👥 ${remaining} ${remaining > 0 ? 'places restantes / spots remaining' : '— ❌ Complet / Sold out'}`
+    ? `👥 ${remaining} ${remaining > 0 ? pickLang('places restantes', 'spots remaining', lang) : pickLang('— ❌ Complet', '— ❌ Sold out', lang)}`
     : ''
   const tail = remaining === 0
-    ? `\n❌ Cet événement est complet.\nThis event is sold out.`
-    : `\nEnvoyez "reserver" pour réserver / Send "reserve" to book\n` +
-      `Envoyez "retour" pour la liste / Send "back" for the list`
+    ? '\n' + pickLang(`❌ Cet événement est complet.`, `❌ This event is sold out.`, lang)
+    : '\n' + pickLang(`Envoyez "reserver" pour réserver`, `Send "reserve" to book`, lang) + '\n' +
+      pickLang(`Envoyez "retour" pour la liste`, `Send "back" for the list`, lang)
 
   await supabaseAdmin.from('signup_sessions').upsert({
     phone, user_type: 'event_detail', step: 1,
@@ -1557,18 +1637,18 @@ async function showEventDetail(from: string, phone: string, eventId: string): Pr
 
 // Verifies the event is bookable in-chat and either inserts the
 // reservation directly or kicks off the multi-step quantity prompt.
-async function startReserveFlow(from: string, phone: string, eventId: string): Promise<NextResponse> {
+async function startReserveFlow(from: string, phone: string, eventId: string, lang: Lang = 'fr'): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
     .select('id, title, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status')
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-    await sendWhatsApp(from, '❌ Événement indisponible. / Event unavailable.')
+    await sendWhatsApp(from, pickLang('❌ Événement indisponible.', '❌ Event unavailable.', lang))
     return ok()
   }
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
-    await sendWhatsApp(from, '❌ Événement clôturé. / Event closed.')
+    await sendWhatsApp(from, pickLang('❌ Événement clôturé.', '❌ Event closed.', lang))
     return ok()
   }
   const sold = Number(event.tickets_sold ?? 0)
@@ -1576,7 +1656,7 @@ async function startReserveFlow(from: string, phone: string, eventId: string): P
     ? Math.max(0, event.max_tickets - sold)
     : Infinity
   if (remaining === 0) {
-    await sendWhatsApp(from, '❌ Complet. / Sold out.')
+    await sendWhatsApp(from, pickLang('❌ Complet.', '❌ Sold out.', lang))
     return ok()
   }
 
@@ -1591,10 +1671,11 @@ async function startReserveFlow(from: string, phone: string, eventId: string): P
     expires_at: sessionExpiry(15),
   })
   const cap = remaining === Infinity ? 10 : Math.min(10, remaining)
-  await sendWhatsApp(from,
-    `Combien de places? (1-${cap})\n` +
-    `How many spots? (1-${cap})\n\n` +
-    `Ou "annuler" / Or "cancel"`)
+  await sendWhatsApp(from, pickLang(
+    `Combien de places? (1-${cap})\n\nOu "annuler"`,
+    `How many spots? (1-${cap})\n\nOr "cancel"`,
+    lang,
+  ))
   return ok()
 }
 
@@ -1636,19 +1717,24 @@ export async function handleOrderingSession(
   customer: OrderingCustomer,
 ): Promise<NextResponse> {
   const { step, data } = session
+  const lang = normalizeLang(customer.preferred_language)
 
   // Step 1: waiting for restaurant number
   if (step === 1) {
     const num = parseInt(cmd, 10)
     const candidates = (data as unknown as { candidates?: Array<{ id: string; name: string }> }).candidates ?? []
     if (!Number.isFinite(num) || num < 1 || num > candidates.length) {
-      await sendWhatsApp(from, `Envoyez un numéro entre 1 et ${candidates.length}. / Send a number between 1 and ${candidates.length}.`)
+      await sendWhatsApp(from, pickLang(
+        `Envoyez un numéro entre 1 et ${candidates.length}.`,
+        `Send a number between 1 and ${candidates.length}.`,
+        lang,
+      ))
       return ok()
     }
     const chosen = candidates[num - 1]
     const menu = await loadAvailableMenu(chosen.id)
     if (menu.length === 0) {
-      await sendWhatsApp(from, `🍽️ *${chosen.name}*\n\nCe restaurant n'a pas encore de plat disponible. / No available dishes yet.\nEssayez un autre restaurant. Send "commander" again.`)
+      await sendWhatsApp(from, `🍽️ *${chosen.name}*\n\n${pickLang(`Ce restaurant n'a pas encore de plat disponible.\nEssayez un autre restaurant. Renvoyez "commander".`, `No available dishes yet.\nTry another restaurant. Send "commander" again.`, lang)}`)
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       return ok()
     }
@@ -1685,26 +1771,29 @@ export async function handleOrderingSession(
             close_time:  String(h.close_time).slice(0, 5),
             is_closed:   !!h.is_closed,
           })),
-          'fr',
+          lang,
         )
         if (restRow.allow_orders_when_closed === false) {
           // Hard block — abandon the session and tell the customer the
           // schedule so they know when to come back.
           await sendWhatsApp(from,
-            `⚠️ *${chosen.name} est fermé / is closed*\n\n` +
-            `Horaires / Hours:\n${weekLines.join('\n')}\n\n` +
-            `Réessayez à l'ouverture. / Try again when they open.`)
+            pickLang(
+              `⚠️ *${chosen.name} est fermé*\n\nHoraires:\n${weekLines.join('\n')}\n\nRéessayez à l'ouverture.`,
+              `⚠️ *${chosen.name} is closed*\n\nHours:\n${weekLines.join('\n')}\n\nTry again when they open.`,
+              lang,
+            ))
           await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
           return ok()
         }
         // Soft warning — keep the session alive but signal the wait.
         const nextLine = status.next_transition?.kind === 'opens'
-          ? `Ouvre à ${status.next_transition.at} / Opens at ${status.next_transition.at}.`
+          ? pickLang(`Ouvre à ${status.next_transition.at}.`, `Opens at ${status.next_transition.at}.`, lang)
           : ''
-        await sendWhatsApp(from,
-          `⚠️ *${chosen.name}* est fermé actuellement. ${nextLine}\n` +
-          `Votre commande sera traitée à l'ouverture.\n` +
-          `Currently closed. Your order will be processed when they open.`)
+        await sendWhatsApp(from, pickLang(
+          `⚠️ *${chosen.name}* est fermé actuellement. ${nextLine}\nVotre commande sera traitée à l'ouverture.`,
+          `⚠️ *${chosen.name}* is currently closed. ${nextLine}\nYour order will be processed when they open.`,
+          lang,
+        ))
       }
     }
     await supabaseAdmin.from('signup_sessions').update({
@@ -1712,7 +1801,7 @@ export async function handleOrderingSession(
       data: { restaurant_id: chosen.id, restaurant_name: chosen.name, menu },
       expires_at: sessionExpiry(30),
     }).eq('phone', phone)
-    await sendWhatsApp(from, buildMenuMessage(chosen.name, menu))
+    await sendWhatsApp(from, buildMenuMessage(chosen.name, menu, lang))
     return ok()
   }
 
@@ -1721,7 +1810,7 @@ export async function handleOrderingSession(
     const menu = data.menu ?? []
     const result = parseOrder(body, menu)
     if (!result.ok) {
-      await sendWhatsApp(from, `${result.error}\n\nRenvoyez la commande ou "annuler". / Send the order again or "cancel".`)
+      await sendWhatsApp(from, `${result.error}\n\n${pickLang('Renvoyez la commande ou "annuler".', 'Send the order again or "cancel".', lang)}`)
       return ok()
     }
     await supabaseAdmin.from('signup_sessions').update({
@@ -1729,7 +1818,7 @@ export async function handleOrderingSession(
       data: { ...data, items: result.items, total: result.total },
       expires_at: sessionExpiry(30),
     }).eq('phone', phone)
-    await sendWhatsApp(from, buildSummaryMessage(data.restaurant_name, result.items, result.total))
+    await sendWhatsApp(from, buildSummaryMessage(data.restaurant_name, result.items, result.total, lang))
     return ok()
   }
 
@@ -1740,7 +1829,7 @@ export async function handleOrderingSession(
       const subtotal = data.total ?? 0
       if (items.length === 0 || subtotal <= 0) {
         await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-        await sendWhatsApp(from, '❌ Commande invalide. Recommencez avec "commander". / Invalid order. Start again with "commander".')
+        await sendWhatsApp(from, pickLang('❌ Commande invalide. Recommencez avec "commander".', '❌ Invalid order. Start again with "commander".', lang))
         return ok()
       }
 
@@ -1778,7 +1867,7 @@ export async function handleOrderingSession(
 
       if (orderErr || !newOrder) {
         console.error('[ordering] order insert failed:', orderErr?.message)
-        await sendWhatsApp(from, '❌ Erreur lors de la création de la commande. Réessayez. / Error creating order. Please retry.')
+        await sendWhatsApp(from, pickLang('❌ Erreur lors de la création de la commande. Réessayez.', '❌ Error creating order. Please retry.', lang))
         return ok()
       }
 
@@ -1834,13 +1923,16 @@ export async function handleOrderingSession(
           total,
           data.restaurant_name,
           restaurantCity,
+          lang,
         )
         if (!initiated) {
           // Initiation failed — leave the order in payment_status='pending'
           // so the customer can retry with "payer" once they fix the issue.
-          await sendWhatsApp(from,
-            `⚠️ Impossible de démarrer le paiement. Envoyez "payer" pour réessayer.\n` +
-            `Couldn't start payment. Send "pay" to retry.`)
+          await sendWhatsApp(from, pickLang(
+            `⚠️ Impossible de démarrer le paiement. Envoyez "payer" pour réessayer.`,
+            `⚠️ Couldn't start payment. Send "pay" to retry.`,
+            lang,
+          ))
         }
         return ok()
       }
@@ -1888,7 +1980,7 @@ export async function handleOrderingSession(
 
     if (cmd === 'non' || cmd === 'no') {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, '❌ Commande annulée. Envoyez "commander" pour recommencer. / Cancelled. Send "commander" to start over.')
+      await sendWhatsApp(from, pickLang('❌ Commande annulée. Envoyez "commander" pour recommencer.', '❌ Cancelled. Send "commander" to start over.', lang))
       return ok()
     }
 
@@ -1905,7 +1997,7 @@ export async function handleOrderingSession(
         city:         customer.city,
       })
       if (!result.ok) {
-        await sendWhatsApp(from, `❌ ${result.message}\n\nEnvoyez "oui" pour confirmer ou "non" pour annuler. / Send "yes" to confirm or "no" to cancel.`)
+        await sendWhatsApp(from, `❌ ${result.message}\n\n${pickLang('Envoyez "oui" pour confirmer ou "non" pour annuler.', 'Send "yes" to confirm or "no" to cancel.', lang)}`)
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
@@ -1920,28 +2012,27 @@ export async function handleOrderingSession(
 
       const lines = (data.items ?? []).map(i => `${i.quantity}× ${i.name} — ${(i.quantity * i.price).toLocaleString()} FCFA`)
       await sendWhatsApp(from, [
-        `🏷️ Code *${result.voucher.code}* appliqué! / applied!`,
+        pickLang(`🏷️ Code *${result.voucher.code}* appliqué!`, `🏷️ Code *${result.voucher.code}* applied!`, lang),
         ``,
         `🏪 ${data.restaurant_name}`,
         ...lines,
         ``,
-        `Sous-total / Subtotal: ${subtotal.toLocaleString()} FCFA`,
-        `Remise / Discount: −${result.discount.toLocaleString()} FCFA`,
-        `💰 *Nouveau total / New total: ${result.finalTotal.toLocaleString()} FCFA*`,
+        pickLang(`Sous-total: ${subtotal.toLocaleString()} FCFA`, `Subtotal: ${subtotal.toLocaleString()} FCFA`, lang),
+        pickLang(`Remise: −${result.discount.toLocaleString()} FCFA`, `Discount: −${result.discount.toLocaleString()} FCFA`, lang),
+        pickLang(`💰 *Nouveau total: ${result.finalTotal.toLocaleString()} FCFA*`, `💰 *New total: ${result.finalTotal.toLocaleString()} FCFA*`, lang),
         ``,
-        `Envoyez "oui" pour confirmer ou "non" pour annuler.`,
-        `Send "yes" to confirm or "no" to cancel.`,
+        pickLang(`Envoyez "oui" pour confirmer ou "non" pour annuler.`, `Send "yes" to confirm or "no" to cancel.`, lang),
       ].join('\n'))
       return ok()
     }
 
-    await sendWhatsApp(from, 'Envoyez "oui" pour confirmer, "non" pour annuler, ou un code promo. / Send "yes", "no", or a voucher code.')
+    await sendWhatsApp(from, pickLang('Envoyez "oui" pour confirmer, "non" pour annuler, ou un code promo.', 'Send "yes", "no", or a voucher code.', lang))
     return ok()
   }
 
   // Unexpected step
   await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-  await sendWhatsApp(from, 'Session expirée. Envoyez "aide". / Session expired. Send "help".')
+  await sendWhatsApp(from, pickLang('Session expirée. Envoyez "aide".', 'Session expired. Send "help".', lang))
   return ok()
 }
 
@@ -2108,15 +2199,24 @@ export async function handleVendorOrderAction(
 
     // Mirror the API route — let the customer know their tab is settled.
     if (order.customer_phone) {
-      await sendWhatsApp(order.customer_phone, [
-        `💰 *Paiement confirmé par ${restaurant.name} / Payment confirmed by ${restaurant.name}*`,
+      const payLang = await getLangByPhone(order.customer_phone)
+      await sendWhatsApp(order.customer_phone, pickLang([
+        `💰 *Paiement confirmé par ${restaurant.name}*`,
         ``,
         `🧾 Commande #${upper}`,
-        `💳 ${label.fr} / ${label.en}`,
+        `💳 ${label.fr}`,
         `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
         ``,
-        `Merci! / Thank you!`,
-      ].join('\n'))
+        `Merci!`,
+      ].join('\n'), [
+        `💰 *Payment confirmed by ${restaurant.name}*`,
+        ``,
+        `🧾 Order #${upper}`,
+        `💳 ${label.en}`,
+        `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
+        ``,
+        `Thank you!`,
+      ].join('\n'), payLang))
     }
     return ok()
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -52,9 +52,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   if (restaurant.whatsapp) {
-    await sendWhatsApp(restaurant.whatsapp,
-      `✅ *${restaurant.name}* est maintenant actif!\n` +
-      `*${restaurant.name}* is now active!`)
+    const lang = await getLangByPhone(restaurant.whatsapp)
+    await sendWhatsApp(restaurant.whatsapp, pickLang(
+      `✅ *${restaurant.name}* est maintenant actif!`,
+      `✅ *${restaurant.name}* is now active!`,
+      lang,
+    ))
   }
 
   return NextResponse.json({ ok: true })

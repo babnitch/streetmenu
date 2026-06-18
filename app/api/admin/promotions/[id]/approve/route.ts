@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,11 +46,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const promoterPhone = (promo.customers as unknown as { phone?: string } | null)?.phone
   if (promoterPhone) {
-    await sendWhatsApp(promoterPhone,
-      `✅ *Promotion approuvée! / Promotion approved!*\n\n` +
-      `Votre promotion est maintenant active. Bonne chance!\n` +
+    const lang = await getLangByPhone(promoterPhone)
+    await sendWhatsApp(promoterPhone, pickLang(
+      `✅ *Promotion approuvée!*\n\n` +
+      `Votre promotion est maintenant active. Bonne chance!`,
+      `✅ *Promotion approved!*\n\n` +
       `Your promotion is now live. Good luck!`,
-    ).catch(() => null)
+      lang,
+    )).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 
 export const dynamic = 'force-dynamic'
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .eq('id', event.organizer_id)
       .maybeSingle()
     if (organizer) {
+      const orgLang = organizer.phone ? await getLangByPhone(organizer.phone) : 'fr'
       const nextCount = (organizer.events_approved_count ?? 0) + 1
       const grantAuto = !organizer.event_auto_approve && nextCount >= AUTO_APPROVE_THRESHOLD
       newlyGrantedAuto = grantAuto
@@ -67,18 +68,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           metadata:        { threshold: AUTO_APPROVE_THRESHOLD, events_approved_count: nextCount },
         })
         if (organizer.phone) {
-          await sendWhatsApp(organizer.phone,
-            `🎉 *Éditeur vérifié! / Verified publisher!*\n\n` +
-            `Vos prochains événements seront publiés immédiatement.\n` +
+          await sendWhatsApp(organizer.phone, pickLang(
+            `🎉 *Éditeur vérifié!*\n\n` +
+            `Vos prochains événements seront publiés immédiatement.`,
+            `🎉 *Verified publisher!*\n\n` +
             `Your next events will publish immediately.`,
-          ).catch(() => null)
+            orgLang,
+          )).catch(() => null)
         }
       }
 
       if (organizer.phone) {
-        await sendWhatsApp(organizer.phone,
-          `✅ *Événement approuvé! / Event approved!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka. / Live on Tchop & Ndjoka.`,
-        ).catch(() => null)
+        await sendWhatsApp(organizer.phone, pickLang(
+          `✅ *Événement approuvé!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka.`,
+          `✅ *Event approved!*\n\n🎉 ${event.title}\n\nLive on Tchop & Ndjoka.`,
+          orgLang,
+        )).catch(() => null)
       }
     }
   }

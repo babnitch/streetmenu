@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,16 +52,17 @@ export async function POST(
   })
 
   if (r.customer_phone) {
-    const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
+    const lang = await getLangByPhone(r.customer_phone)
+    const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', {
       day: '2-digit', month: 'long', year: 'numeric',
     })
     await sendWhatsApp(r.customer_phone, [
-      `✅ *Votre réservation est confirmée! / Your reservation is confirmed!*`,
+      pickLang(`✅ *Votre réservation est confirmée!*`, `✅ *Your reservation is confirmed!*`, lang),
       ``,
       `🎉 ${event.title}`,
       `📅 ${dateStr}`,
       event.venue ? `📍 ${event.venue}` : '',
-      `🎟 ${r.quantity} place(s)`,
+      pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, lang),
     ].filter(Boolean).join('\n')).catch(() => null)
   }
 

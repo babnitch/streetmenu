@@ -2,20 +2,28 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
-function buildWelcomeMessage(restaurantName: string): string {
-  return [
-    `✅ Votre restaurant *${restaurantName}* a été approuvé sur Tchop & Ndjoka! 🎉`,
-    ``,
-    `Vous recevrez désormais les notifications de commandes ici.`,
-    ``,
-    `Envoyez "aide" pour voir les commandes disponibles.`,
-    ``,
-    `/ Your restaurant *${restaurantName}* has been approved! You'll now receive order notifications here. Send "help" for available commands.`,
-  ].join('\n')
+function buildWelcomeMessage(restaurantName: string, lang: Lang): string {
+  return pickLang(
+    [
+      `✅ Votre restaurant *${restaurantName}* a été approuvé sur Tchop & Ndjoka! 🎉`,
+      ``,
+      `Vous recevrez désormais les notifications de commandes ici.`,
+      ``,
+      `Envoyez "aide" pour voir les commandes disponibles.`,
+    ].join('\n'),
+    [
+      `✅ Your restaurant *${restaurantName}* has been approved on Tchop & Ndjoka! 🎉`,
+      ``,
+      `You'll now receive order notifications here.`,
+      ``,
+      `Send "help" for available commands.`,
+    ].join('\n'),
+    lang,
+  )
 }
 
 // Owner phones from both restaurants.whatsapp (direct) and active owner rows
@@ -88,8 +96,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (recipients.length === 0) {
       console.warn(`[approve] no owner phones for restaurant ${params.id}. Check restaurants.whatsapp and owner rows in restaurant_team.`)
     } else {
-      const msg = buildWelcomeMessage(before.name)
-      const results = await Promise.allSettled(recipients.map(p => sendWhatsApp(p, msg)))
+      const results = await Promise.allSettled(recipients.map(async p => {
+        const lang = await getLangByPhone(p)
+        return sendWhatsApp(p, buildWelcomeMessage(before.name, lang))
+      }))
       results.forEach((r, i) => {
         const to = recipients[i]
         if (r.status === 'rejected') {

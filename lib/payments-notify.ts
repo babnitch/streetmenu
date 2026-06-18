@@ -70,20 +70,23 @@ export async function notifyPaidOrder(
   }
 
   const mno = correspondent ? mnoLabel(correspondent) : 'mobile money'
-  const msg = [
-    `💰 *PAIEMENT REÇU / PAYMENT RECEIVED*`,
-    ``,
-    `🧾 Commande #${id4}`,
-    `👤 ${order.customer_name}`,
-    `📱 ${order.customer_phone}`,
-    `💳 ${mno}`,
-    `💰 ${total.toLocaleString()} FCFA`,
-    ``,
-    `La commande est payée — préparez-la! / Order is paid — prepare it!`,
-    `Répondez "ok ${id4}" pour confirmer / Reply "ok ${id4}" to confirm`,
-  ].join('\n')
 
-  const results = await Promise.allSettled(recipients.map(p => sendWhatsApp(p, msg)))
+  const results = await Promise.allSettled(recipients.map(async p => {
+    const lang = await getLangByPhone(p)
+    const msg = [
+      pickLang(`💰 *PAIEMENT REÇU*`, `💰 *PAYMENT RECEIVED*`, lang),
+      ``,
+      pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
+      `👤 ${order.customer_name}`,
+      `📱 ${order.customer_phone}`,
+      `💳 ${mno}`,
+      `💰 ${total.toLocaleString()} FCFA`,
+      ``,
+      pickLang(`La commande est payée — préparez-la!`, `Order is paid — prepare it!`, lang),
+      pickLang(`Répondez "ok ${id4}" pour confirmer`, `Reply "ok ${id4}" to confirm`, lang),
+    ].join('\n')
+    return sendWhatsApp(p, msg)
+  }))
   results.forEach((r, i) => {
     const to = recipients[i]
     if (r.status === 'rejected') {
@@ -176,15 +179,16 @@ export async function notifyPaidReservation(
   }
 
   console.log(`[payment] sending reservation organizer notification: event=${event.id} to=${organizerPhone}`)
+  const orgLang = await getLangByPhone(organizerPhone)
   const sentOrg = await sendWhatsApp(organizerPhone, [
-    `💰 *PAIEMENT REÇU / PAYMENT RECEIVED*`,
+    pickLang(`💰 *PAIEMENT REÇU*`, `💰 *PAYMENT RECEIVED*`, orgLang),
     ``,
-    `🎟 Réservation #${id4}`,
+    pickLang(`🎟 Réservation #${id4}`, `🎟 Reservation #${id4}`, orgLang),
     `🎉 ${event.title}`,
     `📅 ${dateStr}`,
     `👤 ${r.customer_name}`,
     `📱 ${r.customer_phone}`,
-    `🎟 ${r.quantity} place(s)`,
+    pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
     `💳 ${mno}`,
     `💰 ${total.toLocaleString()} FCFA`,
   ].join('\n'))

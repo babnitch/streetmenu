@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -133,14 +133,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (order.customer_phone) {
     const label = METHOD_LABELS[method]
+    const lang = await getLangByPhone(order.customer_phone)
     const r = await sendWhatsApp(order.customer_phone, [
-      `💰 *Paiement confirmé par ${restName} / Payment confirmed by ${restName}*`,
+      pickLang(`💰 *Paiement confirmé par ${restName}*`, `💰 *Payment confirmed by ${restName}*`, lang),
       ``,
-      `🧾 Commande #${id4}`,
-      `💳 ${label.fr} / ${label.en}`,
+      pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
+      `💳 ${pickLang(label.fr, label.en, lang)}`,
       `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
       ``,
-      `Merci! / Thank you!`,
+      pickLang(`Merci!`, `Thank you!`, lang),
     ].join('\n'))
     console.log(`[mark-paid] customer notification: order=${order.id} ok=${r.ok} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}`)
   }

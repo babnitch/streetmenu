@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,13 +67,18 @@ export async function POST(
   })
 
   if (r.customer_phone) {
+    const lang = await getLangByPhone(r.customer_phone)
     await sendWhatsApp(r.customer_phone, [
-      `❌ *Votre réservation a été refusée / Your reservation was declined*`,
+      pickLang(`❌ *Votre réservation a été refusée*`, `❌ *Your reservation was declined*`, lang),
       ``,
       `🎉 ${event.title}`,
       reason ? `📝 ${reason}` : '',
       r.payment_status === 'paid'
-        ? `💰 Le remboursement sera traité par l'organisateur. / The organizer will process a refund.`
+        ? pickLang(
+            `💰 Le remboursement sera traité par l'organisateur.`,
+            `💰 The organizer will process a refund.`,
+            lang,
+          )
         : '',
     ].filter(Boolean).join('\n')).catch(() => null)
   }

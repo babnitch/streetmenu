@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -88,9 +88,12 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (entry?.customers) {
     const members = entry.customers as unknown as { name: string; phone: string }[]
     const member = Array.isArray(members) ? members[0] : (entry.customers as unknown as { name: string; phone: string })
-    await sendWhatsApp(member.phone,
-      `👋 Vous avez été retiré de *${restaurant?.name}*.\n` +
-      `You have been removed from *${restaurant?.name}*.`)
+    const lang = await getLangByPhone(member.phone)
+    await sendWhatsApp(member.phone, pickLang(
+      `👋 Vous avez été retiré de *${restaurant?.name}*.`,
+      `👋 You have been removed from *${restaurant?.name}*.`,
+      lang,
+    ))
   }
 
   return NextResponse.json({ ok: true })

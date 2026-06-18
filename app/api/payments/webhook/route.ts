@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import { verifyWebhookSignature, type PawaPayCorrespondent } from '@/lib/pawapay'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
 
 export const dynamic = 'force-dynamic'
@@ -107,11 +107,15 @@ export async function POST(req: NextRequest) {
       })
 
       if (order.customer_phone) {
+        const lang = await getLangByPhone(order.customer_phone)
         await sendWhatsApp(order.customer_phone, [
-          `❌ *Paiement échoué / Payment failed*`,
+          pickLang(`❌ *Paiement échoué*`, `❌ *Payment failed*`, lang),
           ``,
-          `Votre paiement n'a pas abouti. Envoyez "payer" pour réessayer ou contactez le restaurant.`,
-          `Your payment didn't go through. Send "pay" to retry or contact the restaurant.`,
+          pickLang(
+            `Votre paiement n'a pas abouti. Envoyez "payer" pour réessayer ou contactez le restaurant.`,
+            `Your payment didn't go through. Send "pay" to retry or contact the restaurant.`,
+            lang,
+          ),
         ].join('\n')).catch(() => null)
       }
     }
@@ -331,11 +335,15 @@ export async function POST(req: NextRequest) {
     })
 
     if (reservation.customer_phone) {
+      const lang = await getLangByPhone(reservation.customer_phone)
       await sendWhatsApp(reservation.customer_phone, [
-        `❌ *Paiement échoué / Payment failed*`,
+        pickLang(`❌ *Paiement échoué*`, `❌ *Payment failed*`, lang),
         ``,
-        `Votre paiement pour la réservation n'a pas abouti. Réessayez ou contactez l'organisateur.`,
-        `Your reservation payment didn't go through. Retry or contact the organizer.`,
+        pickLang(
+          `Votre paiement pour la réservation n'a pas abouti. Réessayez ou contactez l'organisateur.`,
+          `Your reservation payment didn't go through. Retry or contact the organizer.`,
+          lang,
+        ),
       ].join('\n')).catch(() => null)
     }
   }
