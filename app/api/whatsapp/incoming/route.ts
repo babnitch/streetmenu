@@ -2149,69 +2149,73 @@ async function handleCustomer(
   // The exhaustive list. sendWhatsApp auto-splits when this exceeds 1500
   // chars, so the customer reliably gets every command listed.
   if (cmd === 'aide+' || cmd === 'help+' || cmd === 'aide plus' || cmd === 'help plus') {
-    await sendWhatsApp(from, lang === 'en'
-      ? `👋 *Hello ${customer.name}!*\n\n` +
-        `📋 *All commands:*\n\n` +
-        `🍽️ *Order:*\n` +
-        `🍽️ "order" → Place an order\n` +
-        `📦 "my orders" → View your orders\n` +
-        `💳 "pay" → Pay an order\n` +
-        `🎫 "my vouchers" → View vouchers\n` +
-        `🎫 "voucher CODE" → Claim a code\n` +
-        `⭐ "rate" → Rate last restaurant\n` +
-        `🚩 "report" → Report an issue\n\n` +
-        `🎉 *Events:*\n` +
-        `🎉 "events" → Browse events\n` +
-        `🎟 "my reservations" → View reservations\n` +
-        `🎟 "book XXXX" → Book an event\n` +
-        `📢 "publish" → Publish an event\n` +
-        `📢 "my events" → View your events\n` +
-        `📋 "reservations XXXX" → View event reservations\n` +
-        `🔒 "close/open reservations XXXX" → Close/open\n` +
-        `✅ "confirm/reject reservation XXXX" → Confirm/reject\n` +
-        `🎫 "tiers XXXX" → View tiers\n` +
-        `➕ "add tier XXXX name price [max]" → Add tier\n\n` +
-        `🔔 *Notifications:*\n` +
-        `🔔 "subscribe" → Get new event alerts\n` +
-        `🔕 "unsubscribe" → Stop notifications\n` +
-        `📋 "my subscriptions" → View my subscriptions\n` +
-        `📢 "broadcast" → Broadcast a message (paid)\n\n` +
-        `🏪 "restaurant" → Register restaurant\n` +
-        `🌐 Switch to French → send 'fr'\n` +
-        `❓ "help" → Short list\n\n` +
-        `🌍 Browse: ${BASE_URL}\n` +
-        `🔑 My account: ${BASE_URL}/account`
-      : `👋 *Bonjour ${customer.name}!*\n\n` +
-        `📋 *Toutes les commandes:*\n\n` +
-        `🍽️ *Commander:*\n` +
-        `🍽️ "commander" → Passer une commande\n` +
-        `📦 "mes commandes" → Voir vos commandes\n` +
-        `💳 "payer" → Payer une commande\n` +
-        `🎫 "mes bons" → Voir vos bons\n` +
-        `🎫 "bon CODE" → Ajouter un bon\n` +
-        `⭐ "noter" → Noter votre dernier restaurant\n` +
-        `🚩 "signaler" → Signaler un problème\n\n` +
-        `🎉 *Événements:*\n` +
-        `🎉 "evenements" → Voir les événements\n` +
-        `🎟 "mes reservations" → Voir vos réservations\n` +
-        `🎟 "reserver XXXX" → Réserver un événement\n` +
-        `📢 "publier" → Publier un événement\n` +
-        `📢 "mes evenements" → Voir vos événements publiés\n` +
-        `📋 "reservations XXXX" → Voir les réservations\n` +
-        `🔒 "fermer/ouvrir reservations XXXX" → Fermer/ouvrir\n` +
-        `✅ "confirmer/rejeter reservation XXXX" → Confirmer/rejeter\n` +
-        `🎫 "tarifs XXXX" → Voir les tarifs\n` +
-        `➕ "ajouter tarif XXXX nom prix [max]" → Ajouter un tarif\n\n` +
-        `🔔 *Notifications:*\n` +
-        `🔔 "abonner" → Recevoir les nouveaux événements\n` +
-        `🔕 "desabonner" → Arrêter les notifications\n` +
-        `📋 "mes abonnements" → Voir mes abonnements\n` +
-        `📢 "diffuser" → Diffuser un message (payant)\n\n` +
-        `🏪 "restaurant" → Inscrire votre restaurant\n` +
-        `🌐 Passer en anglais → envoyez 'en'\n` +
-        `❓ "aide" → Liste courte\n\n` +
-        `🌍 Parcourez: ${BASE_URL}\n` +
-        `🔑 Mon compte: ${BASE_URL}/account`)
+    const en = lang === 'en'
+    const lines: string[] = en
+      ? [
+          `📋 *Full Guide — Tchop & Ndjoka*`,
+          ``,
+          `🍽️ *Ordering food*`,
+          `Browse restaurants, place orders, track them, and pay. You can also use discount codes at checkout.`,
+          `→ order · my orders · pay · my vouchers · voucher [CODE]`,
+          ``,
+          `⭐ *Ratings & feedback*`,
+          `Rate your experience after a delivered order, or report a problem.`,
+          `→ rate · report`,
+          ``,
+          `🎉 *Events*`,
+          `Discover events in your city, book tickets, and manage your reservations.`,
+          `→ events · book [code] · my reservations`,
+          ``,
+          `📢 *Publishing events*`,
+          `Submit your own events, manage reservations, set ticket tiers, and control bookings.`,
+          `→ publish · my events · reservations [code] · tiers [code] · add tier [code] name price`,
+          `→ open/close reservations [code] · confirm/reject reservation [code]`,
+          ``,
+          `🔔 *Notifications*`,
+          `Get alerted when new events are published in your city. You can also broadcast messages to subscribers (paid).`,
+          `→ subscribe · unsubscribe · my subscriptions · broadcast`,
+          ``,
+          `🏪 *Own a restaurant?*`,
+          `Register your restaurant on the platform.`,
+          `→ restaurant`,
+          ``,
+          `🌐 Switch to French → send 'fr'`,
+          ``,
+          `🌍 Browse: ${BASE_URL}`,
+        ]
+      : [
+          `📋 *Guide complet — Tchop & Ndjoka*`,
+          ``,
+          `🍽️ *Commander à manger*`,
+          `Parcourez les restaurants, passez commande, suivez vos commandes et payez. Vous pouvez aussi utiliser un bon de réduction au paiement.`,
+          `→ commander · mes commandes · payer · mes bons · bon [CODE]`,
+          ``,
+          `⭐ *Avis & signalements*`,
+          `Notez votre expérience après une commande livrée, ou signalez un problème.`,
+          `→ noter · signaler`,
+          ``,
+          `🎉 *Événements*`,
+          `Découvrez les événements de votre ville, réservez des billets et gérez vos réservations.`,
+          `→ evenements · reserver [code] · mes reservations`,
+          ``,
+          `📢 *Publier des événements*`,
+          `Soumettez vos propres événements, gérez les réservations, définissez des tarifs et contrôlez les réservations.`,
+          `→ publier · mes evenements · reservations [code] · tarifs [code] · ajouter tarif [code] nom prix`,
+          `→ ouvrir/fermer reservations [code] · confirmer/rejeter reservation [code]`,
+          ``,
+          `🔔 *Notifications*`,
+          `Soyez alerté quand de nouveaux événements sont publiés dans votre ville. Vous pouvez aussi diffuser des messages aux abonnés (payant).`,
+          `→ abonner · desabonner · mes abonnements · diffuser`,
+          ``,
+          `🏪 *Vous avez un restaurant?*`,
+          `Inscrivez votre restaurant sur la plateforme.`,
+          `→ restaurant`,
+          ``,
+          `🌐 Passer en anglais → envoyez 'en'`,
+          ``,
+          `🌍 Parcourez: ${BASE_URL}`,
+        ]
+    await sendWhatsApp(from, lines.join('\n'))
     return ok()
   }
 
