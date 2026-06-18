@@ -1134,92 +1134,90 @@ async function handleVendor(
   // chars, so we don't have to manually chunk by role.
   if (cmd === 'aide+' || cmd === 'help+' || cmd === 'aide plus' || cmd === 'help plus') {
     const en = lang === 'en'
-    const ownerCmds = isOwner
-      ? (en
-        ? `\n👥 Team:\n` +
-          `📋 "team" → View team\n` +
-          `➕ "add +XXX manager" → Add or invite\n` +
-          `💌 "invite +XXX staff" → Invite a new number\n` +
-          `📨 "invitations" → Pending invitations\n` +
-          `❌ "cancel invitation +XXX" → Cancel\n` +
-          `➖ "remove +XXX" → Remove member\n` +
-          `🏪 "my restaurants" → View all my restaurants\n` +
-          `⏸️ "suspend" → Suspend the restaurant\n` +
-          `✅ "reactivate" → Reactivate the restaurant\n`
-        : `\n👥 Équipe:\n` +
-          `📋 "equipe" → Voir l'équipe\n` +
-          `➕ "ajouter +XXX manager" → Ajouter ou inviter\n` +
-          `💌 "inviter +XXX staff" → Inviter un nouveau numéro\n` +
-          `📨 "invitations" → Invitations en attente\n` +
-          `❌ "annuler invitation +XXX" → Annuler\n` +
-          `➖ "retirer +XXX" → Retirer un membre\n` +
-          `🏪 "mes restaurants" → Voir tous mes restaurants\n` +
-          `⏸️ "suspendre" → Suspendre le restaurant\n` +
-          `✅ "reactiver" → Réactiver le restaurant\n`)
-      : ''
+    const canManage = isOwner || isManager
+    const lines: string[] = [
+      en ? `📋 *Full Guide — ${restaurant.name}*` : `📋 *Guide complet — ${restaurant.name}*`,
+    ]
 
-    await sendWhatsApp(from,
-      `🍽️ *Tchop & Ndjoka — ${restaurant.name}*\n` +
-      (en ? `Role: ${teamRole}\n\n` : `Rôle: ${teamRole}\n\n`) +
-      (en ? `📋 *All commands:*\n\n` : `📋 *Toutes les commandes:*\n\n`) +
-      (canEditMenu
-        ? (en
-          ? `📸 Photo + "Name - Price" → Add a dish\n` +
-            `💰 "price [name] [price]" → Update price\n` +
-            `✅ "available [name]" → Mark available\n` +
-            `❌ "unavailable [name]" → Mark unavailable\n` +
-            `🗑️ "delete [name]" → Delete a dish\n` +
-            `📷 "profile photo" → Update restaurant photo\n` +
-            `🍽️ "menu" → View your menu\n`
-          : `📸 Photo + "Nom - Prix" → Ajouter un plat\n` +
-            `💰 "prix [nom] [prix]" → Changer le prix\n` +
-            `✅ "dispo [nom]" → Marquer disponible\n` +
-            `❌ "indispo [nom]" → Marquer indisponible\n` +
-            `🗑️ "supprimer [nom]" → Supprimer un plat\n` +
-            `📷 "photo restaurant" → Changer la photo\n` +
-            `🍽️ "menu" → Voir votre menu\n`)
-        : (en ? `🍽️ "menu" → View menu\n` : `🍽️ "menu" → Voir le menu\n`)) +
-      (canViewOrders
-        ? (en
-          ? `\n📦 *Orders:*\n` +
-            `📦 "orders" → View orders\n` +
-            `✅ "ok XXXX" → Confirm\n` +
-            `🍳 "preparing XXXX" → Start preparing\n` +
-            `🎉 "ready XXXX" → Ready\n` +
-            `📦 "picked XXXX" → Picked up\n` +
-            `❌ "cancel XXXX" → Cancel\n` +
-            `💰 "paid XXXX cash" → Mark paid cash\n` +
-            `💰 "paid XXXX mtn 237..." → Mark paid MTN\n` +
-            `💰 "paid XXXX orange 237..." → Mark paid Orange\n`
-          : `\n📦 *Commandes:*\n` +
-            `📦 "commandes" → Voir les commandes\n` +
-            `✅ "ok XXXX" → Confirmer\n` +
-            `🍳 "preparer XXXX" → En préparation\n` +
-            `🎉 "pret XXXX" → Prêt\n` +
-            `📦 "recupere XXXX" → Récupéré\n` +
-            `❌ "annuler XXXX" → Annuler\n` +
-            `💰 "paye XXXX cash" → Marquer payé en espèces\n` +
-            `💰 "paye XXXX mtn 237..." → Marquer payé MTN\n` +
-            `💰 "paye XXXX orange 237..." → Marquer payé Orange\n`)
-        : '') +
-      (en ? `\n🔗 "restaurant" → View your page\n\n` : `\n🔗 "restaurant" → Voir votre page\n\n`) +
-      (en ? `🕐 *Hours:*\n` : `🕐 *Horaires:*\n`) +
-      (en ? `🕐 "schedule" → View schedule + status\n` : `🕐 "horaire" → Voir l'horaire + statut\n`) +
-      ((isOwner || isManager)
-        ? (en
-          ? `🟢 "open" → Manually open\n` +
-            `🔴 "close" → Manually close\n` +
-            `↩️ "auto" → Follow schedule\n`
-          : `🟢 "ouvrir" → Ouvrir manuellement\n` +
-            `🔴 "fermer" → Fermer manuellement\n` +
-            `↩️ "auto" → Suivre l'horaire\n`)
-        : '') +
-      (en ? `⏱️ "prep" → View prep time\n` : `⏱️ "temps" → Voir le temps de préparation\n`) +
-      ((isOwner || isManager)
-        ? (en ? `⏱️ "prep 20 35" → Set prep time\n` : `⏱️ "temps 20 35" → Définir le temps de préparation\n`)
-        : '') +
-      ownerCmds +
-      (en ? `\n❓ "help" → Short list` : `\n❓ "aide" → Liste courte`))
+    // ── Menu ──
+    lines.push('', en ? `🍽️ *Managing your menu*` : `🍽️ *Gérer votre menu*`)
+    if (canEditMenu) {
+      lines.push(
+        en
+          ? `To add a dish, send a photo with a caption like "Poulet DG - 3000". You can also update prices, mark items available/unavailable, or delete them.`
+          : `Pour ajouter un plat, envoyez une photo avec une légende comme "Poulet DG - 3000". Vous pouvez aussi changer les prix, marquer un plat dispo/indispo, ou le supprimer.`,
+        en
+          ? `→ menu · price [name] [price] · available [name] · unavailable [name] · delete [name]`
+          : `→ menu · prix [nom] [prix] · dispo [nom] · indispo [nom] · supprimer [nom]`,
+      )
+    } else {
+      lines.push(
+        en ? `View the current menu at any time.` : `Consultez le menu actuel à tout moment.`,
+        en ? `→ menu` : `→ menu`,
+      )
+    }
+
+    // ── Orders ──
+    if (canViewOrders) {
+      lines.push('', en ? `📦 *Handling orders*` : `📦 *Gérer les commandes*`,
+        en
+          ? `Check incoming orders and move them through the workflow: confirm → prepare → ready → picked up. You can also cancel orders or mark manual payments.`
+          : `Consultez les commandes qui arrivent et faites-les avancer : confirmer → préparer → prêt → récupéré. Vous pouvez aussi annuler une commande ou marquer un paiement manuel.`,
+        en
+          ? `→ orders · ok [code] · preparing [code] · ready [code] · picked [code] · cancel [code] · paid [code] cash/mtn/orange`
+          : `→ commandes · ok [code] · preparer [code] · pret [code] · recupere [code] · annuler [code] · paye [code] cash/mtn/orange`,
+      )
+    }
+
+    // ── Hours & prep ──
+    lines.push('', en ? `🕐 *Opening hours & prep time*` : `🕐 *Horaires & temps de préparation*`)
+    if (canManage) {
+      lines.push(
+        en
+          ? `View or change your schedule, manually open/close your restaurant, or set your estimated preparation time.`
+          : `Consultez ou changez votre horaire, ouvrez/fermez votre restaurant manuellement, ou définissez votre temps de préparation estimé.`,
+        en
+          ? `→ schedule · open · close · auto · prep · prep [min] [max]`
+          : `→ horaire · ouvrir · fermer · auto · temps · temps [min] [max]`,
+      )
+    } else {
+      lines.push(
+        en ? `View your schedule and estimated preparation time.` : `Consultez votre horaire et votre temps de préparation estimé.`,
+        en ? `→ schedule · prep` : `→ horaire · temps`,
+      )
+    }
+
+    // ── Team (owner only) ──
+    if (isOwner) {
+      lines.push('', en ? `👥 *Your team*` : `👥 *Votre équipe*`,
+        en
+          ? `See who's on your team, add managers or staff, send invitations, or remove members.`
+          : `Voyez qui fait partie de votre équipe, ajoutez des managers ou du personnel, envoyez des invitations, ou retirez des membres.`,
+        en
+          ? `→ team · add +237... manager · invite +237... staff · invitations · remove +237...`
+          : `→ equipe · ajouter +237... manager · inviter +237... staff · invitations · retirer +237...`,
+      )
+    }
+
+    // ── Profile ──
+    lines.push('', en ? `📷 *Restaurant profile*` : `📷 *Profil du restaurant*`)
+    if (canEditMenu) {
+      lines.push(
+        en ? `Update your restaurant photo or view your public page.` : `Changez la photo de votre restaurant ou voyez votre page publique.`,
+        en ? `→ profile photo · restaurant` : `→ photo restaurant · restaurant`,
+      )
+    } else {
+      lines.push(
+        en ? `View your public page.` : `Voyez votre page publique.`,
+        en ? `→ restaurant` : `→ restaurant`,
+      )
+    }
+
+    // ── Language ──
+    lines.push('',
+      en ? `🌐 Passer au français → send 'fr'` : `🌐 Switch to English → envoyez 'en'`)
+
+    await sendWhatsApp(from, lines.join('\n'))
     return ok()
   }
 
