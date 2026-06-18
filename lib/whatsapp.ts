@@ -39,11 +39,16 @@ export function normalizeLang(value: string | null | undefined): Lang {
 // surface narrow when it's used from edge contexts.
 export async function getLangByPhone(phone: string | null | undefined): Promise<Lang> {
   if (!phone) return DEFAULT_LANG
+  // Normalise to the stored form: callers sometimes pass the raw Twilio
+  // "whatsapp:+237…" From value, but customers.phone is stored as "+237…".
+  // Without this the lookup misses and silently falls back to French.
+  const normalised = phone.replace(/^whatsapp:/i, '').replace(/[^\d+]/g, '')
+  if (!normalised) return DEFAULT_LANG
   const { supabaseAdmin } = await import('@/lib/supabaseAdmin')
   const { data } = await supabaseAdmin
     .from('customers')
     .select('preferred_language')
-    .eq('phone', phone)
+    .eq('phone', normalised)
     .maybeSingle()
   return normalizeLang(data?.preferred_language)
 }

@@ -154,9 +154,9 @@ function buildMenuMessage(restaurantName: string, menu: MenuItemRef[], lang: Lan
 export interface ParseOk { ok: true; items: CartItem[]; total: number }
 export interface ParseErr { ok: false; error: string }
 
-export function parseOrder(raw: string, menu: MenuItemRef[]): ParseOk | ParseErr {
+export function parseOrder(raw: string, menu: MenuItemRef[], lang: Lang = 'fr'): ParseOk | ParseErr {
   const tokens = raw.split(/[,\n]/).map(t => t.trim()).filter(Boolean)
-  if (tokens.length === 0) return { ok: false, error: 'Commande vide / Empty order' }
+  if (tokens.length === 0) return { ok: false, error: pickLang('Commande vide', 'Empty order', lang) }
 
   const merged = new Map<string, CartItem>()
 
@@ -171,19 +171,19 @@ export function parseOrder(raw: string, menu: MenuItemRef[]): ParseOk | ParseErr
       const idx = parseInt(numBased[1], 10) - 1
       qty = parseInt(numBased[2], 10)
       menuItem = menu[idx]
-      if (!menuItem) return { ok: false, error: `Numéro ${idx + 1} invalide / Invalid number` }
+      if (!menuItem) return { ok: false, error: pickLang(`Numéro ${idx + 1} invalide`, `Invalid number ${idx + 1}`, lang) }
     } else if (nameBased) {
       qty = parseInt(nameBased[1], 10)
       const name = nameBased[2].trim().toLowerCase()
       menuItem = menu.find(m => m.name.toLowerCase() === name) ||
                  menu.find(m => m.name.toLowerCase().includes(name))
-      if (!menuItem) return { ok: false, error: `"${nameBased[2].trim()}" introuvable / not found` }
+      if (!menuItem) return { ok: false, error: pickLang(`"${nameBased[2].trim()}" introuvable`, `"${nameBased[2].trim()}" not found`, lang) }
     } else {
-      return { ok: false, error: `Format non compris: "${tok}" / Not understood. Ex: 1 x2, 3 x1` }
+      return { ok: false, error: pickLang(`Format non compris: "${tok}". Ex: 1 x2, 3 x1`, `Not understood: "${tok}". Ex: 1 x2, 3 x1`, lang) }
     }
 
     if (!Number.isFinite(qty) || qty < 1 || qty > 99) {
-      return { ok: false, error: `Quantité invalide: ${qty} / Invalid quantity` }
+      return { ok: false, error: pickLang(`Quantité invalide: ${qty}`, `Invalid quantity: ${qty}`, lang) }
     }
 
     const key = menuItem.menu_item_id
@@ -266,29 +266,36 @@ export async function notifyVendorsOfNewOrder(
   }
 
   const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} (${(i.quantity * i.price).toLocaleString()} FCFA)`).join('\n')
-  // ⏱️ for the vendor — a reminder of the window they committed to.
-  const prepLine = await prepTimeLine(restaurantId, '⏱️')
-  const msg = [
-    `🔔 *NOUVELLE COMMANDE / NEW ORDER!*`,
-    `━━━━━━━━━━━━━━━━━━`,
-    ``,
-    `🧾 Commande #${id4}`,
-    `🏪 ${restaurantName}`,
-    `👤 ${customerName}`,
-    `📱 ${customerPhone}`,
-    ``,
-    `🍽️ *Articles / Items:*`,
-    itemLines,
-    ``,
-    `💰 *Total: ${total.toLocaleString()} FCFA*`,
-    ...(prepLine ? [``, prepLine] : []),
-    ``,
-    `━━━━━━━━━━━━━━━━━━`,
-    `Répondez "ok ${id4}" pour confirmer / Reply "ok ${id4}" to confirm`,
-    `Répondez "annuler ${id4}" pour annuler / Reply "cancel ${id4}" to cancel`,
-  ].join('\n')
-
-  const results = await Promise.allSettled(recipients.map(p => sendWhatsApp(p, msg)))
+  // Render per recipient in their stored language (prep line included).
+  const buildMsg = async (lang: Lang): Promise<string> => {
+    const prepLine = await prepTimeLine(restaurantId, '⏱️', lang)
+    return [
+      pickLang(`🔔 *NOUVELLE COMMANDE!*`, `🔔 *NEW ORDER!*`, lang),
+      `━━━━━━━━━━━━━━━━━━`,
+      ``,
+      pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
+      `🏪 ${restaurantName}`,
+      `👤 ${customerName}`,
+      `📱 ${customerPhone}`,
+      ``,
+      pickLang(`🍽️ *Articles:*`, `🍽️ *Items:*`, lang),
+      itemLines,
+      ``,
+      `💰 *Total: ${total.toLocaleString()} FCFA*`,
+      ...(prepLine ? [``, prepLine] : []),
+      ``,
+      `━━━━━━━━━━━━━━━━━━`,
+      pickLang(`Répondez "ok ${id4}" pour confirmer`, `Reply "ok ${id4}" to confirm`, lang),
+      pickLang(`Répondez "annuler ${id4}" pour annuler`, `Reply "cancel ${id4}" to cancel`, lang),
+    ].join('\n')
+  }
+  // Cache the two renderings so we don't rebuild per recipient.
+  const msgByLang: Partial<Record<Lang, string>> = {}
+  const results = await Promise.allSettled(recipients.map(async p => {
+    const lang = await getLangByPhone(p)
+    const msg = msgByLang[lang] ?? (msgByLang[lang] = await buildMsg(lang))
+    return sendWhatsApp(p, msg)
+  }))
   results.forEach((r, i) => {
     const to = recipients[i]
     if (r.status === 'rejected') {
@@ -792,15 +799,16 @@ export async function handleOrderCommand(
     }
     if (!organizerPhone && ev.whatsapp) organizerPhone = ev.whatsapp
     if (organizerPhone) {
-      const dateStr = new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      const orgLang = await getLangByPhone(organizerPhone)
+      const dateStr = new Date(ev.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
       await sendWhatsApp(organizerPhone, [
-        `❌ *Réservation annulée / Reservation cancelled*`,
+        pickLang(`❌ *Réservation annulée*`, `❌ *Reservation cancelled*`, orgLang),
         ``,
         `🎉 ${ev.title}`,
         `📅 ${dateStr}`,
         `👤 ${r.customer_name}`,
         `📱 ${r.customer_phone}`,
-        `🎟 ${r.quantity} place(s)`,
+        `🎟 ${r.quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
       ].join('\n')).catch(() => null)
     }
     return ok()
@@ -1702,14 +1710,15 @@ async function pingOrganizer(
   }
   if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
   if (!organizerPhone) return
+  const orgLang = await getLangByPhone(organizerPhone)
   await sendWhatsApp(organizerPhone, [
-    `🔔 *Nouvelle réservation / New reservation!*`,
+    pickLang(`🔔 *Nouvelle réservation!*`, `🔔 *New reservation!*`, orgLang),
     ``,
     `🎉 ${event.title}`,
     `📅 ${dateStr}`,
     `👤 ${customer.name}`,
     `📱 ${customer.phone}`,
-    `🎟 ${quantity} place(s)`,
+    `🎟 ${quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
     total > 0 ? `💰 ${total.toLocaleString()} FCFA` : '',
   ].filter(Boolean).join('\n')).catch(() => null)
 }
@@ -1815,7 +1824,7 @@ export async function handleOrderingSession(
   // Step 2: waiting for order syntax
   if (step === 2) {
     const menu = data.menu ?? []
-    const result = parseOrder(body, menu)
+    const result = parseOrder(body, menu, lang)
     if (!result.ok) {
       await sendWhatsApp(from, `${result.error}\n\n${pickLang('Renvoyez la commande ou "annuler".', 'Send the order again or "cancel".', lang)}`)
       return ok()
@@ -2124,6 +2133,7 @@ export async function handleVendorOrderAction(
 
   const code4 = intent.code4.toLowerCase()
   const upper = code4.toUpperCase()
+  const vendorLang = await getLangByPhone(from)
 
   // Status filter: include 'delivered' in the search window even though it's
   // terminal — the vendor may want to mark a just-delivered order as paid in
@@ -2139,11 +2149,15 @@ export async function handleVendorOrderAction(
   const matching = (orders ?? []).filter(o => o.id.replace(/-/g, '').toLowerCase().endsWith(code4))
 
   if (matching.length === 0) {
-    await sendWhatsApp(from, `❌ Commande #${upper} introuvable pour ${restaurant.name}. / Order not found.`)
+    await sendWhatsApp(from, pickLang(
+      `❌ Commande #${upper} introuvable pour ${restaurant.name}.`,
+      `❌ Order #${upper} not found for ${restaurant.name}.`, vendorLang))
     return ok()
   }
   if (matching.length > 1) {
-    await sendWhatsApp(from, `⚠️ Plusieurs commandes correspondent à #${upper}. Contactez le support. / Multiple orders match.`)
+    await sendWhatsApp(from, pickLang(
+      `⚠️ Plusieurs commandes correspondent à #${upper}. Contactez le support.`,
+      `⚠️ Multiple orders match #${upper}. Contact support.`, vendorLang))
     return ok()
   }
 
@@ -2160,11 +2174,15 @@ export async function handleVendorOrderAction(
   // ── Manual mark-as-paid ────────────────────────────────────────────────────
   if (intent.kind === 'paye') {
     if (order.payment_id) {
-      await sendWhatsApp(from, `❌ Commande #${upper} déjà payée dans l'app. / Order already paid in-app.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ Commande #${upper} déjà payée dans l'app.`,
+        `❌ Order #${upper} already paid in-app.`, vendorLang))
       return ok()
     }
     if (order.payment_status === 'paid') {
-      await sendWhatsApp(from, `Commande #${upper} déjà payée. / already paid.`)
+      await sendWhatsApp(from, pickLang(
+        `Commande #${upper} déjà payée.`,
+        `Order #${upper} already paid.`, vendorLang))
       return ok()
     }
 
@@ -2183,7 +2201,9 @@ export async function handleVendorOrderAction(
       const hint = /manual_payment_phone|column .* does not exist/i.test(updErr.message)
         ? ' (run supabase-manual-payment.sql)'
         : ''
-      await sendWhatsApp(from, `⚠️ Impossible de marquer payé: ${updErr.message}${hint}. / Couldn't mark paid.`)
+      await sendWhatsApp(from, pickLang(
+        `⚠️ Impossible de marquer payé: ${updErr.message}${hint}.`,
+        `⚠️ Couldn't mark paid: ${updErr.message}${hint}.`, vendorLang))
       return ok()
     }
 
@@ -2203,9 +2223,9 @@ export async function handleVendorOrderAction(
     })
 
     const label = MANUAL_METHOD_LABEL[method]
-    await sendWhatsApp(from,
-      `💰 Paiement confirmé pour #${upper} (${label.fr}). Vous pouvez maintenant confirmer la commande.\n` +
-      `Payment confirmed for #${upper} (${label.en}). You can now confirm the order.`)
+    await sendWhatsApp(from, pickLang(
+      `💰 Paiement confirmé pour #${upper} (${label.fr}). Vous pouvez maintenant confirmer la commande.`,
+      `💰 Payment confirmed for #${upper} (${label.en}). You can now confirm the order.`, vendorLang))
 
     // Mirror the API route — let the customer know their tab is settled.
     if (order.customer_phone) {
@@ -2238,11 +2258,15 @@ export async function handleVendorOrderAction(
     }).eq('id', order.id)
     if (updErr) {
       console.error('[ordering] cancel update failed — migration likely not applied:', updErr.message)
-      await sendWhatsApp(from, `⚠️ Impossible d'annuler: migration manquante. Contactez le support. / Cannot cancel: migration not applied.`)
+      await sendWhatsApp(from, pickLang(
+        `⚠️ Impossible d'annuler: migration manquante. Contactez le support.`,
+        `⚠️ Cannot cancel: migration not applied. Contact support.`, vendorLang))
       return ok()
     }
     await writeAudit({ action: 'order_cancelled', targetType: 'order', targetId: order.id, performedBy: restaurant.id, performedByType: 'vendor' })
-    await sendWhatsApp(from, `❌ Commande #${upper} annulée. Le client est notifié. / cancelled, customer notified.`)
+    await sendWhatsApp(from, pickLang(
+      `❌ Commande #${upper} annulée. Le client est notifié.`,
+      `❌ Order #${upper} cancelled. Customer notified.`, vendorLang))
     const cancLang = await getLangByPhone(order.customer_phone)
     await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurant.name, cancLang)
     return ok()
@@ -2256,9 +2280,9 @@ export async function handleVendorOrderAction(
   if (intent.target === 'confirmed'
       && order.order_type === 'paid_order'
       && order.payment_status !== 'paid') {
-    await sendWhatsApp(from,
-      `⏳ Le paiement n'est pas encore confirmé pour la commande #${upper}.\n` +
-      `Payment has not been confirmed yet for order #${upper}.`)
+    await sendWhatsApp(from, pickLang(
+      `⏳ Le paiement n'est pas encore confirmé pour la commande #${upper}.`,
+      `⏳ Payment has not been confirmed yet for order #${upper}.`, vendorLang))
     return ok()
   }
 
@@ -2274,7 +2298,9 @@ export async function handleVendorOrderAction(
   }
   const target = intent.target!
   if (!ALLOWED_FROM[target].includes(order.status)) {
-    await sendWhatsApp(from, `Commande #${upper} en statut ${order.status}, transition vers ${target} impossible. / cannot transition.`)
+    await sendWhatsApp(from, pickLang(
+      `Commande #${upper} en statut ${order.status}, transition vers ${target} impossible.`,
+      `Order #${upper} is ${order.status}, can't transition to ${target}.`, vendorLang))
     return ok()
   }
 
@@ -2284,7 +2310,9 @@ export async function handleVendorOrderAction(
     .eq('id', order.id)
   if (updErr) {
     console.error(`[ordering] status update to ${target} failed:`, updErr.message)
-    await sendWhatsApp(from, `⚠️ Impossible de mettre à jour: ${updErr.message}. / Couldn't update.`)
+    await sendWhatsApp(from, pickLang(
+      `⚠️ Impossible de mettre à jour: ${updErr.message}.`,
+      `⚠️ Couldn't update: ${updErr.message}.`, vendorLang))
     return ok()
   }
   await writeAudit({
@@ -2298,8 +2326,7 @@ export async function handleVendorOrderAction(
 
   // Vendor ack (in the vendor's language) + a hint for the next status step,
   // plus the customer ping in the customer's stored language.
-  const custLang   = await getLangByPhone(order.customer_phone)
-  const vendorLang = await getLangByPhone(from)
+  const custLang = await getLangByPhone(order.customer_phone)
   if (target === 'confirmed') {
     await sendWhatsApp(from,
       pickLang(`✅ Commande #${upper} confirmée. Le client est notifié.`, `✅ Order #${upper} confirmed. Customer notified.`, vendorLang) + `\n\n` +
@@ -2307,17 +2334,17 @@ export async function handleVendorOrderAction(
     await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'preparing') {
     await sendWhatsApp(from,
-      pickLang(`🍳 Commande #${upper} en préparation. Le client est notifié.`, `🍳 Order #${upper} preparing. Customer notified.`, vendorLang) + `\n\n` +
+      pickLang(`🍳 Commande #${upper} — préparation démarrée.`, `🍳 Order #${upper} — preparation started.`, vendorLang) + `\n\n` +
       pickLang(`💡 Envoyez 'pret ${upper}' quand la commande est prête.`, `💡 Send 'ready ${upper}' when the order is ready.`, vendorLang))
     await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'ready') {
     await sendWhatsApp(from,
-      pickLang(`🎉 Commande #${upper} prête. Le client est notifié.`, `🎉 Order #${upper} ready. Customer notified.`, vendorLang) + `\n\n` +
+      pickLang(`🎉 Commande #${upper} prête! Le client est notifié.`, `🎉 Order #${upper} is ready! Customer notified.`, vendorLang) + `\n\n` +
       pickLang(`💡 Envoyez 'recupere ${upper}' quand le client récupère sa commande.`, `💡 Send 'picked ${upper}' when the customer picks up.`, vendorLang))
     await notifyCustomerOrderReady(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'delivered') {
     await sendWhatsApp(from,
-      pickLang(`📦 Commande #${upper} récupérée. Le client est notifié.`, `📦 Order #${upper} picked up. Customer notified.`, vendorLang))
+      pickLang(`📦 Commande #${upper} récupérée. Terminé!`, `📦 Order #${upper} picked up. Done!`, vendorLang))
     await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name, custLang)
   }
   return ok()

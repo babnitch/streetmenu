@@ -262,17 +262,18 @@ async function acceptInvitationsForCustomer(
   }
 }
 
-const CATEGORY_PROMPT =
-  '📂 Catégorie? / Category?\n' +
-  '1. Entrées / Starters\n' +
-  '2. Plats Principaux / Main Courses\n' +
-  '3. Grillades / Grilled\n' +
-  '4. Boissons / Drinks\n' +
-  '5. Desserts\n' +
-  '6. Accompagnements / Sides\n' +
-  '7. Autre / Other\n\n' +
-  'Envoyez le numéro / Send the number\n' +
-  '_(ou "passer" pour Plats Principaux / or "skip")_'
+function categoryPrompt(lang: Lang): string {
+  return pickLang(
+    '📂 Catégorie?\n' +
+    '1. Entrées\n2. Plats Principaux\n3. Grillades\n4. Boissons\n' +
+    '5. Desserts\n6. Accompagnements\n7. Autre\n\n' +
+    'Envoyez le numéro\n_(ou "passer" pour Plats Principaux)_',
+    '📂 Category?\n' +
+    '1. Starters\n2. Main Courses\n3. Grilled\n4. Drinks\n' +
+    '5. Desserts\n6. Sides\n7. Other\n\n' +
+    'Send the number\n_(or "skip" for Main Courses)_',
+    lang)
+}
 
 const BASE_URL = 'https://streetmenu.vercel.app'
 
@@ -459,15 +460,17 @@ export async function POST(req: NextRequest) {
     .from('customers').select('id, name, phone, city, status, deleted_at, preferred_language')
     .eq('phone', phone).maybeSingle()
 
+  const accountLang = normalizeLang(customer?.preferred_language)
   if (customer?.deleted_at || customer?.status === 'deleted') {
-    await sendWhatsApp(from,
-      'Votre compte a été supprimé. / Your account has been deleted.\n' +
-      'Contactez le support si vous pensez que c\'est une erreur. / Contact support if you think this is an error.')
+    await sendWhatsApp(from, pickLang(
+      'Votre compte a été supprimé.\nContactez le support si vous pensez que c\'est une erreur.',
+      'Your account has been deleted.\nContact support if you think this is an error.', accountLang))
     return ok()
   }
   if (customer?.status === 'suspended') {
-    await sendWhatsApp(from,
-      'Votre compte est suspendu. Contactez le support. / Your account is suspended. Contact support.')
+    await sendWhatsApp(from, pickLang(
+      'Votre compte est suspendu. Contactez le support.',
+      'Your account is suspended. Contact support.', accountLang))
     return ok()
   }
 
@@ -494,22 +497,23 @@ export async function POST(req: NextRequest) {
     .or(`whatsapp.eq.${phone},whatsapp.eq.${from}`)
     .maybeSingle()
 
-  // Handle suspended/deleted restaurants on direct match
+  // Handle suspended/deleted restaurants on direct match. Vendor's language is
+  // knowable here (their number is on file), so localize.
+  const vendorStatusLang = directRestaurant ? await getLangByPhone(phone) : 'fr'
   if (directRestaurant?.deleted_at || directRestaurant?.status === 'deleted') {
-    await sendWhatsApp(from,
-      'Ce restaurant a été supprimé. / This restaurant has been deleted.')
+    await sendWhatsApp(from, pickLang(
+      'Ce restaurant a été supprimé.', 'This restaurant has been deleted.', vendorStatusLang))
     return ok()
   }
   if (directRestaurant?.status === 'suspended') {
     if (directRestaurant.suspended_by === 'vendor') {
-      await sendWhatsApp(from,
-        `⏸️ *${directRestaurant.name}* est suspendu par vous-même.\n` +
-        `Envoyez "reactiver" pour le réactiver.\n\n` +
-        `Send "reactiver" to reactivate.`)
+      await sendWhatsApp(from, pickLang(
+        `⏸️ *${directRestaurant.name}* est suspendu par vous-même.\nEnvoyez "reactiver" pour le réactiver.`,
+        `⏸️ *${directRestaurant.name}* is suspended by you.\nSend "reactivate" to reactivate.`, vendorStatusLang))
     } else {
-      await sendWhatsApp(from,
-        `⛔ *${directRestaurant.name}* est suspendu par l'administration.\n` +
-        `Contactez le support. / Contact support.`)
+      await sendWhatsApp(from, pickLang(
+        `⛔ *${directRestaurant.name}* est suspendu par l'administration.\nContactez le support.`,
+        `⛔ *${directRestaurant.name}* is suspended by the admin.\nContact support.`, vendorStatusLang))
     }
     return ok()
   }
@@ -521,7 +525,9 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin.from('restaurants').update({
         status: 'active', suspended_at: null, suspended_by: null, suspension_reason: null,
       }).eq('id', directRestaurant.id)
-      await sendWhatsApp(from, `✅ *${directRestaurant.name}* est maintenant actif! / is now active!`)
+      await sendWhatsApp(from, pickLang(
+        `✅ *${directRestaurant.name}* est maintenant actif!`,
+        `✅ *${directRestaurant.name}* is now active!`, vendorStatusLang))
       return ok()
     }
   }
@@ -932,10 +938,11 @@ async function handleSession(
   // Photo-update state (5-minute window for approved vendors)
   // ────────────────────────────────────────────────────────────────────────────
   if (user_type === 'photo_update') {
+    const puLang = await getLangByPhone(phone)
     if (!hasPhoto) {
-      await sendWhatsApp(from,
-        'Envoyez une photo, pas du texte. / Send a photo, not text.\n' +
-        '_Ou envoyez "annuler" pour annuler. / Or send "cancel" to cancel._')
+      await sendWhatsApp(from, pickLang(
+        'Envoyez une photo, pas du texte.\n_Ou envoyez "annuler" pour annuler._',
+        'Send a photo, not text.\n_Or send "cancel" to cancel._', puLang))
       return ok()
     }
 
@@ -953,15 +960,14 @@ async function handleSession(
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
 
     if (!imageUrl || !restaurant) {
-      await sendWhatsApp(from, '❌ Erreur lors de l\'envoi. Réessayez. / Error. Please retry.')
+      await sendWhatsApp(from, pickLang('❌ Erreur lors de l\'envoi. Réessayez.', '❌ Error. Please retry.', puLang))
       return ok()
     }
 
     await supabaseAdmin.from('restaurants').update({ image_url: imageUrl }).eq('id', restaurant.id)
-    await sendWhatsApp(from,
-      `✅ Photo de *${restaurant.name}* mise à jour! 📸\n` +
-      `Restaurant photo updated!\n\n` +
-      `Voir ici / See it here:\n${BASE_URL}/restaurant/${restaurant.id}`)
+    await sendWhatsApp(from, pickLang(
+      `✅ Photo de *${restaurant.name}* mise à jour! 📸\nVoir ici:\n${BASE_URL}/restaurant/${restaurant.id}`,
+      `✅ Photo of *${restaurant.name}* updated! 📸\nSee it here:\n${BASE_URL}/restaurant/${restaurant.id}`, puLang))
     return ok()
   }
 
@@ -970,10 +976,11 @@ async function handleSession(
   // awaiting its category. Expires in 5 min (see sessionExpiry(5)).
   // ────────────────────────────────────────────────────────────────────────────
   if (user_type === 'menu_category') {
+    const mcLang = await getLangByPhone(phone)
     const category = matchCategory(body)
     if (!category) {
       await sendWhatsApp(from,
-        '❓ Choix invalide. / Invalid choice.\n\n' + CATEGORY_PROMPT)
+        pickLang('❓ Choix invalide.', '❓ Invalid choice.', mcLang) + '\n\n' + categoryPrompt(mcLang))
       return ok()
     }
 
@@ -986,7 +993,7 @@ async function handleSession(
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
 
     if (!restaurantId || !dishName || isNaN(price) || price <= 0) {
-      await sendWhatsApp(from, '❌ Session invalide. Réessayez. / Invalid session. Retry.')
+      await sendWhatsApp(from, pickLang('❌ Session invalide. Réessayez.', '❌ Invalid session. Retry.', mcLang))
       return ok()
     }
 
@@ -997,16 +1004,15 @@ async function handleSession(
     })
     if (error) {
       console.error('[whatsapp] menu insert error:', error.message)
-      await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Retry.')
+      await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', mcLang))
       return ok()
     }
 
-    const catLang = await getLangByPhone(phone)
     await sendWhatsApp(from,
-      pickLang(`✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}`, `✅ *${dishName}* added${photoUrl ? ' 📸' : ''}`, catLang) + `\n` +
-      pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, catLang) + `\n` +
-      pickLang(`Catégorie: ${category}`, `Category: ${category}`, catLang) + `\n\n` +
-      pickLang(`💡 Envoyez 'menu' pour voir votre menu complet.`, `💡 Send 'menu' to see your full menu.`, catLang))
+      pickLang(`✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}`, `✅ *${dishName}* added${photoUrl ? ' 📸' : ''}`, mcLang) + `\n` +
+      pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, mcLang) + `\n` +
+      pickLang(`Catégorie: ${category}`, `Category: ${category}`, mcLang) + `\n\n` +
+      pickLang(`💡 Envoyez 'menu' pour voir votre menu complet.`, `💡 Send 'menu' to see your full menu.`, mcLang))
     return ok()
   }
 
@@ -1910,7 +1916,7 @@ async function handleVendor(
       if (threePart && !category) {
         await sendWhatsApp(from,
           pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
-          CATEGORY_PROMPT)
+          categoryPrompt(lang))
         await supabaseAdmin.from('signup_sessions').upsert({
           phone, user_type: 'menu_category', step: 1,
           data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: photoUrl },
@@ -1946,7 +1952,7 @@ async function handleVendor(
       })
       await sendWhatsApp(from,
         `✅ *${dishName}* (${price.toLocaleString()} FCFA)${photoUrl ? ' 📸' : ''}\n\n` +
-        CATEGORY_PROMPT)
+        categoryPrompt(lang))
       return ok()
     }
 
@@ -2000,7 +2006,7 @@ async function handleVendor(
     if (textThreePart && !category) {
       await sendWhatsApp(from,
         pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
-        CATEGORY_PROMPT)
+        categoryPrompt(lang))
       await supabaseAdmin.from('signup_sessions').upsert({
         phone, user_type: 'menu_category', step: 1,
         data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: null },
@@ -2038,7 +2044,7 @@ async function handleVendor(
       expires_at: sessionExpiry(5),
     })
     await sendWhatsApp(from,
-      `✅ *${dishName}* (${price.toLocaleString()} FCFA)\n\n` + CATEGORY_PROMPT)
+      `✅ *${dishName}* (${price.toLocaleString()} FCFA)\n\n` + categoryPrompt(lang))
     return ok()
   }
 
