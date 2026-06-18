@@ -416,26 +416,44 @@ export async function POST(req: NextRequest) {
 
   const cmd = body.toLowerCase().trim()
 
-  // Cancel always clears any active session
-  if (cmd === 'annuler' || cmd === 'cancel') {
-    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-    await sendWhatsApp(from,
-      '❌ Inscription annulée. / Registration cancelled.\n\n' +
-      'Envoyez "aide" pour recommencer. / Send "help" to start over.')
-    return ok()
-  }
-
   // Check for active session (onboarding or photo-update state).
+  // Fetched up-front so the session-control commands below can tailor their
+  // reply (and so an ordering cancel can reach its order-specific handler).
   // reservations_browse is a transient list cursor that should NOT intercept
   // routing — the cancel-by-number resolver looks it up explicitly inside
   // handleCustomer / handleOrderCommand, and other commands (aide, mes
-  // bons, etc.) need to keep working while it's alive.
+  // bons, etc.) need to keep working while it's alive. Sessions whose
+  // expires_at has passed are skipped here, so an idle flow auto-expires.
   const { data: session } = await supabaseAdmin
     .from('signup_sessions').select('*')
     .eq('phone', phone)
     .neq('user_type', 'reservations_browse')
     .gt('expires_at', new Date().toISOString())
     .maybeSingle()
+
+  // ── Global session-control commands ──────────────────────────────────────
+  // "reset"/"reinitialiser" is the escape hatch for a wedged flow — it nukes
+  // every session row for this phone. "exit"/"quitter"/"stop" close whatever
+  // flow is active. Both work at any point, in any state.
+  if (cmd === 'reset' || cmd === 'reinitialiser' || cmd === 'réinitialiser'
+      || cmd === 'exit' || cmd === 'quitter' || cmd === 'stop') {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from,
+      '✅ C\'est réinitialisé. Envoyez "aide" pour recommencer.\n' +
+      '✅ All clear. Send "help" to start over.')
+    return ok()
+  }
+
+  // "annuler"/"cancel" clears any active flow. Ordering sessions fall through
+  // to handleOrderingSession, which replies with an order-specific message in
+  // the customer's language; everything else gets the generic ack here.
+  if ((cmd === 'annuler' || cmd === 'cancel') && session?.user_type !== 'ordering') {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from,
+      '❌ Annulé. / Cancelled.\n\n' +
+      'Envoyez "aide" pour recommencer. / Send "help" to start over.')
+    return ok()
+  }
 
   if (session) {
     return handleSession(from, phone, body, cmd, session, hasPhoto, mediaUrl)

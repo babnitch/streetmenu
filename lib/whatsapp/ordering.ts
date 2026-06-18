@@ -154,6 +154,18 @@ function buildMenuMessage(restaurantName: string, menu: MenuItemRef[], lang: Lan
 export interface ParseOk { ok: true; items: CartItem[]; total: number }
 export interface ParseErr { ok: false; error: string }
 
+// Shared "didn't recognise the item" guidance. The previous messages
+// ("Numéro X invalide", "Format non compris", and — worst — the voucher
+// lookup's "Code introuvable") left customers guessing. This spells out the
+// exact menu syntax they need.
+export function itemNotFoundMessage(lang: Lang = 'fr'): string {
+  return pickLang(
+    `Plat introuvable. Envoyez le numéro du menu (ex: "1" pour le 1er plat, "2x3" pour 3 du plat 2).`,
+    `Item not found. Send the number from the menu list (e.g. "1" for the first item, "2x3" for 3 of item 2).`,
+    lang,
+  )
+}
+
 export function parseOrder(raw: string, menu: MenuItemRef[], lang: Lang = 'fr'): ParseOk | ParseErr {
   const tokens = raw.split(/[,\n]/).map(t => t.trim()).filter(Boolean)
   if (tokens.length === 0) return { ok: false, error: pickLang('Commande vide', 'Empty order', lang) }
@@ -171,15 +183,15 @@ export function parseOrder(raw: string, menu: MenuItemRef[], lang: Lang = 'fr'):
       const idx = parseInt(numBased[1], 10) - 1
       qty = parseInt(numBased[2], 10)
       menuItem = menu[idx]
-      if (!menuItem) return { ok: false, error: pickLang(`Numéro ${idx + 1} invalide`, `Invalid number ${idx + 1}`, lang) }
+      if (!menuItem) return { ok: false, error: itemNotFoundMessage(lang) }
     } else if (nameBased) {
       qty = parseInt(nameBased[1], 10)
       const name = nameBased[2].trim().toLowerCase()
       menuItem = menu.find(m => m.name.toLowerCase() === name) ||
                  menu.find(m => m.name.toLowerCase().includes(name))
-      if (!menuItem) return { ok: false, error: pickLang(`"${nameBased[2].trim()}" introuvable`, `"${nameBased[2].trim()}" not found`, lang) }
+      if (!menuItem) return { ok: false, error: itemNotFoundMessage(lang) }
     } else {
-      return { ok: false, error: pickLang(`Format non compris: "${tok}". Ex: 1 x2, 3 x1`, `Not understood: "${tok}". Ex: 1 x2, 3 x1`, lang) }
+      return { ok: false, error: itemNotFoundMessage(lang) }
     }
 
     if (!Number.isFinite(qty) || qty < 1 || qty > 99) {
@@ -475,7 +487,7 @@ export async function handleOrderCommand(
       user_type: 'ordering',
       step: 1,
       data: { candidates: restaurants.map(r => ({ id: r.id, name: r.name })) } as unknown as Record<string, unknown>,
-      expires_at: sessionExpiry(30),
+      expires_at: sessionExpiry(15),
     })
     if (upsertErr) console.error(`[ordering] session upsert failed: ${upsertErr.message}`)
     await sendWhatsApp(from, msg)
@@ -1735,6 +1747,17 @@ export async function handleOrderingSession(
   const { step, data } = session
   const lang = normalizeLang(customer.preferred_language)
 
+  // Universal exit — "no"/"non"/"cancel"/"annuler"/"exit"/"quitter"/"stop"
+  // bail out of the order at ANY step (the old flow only honoured no/non at
+  // the confirm step, which is how sessions got wedged). Routing catches most
+  // of these upstream; this is the order-specific, localized reply.
+  if (cmd === 'non' || cmd === 'no' || cmd === 'annuler' || cmd === 'cancel'
+      || cmd === 'exit' || cmd === 'quitter' || cmd === 'stop') {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, pickLang('❌ Commande annulée.', '❌ Order cancelled.', lang))
+    return ok()
+  }
+
   // Step 1: waiting for restaurant number
   if (step === 1) {
     const num = parseInt(cmd, 10)
@@ -1815,7 +1838,7 @@ export async function handleOrderingSession(
     await supabaseAdmin.from('signup_sessions').update({
       step: 2,
       data: { restaurant_id: chosen.id, restaurant_name: chosen.name, menu },
-      expires_at: sessionExpiry(30),
+      expires_at: sessionExpiry(15),
     }).eq('phone', phone)
     await sendWhatsApp(from, buildMenuMessage(chosen.name, menu, lang))
     return ok()
@@ -1832,7 +1855,7 @@ export async function handleOrderingSession(
     await supabaseAdmin.from('signup_sessions').update({
       step: 3,
       data: { ...data, items: result.items, total: result.total },
-      expires_at: sessionExpiry(30),
+      expires_at: sessionExpiry(15),
     }).eq('phone', phone)
     await sendWhatsApp(from, buildSummaryMessage(data.restaurant_name, result.items, result.total, lang))
     return ok()
@@ -1997,9 +2020,14 @@ export async function handleOrderingSession(
       return ok()
     }
 
-    if (cmd === 'non' || cmd === 'no') {
-      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, pickLang('❌ Commande annulée. Envoyez "commander" pour recommencer.', '❌ Cancelled. Send "commander" to start over.', lang))
+    // ("no"/"non"/"cancel" are handled by the universal exit guard above.)
+
+    // A digit-led token here ("1", "2x3", "5x1") means the customer is trying
+    // to pick menu items, not enter a voucher. Running it through the voucher
+    // lookup would return a baffling "Code not found"; point them at the menu
+    // syntax instead and keep the confirmed order intact.
+    if (/^\d/.test(body.trim())) {
+      await sendWhatsApp(from, `${itemNotFoundMessage(lang)}\n\n${pickLang('Votre commande est prête — envoyez "oui" pour confirmer ou "non" pour annuler.', 'Your order is ready — send "yes" to confirm or "no" to cancel.', lang)}`)
       return ok()
     }
 
@@ -2026,7 +2054,7 @@ export async function handleOrderingSession(
           voucher_code:     result.voucher.code,
           voucher_discount: result.discount,
         },
-        expires_at: sessionExpiry(30),
+        expires_at: sessionExpiry(15),
       }).eq('phone', phone)
 
       const lines = (data.items ?? []).map(i => `${i.quantity}× ${i.name} — ${(i.quantity * i.price).toLocaleString()} FCFA`)
