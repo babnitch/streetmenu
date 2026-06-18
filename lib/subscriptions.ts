@@ -258,9 +258,13 @@ interface BroadcastForFormat {
   sender_type:   'publisher' | 'restaurant'
 }
 
-export function formatBroadcastMessage(b: BroadcastForFormat): string {
+// The broadcast body/title are sender-authored free text and are sent as-is;
+// only the wrapper (header + unsubscribe footer) is localized to the
+// recipient's language. The unsubscribe keyword follows lang too — the router
+// accepts both 'desabonner' and 'unsubscribe'.
+export function formatBroadcastMessage(b: BroadcastForFormat, lang: Lang = 'fr'): string {
   const lines: string[] = []
-  lines.push(`📢 *Message de ${b.sender_name}*`)
+  lines.push(pickLang(`📢 *Message de ${b.sender_name}*`, `📢 *Message from ${b.sender_name}*`, lang))
   if (b.sender_type === 'restaurant' && b.restaurant_name) {
     lines.push(`🏪 ${b.restaurant_name}`)
   } else if (b.sender_type === 'publisher' && b.organization) {
@@ -274,7 +278,8 @@ export function formatBroadcastMessage(b: BroadcastForFormat): string {
   lines.push(b.message)
   lines.push('')
   lines.push('—')
-  lines.push(`Envoyez 'desabonner' pour ne plus recevoir ces messages.`)
-  lines.push(`Send 'unsubscribe' to stop.`)
+  lines.push(pickLang(
+    `Envoyez 'desabonner' pour ne plus recevoir ces messages.`,
+    `Send 'unsubscribe' to stop receiving these messages.`, lang))
   return lines.join('\n')
 }
