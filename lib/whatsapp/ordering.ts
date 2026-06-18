@@ -1990,7 +1990,7 @@ function parseVendorIntent(body: string): VendorIntent | null {
   const readyMatch    = body.match(/^(?:pret|prêt|ready)\s+([0-9a-f]{4})$/i)
   if (readyMatch) return { kind: 'status', target: 'ready', code4: readyMatch[1] }
 
-  const deliverMatch  = body.match(/^(?:livre|livré|delivered|recupere|récupéré|picked\s*up)\s+([0-9a-f]{4})$/i)
+  const deliverMatch  = body.match(/^(?:livre|livré|delivered|recupere|récupéré|picked(?:\s*up)?)\s+([0-9a-f]{4})$/i)
   if (deliverMatch) return { kind: 'status', target: 'delivered', code4: deliverMatch[1] }
 
   const cancelMatch   = body.match(/^(?:annuler|cancel)\s+([0-9a-f]{4})$/i)

@@ -1074,7 +1074,7 @@ async function handleVendor(
         ``,
         en ? `📦 *Manage orders*` : `📦 *Gérer les commandes*`,
         en
-          ? `Send "commandes" to see what's coming in. Reply "ok XXXX" to confirm, "pret XXXX" when it's ready, "recupere XXXX" once picked up.`
+          ? `Send "orders" to see what's coming in. Reply "ok XXXX" to confirm, "ready XXXX" when it's ready, "picked XXXX" once picked up.`
           : `Envoyez "commandes" pour voir ce qui arrive. Répondez "ok XXXX" pour confirmer, "pret XXXX" quand c'est prêt, "recupere XXXX" une fois récupéré.`,
       )
     }
@@ -1094,7 +1094,7 @@ async function handleVendor(
         ``,
         en ? `🕐 *Opening hours*` : `🕐 *Horaires d'ouverture*`,
         en
-          ? `Send "ouvrir" or "fermer" to open/close now, "auto" to follow your schedule, "horaire" to view it, "temps" for prep time.`
+          ? `Send "open" or "close" to open/close now, "auto" to follow your schedule, "schedule" to view hours, "prep" for prep time.`
           : `Envoyez "ouvrir" ou "fermer" pour ouvrir/fermer maintenant, "auto" pour suivre votre horaire, "horaire" pour le voir, "temps" pour le temps de préparation.`,
       )
     }
@@ -1103,7 +1103,7 @@ async function handleVendor(
         ``,
         en ? `👥 *Your team*` : `👥 *Votre équipe*`,
         en
-          ? `Send "equipe" to see members, or "ajouter +237... manager" to add someone.`
+          ? `Send "team" to see members, or "add +237... manager" to add someone.`
           : `Envoyez "equipe" pour voir les membres, ou "ajouter +237... manager" pour ajouter quelqu'un.`,
       )
     }
@@ -1111,7 +1111,7 @@ async function handleVendor(
       ``,
       en ? `🌐 Passer au français → envoyez "fr"` : `🌐 Switch to English → send "en"`,
       ``,
-      en ? `💡 Send "aide+" for the full list of commands.` : `💡 Envoyez "aide+" pour la liste complète des commandes.`,
+      en ? `💡 Send "help+" for the full list of commands.` : `💡 Envoyez "aide+" pour la liste complète des commandes.`,
     )
     await sendWhatsApp(from, lines.join('\n'))
     return ok()
@@ -1125,15 +1125,15 @@ async function handleVendor(
     const ownerCmds = isOwner
       ? (en
         ? `\n👥 Team:\n` +
-          `📋 "equipe" → View team\n` +
-          `➕ "ajouter +XXX manager" → Add or invite\n` +
-          `💌 "inviter +XXX staff" → Invite a new number\n` +
+          `📋 "team" → View team\n` +
+          `➕ "add +XXX manager" → Add or invite\n` +
+          `💌 "invite +XXX staff" → Invite a new number\n` +
           `📨 "invitations" → Pending invitations\n` +
-          `❌ "annuler invitation +XXX" → Cancel\n` +
-          `➖ "retirer +XXX" → Remove member\n` +
-          `🏪 "mes restaurants" → View all my restaurants\n` +
-          `⏸️ "suspendre" → Suspend the restaurant\n` +
-          `✅ "reactiver" → Reactivate the restaurant\n`
+          `❌ "cancel invitation +XXX" → Cancel\n` +
+          `➖ "remove +XXX" → Remove member\n` +
+          `🏪 "my restaurants" → View all my restaurants\n` +
+          `⏸️ "suspend" → Suspend the restaurant\n` +
+          `✅ "reactivate" → Reactivate the restaurant\n`
         : `\n👥 Équipe:\n` +
           `📋 "equipe" → Voir l'équipe\n` +
           `➕ "ajouter +XXX manager" → Ajouter ou inviter\n` +
@@ -1153,11 +1153,11 @@ async function handleVendor(
       (canEditMenu
         ? (en
           ? `📸 Photo + "Name - Price" → Add a dish\n` +
-            `💰 "prix [name] [price]" → Update price\n` +
-            `✅ "dispo [name]" → Mark available\n` +
-            `❌ "indispo [name]" → Mark unavailable\n` +
-            `🗑️ "supprimer [name]" → Delete a dish\n` +
-            `📷 "photo restaurant" → Update restaurant photo\n` +
+            `💰 "price [name] [price]" → Update price\n` +
+            `✅ "available [name]" → Mark available\n` +
+            `❌ "unavailable [name]" → Mark unavailable\n` +
+            `🗑️ "delete [name]" → Delete a dish\n` +
+            `📷 "profile photo" → Update restaurant photo\n` +
             `🍽️ "menu" → View your menu\n`
           : `📸 Photo + "Nom - Prix" → Ajouter un plat\n` +
             `💰 "prix [nom] [prix]" → Changer le prix\n` +
@@ -1170,15 +1170,15 @@ async function handleVendor(
       (canViewOrders
         ? (en
           ? `\n📦 *Orders:*\n` +
-            `📦 "commandes" → View orders\n` +
+            `📦 "orders" → View orders\n` +
             `✅ "ok XXXX" → Confirm\n` +
-            `🍳 "preparer XXXX" → Start preparing\n` +
-            `🎉 "pret XXXX" → Ready\n` +
-            `📦 "recupere XXXX" → Picked up\n` +
-            `❌ "annuler XXXX" → Cancel\n` +
-            `💰 "paye XXXX cash" → Mark paid cash\n` +
-            `💰 "paye XXXX mtn 237..." → Mark paid MTN\n` +
-            `💰 "paye XXXX orange 237..." → Mark paid Orange\n`
+            `🍳 "preparing XXXX" → Start preparing\n` +
+            `🎉 "ready XXXX" → Ready\n` +
+            `📦 "picked XXXX" → Picked up\n` +
+            `❌ "cancel XXXX" → Cancel\n` +
+            `💰 "paid XXXX cash" → Mark paid cash\n` +
+            `💰 "paid XXXX mtn 237..." → Mark paid MTN\n` +
+            `💰 "paid XXXX orange 237..." → Mark paid Orange\n`
           : `\n📦 *Commandes:*\n` +
             `📦 "commandes" → Voir les commandes\n` +
             `✅ "ok XXXX" → Confirmer\n` +
@@ -1192,22 +1192,22 @@ async function handleVendor(
         : '') +
       (en ? `\n🔗 "restaurant" → View your page\n\n` : `\n🔗 "restaurant" → Voir votre page\n\n`) +
       (en ? `🕐 *Hours:*\n` : `🕐 *Horaires:*\n`) +
-      (en ? `🕐 "horaire" → View schedule + status\n` : `🕐 "horaire" → Voir l'horaire + statut\n`) +
+      (en ? `🕐 "schedule" → View schedule + status\n` : `🕐 "horaire" → Voir l'horaire + statut\n`) +
       ((isOwner || isManager)
         ? (en
-          ? `🟢 "ouvrir" → Manually open\n` +
-            `🔴 "fermer" → Manually close\n` +
+          ? `🟢 "open" → Manually open\n` +
+            `🔴 "close" → Manually close\n` +
             `↩️ "auto" → Follow schedule\n`
           : `🟢 "ouvrir" → Ouvrir manuellement\n` +
             `🔴 "fermer" → Fermer manuellement\n` +
             `↩️ "auto" → Suivre l'horaire\n`)
         : '') +
-      (en ? `⏱️ "temps" → View prep time\n` : `⏱️ "temps" → Voir le temps de préparation\n`) +
+      (en ? `⏱️ "prep" → View prep time\n` : `⏱️ "temps" → Voir le temps de préparation\n`) +
       ((isOwner || isManager)
-        ? (en ? `⏱️ "temps 20 35" → Set prep time\n` : `⏱️ "temps 20 35" → Définir le temps de préparation\n`)
+        ? (en ? `⏱️ "prep 20 35" → Set prep time\n` : `⏱️ "temps 20 35" → Définir le temps de préparation\n`)
         : '') +
       ownerCmds +
-      (en ? `\n❓ "aide" → Short list` : `\n❓ "aide" → Liste courte`))
+      (en ? `\n❓ "help" → Short list` : `\n❓ "aide" → Liste courte`))
     return ok()
   }
 
