@@ -516,7 +516,10 @@ export async function handleOrderCommand(
     }).filter(Boolean)
 
     const header = pickLang('Vos bons', 'Your vouchers', lang)
-    await sendWhatsApp(from, `🎫 *${header}:*\n\n${lines.join('\n\n')}`)
+    await sendWhatsApp(from, `🎫 *${header}:*\n\n${lines.join('\n\n')}` + `\n\n` +
+      pickLang(
+        `💡 Envoyez 'commander' pour utiliser un bon lors de votre prochaine commande.`,
+        `💡 Send 'order' to use a voucher on your next order.`, lang))
     return ok()
   }
 
@@ -642,7 +645,8 @@ export async function handleOrderCommand(
         )
       : ''
     const header = pickLang('Vos commandes', 'Your orders', lang)
-    await sendWhatsApp(from, `📦 *${header}:*\n\n${lines.join('\n')}${tail}`)
+    await sendWhatsApp(from, `📦 *${header}:*\n\n${lines.join('\n')}${tail}` + `\n\n` +
+      pickLang(`💡 Envoyez 'commander' pour passer une nouvelle commande.`, `💡 Send 'order' to place a new order.`, lang))
     return ok()
   }
 
@@ -849,7 +853,9 @@ export async function handleOrderCommand(
 
     await sendWhatsApp(from,
       `${header}\n\n${lines.join('\n')}\n\n` +
-      pickLang(`Envoyez le numéro pour voir les détails`, `Send the number for details`, lang))
+      pickLang(
+        `💡 Envoyez le numéro d'un événement pour voir les détails, ou 'abonner' pour recevoir les alertes.`,
+        `💡 Send an event number for details, or 'subscribe' for event alerts.`, lang))
     return ok()
   }
 
@@ -1614,8 +1620,9 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     : ''
   const tail = remaining === 0
     ? '\n' + pickLang(`❌ Cet événement est complet.`, `❌ This event is sold out.`, lang)
-    : '\n' + pickLang(`Envoyez "reserver" pour réserver`, `Send "reserve" to book`, lang) + '\n' +
-      pickLang(`Envoyez "retour" pour la liste`, `Send "back" for the list`, lang)
+    : '\n' + pickLang(
+        `💡 Envoyez 'reserver' pour réserver, ou 'retour' pour la liste.`,
+        `💡 Send 'reserve' to book, or 'back' for the list.`, lang)
 
   await supabaseAdmin.from('signup_sessions').upsert({
     phone, user_type: 'event_detail', step: 1,
@@ -1956,6 +1963,9 @@ export async function handleOrderingSession(
         `The restaurant has been notified. You'll receive a message when your order is ready!`,
         custLang,
       ))
+      confirmLines.push(``, pickLang(
+        `💡 Envoyez 'mes commandes' pour suivre votre commande.`,
+        `💡 Send 'my orders' to track your order.`, custLang))
       await sendWhatsApp(from, confirmLines.join('\n'))
 
       // Fan out to vendors — must be awaited. Fire-and-forget here dies with
@@ -2286,21 +2296,28 @@ export async function handleVendorOrderAction(
     previousData:    { status: order.status },
   })
 
-  // Vendor ack + customer ping per target. Vendor ack stays bilingual for
-  // now (vendors don't yet have a preferred_language); customer ping uses
-  // the customer's stored preference.
-  const custLang = await getLangByPhone(order.customer_phone)
+  // Vendor ack (in the vendor's language) + a hint for the next status step,
+  // plus the customer ping in the customer's stored language.
+  const custLang   = await getLangByPhone(order.customer_phone)
+  const vendorLang = await getLangByPhone(from)
   if (target === 'confirmed') {
-    await sendWhatsApp(from, `✅ Commande #${upper} confirmée. Le client est notifié. / confirmed, customer notified.`)
+    await sendWhatsApp(from,
+      pickLang(`✅ Commande #${upper} confirmée. Le client est notifié.`, `✅ Order #${upper} confirmed. Customer notified.`, vendorLang) + `\n\n` +
+      pickLang(`💡 Envoyez 'preparer ${upper}' quand vous commencez la préparation.`, `💡 Send 'preparing ${upper}' when you start preparing.`, vendorLang))
     await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'preparing') {
-    await sendWhatsApp(from, `🍳 Commande #${upper} en préparation. Le client est notifié. / preparing, customer notified.`)
+    await sendWhatsApp(from,
+      pickLang(`🍳 Commande #${upper} en préparation. Le client est notifié.`, `🍳 Order #${upper} preparing. Customer notified.`, vendorLang) + `\n\n` +
+      pickLang(`💡 Envoyez 'pret ${upper}' quand la commande est prête.`, `💡 Send 'ready ${upper}' when the order is ready.`, vendorLang))
     await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'ready') {
-    await sendWhatsApp(from, `🎉 Commande #${upper} prête. Le client est notifié. / ready, customer notified.`)
+    await sendWhatsApp(from,
+      pickLang(`🎉 Commande #${upper} prête. Le client est notifié.`, `🎉 Order #${upper} ready. Customer notified.`, vendorLang) + `\n\n` +
+      pickLang(`💡 Envoyez 'recupere ${upper}' quand le client récupère sa commande.`, `💡 Send 'picked ${upper}' when the customer picks up.`, vendorLang))
     await notifyCustomerOrderReady(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'delivered') {
-    await sendWhatsApp(from, `📦 Commande #${upper} récupérée. Le client est notifié. / picked up, customer notified.`)
+    await sendWhatsApp(from,
+      pickLang(`📦 Commande #${upper} récupérée. Le client est notifié.`, `📦 Order #${upper} picked up. Customer notified.`, vendorLang))
     await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name, custLang)
   }
   return ok()

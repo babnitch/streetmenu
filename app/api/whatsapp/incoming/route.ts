@@ -1001,10 +1001,12 @@ async function handleSession(
       return ok()
     }
 
+    const catLang = await getLangByPhone(phone)
     await sendWhatsApp(from,
-      `✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}\n` +
-      `Prix: ${price.toLocaleString()} FCFA\n` +
-      `Catégorie: ${category}`)
+      pickLang(`✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}`, `✅ *${dishName}* added${photoUrl ? ' 📸' : ''}`, catLang) + `\n` +
+      pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, catLang) + `\n` +
+      pickLang(`Catégorie: ${category}`, `Category: ${category}`, catLang) + `\n\n` +
+      pickLang(`💡 Envoyez 'menu' pour voir votre menu complet.`, `💡 Send 'menu' to see your full menu.`, catLang))
     return ok()
   }
 
@@ -1421,14 +1423,17 @@ async function handleVendor(
     if (!members || members.length === 0) {
       await sendWhatsApp(from, pickLang(
         `👥 *Équipe — ${restaurant.name}*\n\nAucun membre. Ajoutez avec:\n"ajouter +XXX manager"`,
-        `👥 *Team — ${restaurant.name}*\n\nNo members. Add with:\n"ajouter +XXX manager"`, lang))
+        `👥 *Team — ${restaurant.name}*\n\nNo members. Add with:\n"add +XXX manager"`, lang))
       return ok()
     }
     const lines = members.map(m => {
       const c = m.customers as unknown as { name: string; phone: string }
       return `• ${c.name} (${c.phone}) — ${m.role}`
     })
-    await sendWhatsApp(from, pickLang(`👥 *Équipe — ${restaurant.name}*`, `👥 *Team — ${restaurant.name}*`, lang) + `\n\n${lines.join('\n')}`)
+    await sendWhatsApp(from, pickLang(`👥 *Équipe — ${restaurant.name}*`, `👥 *Team — ${restaurant.name}*`, lang) + `\n\n${lines.join('\n')}` + `\n\n` +
+      pickLang(
+        `💡 Envoyez 'ajouter +237... manager' pour ajouter un membre, 'retirer +237...' pour retirer.`,
+        `💡 Send 'add +237... manager' to add a member, 'remove +237...' to remove.`, lang))
     return ok()
   }
 
@@ -1702,10 +1707,15 @@ async function handleVendor(
     }
     const lines = items.map(i =>
       `${i.is_available ? '✅' : '❌'} ${i.name} — ${Number(i.price).toLocaleString()} FCFA`)
+    const menuHint = canEditMenu
+      ? `\n\n` + pickLang(
+          `💡 Pour ajouter un plat, envoyez une photo avec 'Nom - Prix'. Envoyez 'prix NOM PRIX' pour modifier un prix.`,
+          `💡 To add a dish, send a photo with 'Name - Price'. Send 'price NAME PRICE' to update a price.`, lang)
+      : ``
     await sendWhatsApp(from,
       `🍽️ *Menu — ${restaurant.name}*\n` +
       pickLang(`(${items.length} plat${items.length > 1 ? 's' : ''})`, `(${items.length} dish${items.length > 1 ? 'es' : ''})`, lang) + `\n\n` +
-      lines.join('\n'))
+      lines.join('\n') + menuHint)
     return ok()
   }
 
@@ -1745,7 +1755,10 @@ async function handleVendor(
     await sendWhatsApp(from,
       pickLang(`🛒 *Commandes en cours — ${restaurant.name}*`, `🛒 *Active orders — ${restaurant.name}*`, lang) + `\n` +
       pickLang(`(${count} commande${count > 1 ? 's' : ''})`, `(${count} order${count > 1 ? 's' : ''})`, lang) + `\n\n` +
-      lines.join('\n\n'))
+      lines.join('\n\n') + `\n\n` +
+      pickLang(
+        `💡 Répondez 'ok XXXX' pour confirmer, 'preparer XXXX' pour démarrer, 'pret XXXX' quand c'est prêt, 'recupere XXXX' une fois récupéré.`,
+        `💡 Reply 'ok XXXX' to confirm, 'preparing XXXX' to start, 'ready XXXX' when ready, 'picked XXXX' once picked up.`, lang))
     return ok()
   }
 
@@ -1886,7 +1899,8 @@ async function handleVendor(
         await sendWhatsApp(from,
           pickLang(`✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}`, `✅ *${dishName}* added${photoUrl ? ' 📸' : ''}`, lang) + `\n` +
           pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, lang) + `\n` +
-          pickLang(`Catégorie: ${category}`, `Category: ${category}`, lang))
+          pickLang(`Catégorie: ${category}`, `Category: ${category}`, lang) + `\n\n` +
+          pickLang(`💡 Envoyez 'menu' pour voir votre menu complet.`, `💡 Send 'menu' to see your full menu.`, lang))
         return ok()
       }
 
@@ -1978,7 +1992,8 @@ async function handleVendor(
         pickLang(`Catégorie: ${category}`, `Category: ${category}`, lang) + `\n\n` +
         pickLang(
           '📸 Envoyez une photo avec la même légende pour ajouter une image.',
-          '📸 Send a photo with the same caption to add an image.', lang))
+          '📸 Send a photo with the same caption to add an image.', lang) + `\n\n` +
+        pickLang(`💡 Envoyez 'menu' pour voir votre menu complet.`, `💡 Send 'menu' to see your full menu.`, lang))
       return ok()
     }
 
@@ -2390,11 +2405,11 @@ async function handleSubscriptionCommand(
     const cats = categories
       ? categories.join(', ')
       : pickLang('toutes catégories', 'all categories', lang)
-    await sendWhatsApp(from, pickLang(
-      `🔔 Abonné: ${cats} à ${customer.city}\nEnvoyez "desabonner" pour arrêter.`,
-      `🔔 Subscribed: ${cats} in ${customer.city}\nSend "unsubscribe" to stop.`,
-      lang,
-    ))
+    await sendWhatsApp(from,
+      pickLang(`🔔 Abonné: ${cats} à ${customer.city}`, `🔔 Subscribed: ${cats} in ${customer.city}`, lang) + `\n\n` +
+      pickLang(
+        `💡 Envoyez 'mes abonnements' pour gérer vos alertes, ou 'desabonner' pour arrêter.`,
+        `💡 Send 'my subscriptions' to manage alerts, or 'unsubscribe' to stop.`, lang))
     return ok()
   }
 
