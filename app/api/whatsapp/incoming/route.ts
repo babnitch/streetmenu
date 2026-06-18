@@ -2003,15 +2003,15 @@ async function handleCustomer(
       ? `👋 Hello ${customer.name}! Welcome to Tchop & Ndjoka 🍽️\n\n` +
         `Here's what you can do:\n\n` +
         `🍽️ *Order food*\n` +
-        `Send "commander" and I'll guide you through choosing a restaurant and placing an order.\n\n` +
+        `Send "order" and I'll guide you through choosing a restaurant and placing an order.\n\n` +
         `📦 *Track your orders*\n` +
-        `Send "mes commandes" to check the status of your current orders.\n\n` +
+        `Send "my orders" to check the status of your current orders.\n\n` +
         `🎉 *Discover events*\n` +
-        `Send "evenements" to see what's happening in your city.\n\n` +
+        `Send "events" to see what's happening in your city.\n\n` +
         `🎫 *Use a discount code*\n` +
-        `Send "mes bons" to see your available promo codes.\n\n` +
+        `Send "my vouchers" to see your available promo codes.\n\n` +
         `🔔 *Get event alerts*\n` +
-        `Send "abonner" to be notified about new events.\n\n` +
+        `Send "subscribe" to be notified about new events.\n\n` +
         `🏪 *Own a restaurant?*\n` +
         `Send "restaurant" to register it on the platform.\n\n` +
         `🌐 Passer au français → envoyez "fr"\n\n` +
@@ -2043,29 +2043,29 @@ async function handleCustomer(
       ? `👋 *Hello ${customer.name}!*\n\n` +
         `📋 *All commands:*\n\n` +
         `🍽️ *Order:*\n` +
-        `🍽️ "commander" → Place an order\n` +
-        `📦 "mes commandes" → View your orders\n` +
-        `💳 "payer" → Pay an order\n` +
-        `🎫 "mes bons" → View vouchers\n` +
-        `🎫 "bon CODE" → Claim a code\n` +
-        `⭐ "noter" → Rate last restaurant\n` +
-        `🚩 "signaler" → Report an issue\n\n` +
+        `🍽️ "order" → Place an order\n` +
+        `📦 "my orders" → View your orders\n` +
+        `💳 "pay" → Pay an order\n` +
+        `🎫 "my vouchers" → View vouchers\n` +
+        `🎫 "voucher CODE" → Claim a code\n` +
+        `⭐ "rate" → Rate last restaurant\n` +
+        `🚩 "report" → Report an issue\n\n` +
         `🎉 *Events:*\n` +
-        `🎉 "evenements" → Browse events\n` +
-        `🎟 "mes reservations" → View reservations\n` +
-        `🎟 "reserver XXXX" → Book an event\n` +
-        `📢 "publier" → Publish an event\n` +
-        `📢 "mes evenements" → View your events\n` +
+        `🎉 "events" → Browse events\n` +
+        `🎟 "my reservations" → View reservations\n` +
+        `🎟 "book XXXX" → Book an event\n` +
+        `📢 "publish" → Publish an event\n` +
+        `📢 "my events" → View your events\n` +
         `📋 "reservations XXXX" → View event reservations\n` +
-        `🔒 "fermer/ouvrir reservations XXXX" → Close/open\n` +
-        `✅ "confirmer/rejeter reservation XXXX" → Confirm/reject\n` +
-        `🎫 "tarifs XXXX" → View tiers\n` +
-        `➕ "ajouter tarif XXXX name price [max]" → Add tier\n\n` +
+        `🔒 "close/open reservations XXXX" → Close/open\n` +
+        `✅ "confirm/reject reservation XXXX" → Confirm/reject\n` +
+        `🎫 "tiers XXXX" → View tiers\n` +
+        `➕ "add tier XXXX name price [max]" → Add tier\n\n` +
         `🔔 *Notifications:*\n` +
-        `🔔 "abonner" → Get new event alerts\n` +
-        `🔕 "desabonner" → Stop notifications\n` +
-        `📋 "mes abonnements" → View my subscriptions\n` +
-        `📢 "diffuser" → Broadcast a message (paid)\n\n` +
+        `🔔 "subscribe" → Get new event alerts\n` +
+        `🔕 "unsubscribe" → Stop notifications\n` +
+        `📋 "my subscriptions" → View my subscriptions\n` +
+        `📢 "broadcast" → Broadcast a message (paid)\n\n` +
         `🏪 "restaurant" → Register restaurant\n` +
         `🌐 "fr" → Français\n` +
         `❓ "help" → Short list\n\n` +

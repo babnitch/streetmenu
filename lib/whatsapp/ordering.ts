@@ -901,7 +901,7 @@ export async function handleOrderCommand(
   // a new tier from chat. Spaces in the tier name must be replaced with
   // underscores ("Plein_tarif") for the parser to work; the underscore
   // is rewritten to a space before insert.
-  const addTarifMatch = cmd.match(/^ajouter\s+tarif\s+([0-9a-f]{4})\s+(\S+)\s+(\d+)(?:\s+(\d+))?$/i)
+  const addTarifMatch = cmd.match(/^(?:ajouter\s+tarif|add\s+tier)\s+([0-9a-f]{4})\s+(\S+)\s+(\d+)(?:\s+(\d+))?$/i)
   if (addTarifMatch) {
     const code4 = addTarifMatch[1].toLowerCase()
     const rawName = addTarifMatch[2].replace(/_+/g, ' ').trim()
