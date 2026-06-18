@@ -1058,51 +1058,60 @@ async function handleVendor(
   // limit even for an owner with all sections unlocked (error 21617).
   if (cmd === 'aide' || cmd === 'help' || cmd === '') {
     const en = lang === 'en'
-    const lines: string[] = [
-      `🍽️ *Tchop & Ndjoka — ${restaurant.name}*`,
-      en ? `Role: ${teamRole}` : `Rôle: ${teamRole}`,
-      ``,
-      en ? `📋 *Essential commands:*` : `📋 *Commandes essentielles:*`,
-    ]
+    const lines: string[] = en
+      ? [
+          `👋 Hi! This is your Tchop & Ndjoka space for *${restaurant.name}* 🍽️ (role: ${teamRole})`,
+          ``,
+          `Here's how to run things from WhatsApp:`,
+        ]
+      : [
+          `👋 Bonjour! Voici votre espace Tchop & Ndjoka pour *${restaurant.name}* 🍽️ (rôle: ${teamRole})`,
+          ``,
+          `Voici comment tout gérer depuis WhatsApp:`,
+        ]
     if (canViewOrders) {
       lines.push(
         ``,
-        en ? `📦 *Orders:*` : `📦 *Commandes:*`,
-        en ? `📦 "commandes" → View pending orders` : `📦 "commandes" → Voir les commandes en attente`,
-        en ? `✅ "ok XXXX" → Confirm`             : `✅ "ok XXXX" → Confirmer`,
-        en ? `🍳 "preparer XXXX" → Start preparing` : `🍳 "preparer XXXX" → Démarrer la préparation`,
-        en ? `🎉 "pret XXXX" → Ready`             : `🎉 "pret XXXX" → Prêt`,
-        en ? `📦 "recupere XXXX" → Picked up`     : `📦 "recupere XXXX" → Récupéré`,
+        en ? `📦 *Manage orders*` : `📦 *Gérer les commandes*`,
+        en
+          ? `Send "commandes" to see what's coming in. Reply "ok XXXX" to confirm, "pret XXXX" when it's ready, "recupere XXXX" once picked up.`
+          : `Envoyez "commandes" pour voir ce qui arrive. Répondez "ok XXXX" pour confirmer, "pret XXXX" quand c'est prêt, "recupere XXXX" une fois récupéré.`,
       )
     }
     lines.push(
       ``,
-      `🍽️ *Menu:*`,
-      en ? `🍽️ "menu" → View your menu` : `🍽️ "menu" → Voir votre menu`,
+      en ? `🍽️ *Your menu*` : `🍽️ *Votre menu*`,
+      canEditMenu
+        ? (en
+            ? `Send "menu" to view it. To add a dish, send a photo with a caption like "Poulet DG - 3000".`
+            : `Envoyez "menu" pour le voir. Pour ajouter un plat, envoyez une photo avec une légende du type "Poulet DG - 3000".`)
+        : (en
+            ? `Send "menu" to view the current menu.`
+            : `Envoyez "menu" pour voir le menu actuel.`),
     )
-    if (canEditMenu) {
-      lines.push(en ? `📸 Photo + "Name - Price" → Add a dish` : `📸 Photo + "Nom - Prix" → Ajouter un plat`)
-    }
     if (isOwner || isManager) {
       lines.push(
         ``,
-        en ? `🕐 *Status:*` : `🕐 *Statut:*`,
-        `🟢 "ouvrir" / 🔴 "fermer" / ↩️ "auto"`,
-        en ? `🕐 "horaire" → View hours` : `🕐 "horaire" → Voir les horaires`,
-        en ? `⏱️ "temps" → Prep time`   : `⏱️ "temps" → Temps de préparation`,
+        en ? `🕐 *Opening hours*` : `🕐 *Horaires d'ouverture*`,
+        en
+          ? `Send "ouvrir" or "fermer" to open/close now, "auto" to follow your schedule, "horaire" to view it, "temps" for prep time.`
+          : `Envoyez "ouvrir" ou "fermer" pour ouvrir/fermer maintenant, "auto" pour suivre votre horaire, "horaire" pour le voir, "temps" pour le temps de préparation.`,
       )
     }
     if (isOwner) {
       lines.push(
         ``,
-        en ? `👥 *Team:*` : `👥 *Équipe:*`,
-        en ? `📋 "equipe" → View team` : `📋 "equipe" → Voir l'équipe`,
-        en ? `➕ "ajouter +XXX manager" → Add` : `➕ "ajouter +XXX manager" → Ajouter`,
+        en ? `👥 *Your team*` : `👥 *Votre équipe*`,
+        en
+          ? `Send "equipe" to see members, or "ajouter +237... manager" to add someone.`
+          : `Envoyez "equipe" pour voir les membres, ou "ajouter +237... manager" pour ajouter quelqu'un.`,
       )
     }
     lines.push(
       ``,
-      en ? `❓ "aide+" → All commands` : `❓ "aide+" → Toutes les commandes`,
+      en ? `🌐 Passer au français → envoyez "fr"` : `🌐 Switch to English → send "en"`,
+      ``,
+      en ? `💡 Send "aide+" for the full list of commands.` : `💡 Envoyez "aide+" pour la liste complète des commandes.`,
     )
     await sendWhatsApp(from, lines.join('\n'))
     return ok()
@@ -1991,42 +2000,38 @@ async function handleCustomer(
     // behind "aide+" / "help+" so this stays under Twilio's 1600-char body
     // limit (error 21617). Single-language per the customer's preferred_language.
     await sendWhatsApp(from, lang === 'en'
-      ? `👋 *Hello ${customer.name}!*\n\n` +
-        `📋 *Essential commands:*\n\n` +
-        `🍽️ *Order:*\n` +
-        `🍽️ "commander" → Place an order\n` +
-        `📦 "mes commandes" → Your orders\n` +
-        `🎫 "mes bons" → Your vouchers\n\n` +
-        `🎉 *Events:*\n` +
-        `🎉 "evenements" → Browse events\n` +
-        `🎟 "mes reservations" → Your reservations\n` +
-        `📢 "publier" → Publish an event\n\n` +
-        `🔔 *Notifications:*\n` +
-        `🔔 "abonner" → Event alerts\n` +
-        `🔕 "desabonner" → Stop\n\n` +
-        `🏪 "restaurant" → Register restaurant\n` +
-        `🌐 "fr" → Français\n\n` +
-        `🌍 Browse: ${BASE_URL}\n` +
-        `🔑 My account: ${BASE_URL}/account\n\n` +
-        `❓ "help+" → All commands`
-      : `👋 *Bonjour ${customer.name}!*\n\n` +
-        `📋 *Commandes essentielles:*\n\n` +
-        `🍽️ *Commander:*\n` +
-        `🍽️ "commander" → Passer une commande\n` +
-        `📦 "mes commandes" → Vos commandes\n` +
-        `🎫 "mes bons" → Vos bons\n\n` +
-        `🎉 *Événements:*\n` +
-        `🎉 "evenements" → Parcourir\n` +
-        `🎟 "mes reservations" → Vos réservations\n` +
-        `📢 "publier" → Publier un événement\n\n` +
-        `🔔 *Notifications:*\n` +
-        `🔔 "abonner" → Alertes événements\n` +
-        `🔕 "desabonner" → Arrêter\n\n` +
-        `🏪 "restaurant" → Inscrire votre restaurant\n` +
-        `🌐 "en" → English\n\n` +
-        `🌍 Parcourez: ${BASE_URL}\n` +
-        `🔑 Mon compte: ${BASE_URL}/account\n\n` +
-        `❓ "aide+" → Toutes les commandes`)
+      ? `👋 Hello ${customer.name}! Welcome to Tchop & Ndjoka 🍽️\n\n` +
+        `Here's what you can do:\n\n` +
+        `🍽️ *Order food*\n` +
+        `Send "commander" and I'll guide you through choosing a restaurant and placing an order.\n\n` +
+        `📦 *Track your orders*\n` +
+        `Send "mes commandes" to check the status of your current orders.\n\n` +
+        `🎉 *Discover events*\n` +
+        `Send "evenements" to see what's happening in your city.\n\n` +
+        `🎫 *Use a discount code*\n` +
+        `Send "mes bons" to see your available promo codes.\n\n` +
+        `🔔 *Get event alerts*\n` +
+        `Send "abonner" to be notified about new events.\n\n` +
+        `🏪 *Own a restaurant?*\n` +
+        `Send "restaurant" to register it on the platform.\n\n` +
+        `🌐 Passer au français → envoyez "fr"\n\n` +
+        `💡 Send "help+" to see all advanced commands.`
+      : `👋 Bonjour ${customer.name}! Bienvenue sur Tchop & Ndjoka 🍽️\n\n` +
+        `Voici ce que vous pouvez faire ici:\n\n` +
+        `🍽️ *Commander à manger*\n` +
+        `Envoyez "commander" et je vous guiderai pour choisir un restaurant et passer commande.\n\n` +
+        `📦 *Suivre vos commandes*\n` +
+        `Envoyez "mes commandes" pour voir où en sont vos commandes en cours.\n\n` +
+        `🎉 *Découvrir les événements*\n` +
+        `Envoyez "evenements" pour voir ce qui se passe dans votre ville.\n\n` +
+        `🎫 *Utiliser un bon de réduction*\n` +
+        `Envoyez "mes bons" pour voir vos codes promo disponibles.\n\n` +
+        `🔔 *Recevoir des alertes*\n` +
+        `Envoyez "abonner" pour être notifié des nouveaux événements.\n\n` +
+        `🏪 *Vous avez un restaurant?*\n` +
+        `Envoyez "restaurant" pour l'inscrire sur la plateforme.\n\n` +
+        `🌐 Switch to English → send "en"\n\n` +
+        `💡 Envoyez "aide+" pour voir toutes les commandes avancées.`)
     return ok()
   }
 
