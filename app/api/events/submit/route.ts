@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
+import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,7 +54,12 @@ export async function POST(req: NextRequest) {
   const maxTickets = body.max_tickets != null && body.max_tickets !== ''
     ? Math.max(0, parseInt(String(body.max_tickets), 10))
     : 0
-  const paymentEnabled = ticketPrice && ticketPrice > 0 ? !!body.payment_enabled : false
+  // Payment mode — defaults to reservation_only. Free events are forced to
+  // reservation_only + WhatsApp payment off (there's nothing to pay for).
+  const isPaid = !!(ticketPrice && ticketPrice > 0)
+  const paymentMode = isPaid ? normalizeMode(body.payment_mode) : 'reservation_only'
+  const whatsappPaymentEnabled = isPaid ? !!body.whatsapp_payment_enabled : false
+  const paymentEnabled = legacyEnabledFromMode(paymentMode) // legacy column, kept in sync
   const requiresConfirmation = !!body.requires_confirmation
 
   const insertRow: Record<string, unknown> = {
@@ -69,6 +75,8 @@ export async function POST(req: NextRequest) {
     ticket_price:    ticketPrice,
     max_tickets:     maxTickets,
     payment_enabled: paymentEnabled,
+    payment_mode:    paymentMode,
+    whatsapp_payment_enabled: whatsappPaymentEnabled,
     requires_confirmation: requiresConfirmation,
     cover_photo:     body.cover_photo || null,
     whatsapp:        body.whatsapp,

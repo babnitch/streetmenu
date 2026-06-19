@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
 import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
+import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,13 +40,13 @@ export async function POST(req: NextRequest) {
 
     const { data: restaurant, error: restErr } = await supabaseAdmin
       .from('restaurants')
-      .select('id, name, city, payment_enabled')
+      .select('id, name, city, payment_mode, payment_enabled')
       .eq('id', order.restaurant_id)
       .single()
     if (restErr || !restaurant) {
       return NextResponse.json({ error: 'Restaurant introuvable / Restaurant not found' }, { status: 404 })
     }
-    if (!restaurant.payment_enabled) {
+    if (!canPayOnline(normalizeMode(restaurant.payment_mode ?? modeFromLegacy(restaurant.payment_enabled)))) {
       return NextResponse.json({ error: 'Paiement non activé pour ce restaurant / Payment not enabled' }, { status: 400 })
     }
 

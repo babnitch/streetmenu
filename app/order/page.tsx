@@ -15,6 +15,7 @@ import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { Voucher, CustomerVoucher } from '@/types'
+import { normalizeMode, modeFromLegacy, type PaymentMode } from '@/lib/paymentMode'
 
 // Customer session from the JWT cookie (what /account actually writes).
 // The legacy useAuth hook reads Supabase Auth, which this app doesn't use
@@ -96,8 +97,10 @@ export default function OrderPage() {
   const [applyingVoucher, setApplyingVoucher] = useState(false)
   const [myVouchers, setMyVouchers] = useState<CustomerVoucher[]>([])
 
-  // Payment flow state
-  const [paymentEnabled, setPaymentEnabled] = useState(false)
+  // Payment flow state. paymentMode is the restaurant's setting; payChoice is
+  // the customer's pick when the mode is 'both' (null until they choose).
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('reservation_only')
+  const [payChoice, setPayChoice] = useState<'pay' | 'reserve' | null>(null)
   const [payPhase, setPayPhase] = useState<PayPhase>('idle')
   const [payError, setPayError] = useState('')
   const [activeDepositId, setActiveDepositId] = useState<string | null>(null)
@@ -155,14 +158,14 @@ export default function OrderPage() {
       const [{ data }, status] = await Promise.all([
         supabase
           .from('restaurants')
-          .select('payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city')
+          .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city')
           .eq('id', restaurantId).maybeSingle(),
         fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.json())
           .catch(() => null),
       ])
       if (cancelled) return
-      setPaymentEnabled(Boolean(data?.payment_enabled))
+      setPaymentMode(normalizeMode(data?.payment_mode ?? modeFromLegacy(data?.payment_enabled)))
       setPrepLabel(formatPrepTime(data?.prep_time_min, data?.prep_time_max))
       setRestaurantCity(data?.city ?? '')
       // Default TRUE matches the column default — a missing row should
@@ -221,6 +224,13 @@ export default function OrderPage() {
   const momoPrefixValid = trimmedMomoPhone ? hasSupportedCountryPrefix(trimmedMomoPhone) : false
   const mnoPreview = momoPrefixValid ? previewMNO(trimmedMomoPhone) : null
 
+  // Resolve the 3-way payment mode into what this checkout should show.
+  // 'both' lets the customer pick — payChoice holds their selection.
+  const isBoth        = paymentMode === 'both'
+  const showPayUI     = paymentMode === 'payment_only' || (isBoth && payChoice === 'pay')
+  const showReserveUI = paymentMode === 'reservation_only' || (isBoth && payChoice === 'reserve')
+  const needsChoice   = isBoth && payChoice === null
+
   async function applyVoucher() {
     const code = voucherInput.trim().toUpperCase()
     if (!code || !restaurantId) {
@@ -231,7 +241,7 @@ export default function OrderPage() {
     setVoucherError('')
 
     const payload = { code, restaurantId, orderTotal: totalPrice }
-    console.log('[order/voucher] POST /api/customer/vouchers/apply', { ...payload, paymentEnabled, loggedIn: !!me })
+    console.log('[order/voucher] POST /api/customer/vouchers/apply', { ...payload, paymentMode, loggedIn: !!me })
 
     try {
       const res = await fetch('/api/customer/vouchers/apply', {
@@ -755,7 +765,7 @@ export default function OrderPage() {
         )}
 
         {/* Customer identity — session if logged in, inputs otherwise */}
-        <form onSubmit={paymentEnabled ? handlePay : handleReservation}>
+        <form onSubmit={showPayUI ? handlePay : handleReservation}>
           <h2 className="text-base font-bold text-ink-primary mb-3">{t('order.detailsTitle')}</h2>
 
           {loadingMe ? (
@@ -816,11 +826,47 @@ export default function OrderPage() {
             </>
           )}
 
-          {/* Payment section — only when restaurant accepts online payment.
-              The MoMo number is collected separately from the account phone
-              because the wallet number may differ (and the account may even
-              be a non-African number). */}
-          {paymentEnabled && (
+          {/* Mode = 'both' — customer chooses pay-now vs reserve. Two clearly
+              separated options; the selected one drives the form below. */}
+          {isBoth && (
+            <div className="mb-4">
+              <p className="text-sm font-bold text-ink-primary mb-2">
+                {bi('Comment souhaitez-vous payer?', 'How would you like to pay?')}
+              </p>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPayChoice('pay')}
+                  className={`text-left rounded-2xl border-2 px-4 py-3 transition-colors ${
+                    payChoice === 'pay'
+                      ? 'border-orange-500 bg-orange-50'
+                      : 'border-divider bg-surface hover:border-brand-badge'
+                  }`}
+                >
+                  <p className="text-sm font-bold text-ink-primary">💰 {bi('Payer maintenant', 'Pay now')}</p>
+                  <p className="text-xs text-ink-secondary mt-0.5">{bi('Mobile Money — paiement immédiat.', 'Mobile Money — pay immediately.')}</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayChoice('reserve')}
+                  className={`text-left rounded-2xl border-2 px-4 py-3 transition-colors ${
+                    payChoice === 'reserve'
+                      ? 'border-brand bg-brand-light'
+                      : 'border-divider bg-surface hover:border-brand-badge'
+                  }`}
+                >
+                  <p className="text-sm font-bold text-ink-primary">📋 {bi('Réserver (payer sur place)', 'Reserve (pay at venue)')}</p>
+                  <p className="text-xs text-ink-secondary mt-0.5">{bi('Le restaurant vous contactera pour confirmer.', 'The restaurant will contact you to confirm.')}</p>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Payment section — shown for payment_only, or when the customer
+              picked "Pay now" under 'both'. The MoMo number is collected
+              separately from the account phone because the wallet number may
+              differ (and the account may even be a non-African number). */}
+          {showPayUI && (
             <div className="bg-surface rounded-2xl shadow-card border border-divider p-4 mb-4">
               <p className="text-sm font-bold text-ink-primary mb-2">
                 💳 {bi('Paiement mobile money', 'Mobile money payment')}
@@ -862,7 +908,7 @@ export default function OrderPage() {
             </div>
           )}
 
-          {!paymentEnabled && (
+          {showReserveUI && (
             <div className="bg-surface-muted border border-divider rounded-2xl px-4 py-3 mb-4">
               <p className="text-xs text-ink-secondary">
                 📋 {bi(
@@ -878,23 +924,26 @@ export default function OrderPage() {
             disabled={
               submitting
               || loadingMe
+              || needsChoice
               || (!me && (!name || !phone))
-              || (paymentEnabled && !mnoPreview)
+              || (showPayUI && !mnoPreview)
               || orderingBlocked
             }
             className={`w-full ${
-              paymentEnabled
+              showPayUI
                 ? 'bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300'
                 : 'bg-brand hover:bg-brand-dark disabled:bg-brand-badge'
             } text-white py-4 rounded-full font-bold text-base shadow-card transition-colors`}
           >
-            {submitting
-              ? (paymentEnabled
-                  ? bi('Initialisation du paiement…', 'Starting payment…')
-                  : t('order.placing'))
-              : paymentEnabled
-                ? `${bi('Payer', 'Pay')} ${finalPrice.toLocaleString()} FCFA`
-                : `📋 ${bi('Réserver la commande', 'Reserve order')} · ${finalPrice.toLocaleString()} FCFA`}
+            {needsChoice
+              ? bi('Choisissez une option ci-dessus', 'Choose an option above')
+              : submitting
+                ? (showPayUI
+                    ? bi('Initialisation du paiement…', 'Starting payment…')
+                    : t('order.placing'))
+                : showPayUI
+                  ? `${bi('Payer', 'Pay')} ${finalPrice.toLocaleString()} FCFA`
+                  : `📋 ${bi('Réserver la commande', 'Reserve order')} · ${finalPrice.toLocaleString()} FCFA`}
           </button>
         </form>
       </div>

@@ -19,6 +19,9 @@ import {
 import { validateVoucher, consumeVoucherForOrder, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
 import { formatPrepTime } from '@/lib/prepTime'
+import {
+  normalizeMode, modeFromLegacy, effectiveWhatsAppMode, type PaymentMode,
+} from '@/lib/paymentMode'
 
 // Reads the restaurant's estimated prep range and formats a single-language
 // WhatsApp line like "🕐 Temps estimé: 20-35 min", or '' when the vendor
@@ -77,6 +80,19 @@ interface OrderingSessionData {
   voucher_id?: string
   voucher_code?: string
   voucher_discount?: number
+  // Cached on the session when a 'both'-mode order pauses for the pay-vs-reserve
+  // choice (step 4), so finalising doesn't need to re-fetch the restaurant.
+  restaurant_city?: string
+  // Event-reserve sessions reuse this blob; these keep the event flow typed.
+  event_id?: string
+  event_name?: string
+  ticket_price?: number
+  payment_enabled?: boolean
+  payment_mode?: PaymentMode
+  whatsapp_payment_enabled?: boolean
+  quantity?: number
+  total_price?: number
+  commission_amount?: number
 }
 
 interface OrderingSessionRow {
@@ -1429,7 +1445,6 @@ export async function handleEventSession(
     const eventId       = data?.event_id as string | undefined
     const eventTitle    = (data?.event_name as string) ?? ''
     const ticketPrice   = Number(data?.ticket_price ?? 0)
-    const paymentEnabled = !!data?.payment_enabled
     if (!eventId) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
@@ -1440,7 +1455,7 @@ export async function handleEventSession(
     // have been sitting on the prompt while others booked).
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate, city')
+      .select('id, title, date, time, venue, organizer_id, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city')
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -1462,73 +1477,37 @@ export async function handleEventSession(
     const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
     const commissionAmount = totalPrice > 0 ? Math.round(totalPrice * commissionRate) : 0
 
-    if (!paymentEnabled) {
+    // Effective WhatsApp mode: free events and vendors who haven't enabled
+    // WhatsApp payment collapse to reservation_only.
+    const isFree  = !(ticketPrice > 0)
+    const effMode = effectiveWhatsAppMode(
+      normalizeMode(event.payment_mode ?? modeFromLegacy(event.payment_enabled)),
+      Boolean(event.whatsapp_payment_enabled),
+      isFree,
+    )
+
+    if (effMode === 'reservation_only') {
       // Free OR pay-at-door — insert the reservation immediately.
-      const { data: reservation, error: insErr } = await supabaseAdmin
-        .from('event_reservations')
-        .insert({
-          event_id:           event.id,
-          customer_id:        customer.id,
-          customer_name:      customer.name,
-          customer_phone:     customer.phone,
-          quantity:           q,
-          total_price:        totalPrice,
-          commission_amount:  commissionAmount,
-          payment_status:     'not_required',
-          reservation_status: 'confirmed',
-        })
-        .select('id').single()
-      if (insErr || !reservation) {
-        await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
-        return ok()
-      }
-      await supabaseAdmin.from('events').update({ tickets_sold: sold + q }).eq('id', event.id)
-      await writeAudit({
-        action:          'event_reservation_created',
-        targetType:      'event_reservation',
-        targetId:        reservation.id,
-        performedBy:     customer.id,
-        performedByType: 'customer',
-        metadata:        { event_id: event.id, event_title: event.title, quantity: q, total_price: totalPrice, paid: false, via: 'whatsapp' },
+      return confirmEventReservationWhatsapp({ from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang })
+    }
+
+    if (effMode === 'both') {
+      // Let the customer choose pay-now vs reserve (step 3).
+      await supabaseAdmin.from('signup_sessions').upsert({
+        phone, user_type: 'event_reserve', step: 3,
+        data: { ...data, quantity: q, total_price: totalPrice, commission_amount: commissionAmount },
+        expires_at: sessionExpiry(15),
       })
-      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-
-      const dateStr = new Date(event.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
-      const payLine = ticketPrice > 0
-        ? '\n' + pickLang(
-            `💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA`,
-            `💰 Pay at the door: ${totalPrice.toLocaleString()} FCFA`,
-            lang,
-          )
-        : ''
-      await sendWhatsApp(from, [
-        pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, lang),
-        ``,
-        `🎉 ${event.title}`,
-        `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
-        event.venue ? `📍 ${event.venue}` : '',
-        pickLang(`🎟 ${q} place(s)`, `🎟 ${q} spot(s)`, lang),
-        payLine,
-      ].filter(Boolean).join('\n'))
-
-      // Organizer ping.
-      await pingOrganizer(event, customer, q, totalPrice, dateStr)
+      await sendWhatsApp(from, pickLang(
+        `${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\nComment souhaitez-vous payer?\n\n1. 💰 Payer maintenant (Mobile Money)\n2. 📋 Réserver (payer sur place)\n\nRépondez 1 ou 2`,
+        `${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\nHow would you like to pay?\n\n1. 💰 Pay now (Mobile Money)\n2. 📋 Reserve (pay at the door)\n\nReply 1 or 2`,
+        lang,
+      ))
       return ok()
     }
 
-    // Paid + payment_enabled — advance to step 2 and ask for MoMo number.
-    await supabaseAdmin.from('signup_sessions').upsert({
-      phone, user_type: 'event_reserve', step: 2,
-      data: { ...data, quantity: q, total_price: totalPrice, commission_amount: commissionAmount },
-      expires_at: sessionExpiry(15),
-    })
-    await sendWhatsApp(from,
-      `💰 ${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\n` +
-      pickLang(
-        `Envoyez votre numéro Mobile Money pour payer.\n\nEx: 237670000000\n\nOu "annuler"`,
-        `Send your Mobile Money number to pay.\n\nEx: 237670000000\n\nOr "cancel"`,
-        lang,
-      ))
+    // payment_only — advance to step 2 and ask for the MoMo number.
+    await askEventMomoNumber(from, phone, data, q, ticketPrice, totalPrice, commissionAmount, lang)
     return ok()
     // eventTitle unused at this step — silence by referencing in the log on success.
     void eventTitle
@@ -1646,6 +1625,57 @@ export async function handleEventSession(
     return ok()
   }
 
+  // ── event_reserve step 3: 'both' mode — pay-now (1) vs reserve (2) ──
+  if (user_type === 'event_reserve' && step === 3) {
+    const choice = cmd.trim()
+    if (choice !== '1' && choice !== '2') {
+      await sendWhatsApp(from, pickLang(
+        `Répondez *1* pour payer maintenant ou *2* pour réserver.`,
+        `Reply *1* to pay now or *2* to reserve.`,
+        lang,
+      ))
+      return ok()
+    }
+    const eventId          = data?.event_id as string | undefined
+    const quantity         = Number(data?.quantity ?? 0)
+    const totalPrice       = Number(data?.total_price ?? 0)
+    const commissionAmount = Number(data?.commission_amount ?? 0)
+    const ticketPrice      = Number(data?.ticket_price ?? 0)
+    if (!eventId || !quantity) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
+      return ok()
+    }
+
+    // Pay now → reuse the MoMo prompt (step 2 handles the rest).
+    if (choice === '1') {
+      await askEventMomoNumber(from, phone, data, quantity, ticketPrice, totalPrice, commissionAmount, lang)
+      return ok()
+    }
+
+    // Reserve → re-pull the event to re-check capacity, then confirm.
+    const { data: event } = await supabaseAdmin
+      .from('events')
+      .select('id, title, date, time, venue, organizer_id, whatsapp, is_active, event_status, tickets_sold, max_tickets')
+      .eq('id', eventId).maybeSingle()
+    if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang('❌ Événement clôturé.', '❌ Event closed.', lang))
+      return ok()
+    }
+    const sold = Number(event.tickets_sold ?? 0)
+    if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang(
+        `❌ Plus que ${Math.max(0, event.max_tickets - sold)} places.`,
+        `❌ Only ${Math.max(0, event.max_tickets - sold)} spots left.`,
+        lang,
+      ))
+      return ok()
+    }
+    return confirmEventReservationWhatsapp({ from, phone, customer, event, q: quantity, totalPrice, commissionAmount, sold, ticketPrice, lang })
+  }
+
   // Unknown event session shape — quietly clear it.
   await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
   await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
@@ -1653,6 +1683,92 @@ export async function handleEventSession(
 }
 
 // ── Internal helpers for the event flow ──────────────────────────────────────
+
+// Minimal event shape the reservation confirmation needs.
+interface EventReserveRow {
+  id: string; title: string; date: string; time: string | null
+  venue: string | null; organizer_id: string | null; whatsapp: string | null
+}
+
+// Sets the session to step 2 and prompts for the Mobile Money number. Shared by
+// the payment_only path and the 'both' → pay-now choice.
+async function askEventMomoNumber(
+  from: string, phone: string, data: Record<string, unknown>,
+  q: number, ticketPrice: number, totalPrice: number, commissionAmount: number, lang: Lang,
+): Promise<void> {
+  await supabaseAdmin.from('signup_sessions').upsert({
+    phone, user_type: 'event_reserve', step: 2,
+    data: { ...data, quantity: q, total_price: totalPrice, commission_amount: commissionAmount },
+    expires_at: sessionExpiry(15),
+  })
+  await sendWhatsApp(from,
+    `💰 ${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\n` +
+    pickLang(
+      `Envoyez votre numéro Mobile Money pour payer.\n\nEx: 237670000000\n\nOu "annuler"`,
+      `Send your Mobile Money number to pay.\n\nEx: 237670000000\n\nOr "cancel"`,
+      lang,
+    ))
+}
+
+// Inserts a free / pay-at-door event reservation, bumps tickets_sold, confirms
+// to the customer and pings the organizer. Shared by reservation_only and the
+// 'both' → reserve choice.
+async function confirmEventReservationWhatsapp(opts: {
+  from: string; phone: string; customer: OrderingCustomer
+  event: EventReserveRow; q: number; totalPrice: number; commissionAmount: number
+  sold: number; ticketPrice: number; lang: Lang
+}): Promise<NextResponse> {
+  const { from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang } = opts
+  const { data: reservation, error: insErr } = await supabaseAdmin
+    .from('event_reservations')
+    .insert({
+      event_id:           event.id,
+      customer_id:        customer.id,
+      customer_name:      customer.name,
+      customer_phone:     customer.phone,
+      quantity:           q,
+      total_price:        totalPrice,
+      commission_amount:  commissionAmount,
+      payment_status:     'not_required',
+      reservation_status: 'confirmed',
+    })
+    .select('id').single()
+  if (insErr || !reservation) {
+    await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
+    return ok()
+  }
+  await supabaseAdmin.from('events').update({ tickets_sold: sold + q }).eq('id', event.id)
+  await writeAudit({
+    action:          'event_reservation_created',
+    targetType:      'event_reservation',
+    targetId:        reservation.id,
+    performedBy:     customer.id,
+    performedByType: 'customer',
+    metadata:        { event_id: event.id, event_title: event.title, quantity: q, total_price: totalPrice, paid: false, via: 'whatsapp' },
+  })
+  await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+
+  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const payLine = ticketPrice > 0
+    ? '\n' + pickLang(
+        `💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA`,
+        `💰 Pay at the door: ${totalPrice.toLocaleString()} FCFA`,
+        lang,
+      )
+    : ''
+  await sendWhatsApp(from, [
+    pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, lang),
+    ``,
+    `🎉 ${event.title}`,
+    `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+    event.venue ? `📍 ${event.venue}` : '',
+    pickLang(`🎟 ${q} place(s)`, `🎟 ${q} spot(s)`, lang),
+    payLine,
+  ].filter(Boolean).join('\n'))
+
+  await pingOrganizer(event, customer, q, totalPrice, dateStr)
+  return ok()
+}
 
 // Pulls a single event and shows the detail card. Pushes the event_detail
 // session so "reserver" without a code resolves to this event.
@@ -1918,149 +2034,39 @@ export async function handleOrderingSession(
       const discount = data.voucher_discount ?? 0
       const total = Math.max(0, subtotal - discount)
 
-      // Resolve payment_enabled + city ahead of insert so the order row
-      // carries the right order_type from the start.
+      // Resolve the restaurant's payment mode + the separate WhatsApp payment
+      // flag. effectiveWhatsAppMode collapses to reservation_only whenever the
+      // vendor hasn't enabled WhatsApp payment — independent of the web mode.
       const { data: rest } = await supabaseAdmin
         .from('restaurants')
-        .select('payment_enabled, city')
+        .select('payment_mode, payment_enabled, whatsapp_payment_enabled, city')
         .eq('id', data.restaurant_id)
         .maybeSingle()
-      const paymentEnabled = Boolean(rest?.payment_enabled)
+      const effMode = effectiveWhatsAppMode(
+        normalizeMode(rest?.payment_mode ?? modeFromLegacy(rest?.payment_enabled)),
+        Boolean(rest?.whatsapp_payment_enabled),
+      )
       const restaurantCity = rest?.city ?? ''
 
-      const itemsJsonb = items.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))
-      const { data: newOrder, error: orderErr } = await supabaseAdmin
-        .from('orders')
-        .insert({
-          restaurant_id:   data.restaurant_id,
-          customer_id:     customer.id,
-          customer_name:   customer.name,
-          customer_phone:  customer.phone,
-          items:           itemsJsonb,
-          total_price:     total,
-          status:          'pending',
-          voucher_code:    data.voucher_code ?? null,
-          discount_amount: discount > 0 ? discount : null,
-          order_type:      paymentEnabled ? 'paid_order'  : 'reservation',
-          payment_status:  paymentEnabled ? 'pending'     : 'not_required',
-        })
-        .select('id')
-        .single()
-
-      if (orderErr || !newOrder) {
-        console.error('[ordering] order insert failed:', orderErr?.message)
-        await sendWhatsApp(from, pickLang('❌ Erreur lors de la création de la commande. Réessayez.', '❌ Error creating order. Please retry.', lang))
-        return ok()
-      }
-
-      const orderItemsRows = items.map(i => ({
-        order_id:     newOrder.id,
-        menu_item_id: i.menu_item_id,
-        name:         i.name,
-        price:        i.price,
-        quantity:     i.quantity,
-      }))
-      const { error: itemsErr } = await supabaseAdmin.from('order_items').insert(orderItemsRows)
-      if (itemsErr) console.error('[ordering] order_items insert failed:', itemsErr.message)
-
-      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-
-      // Consume the voucher if one was applied during this session.
-      if (data.voucher_id) {
-        await consumeVoucherForOrder(data.voucher_id, customer.id, newOrder.id)
-        await writeAudit({
-          action: 'voucher_applied',
-          targetType: 'voucher',
-          targetId: data.voucher_id,
-          performedBy: customer.id,
-          performedByType: 'customer',
-          metadata: { order_id: newOrder.id, code: data.voucher_code, discount },
-        })
-      }
-
-      await writeAudit({
-        action: 'order_created',
-        targetType: 'order',
-        targetId: newOrder.id,
-        performedBy: customer.id,
-        performedByType: 'customer',
-        metadata: {
-          restaurant_id: data.restaurant_id,
-          total_price:   total,
-          item_count:    items.length,
-          voucher_code:  data.voucher_code ?? null,
-          discount,
-          order_type:    paymentEnabled ? 'paid_order' : 'reservation',
-        },
-      })
-
-      // ── Paid path: ask for the wallet PIN, defer vendor ping to the
-      // payment webhook (a pending payment shouldn't wake up the kitchen).
-      if (paymentEnabled) {
-        const initiated = await initiateWhatsappPayment(
-          from,
-          newOrder.id,
-          customer.id,
-          customer.phone,
-          total,
-          data.restaurant_name,
-          restaurantCity,
+      // 'both' — pause and let the customer choose pay-now vs reserve (step 4).
+      if (effMode === 'both') {
+        await supabaseAdmin.from('signup_sessions').update({
+          step: 4,
+          data: { ...data, restaurant_city: restaurantCity },
+          expires_at: sessionExpiry(15),
+        }).eq('phone', phone)
+        await sendWhatsApp(from, pickLang(
+          `Comment souhaitez-vous payer?\n\n1. 💰 Payer maintenant (Mobile Money)\n2. 📋 Réserver (payer sur place)\n\nRépondez 1 ou 2`,
+          `How would you like to pay?\n\n1. 💰 Pay now (Mobile Money)\n2. 📋 Reserve (pay at restaurant)\n\nReply 1 or 2`,
           lang,
-        )
-        if (!initiated) {
-          // Initiation failed — leave the order in payment_status='pending'
-          // so the customer can retry with "payer" once they fix the issue.
-          await sendWhatsApp(from, pickLang(
-            `⚠️ Impossible de démarrer le paiement. Envoyez "payer" pour réessayer.`,
-            `⚠️ Couldn't start payment. Send "pay" to retry.`,
-            lang,
-          ))
-        }
+        ))
         return ok()
       }
 
-      // ── Reservation path (default): notify vendors immediately. ───────────
-      const id4 = last4(newOrder.id)
-      const custLang = normalizeLang(customer.preferred_language)
-      const confirmLines = [
-        pickLang(`✅ *Commande confirmée!*`, `✅ *Order confirmed!*`, custLang),
-        pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, custLang),
-        `🏪 ${data.restaurant_name}`,
-      ]
-      if (discount > 0 && data.voucher_code) {
-        confirmLines.push(`🏷️ ${data.voucher_code} (−${discount.toLocaleString()} FCFA)`)
-      }
-      confirmLines.push(`💰 Total: ${total.toLocaleString()} FCFA`)
-      const custPrepLine = await prepTimeLine(data.restaurant_id, '🕐', custLang)
-      if (custPrepLine) confirmLines.push(custPrepLine)
-      confirmLines.push(``, pickLang(
-        `Le restaurant a été notifié. Vous recevrez un message quand votre commande sera prête!`,
-        `The restaurant has been notified. You'll receive a message when your order is ready!`,
-        custLang,
-      ))
-      confirmLines.push(``, pickLang(
-        `💡 Envoyez 'mes commandes' pour suivre votre commande.`,
-        `💡 Send 'my orders' to track your order.`, custLang))
-      await sendWhatsApp(from, confirmLines.join('\n'))
-
-      // Fan out to vendors — must be awaited. Fire-and-forget here dies with
-      // the serverless response lifecycle on Vercel, which is the root cause
-      // of "vendors don't get notified" reports.
-      try {
-        await notifyVendorsOfNewOrder(
-          data.restaurant_id,
-          data.restaurant_name,
-          newOrder.id,
-          customer.name,
-          customer.phone,
-          items,
-          total,
-        )
-      } catch (e) {
-        console.error('[ordering] vendor fan-out failed:', (e as Error).message)
-      }
-
-      return ok()
+      return finalizeRestaurantWhatsappOrder({
+        from, phone, customer, data, items, total, discount,
+        restaurantCity, paid: effMode === 'payment_only', lang,
+      })
     }
 
     // ("no"/"non"/"cancel" are handled by the universal exit guard above.)
@@ -2120,9 +2126,188 @@ export async function handleOrderingSession(
     return ok()
   }
 
+  // Step 4: 'both' mode — waiting for the pay-now (1) vs reserve (2) choice.
+  if (step === 4) {
+    const choice = body.trim()
+    if (choice !== '1' && choice !== '2') {
+      await sendWhatsApp(from, pickLang(
+        `Répondez *1* pour payer maintenant ou *2* pour réserver.`,
+        `Reply *1* to pay now or *2* to reserve.`,
+        lang,
+      ))
+      return ok()
+    }
+    const items = data.items ?? []
+    const subtotal = data.total ?? 0
+    if (items.length === 0 || subtotal <= 0) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang('❌ Commande invalide. Recommencez avec "commander".', '❌ Invalid order. Start again with "commander".', lang))
+      return ok()
+    }
+    const discount = data.voucher_discount ?? 0
+    const total = Math.max(0, subtotal - discount)
+    return finalizeRestaurantWhatsappOrder({
+      from, phone, customer, data, items, total, discount,
+      restaurantCity: data.restaurant_city ?? '', paid: choice === '1', lang,
+    })
+  }
+
   // Unexpected step
   await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
   await sendWhatsApp(from, pickLang('Session expirée. Envoyez "aide".', 'Session expired. Send "help".', lang))
+  return ok()
+}
+
+// Inserts the order row + items, consumes any voucher, writes audit, and then
+// runs the paid path (initiate PawaPay, defer vendor ping to the webhook) or
+// the reservation path (confirm + notify vendors immediately). Shared by the
+// payment_only / reservation_only branches and the 'both' choice (step 4).
+async function finalizeRestaurantWhatsappOrder(opts: {
+  from: string
+  phone: string
+  customer: OrderingCustomer
+  data: OrderingSessionData
+  items: CartItem[]
+  total: number
+  discount: number
+  restaurantCity: string
+  paid: boolean
+  lang: Lang
+}): Promise<NextResponse> {
+  const { from, phone, customer, data, items, total, discount, restaurantCity, paid, lang } = opts
+
+  const itemsJsonb = items.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))
+  const { data: newOrder, error: orderErr } = await supabaseAdmin
+    .from('orders')
+    .insert({
+      restaurant_id:   data.restaurant_id,
+      customer_id:     customer.id,
+      customer_name:   customer.name,
+      customer_phone:  customer.phone,
+      items:           itemsJsonb,
+      total_price:     total,
+      status:          'pending',
+      voucher_code:    data.voucher_code ?? null,
+      discount_amount: discount > 0 ? discount : null,
+      order_type:      paid ? 'paid_order' : 'reservation',
+      payment_status:  paid ? 'pending'    : 'not_required',
+    })
+    .select('id')
+    .single()
+
+  if (orderErr || !newOrder) {
+    console.error('[ordering] order insert failed:', orderErr?.message)
+    await sendWhatsApp(from, pickLang('❌ Erreur lors de la création de la commande. Réessayez.', '❌ Error creating order. Please retry.', lang))
+    return ok()
+  }
+
+  const orderItemsRows = items.map(i => ({
+    order_id:     newOrder.id,
+    menu_item_id: i.menu_item_id,
+    name:         i.name,
+    price:        i.price,
+    quantity:     i.quantity,
+  }))
+  const { error: itemsErr } = await supabaseAdmin.from('order_items').insert(orderItemsRows)
+  if (itemsErr) console.error('[ordering] order_items insert failed:', itemsErr.message)
+
+  await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+
+  // Consume the voucher if one was applied during this session.
+  if (data.voucher_id) {
+    await consumeVoucherForOrder(data.voucher_id, customer.id, newOrder.id)
+    await writeAudit({
+      action: 'voucher_applied',
+      targetType: 'voucher',
+      targetId: data.voucher_id,
+      performedBy: customer.id,
+      performedByType: 'customer',
+      metadata: { order_id: newOrder.id, code: data.voucher_code, discount },
+    })
+  }
+
+  await writeAudit({
+    action: 'order_created',
+    targetType: 'order',
+    targetId: newOrder.id,
+    performedBy: customer.id,
+    performedByType: 'customer',
+    metadata: {
+      restaurant_id: data.restaurant_id,
+      total_price:   total,
+      item_count:    items.length,
+      voucher_code:  data.voucher_code ?? null,
+      discount,
+      order_type:    paid ? 'paid_order' : 'reservation',
+    },
+  })
+
+  // ── Paid path: ask for the wallet PIN, defer vendor ping to the
+  // payment webhook (a pending payment shouldn't wake up the kitchen).
+  if (paid) {
+    const initiated = await initiateWhatsappPayment(
+      from,
+      newOrder.id,
+      customer.id,
+      customer.phone,
+      total,
+      data.restaurant_name,
+      restaurantCity,
+      lang,
+    )
+    if (!initiated) {
+      // Initiation failed — leave the order in payment_status='pending'
+      // so the customer can retry with "payer" once they fix the issue.
+      await sendWhatsApp(from, pickLang(
+        `⚠️ Impossible de démarrer le paiement. Envoyez "payer" pour réessayer.`,
+        `⚠️ Couldn't start payment. Send "pay" to retry.`,
+        lang,
+      ))
+    }
+    return ok()
+  }
+
+  // ── Reservation path (default): notify vendors immediately. ───────────
+  const id4 = last4(newOrder.id)
+  const custLang = normalizeLang(customer.preferred_language)
+  const confirmLines = [
+    pickLang(`✅ *Commande confirmée!*`, `✅ *Order confirmed!*`, custLang),
+    pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, custLang),
+    `🏪 ${data.restaurant_name}`,
+  ]
+  if (discount > 0 && data.voucher_code) {
+    confirmLines.push(`🏷️ ${data.voucher_code} (−${discount.toLocaleString()} FCFA)`)
+  }
+  confirmLines.push(`💰 Total: ${total.toLocaleString()} FCFA`)
+  const custPrepLine = await prepTimeLine(data.restaurant_id, '🕐', custLang)
+  if (custPrepLine) confirmLines.push(custPrepLine)
+  confirmLines.push(``, pickLang(
+    `Le restaurant a été notifié. Vous recevrez un message quand votre commande sera prête!`,
+    `The restaurant has been notified. You'll receive a message when your order is ready!`,
+    custLang,
+  ))
+  confirmLines.push(``, pickLang(
+    `💡 Envoyez 'mes commandes' pour suivre votre commande.`,
+    `💡 Send 'my orders' to track your order.`, custLang))
+  await sendWhatsApp(from, confirmLines.join('\n'))
+
+  // Fan out to vendors — must be awaited. Fire-and-forget here dies with
+  // the serverless response lifecycle on Vercel, which is the root cause
+  // of "vendors don't get notified" reports.
+  try {
+    await notifyVendorsOfNewOrder(
+      data.restaurant_id,
+      data.restaurant_name,
+      newOrder.id,
+      customer.name,
+      customer.phone,
+      items,
+      total,
+    )
+  } catch (e) {
+    console.error('[ordering] vendor fan-out failed:', (e as Error).message)
+  }
+
   return ok()
 }
 

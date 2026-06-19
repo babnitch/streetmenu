@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
+import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -91,21 +92,19 @@ export default function AdminEventsPage() {
     fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
   }, [fetchEvents])
 
-  // ── Toggle online ticket payment (super_admin / admin only) ──
-  async function togglePayment(evt: Event) {
-    const next = !evt.payment_enabled
+  // ── Payment config (super_admin / admin only) ──
+  async function patchEventPayment(evt: Event, patch: { payment_mode?: PaymentMode; whatsapp_payment_enabled?: boolean }) {
     setSaving(evt.id)
     try {
       const res = await fetch(`/api/admin/events/${evt.id}/payment`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_enabled: next }),
+        body: JSON.stringify(patch),
       })
       if (res.ok) {
-        setEvents(prev => prev.map(e => e.id === evt.id ? { ...e, payment_enabled: next } : e))
-        showToast(next
-          ? `💰 ${evt.title} — ${bi('paiement activé', 'payment enabled')}`
-          : `💳 ${evt.title} — ${bi('paiement désactivé', 'payment disabled')}`)
+        const data = await res.json().catch(() => ({}))
+        setEvents(prev => prev.map(e => e.id === evt.id ? { ...e, ...data } : e))
+        showToast(`✅ ${evt.title} — ${bi('paiement mis à jour', 'payment updated')}`)
       } else {
         const d = await res.json().catch(() => ({}))
         showToast(d.error ?? bi('Erreur', 'Error'), false)
@@ -114,6 +113,8 @@ export default function AdminEventsPage() {
       setSaving(null)
     }
   }
+  const setEventMode      = (evt: Event, mode: PaymentMode) => patchEventPayment(evt, { payment_mode: mode })
+  const toggleEventWhatsapp = (evt: Event, next: boolean) => patchEventPayment(evt, { whatsapp_payment_enabled: next })
 
   async function approve(id: string) {
     setSaving(id)
@@ -242,7 +243,8 @@ export default function AdminEventsPage() {
               canTogglePayment={canTogglePayment}
               onApprove={() => approve(evt.id)}
               onReject={() => reject(evt.id)}
-              onTogglePayment={() => togglePayment(evt)}
+              onSetMode={(m) => setEventMode(evt, m)}
+              onToggleWhatsapp={(n) => toggleEventWhatsapp(evt, n)}
               onRevokeAutoApprove={
                 evt.organizer_id && submitters[evt.organizer_id]?.event_auto_approve
                   ? () => revokeAutoApprove(evt.organizer_id!)
@@ -260,11 +262,7 @@ export default function AdminEventsPage() {
               netLabel={bi('Net organisateur', 'Organizer net')}
               priceLabel={bi('Prix billet', 'Ticket price')}
               freeLabel={bi('Gratuit', 'Free')}
-              paymentEnabledLabel={bi('💰 Paiement activé', '💰 Payment enabled')}
-              payAtDoorLabel={bi('💳 Paiement sur place', '💳 Pay at door')}
               freeBadgeLabel={bi('🆓 Gratuit', '🆓 Free')}
-              enablePaymentLabel={bi('💰 Activer paiement', 'Enable payment')}
-              disablePaymentLabel={bi('💳 Désactiver paiement', 'Disable payment')}
               verifiedLabel={bi('✅ Vérifié', '✅ Verified')}
               progressLabel={bi('approuvés / 3', 'approved / 3')}
               revokeAutoLabel={bi('Révoquer auto-approbation', 'Revoke auto-approve')}
@@ -278,11 +276,10 @@ export default function AdminEventsPage() {
 
 function EventRow({
   event, aggregate, submitter, saving, canTogglePayment,
-  onApprove, onReject, onTogglePayment, onRevokeAutoApprove, tab,
+  onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove, tab,
   approveLabel, rejectLabel, organizerLabel,
   reservationsLabel, ticketsLabel, revenueLabel, commissionLabel, netLabel,
-  priceLabel, freeLabel, paymentEnabledLabel, payAtDoorLabel, freeBadgeLabel,
-  enablePaymentLabel, disablePaymentLabel,
+  priceLabel, freeLabel, freeBadgeLabel,
   verifiedLabel, progressLabel, revokeAutoLabel,
   categoryDisplay,
 }: {
@@ -293,7 +290,8 @@ function EventRow({
   canTogglePayment: boolean
   onApprove: () => void
   onReject: () => void
-  onTogglePayment: () => void
+  onSetMode: (m: PaymentMode) => void
+  onToggleWhatsapp: (n: boolean) => void
   onRevokeAutoApprove?: () => void
   tab: 'pending' | 'approved'
   approveLabel: string
@@ -306,16 +304,13 @@ function EventRow({
   netLabel: string
   priceLabel: string
   freeLabel: string
-  paymentEnabledLabel: string
-  payAtDoorLabel: string
   freeBadgeLabel: string
-  enablePaymentLabel: string
-  disablePaymentLabel: string
   verifiedLabel: string
   progressLabel: string
   revokeAutoLabel: string
   categoryDisplay: string
 }) {
+  const bi = useBi()
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
   })
@@ -323,6 +318,13 @@ function EventRow({
   const ticketPrice = Number(event.ticket_price ?? 0)
   const isFree      = !(ticketPrice > 0)
   const priceStr    = isFree ? freeLabel : `${ticketPrice.toLocaleString()} FCFA`
+  // Free events are always reservation_only.
+  const mode        = isFree ? 'reservation_only' : normalizeMode(event.payment_mode ?? modeFromLegacy(event.payment_enabled))
+  const modeLabel   = mode === 'payment_only'
+    ? bi('Paiement seul', 'Payment only')
+    : mode === 'both'
+      ? bi('Les deux', 'Both')
+      : bi('Réservation seule', 'Reservation only')
   const ticketsSold = Number(event.tickets_sold ?? 0)
   const maxTickets  = Number(event.max_tickets ?? 0)
   const gross       = Number(aggregate?.revenue ?? 0)
@@ -356,10 +358,15 @@ function EventRow({
               </span>
               {isFree ? (
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{freeBadgeLabel}</span>
-              ) : event.payment_enabled ? (
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{paymentEnabledLabel}</span>
+              ) : mode === 'payment_only' ? (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">💰 {bi('Paiement seul', 'Payment only')}</span>
+              ) : mode === 'both' ? (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">💰📋 {bi('Les deux', 'Both')}</span>
               ) : (
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-surface-muted text-ink-secondary">{payAtDoorLabel}</span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-surface-muted text-ink-secondary">📋 {bi('Réservation seule', 'Reservation only')}</span>
+              )}
+              {event.whatsapp_payment_enabled && (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">💬💰 {bi('WhatsApp', 'WhatsApp')}</span>
               )}
             </div>
           </div>
@@ -413,8 +420,8 @@ function EventRow({
       <div className="px-4 py-2 border-t border-divider bg-surface-muted flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-secondary">
         <span>🏷 {priceLabel}: <strong className="text-ink-primary">{priceStr}</strong></span>
         <span>
-          {isFree ? '🆓' : event.payment_enabled ? '💰' : '💳'}{' '}
-          <strong className="text-ink-primary">{isFree ? freeBadgeLabel.replace('🆓 ', '') : event.payment_enabled ? paymentEnabledLabel.replace('💰 ', '') : payAtDoorLabel.replace('💳 ', '')}</strong>
+          {isFree ? '🆓' : mode === 'payment_only' ? '💰' : mode === 'both' ? '💰📋' : '📋'}{' '}
+          <strong className="text-ink-primary">{isFree ? bi('Gratuit', 'Free') : modeLabel}</strong>
         </span>
         <span>🎟 {ticketsLabel}: <strong className="text-ink-primary">{ticketsSold}</strong>{maxTickets > 0 ? `/${maxTickets}` : ''}</span>
         {aggregate && aggregate.reservations_count > 0 && (
@@ -429,21 +436,46 @@ function EventRow({
         )}
       </div>
 
+      {/* Payment mode control — admin/super_admin only, hidden for free events. */}
+      {canTogglePayment && !isFree && (
+        <div className="border-t border-divider px-4 py-3 bg-surface flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-ink-secondary mr-1">{bi('Paiement', 'Payment')}:</span>
+          <div className="inline-flex rounded-xl bg-surface-muted p-0.5">
+            {([
+              ['reservation_only', bi('📋 Réservation', '📋 Reservation')],
+              ['payment_only',     bi('💰 Paiement', '💰 Payment')],
+              ['both',             bi('💰📋 Les deux', '💰📋 Both')],
+            ] as [PaymentMode, string][]).map(([value, label]) => (
+              <button
+                key={value}
+                disabled={saving}
+                onClick={() => value !== mode && onSetMode(value)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60 ${
+                  mode === value ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {canPayOnline(mode) && (
+            <button
+              disabled={saving}
+              onClick={() => onToggleWhatsapp(!event.whatsapp_payment_enabled)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-60 ${
+                event.whatsapp_payment_enabled
+                  ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                  : 'bg-white text-ink-secondary border-divider hover:bg-surface-muted'
+              }`}
+            >
+              💬💰 {event.whatsapp_payment_enabled ? bi('WhatsApp activé', 'WhatsApp on') : bi('WhatsApp désactivé', 'WhatsApp off')}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
       <div className="border-t border-divider px-4 py-3 flex items-center justify-end gap-2">
-        {canTogglePayment && !isFree && (
-          <button
-            onClick={onTogglePayment}
-            disabled={saving}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 mr-auto ${
-              event.payment_enabled
-                ? 'bg-white hover:bg-surface-muted text-ink-secondary border border-divider'
-                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-            }`}
-          >
-            {event.payment_enabled ? disablePaymentLabel : enablePaymentLabel}
-          </button>
-        )}
         <button
           onClick={onReject}
           disabled={saving}

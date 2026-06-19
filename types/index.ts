@@ -1,3 +1,7 @@
+// How customers pay. Source of truth for both restaurants and events; see
+// lib/paymentMode.ts. Kept in sync with the legacy payment_enabled boolean.
+export type PaymentMode = 'payment_only' | 'reservation_only' | 'both'
+
 export interface Restaurant {
   id: string
   name: string
@@ -25,6 +29,10 @@ export interface Restaurant {
   // Payments (added via supabase-payments.sql)
   payment_enabled?: boolean
   pawapay_merchant_id?: string | null
+  // Payment modes (added via supabase-payment-modes.sql). payment_mode is the
+  // source of truth; payment_enabled is kept in sync for backward compat.
+  payment_mode?: PaymentMode
+  whatsapp_payment_enabled?: boolean
   // Schedule + manual override (added via supabase-opening-hours.sql)
   manual_override?: 'open' | 'closed' | null
   manual_override_at?: string | null
@@ -134,6 +142,9 @@ export interface Event {
   // Reservations & ticketing — populated by supabase-event-reservations.sql.
   // Optional so older rows still typecheck during the migration window.
   payment_enabled?: boolean
+  // Payment modes (added via supabase-payment-modes.sql).
+  payment_mode?: PaymentMode
+  whatsapp_payment_enabled?: boolean
   ticket_price?: number | null
   max_tickets?: number | null
   tickets_sold?: number | null

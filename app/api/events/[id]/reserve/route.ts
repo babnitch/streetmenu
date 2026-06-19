@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
+import { canReserve, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, commission_rate, requires_confirmation, reservations_open')
+    .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, requires_confirmation, reservations_open')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -49,7 +50,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (event.reservations_open === false) {
     return NextResponse.json({ error: 'Les réservations sont fermées / Reservations are closed' }, { status: 409 })
   }
-  if (event.payment_enabled) {
+  // Reservation is allowed for reservation_only and both. Only payment_only
+  // (online payment mandatory) blocks the reserve path — those route via /pay.
+  // Free events always collapse to reservation_only, so they pass here.
+  const isFreeEvent = !(Number(event.ticket_price ?? 0) > 0)
+  if (!canReserve(normalizeMode(event.payment_mode ?? modeFromLegacy(event.payment_enabled))) && !isFreeEvent) {
     return NextResponse.json({
       error: 'Paiement en ligne requis / Online payment required',
     }, { status: 501 })

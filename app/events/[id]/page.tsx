@@ -15,6 +15,7 @@ import EventSocialPanel from '@/components/EventSocialPanel'
 import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
+import { normalizeMode, modeFromLegacy, effectiveWebMode, canPayOnline, canReserve } from '@/lib/paymentMode'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -62,6 +63,10 @@ export default function EventDetailPage() {
   const [submitting, setSubmitting] = useState(false)
   const [reserveError, setReserveError] = useState('')
   const [reservationId, setReservationId] = useState<string | null>(null)
+  // Which path the open modal is running: true = pay online, false = reserve.
+  // Set when the customer taps the Pay vs Reserve button (mode 'both' offers
+  // both); replaces the old event.payment_enabled branch inside the modal.
+  const [payNow, setPayNow] = useState(false)
 
   // Paid-flow state (mirrors /order).
   const [momoPhone, setMomoPhone] = useState('')
@@ -139,10 +144,15 @@ export default function EventDetailPage() {
   // e.g. soft-pause to manage walk-ins. Default is open (column default).
   const reservationsClosed = event.reservations_open === false
   const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed
-  // Free + pay-at-door go through the lightweight /reserve modal.
-  // payment_enabled=true events route through /pay (PawaPay) instead.
-  const onlineReservable = reservable && !event.payment_enabled
-  const onlinePayReservable = reservable && event.payment_enabled && ticketPrice > 0
+  // Resolve the 3-way payment mode (free events collapse to reservation_only).
+  // reservation_only / both → reserve button; payment_only / both → pay button.
+  // For 'both', both buttons render and the customer chooses.
+  const paymentMode  = effectiveWebMode(
+    normalizeMode(event.payment_mode ?? modeFromLegacy(event.payment_enabled)),
+    isFree,
+  )
+  const onlineReservable    = reservable && canReserve(paymentMode)
+  const onlinePayReservable = reservable && canPayOnline(paymentMode) && ticketPrice > 0
 
   // Tier-mode totals — sum of (price × qty) across every tier with a
   // positive quantity in tierQty.
@@ -173,7 +183,8 @@ export default function EventDetailPage() {
   )
   const shareUrl = `https://wa.me/?text=${shareMsg}`
 
-  function openReserve() {
+  function openReserve(pay: boolean) {
+    setPayNow(pay)
     setQuantity(1)
     setReserveError('')
     setReservationId(null)
@@ -440,7 +451,7 @@ export default function EventDetailPage() {
         {/* Reserve button — only for events the in-app flow can handle. */}
         {onlineReservable && (
           <button
-            onClick={openReserve}
+            onClick={() => openReserve(false)}
             disabled={hasTiers && tierTotalQty === 0}
             className="block w-full bg-brand hover:bg-brand-dark disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
@@ -468,7 +479,7 @@ export default function EventDetailPage() {
             picks the highest-qty selected tier. */}
         {onlinePayReservable && (
           <button
-            onClick={openReserve}
+            onClick={() => openReserve(true)}
             disabled={hasTiers && tierTotalQty === 0}
             className="block w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
@@ -527,7 +538,7 @@ export default function EventDetailPage() {
                 Free flow short-circuits to success the moment reservationId
                 lands; paid flow holds at 'waiting' until the poller flips
                 payPhase to 'paid' (or 'failed' / 'timeout'). */}
-            {((reservationId && !event.payment_enabled) || payPhase === 'paid') ? (
+            {((reservationId && !payNow) || payPhase === 'paid') ? (
               <div className="text-center">
                 <div className="text-5xl mb-3">{payPhase === 'paid' ? '🎟' : '✅'}</div>
                 <h3 className="font-bold text-ink-primary text-lg mb-1">
@@ -592,7 +603,7 @@ export default function EventDetailPage() {
             ) : (
               <>
                 <h3 className="font-bold text-ink-primary mb-1">
-                  {event.payment_enabled
+                  {payNow
                     ? <>💰 {bi('Réserver et payer', 'Reserve and pay')}</>
                     : <>📋 {bi('Réserver', 'Reserve')}</>}
                 </h3>
@@ -640,7 +651,7 @@ export default function EventDetailPage() {
                   </div>
                 )}
 
-                {event.payment_enabled && (
+                {payNow && (
                   <>
                     <label className="block text-xs text-ink-secondary mb-1">
                       {bi('Numéro Mobile Money', 'Mobile Money number')}
@@ -673,7 +684,7 @@ export default function EventDetailPage() {
                 {!isFree && (
                   <div className="bg-brand-light rounded-xl px-3 py-2 mb-3 text-sm flex items-center justify-between">
                     <span className="text-brand-darker">
-                      {event.payment_enabled
+                      {payNow
                         ? bi('Total à payer', 'Total to pay')
                         : bi('Total (à payer sur place)', 'Total (pay at the door)')}
                     </span>
@@ -696,21 +707,21 @@ export default function EventDetailPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={event.payment_enabled ? submitPay : submitReserve}
+                    onClick={payNow ? submitPay : submitReserve}
                     disabled={
                       submitting
                       || (!me && (!guestName.trim() || !guestPhone.trim()))
-                      || (event.payment_enabled && (!trimmedMomo || !momoValid))
+                      || (payNow && (!trimmedMomo || !momoValid))
                     }
                     className={`flex-1 px-3 py-2 rounded-full text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
-                      event.payment_enabled
+                      payNow
                         ? 'bg-orange-500 hover:bg-orange-600'
                         : 'bg-brand hover:bg-brand-dark'
                     }`}
                   >
                     {submitting
                       ? bi('Envoi…', 'Sending…')
-                      : event.payment_enabled
+                      : payNow
                         ? `${bi('Payer', 'Pay')} ${totalForQty.toLocaleString()} FCFA`
                         : bi('Confirmer', 'Confirm')}
                   </button>

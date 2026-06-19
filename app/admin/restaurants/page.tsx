@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
+import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
 interface RestaurantRow {
@@ -35,6 +36,8 @@ interface RestaurantRow {
   created_at: string
   customer_id: string | null
   payment_enabled: boolean
+  payment_mode: PaymentMode | null
+  whatsapp_payment_enabled: boolean | null
   owner: { id: string; name: string; phone: string } | null
 }
 
@@ -207,26 +210,26 @@ export default function AdminRestaurantsPage() {
     setActionLoading(null)
   }
 
-  // ── Toggle online payment (super_admin / admin only) ──
-  async function togglePayment(r: RestaurantRow) {
-    const next = !r.payment_enabled
+  // ── Payment config (super_admin / admin only) ──
+  async function patchPayment(r: RestaurantRow, patch: { payment_mode?: PaymentMode; whatsapp_payment_enabled?: boolean }) {
     setActionLoading(r.id + '-payment')
     const res = await fetch(`/api/admin/restaurants/${r.id}/payment`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payment_enabled: next }),
+      body: JSON.stringify(patch),
     })
     if (res.ok) {
-      setRestaurants(prev => prev.map(x => x.id === r.id ? { ...x, payment_enabled: next } : x))
-      showToast(next
-        ? `💰 ${r.name} — ${bi('paiement activé', 'payment enabled')}`
-        : `💳 ${r.name} — ${bi('paiement désactivé', 'payment disabled')}`)
+      const data = await res.json().catch(() => ({}))
+      setRestaurants(prev => prev.map(x => x.id === r.id ? { ...x, ...data } : x))
+      showToast(`✅ ${r.name} — ${bi('paiement mis à jour', 'payment updated')}`)
     } else {
       const d = await res.json().catch(() => ({}))
       showToast(d.error ?? bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
+  const setRestaurantMode      = (r: RestaurantRow, mode: PaymentMode) => patchPayment(r, { payment_mode: mode })
+  const toggleRestaurantWhatsapp = (r: RestaurantRow, next: boolean) => patchPayment(r, { whatsapp_payment_enabled: next })
 
   // ── Logo upload ──
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -406,7 +409,8 @@ export default function AdminRestaurantsPage() {
               onReactivate={reactivateRestaurant}
               onDelete={openDeleteModal}
               onUndoDelete={undoDelete}
-              onTogglePayment={togglePayment}
+              onSetMode={setRestaurantMode}
+              onToggleWhatsapp={toggleRestaurantWhatsapp}
             />
           ))}
         </div>
@@ -470,7 +474,7 @@ function RestaurantCard({
   tab,
   actionLoading,
   canTogglePayment,
-  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onTogglePayment,
+  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onSetMode, onToggleWhatsapp,
 }: {
   restaurant: RestaurantRow
   tab: Tab
@@ -482,7 +486,8 @@ function RestaurantCard({
   onReactivate: (r: RestaurantRow) => void
   onDelete:     (r: RestaurantRow) => void
   onUndoDelete: (r: RestaurantRow) => void
-  onTogglePayment: (r: RestaurantRow) => void
+  onSetMode:        (r: RestaurantRow, mode: PaymentMode) => void
+  onToggleWhatsapp: (r: RestaurantRow, next: boolean) => void
 }) {
   const bi = useBi()
   const within30Days = r.deleted_at
@@ -543,6 +548,17 @@ function RestaurantCard({
         </div>
       </div>
 
+      {/* Payment mode control — admin/super_admin only, hidden for deleted. */}
+      {canTogglePayment && !r.deleted_at && (
+        <PaymentModeControl
+          mode={normalizeMode(r.payment_mode ?? modeFromLegacy(r.payment_enabled))}
+          whatsappPay={!!r.whatsapp_payment_enabled}
+          loading={actionLoading === r.id + '-payment'}
+          onSetMode={(m) => onSetMode(r, m)}
+          onToggleWhatsapp={(n) => onToggleWhatsapp(r, n)}
+        />
+      )}
+
       {/* Action bar */}
       <div className="border-t border-divider px-5 py-3 flex gap-2 bg-surface-muted/50 flex-wrap">
         {/* Pending → approve / reject */}
@@ -578,18 +594,6 @@ function RestaurantCard({
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
             />
-            {canTogglePayment && (
-              <ActionBtn
-                label={r.payment_enabled
-                  ? bi('💳 Désactiver paiement', 'Disable payment')
-                  : bi('💰 Activer paiement', 'Enable payment')}
-                className={r.payment_enabled
-                  ? 'bg-white hover:bg-surface-muted text-ink-secondary border border-divider'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'}
-                loading={actionLoading === r.id + '-payment'}
-                onClick={() => onTogglePayment(r)}
-              />
-            )}
             <a href={`/restaurant/${r.id}`} target="_blank" rel="noopener noreferrer"
               className="text-xs text-ink-tertiary hover:text-brand transition-colors px-2 py-1.5 ml-auto">
               ↗ {bi('Voir', 'View')}
@@ -612,18 +616,6 @@ function RestaurantCard({
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
             />
-            {canTogglePayment && (
-              <ActionBtn
-                label={r.payment_enabled
-                  ? bi('💳 Désactiver paiement', 'Disable payment')
-                  : bi('💰 Activer paiement', 'Enable payment')}
-                className={r.payment_enabled
-                  ? 'bg-white hover:bg-surface-muted text-ink-secondary border border-divider'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'}
-                loading={actionLoading === r.id + '-payment'}
-                onClick={() => onTogglePayment(r)}
-              />
-            )}
           </>
         )}
 
@@ -670,9 +662,72 @@ function StatusBadge({ r }: { r: RestaurantRow }) {
 
 function PaymentBadge({ r }: { r: RestaurantRow }) {
   const bi = useBi()
-  return r.payment_enabled
-    ? <Badge label={bi('💰 Paiement activé', '💰 Payment enabled')} cls="bg-emerald-50 text-emerald-700" />
-    : <Badge label={bi('💳 Espèces uniquement', '💳 Cash only')} cls="bg-surface-muted text-ink-secondary" />
+  const mode = normalizeMode(r.payment_mode ?? modeFromLegacy(r.payment_enabled))
+  const modeBadge =
+    mode === 'payment_only'
+      ? <Badge label={bi('💰 Paiement seul', '💰 Payment only')} cls="bg-emerald-50 text-emerald-700" />
+      : mode === 'both'
+        ? <Badge label={bi('💰📋 Les deux', '💰📋 Both')} cls="bg-blue-50 text-blue-700" />
+        : <Badge label={bi('📋 Réservation seule', '📋 Reservation only')} cls="bg-surface-muted text-ink-secondary" />
+  return (
+    <div className="flex flex-col items-end gap-1">
+      {modeBadge}
+      {r.whatsapp_payment_enabled && (
+        <Badge label={bi('💬💰 Paiement WhatsApp', '💬💰 WhatsApp payment')} cls="bg-emerald-50 text-emerald-700" />
+      )}
+    </div>
+  )
+}
+
+// Compact 3-mode segmented selector + WhatsApp payment toggle for the admin
+// restaurant card. WhatsApp toggle only shows when online payment is offered.
+function PaymentModeControl({
+  mode, whatsappPay, loading, onSetMode, onToggleWhatsapp,
+}: {
+  mode: PaymentMode
+  whatsappPay: boolean
+  loading: boolean
+  onSetMode: (m: PaymentMode) => void
+  onToggleWhatsapp: (n: boolean) => void
+}) {
+  const bi = useBi()
+  const OPTS: [PaymentMode, string][] = [
+    ['reservation_only', bi('📋 Réservation', '📋 Reservation')],
+    ['payment_only',     bi('💰 Paiement', '💰 Payment')],
+    ['both',             bi('💰📋 Les deux', '💰📋 Both')],
+  ]
+  return (
+    <div className="border-t border-divider px-5 py-3 bg-surface flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold text-ink-secondary mr-1">{bi('Paiement', 'Payment')}:</span>
+      <div className="inline-flex rounded-xl bg-surface-muted p-0.5">
+        {OPTS.map(([value, label]) => (
+          <button
+            key={value}
+            disabled={loading}
+            onClick={() => value !== mode && onSetMode(value)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60 ${
+              mode === value ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {canPayOnline(mode) && (
+        <button
+          disabled={loading}
+          onClick={() => onToggleWhatsapp(!whatsappPay)}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-60 ${
+            whatsappPay
+              ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+              : 'bg-white text-ink-secondary border-divider hover:bg-surface-muted'
+          }`}
+        >
+          💬💰 {whatsappPay ? bi('WhatsApp activé', 'WhatsApp on') : bi('WhatsApp désactivé', 'WhatsApp off')}
+        </button>
+      )}
+    </div>
+  )
 }
 
 function Badge({ label, cls }: { label: string; cls: string }) {

@@ -21,6 +21,7 @@ import TopNav from '@/components/TopNav'
 import PaymentBadge from '@/components/PaymentBadge'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
+import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
 type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
@@ -1280,11 +1281,15 @@ function PaymentSettingsPanel({
   onChange: (next: Restaurant) => void
 }) {
   const bi = useBi()
-  const [enabled, setEnabled] = useState(Boolean((restaurant as Restaurant & { payment_enabled?: boolean }).payment_enabled))
+  const [mode, setMode] = useState<PaymentMode>(
+    normalizeMode(restaurant.payment_mode ?? modeFromLegacy(restaurant.payment_enabled)),
+  )
+  const [whatsappPay, setWhatsappPay] = useState(Boolean(restaurant.whatsapp_payment_enabled))
   const [payoutPhone, setPayoutPhone] = useState(restaurant.whatsapp ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
   const [savedFlash, setSavedFlash] = useState(false)
+  const onlineOffered = canPayOnline(mode)
 
   // Detect MNO from the payout phone — same lightweight heuristic the
   // checkout flow uses, kept inline so the dashboard doesn't need to
@@ -1315,28 +1320,41 @@ function PaymentSettingsPanel({
     return null
   })()
 
-  async function save(nextEnabled: boolean) {
+  // Persist a partial change ({ payment_mode } and/or { whatsapp_payment_enabled }).
+  async function persist(patch: { payment_mode?: PaymentMode; whatsapp_payment_enabled?: boolean }) {
     setSaving(true)
     setError('')
     try {
       const res = await fetch(`/api/restaurants/${restaurant.id}/payment`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_enabled: nextEnabled }),
+        body: JSON.stringify(patch),
       })
       const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? bi('Erreur', 'Error'))
-        setEnabled(!nextEnabled) // roll back optimistic flip
-        return
-      }
-      setEnabled(nextEnabled)
-      onChange({ ...restaurant, ...(data as { payment_enabled?: boolean }) } as Restaurant)
+      if (!res.ok) { setError(data.error ?? bi('Erreur', 'Error')); return false }
+      onChange({ ...restaurant, ...(data as Partial<Restaurant>) } as Restaurant)
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2000)
+      return true
     } finally {
       setSaving(false)
     }
+  }
+
+  async function pickMode(next: PaymentMode) {
+    const prev = mode
+    setMode(next)
+    // Turning online payment off clears the WhatsApp payment flag too — the
+    // server does the same, we just keep the UI in lockstep.
+    if (!canPayOnline(next)) setWhatsappPay(false)
+    const okSave = await persist({ payment_mode: next })
+    if (!okSave) setMode(prev) // roll back optimistic flip
+  }
+
+  async function toggleWhatsappPay(next: boolean) {
+    setWhatsappPay(next)
+    const okSave = await persist({ whatsapp_payment_enabled: next })
+    if (!okSave) setWhatsappPay(!next)
   }
 
   async function testPayment() {
@@ -1357,36 +1375,39 @@ function PaymentSettingsPanel({
     }
   }
 
+  const MODE_OPTIONS: { value: PaymentMode; title: string; sub: string }[] = [
+    { value: 'reservation_only', title: bi('📋 Réservation uniquement', '📋 Reservation only'),       sub: bi('Le client réserve, paiement sur place.', 'Customer reserves, pays on-site.') },
+    { value: 'payment_only',     title: bi('💰 Paiement en ligne uniquement', '💰 Online payment only'), sub: bi('Le client doit payer en ligne (Mobile Money).', 'Customer must pay online (Mobile Money).') },
+    { value: 'both',             title: bi('💰📋 Les deux', '💰📋 Both'),                                sub: bi('Le client choisit: payer ou réserver.', 'Customer chooses: pay or reserve.') },
+  ]
+
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl p-5 shadow-sm">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h3 className="font-bold text-ink-primary">
-              💳 {bi('Paiement en ligne', 'Online Payment')}
-            </h3>
-            <p className="text-xs text-ink-tertiary mt-1">
-              {bi(
-                'Acceptez les paiements mobile money via PawaPay (MTN MoMo, Orange Money, etc.).',
-                'Accept mobile money payments via PawaPay (MTN MoMo, Orange Money, etc.).',
-              )}
-            </p>
-          </div>
-          <button
-            onClick={() => save(!enabled)}
-            disabled={saving}
-            role="switch"
-            aria-checked={enabled}
-            className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-              enabled ? 'bg-brand' : 'bg-divider'
-            } ${saving ? 'opacity-60' : ''}`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform ${
-                enabled ? 'translate-x-5' : 'translate-x-0'
+        <h3 className="font-bold text-ink-primary">
+          💳 {bi('Mode de paiement', 'Payment mode')}
+        </h3>
+        <p className="text-xs text-ink-tertiary mt-1 mb-3">
+          {bi(
+            'Comment vos clients paient sur le site.',
+            'How your customers pay on the website.',
+          )}
+        </p>
+
+        <div className="space-y-2">
+          {MODE_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => pickMode(opt.value)}
+              disabled={saving}
+              className={`w-full text-left rounded-xl border-2 px-4 py-3 transition-colors disabled:opacity-60 ${
+                mode === opt.value ? 'border-brand bg-brand-light' : 'border-divider bg-surface hover:border-brand-badge'
               }`}
-            />
-          </button>
+            >
+              <p className="text-sm font-bold text-ink-primary">{opt.title}</p>
+              <p className="text-xs text-ink-secondary mt-0.5">{opt.sub}</p>
+            </button>
+          ))}
         </div>
 
         {savedFlash && (
@@ -1395,7 +1416,41 @@ function PaymentSettingsPanel({
         {error && <p className="text-xs text-danger mt-3">{error}</p>}
       </div>
 
-      {enabled && (
+      {/* WhatsApp payment — separate toggle, only meaningful when online
+          payment is offered on the web (payment_only or both). */}
+      {onlineOffered && (
+        <label className="flex items-start gap-3 bg-white rounded-2xl p-5 shadow-sm cursor-pointer">
+          <button
+            type="button"
+            onClick={() => toggleWhatsappPay(!whatsappPay)}
+            disabled={saving}
+            role="switch"
+            aria-checked={whatsappPay}
+            className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors mt-0.5 ${
+              whatsappPay ? 'bg-brand' : 'bg-divider'
+            } ${saving ? 'opacity-60' : ''}`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform ${
+                whatsappPay ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+          <span className="flex-1">
+            <strong className="block text-sm text-ink-primary">
+              💬 {bi('Paiement WhatsApp', 'WhatsApp Payment')}
+            </strong>
+            <span className="text-xs text-ink-secondary">
+              {bi(
+                'Permettre aux clients de payer par Mobile Money via WhatsApp. Désactivé: WhatsApp = réservation uniquement.',
+                'Allow customers to pay via Mobile Money on WhatsApp. Off: WhatsApp = reservation only.',
+              )}
+            </span>
+          </span>
+        </label>
+      )}
+
+      {onlineOffered && (
         <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
           <div>
             <label className="block text-xs font-semibold text-ink-secondary mb-1">
@@ -1424,17 +1479,6 @@ function PaymentSettingsPanel({
             {bi(
               'Sandbox uniquement. En production, contactez le support pour activer les payouts.',
               'Sandbox only. In production, contact support to enable payouts.',
-            )}
-          </p>
-        </div>
-      )}
-
-      {!enabled && (
-        <div className="bg-surface-muted border border-divider rounded-2xl p-5">
-          <p className="text-sm text-ink-secondary">
-            📋 {bi(
-              'Les clients peuvent réserver mais le paiement se fait sur place.',
-              'Customers can reserve but payment happens on-site.',
             )}
           </p>
         </div>

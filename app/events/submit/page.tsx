@@ -10,6 +10,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
+import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
 
@@ -53,7 +54,8 @@ export default function SubmitEventPage() {
     whatsapp: '',
     organizer_name: '',
     max_tickets: '',
-    payment_enabled: false,
+    payment_mode: 'reservation_only' as PaymentMode,
+    whatsapp_payment_enabled: false,
     requires_confirmation: false,
   })
   const [photo, setPhoto] = useState<File | null>(null)
@@ -189,7 +191,8 @@ export default function SubmitEventPage() {
         category:        form.category,
         ticket_price:    form.price ? parseFloat(form.price) : null,
         max_tickets:     form.max_tickets ? parseInt(form.max_tickets, 10) : 0,
-        payment_enabled: !!form.payment_enabled,
+        payment_mode:    form.payment_mode,
+        whatsapp_payment_enabled: !!form.whatsapp_payment_enabled,
         requires_confirmation: !!form.requires_confirmation,
         cover_photo:     cover_photo || null,
         whatsapp:        form.whatsapp,
@@ -497,26 +500,62 @@ export default function SubmitEventPage() {
             </Field>
           </div>
 
+          {/* Payment mode selector — paid events only. Free events stay
+              reservation_only (nothing to pay for). */}
           {form.price && parseFloat(form.price) > 0 && (
-            <label className="flex items-start gap-3 bg-brand-light border border-brand-badge/40 rounded-xl px-3 py-3 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!form.payment_enabled}
-                onChange={e => set('payment_enabled', e.target.checked)}
-                className="mt-0.5"
-              />
-              <span className="flex-1 text-brand-darker">
-                <strong className="block">
-                  💰 {bi('Activer le paiement en ligne (PawaPay)', 'Enable online payment (PawaPay)')}
-                </strong>
-                <span className="text-xs text-brand-dark">
-                  {bi(
-                    'Sinon, paiement sur place.',
-                    'Otherwise, pay at the door.',
-                  )}
-                </span>
-              </span>
-            </label>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-ink-secondary">
+                💳 {bi('Mode de paiement', 'Payment mode')}
+              </p>
+              {([
+                ['reservation_only', bi('📋 Réservation uniquement', '📋 Reservation only'),       bi('Paiement sur place.', 'Pay at the door.')],
+                ['payment_only',     bi('💰 Paiement en ligne uniquement', '💰 Online payment only'), bi('Le client doit payer le billet en ligne.', 'Customer must pay for the ticket online.')],
+                ['both',             bi('💰📋 Les deux', '💰📋 Both'),                                bi('Le client choisit: payer ou réserver.', 'Customer chooses: pay or reserve.')],
+              ] as [PaymentMode, string, string][]).map(([value, title, sub]) => (
+                <label
+                  key={value}
+                  className={`flex items-start gap-3 rounded-xl border-2 px-3 py-3 text-sm cursor-pointer transition-colors ${
+                    form.payment_mode === value ? 'border-brand bg-brand-light' : 'border-divider bg-surface hover:border-brand-badge'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="payment_mode"
+                    checked={form.payment_mode === value}
+                    onChange={() => set('payment_mode', value)}
+                    className="mt-0.5"
+                  />
+                  <span className="flex-1">
+                    <strong className="block text-ink-primary">{title}</strong>
+                    <span className="text-xs text-ink-secondary">{sub}</span>
+                  </span>
+                </label>
+              ))}
+
+              {/* WhatsApp payment — separate toggle, only when online payment
+                  is offered (payment_only or both). Default off. */}
+              {canPayOnline(form.payment_mode) && (
+                <label className="flex items-start gap-3 bg-surface border border-divider rounded-xl px-3 py-3 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!form.whatsapp_payment_enabled}
+                    onChange={e => set('whatsapp_payment_enabled', e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="flex-1">
+                    <strong className="block text-ink-primary">
+                      💬 {bi('Paiement WhatsApp', 'WhatsApp Payment')}
+                    </strong>
+                    <span className="text-xs text-ink-secondary">
+                      {bi(
+                        'Permettre le paiement Mobile Money via WhatsApp. Désactivé: WhatsApp = réservation uniquement.',
+                        'Allow Mobile Money payment via WhatsApp. Off: WhatsApp = reservation only.',
+                      )}
+                    </span>
+                  </span>
+                </label>
+              )}
+            </div>
           )}
 
           {/* Manual approval toggle — off by default keeps the existing
