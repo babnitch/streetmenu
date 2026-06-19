@@ -34,6 +34,7 @@ interface RestaurantRow {
   deleted_at: string | null
   created_at: string
   customer_id: string | null
+  payment_enabled: boolean
   owner: { id: string; name: string; phone: string } | null
 }
 
@@ -77,6 +78,10 @@ export default function AdminRestaurantsPage() {
   const [cityFilter, setCityFilter]     = useState('all')
   const [tab, setTab]                   = useState<Tab>('all')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [currentRole, setCurrentRole]   = useState<string | null>(null)
+
+  // Only super_admin and admin may flip payment configuration (not moderator).
+  const canTogglePayment = currentRole === 'super_admin' || currentRole === 'admin'
 
   // ── Modal state ──
   const [modal, setModal] = useState<{
@@ -85,7 +90,10 @@ export default function AdminRestaurantsPage() {
   } | null>(null)
   const [modalReason, setModalReason] = useState('')
 
-  useEffect(() => { fetchRestaurants() }, [])
+  useEffect(() => {
+    fetchRestaurants()
+    fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
+  }, [])
 
   async function fetchRestaurants() {
     setLoading(true)
@@ -194,6 +202,27 @@ export default function AdminRestaurantsPage() {
       await fetchRestaurants()
     } else {
       const d = await res.json()
+      showToast(d.error ?? bi('Erreur', 'Error'), false)
+    }
+    setActionLoading(null)
+  }
+
+  // ── Toggle online payment (super_admin / admin only) ──
+  async function togglePayment(r: RestaurantRow) {
+    const next = !r.payment_enabled
+    setActionLoading(r.id + '-payment')
+    const res = await fetch(`/api/admin/restaurants/${r.id}/payment`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payment_enabled: next }),
+    })
+    if (res.ok) {
+      setRestaurants(prev => prev.map(x => x.id === r.id ? { ...x, payment_enabled: next } : x))
+      showToast(next
+        ? `💰 ${r.name} — ${bi('paiement activé', 'payment enabled')}`
+        : `💳 ${r.name} — ${bi('paiement désactivé', 'payment disabled')}`)
+    } else {
+      const d = await res.json().catch(() => ({}))
       showToast(d.error ?? bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
@@ -370,12 +399,14 @@ export default function AdminRestaurantsPage() {
               restaurant={r}
               tab={tab}
               actionLoading={actionLoading}
+              canTogglePayment={canTogglePayment}
               onApprove={approveRestaurant}
               onReject={rejectRestaurant}
               onSuspend={openSuspendModal}
               onReactivate={reactivateRestaurant}
               onDelete={openDeleteModal}
               onUndoDelete={undoDelete}
+              onTogglePayment={togglePayment}
             />
           ))}
         </div>
@@ -438,17 +469,20 @@ function RestaurantCard({
   restaurant: r,
   tab,
   actionLoading,
-  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete,
+  canTogglePayment,
+  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onTogglePayment,
 }: {
   restaurant: RestaurantRow
   tab: Tab
   actionLoading: string | null
+  canTogglePayment: boolean
   onApprove:    (r: RestaurantRow) => void
   onReject:     (r: RestaurantRow) => void
   onSuspend:    (r: RestaurantRow) => void
   onReactivate: (r: RestaurantRow) => void
   onDelete:     (r: RestaurantRow) => void
   onUndoDelete: (r: RestaurantRow) => void
+  onTogglePayment: (r: RestaurantRow) => void
 }) {
   const bi = useBi()
   const within30Days = r.deleted_at
@@ -484,6 +518,7 @@ function RestaurantCard({
             </div>
             <div className="flex flex-col items-end gap-1">
               <StatusBadge r={r} />
+              <PaymentBadge r={r} />
               {r.suspended_by && <span className="text-xs text-ink-tertiary">par / by {r.suspended_by}</span>}
             </div>
           </div>
@@ -543,6 +578,18 @@ function RestaurantCard({
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
             />
+            {canTogglePayment && (
+              <ActionBtn
+                label={r.payment_enabled
+                  ? bi('💳 Désactiver paiement', 'Disable payment')
+                  : bi('💰 Activer paiement', 'Enable payment')}
+                className={r.payment_enabled
+                  ? 'bg-white hover:bg-surface-muted text-ink-secondary border border-divider'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'}
+                loading={actionLoading === r.id + '-payment'}
+                onClick={() => onTogglePayment(r)}
+              />
+            )}
             <a href={`/restaurant/${r.id}`} target="_blank" rel="noopener noreferrer"
               className="text-xs text-ink-tertiary hover:text-brand transition-colors px-2 py-1.5 ml-auto">
               ↗ {bi('Voir', 'View')}
@@ -565,6 +612,18 @@ function RestaurantCard({
               loading={actionLoading === r.id + '-delete'}
               onClick={() => onDelete(r)}
             />
+            {canTogglePayment && (
+              <ActionBtn
+                label={r.payment_enabled
+                  ? bi('💳 Désactiver paiement', 'Disable payment')
+                  : bi('💰 Activer paiement', 'Enable payment')}
+                className={r.payment_enabled
+                  ? 'bg-white hover:bg-surface-muted text-ink-secondary border border-divider'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'}
+                loading={actionLoading === r.id + '-payment'}
+                onClick={() => onTogglePayment(r)}
+              />
+            )}
           </>
         )}
 
@@ -607,6 +666,13 @@ function StatusBadge({ r }: { r: RestaurantRow }) {
   if (!r.is_active) return <Badge label={bi('En attente', 'Pending')} cls="bg-surface-muted text-ink-secondary" />
   if (r.is_open) return <Badge label={bi('Ouvert', 'Open')} cls="bg-brand-light text-brand-darker" />
   return <Badge label={bi('Actif', 'Active')} cls="bg-brand-light text-brand-darker" />
+}
+
+function PaymentBadge({ r }: { r: RestaurantRow }) {
+  const bi = useBi()
+  return r.payment_enabled
+    ? <Badge label={bi('💰 Paiement activé', '💰 Payment enabled')} cls="bg-emerald-50 text-emerald-700" />
+    : <Badge label={bi('💳 Espèces uniquement', '💳 Cash only')} cls="bg-surface-muted text-ink-secondary" />
 }
 
 function Badge({ label, cls }: { label: string; cls: string }) {
