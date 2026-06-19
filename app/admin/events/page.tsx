@@ -15,15 +15,30 @@ import { categoryLabel } from '@/lib/categoryLabels'
 interface EventAggregate { reservations_count: number; tickets_count: number; revenue: number; commission: number }
 interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean }
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function useToast() {
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  const show = useCallback((msg: string, ok = true) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }, [])
+  return { toast, show }
+}
+
 export default function AdminEventsPage() {
   const { t, locale } = useLanguage()
   const bi = useBi()
+  const { toast, show: showToast } = useToast()
   const [events, setEvents] = useState<Event[]>([])
   const [aggregates, setAggregates] = useState<Record<string, EventAggregate>>({})
   const [submitters, setSubmitters] = useState<Record<string, Submitter>>({})
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'pending' | 'approved'>('pending')
   const [saving, setSaving] = useState<string | null>(null)
+  const [currentRole, setCurrentRole] = useState<string | null>(null)
+
+  // Only super_admin and admin may flip payment configuration (not moderator).
+  const canTogglePayment = currentRole === 'super_admin' || currentRole === 'admin'
 
   const fetchEvents = useCallback(async () => {
     const { data } = await supabase
@@ -73,7 +88,32 @@ export default function AdminEventsPage() {
 
   useEffect(() => {
     fetchEvents()
+    fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
   }, [fetchEvents])
+
+  // ── Toggle online ticket payment (super_admin / admin only) ──
+  async function togglePayment(evt: Event) {
+    const next = !evt.payment_enabled
+    setSaving(evt.id)
+    try {
+      const res = await fetch(`/api/admin/events/${evt.id}/payment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_enabled: next }),
+      })
+      if (res.ok) {
+        setEvents(prev => prev.map(e => e.id === evt.id ? { ...e, payment_enabled: next } : e))
+        showToast(next
+          ? `💰 ${evt.title} — ${bi('paiement activé', 'payment enabled')}`
+          : `💳 ${evt.title} — ${bi('paiement désactivé', 'payment disabled')}`)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        showToast(d.error ?? bi('Erreur', 'Error'), false)
+      }
+    } finally {
+      setSaving(null)
+    }
+  }
 
   async function approve(id: string) {
     setSaving(id)
@@ -127,6 +167,13 @@ export default function AdminEventsPage() {
 
   return (
     <div>
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white transition-all ${toast.ok ? 'bg-brand' : 'bg-danger'}`}>
+          {toast.msg}
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-ink-primary">{t('admin.evtTitle')}</h1>
@@ -192,8 +239,10 @@ export default function AdminEventsPage() {
               aggregate={aggregates[evt.id]}
               submitter={evt.organizer_id ? submitters[evt.organizer_id] : undefined}
               saving={saving === evt.id}
+              canTogglePayment={canTogglePayment}
               onApprove={() => approve(evt.id)}
               onReject={() => reject(evt.id)}
+              onTogglePayment={() => togglePayment(evt)}
               onRevokeAutoApprove={
                 evt.organizer_id && submitters[evt.organizer_id]?.event_auto_approve
                   ? () => revokeAutoApprove(evt.organizer_id!)
@@ -208,6 +257,14 @@ export default function AdminEventsPage() {
               ticketsLabel={bi('Places', 'Tickets')}
               revenueLabel={bi('Revenus', 'Revenue')}
               commissionLabel={bi('Commission', 'Commission')}
+              netLabel={bi('Net organisateur', 'Organizer net')}
+              priceLabel={bi('Prix billet', 'Ticket price')}
+              freeLabel={bi('Gratuit', 'Free')}
+              paymentEnabledLabel={bi('💰 Paiement activé', '💰 Payment enabled')}
+              payAtDoorLabel={bi('💳 Paiement sur place', '💳 Pay at door')}
+              freeBadgeLabel={bi('🆓 Gratuit', '🆓 Free')}
+              enablePaymentLabel={bi('💰 Activer paiement', 'Enable payment')}
+              disablePaymentLabel={bi('💳 Désactiver paiement', 'Disable payment')}
               verifiedLabel={bi('✅ Vérifié', '✅ Verified')}
               progressLabel={bi('approuvés / 3', 'approved / 3')}
               revokeAutoLabel={bi('Révoquer auto-approbation', 'Revoke auto-approve')}
@@ -220,10 +277,12 @@ export default function AdminEventsPage() {
 }
 
 function EventRow({
-  event, aggregate, submitter, saving,
-  onApprove, onReject, onRevokeAutoApprove, tab,
+  event, aggregate, submitter, saving, canTogglePayment,
+  onApprove, onReject, onTogglePayment, onRevokeAutoApprove, tab,
   approveLabel, rejectLabel, organizerLabel,
-  reservationsLabel, ticketsLabel, revenueLabel, commissionLabel,
+  reservationsLabel, ticketsLabel, revenueLabel, commissionLabel, netLabel,
+  priceLabel, freeLabel, paymentEnabledLabel, payAtDoorLabel, freeBadgeLabel,
+  enablePaymentLabel, disablePaymentLabel,
   verifiedLabel, progressLabel, revokeAutoLabel,
   categoryDisplay,
 }: {
@@ -231,8 +290,10 @@ function EventRow({
   aggregate?: EventAggregate
   submitter?: Submitter
   saving: boolean
+  canTogglePayment: boolean
   onApprove: () => void
   onReject: () => void
+  onTogglePayment: () => void
   onRevokeAutoApprove?: () => void
   tab: 'pending' | 'approved'
   approveLabel: string
@@ -242,6 +303,14 @@ function EventRow({
   ticketsLabel: string
   revenueLabel: string
   commissionLabel: string
+  netLabel: string
+  priceLabel: string
+  freeLabel: string
+  paymentEnabledLabel: string
+  payAtDoorLabel: string
+  freeBadgeLabel: string
+  enablePaymentLabel: string
+  disablePaymentLabel: string
   verifiedLabel: string
   progressLabel: string
   revokeAutoLabel: string
@@ -250,6 +319,15 @@ function EventRow({
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
   })
+
+  const ticketPrice = Number(event.ticket_price ?? 0)
+  const isFree      = !(ticketPrice > 0)
+  const priceStr    = isFree ? freeLabel : `${ticketPrice.toLocaleString()} FCFA`
+  const ticketsSold = Number(event.tickets_sold ?? 0)
+  const maxTickets  = Number(event.max_tickets ?? 0)
+  const gross       = Number(aggregate?.revenue ?? 0)
+  const commission  = Number(aggregate?.commission ?? 0)
+  const net         = gross - commission
 
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -272,9 +350,18 @@ function EventRow({
                 📅 {dateStr}{event.time ? ` · ${event.time}` : ''}
               </p>
             </div>
-            <span className="flex-shrink-0 text-xs bg-surface-muted text-ink-secondary px-2 py-0.5 rounded-full">
-              {categoryDisplay}
-            </span>
+            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              <span className="text-xs bg-surface-muted text-ink-secondary px-2 py-0.5 rounded-full">
+                {categoryDisplay}
+              </span>
+              {isFree ? (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{freeBadgeLabel}</span>
+              ) : event.payment_enabled ? (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{paymentEnabledLabel}</span>
+              ) : (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-surface-muted text-ink-secondary">{payAtDoorLabel}</span>
+              )}
+            </div>
           </div>
 
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5">
@@ -320,25 +407,43 @@ function EventRow({
         </div>
       </div>
 
-      {/* Reservation aggregates — only shown when there's anything to report
-          and the event has actually been approved (pending events can't have
-          reservations yet, but we still render zero badges if anything snuck
-          through). */}
-      {aggregate && (aggregate.reservations_count > 0 || aggregate.revenue > 0) && (
-        <div className="px-4 py-2 border-t border-divider bg-surface-muted flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-secondary">
+      {/* Ticket + revenue detail. Price / payment status / tickets sold always
+          render; reservation + revenue breakdown (gross, commission, net) only
+          once there's something to report. */}
+      <div className="px-4 py-2 border-t border-divider bg-surface-muted flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-secondary">
+        <span>🏷 {priceLabel}: <strong className="text-ink-primary">{priceStr}</strong></span>
+        <span>
+          {isFree ? '🆓' : event.payment_enabled ? '💰' : '💳'}{' '}
+          <strong className="text-ink-primary">{isFree ? freeBadgeLabel.replace('🆓 ', '') : event.payment_enabled ? paymentEnabledLabel.replace('💰 ', '') : payAtDoorLabel.replace('💳 ', '')}</strong>
+        </span>
+        <span>🎟 {ticketsLabel}: <strong className="text-ink-primary">{ticketsSold}</strong>{maxTickets > 0 ? `/${maxTickets}` : ''}</span>
+        {aggregate && aggregate.reservations_count > 0 && (
           <span>📋 {reservationsLabel}: <strong className="text-ink-primary">{aggregate.reservations_count}</strong></span>
-          <span>🎟 {ticketsLabel}: <strong className="text-ink-primary">{aggregate.tickets_count}</strong>{event.max_tickets && event.max_tickets > 0 ? `/${event.max_tickets}` : ''}</span>
-          {aggregate.revenue > 0 && (
-            <>
-              <span>💰 {revenueLabel}: <strong className="text-brand">{Number(aggregate.revenue).toLocaleString()} FCFA</strong></span>
-              <span>📊 {commissionLabel}: <strong className="text-ink-primary">{Number(aggregate.commission).toLocaleString()} FCFA</strong></span>
-            </>
-          )}
-        </div>
-      )}
+        )}
+        {gross > 0 && (
+          <>
+            <span>💰 {revenueLabel}: <strong className="text-brand">{gross.toLocaleString()} FCFA</strong></span>
+            <span>📊 {commissionLabel}: <strong className="text-ink-primary">{commission.toLocaleString()} FCFA</strong></span>
+            <span>🤝 {netLabel}: <strong className="text-ink-primary">{net.toLocaleString()} FCFA</strong></span>
+          </>
+        )}
+      </div>
 
       {/* Actions */}
       <div className="border-t border-divider px-4 py-3 flex items-center justify-end gap-2">
+        {canTogglePayment && !isFree && (
+          <button
+            onClick={onTogglePayment}
+            disabled={saving}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 mr-auto ${
+              event.payment_enabled
+                ? 'bg-white hover:bg-surface-muted text-ink-secondary border border-divider'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+            }`}
+          >
+            {event.payment_enabled ? disablePaymentLabel : enablePaymentLabel}
+          </button>
+        )}
         <button
           onClick={onReject}
           disabled={saving}
