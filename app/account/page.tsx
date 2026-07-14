@@ -35,6 +35,17 @@ const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/pag
 // ── Types ────────────────────────────────────────────────────────────────────
 type LoginTab    = 'customer' | 'team'
 type AuthStep    = 'loading' | 'login' | 'register' | 'otp' | 'dashboard'
+
+// Read a `?return=` target from the URL, but only trust same-site absolute
+// paths (`/events/submit`) — never protocol-relative (`//evil.com`) or
+// external URLs, so the login gate can't be turned into an open redirect.
+function safeReturnUrl(): string | null {
+  if (typeof window === 'undefined') return null
+  const raw = new URLSearchParams(window.location.search).get('return')
+  if (!raw) return null
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null
+  return raw
+}
 type DashView    = 'customer' | 'vendor' | 'admin'
 type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' | 'team'
 type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'broadcasts' | 'promotions' | 'vouchers' | 'reports' | 'accounts' | 'platformteam' | 'profile'
@@ -267,6 +278,14 @@ export default function AccountPage() {
       .then(data => {
         if (data.user) {
           const u: SessionUser = data.user
+          // Already logged in as a customer and arrived here via a login
+          // gate (?return=/events/submit) — bounce straight to the target
+          // instead of showing the dashboard.
+          const ret = safeReturnUrl()
+          if (ret && u.role === 'customer') {
+            window.location.href = ret
+            return
+          }
           setUser(u)
           setStep('dashboard')
           if (['super_admin', 'admin', 'moderator'].includes(u.role)) {
@@ -449,6 +468,13 @@ export default function AccountPage() {
       const data = await res.json()
       if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
       const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
+      // Login gate return — send the user back to where they came from
+      // (e.g. /events/submit) now that the session cookie is set.
+      const ret = safeReturnUrl()
+      if (ret) {
+        window.location.href = ret
+        return
+      }
       setUser(u)
       setStep('dashboard')
       setDashView('customer')

@@ -183,6 +183,18 @@ export default function EventsPage() {
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Event | null>(null)
 
+  // Auth state — drives the "Publish an event" button target. Logged-in
+  // customers go straight to /events/submit; everyone else is routed
+  // through the login gate with a return URL so they land back on submit.
+  const [isCustomer, setIsCustomer] = useState(false)
+  useEffect(() => {
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => setIsCustomer(d?.user?.role === 'customer'))
+      .catch(() => setIsCustomer(false))
+  }, [])
+  const publishHref = isCustomer ? '/events/submit' : '/account?return=/events/submit'
+
   // Subscription state
   const [mySubs, setMySubs] = useState<MySubscription[]>([])
   const [subModalOpen, setSubModalOpen] = useState(false)
@@ -425,18 +437,29 @@ export default function EventsPage() {
             <h1 className="text-xl font-bold text-ink-primary">{t('evt.title')}</h1>
             <p className="text-sm text-ink-tertiary">{t('evt.sub')}</p>
           </div>
-          <button
-            onClick={openSubModal}
-            className={`flex-shrink-0 text-xs font-semibold px-3 py-2 rounded-xl transition-colors ${
-              currentSub
-                ? 'bg-surface-muted text-ink-primary hover:bg-divider'
-                : 'bg-brand text-white hover:bg-brand-dark'
-            }`}
-          >
-            {currentSub
-              ? bi('🔕 Gérer mon abonnement', '🔕 Manage subscription')
-              : bi('🔔 S\'abonner', '🔔 Subscribe')}
-          </button>
+          <div className="flex-shrink-0 flex items-center gap-2">
+            {/* Publish an event — orange outline, next to Subscribe. Routes
+                logged-in customers straight to the submit form; logged-out
+                visitors through the login gate, returning to submit after. */}
+            <Link
+              href={publishHref}
+              className="text-xs font-semibold px-3 py-2 rounded-xl border border-brand text-brand bg-white hover:bg-brand-light transition-colors whitespace-nowrap"
+            >
+              {bi('📢 Publier un événement', '📢 Publish an event')}
+            </Link>
+            <button
+              onClick={openSubModal}
+              className={`text-xs font-semibold px-3 py-2 rounded-xl transition-colors whitespace-nowrap ${
+                currentSub
+                  ? 'bg-surface-muted text-ink-primary hover:bg-divider'
+                  : 'bg-brand text-white hover:bg-brand-dark'
+              }`}
+            >
+              {currentSub
+                ? bi('🔕 Gérer mon abonnement', '🔕 Manage subscription')
+                : bi('🔔 S\'abonner', '🔔 Subscribe')}
+            </button>
+          </div>
         </div>
 
         {/* Skeletons */}
