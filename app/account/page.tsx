@@ -309,7 +309,6 @@ export default function AccountPage() {
     // direct supabase.from('customer_vouchers' | 'orders') reads only
     // worked because RLS was open — supabase-rls-policies.sql locked
     // both tables to service-role-only.
-    void customerId
     const [cvRes, ordersRes, resvRes, myEvRes] = await Promise.all([
       fetch('/api/customer/vouchers/my',  { cache: 'no-store' }).then(r => r.json()).catch(() => ({ vouchers: [] })),
       fetch('/api/customer/orders',       { cache: 'no-store' }).then(r => r.json()).catch(() => ({ orders: [] })),
@@ -321,6 +320,12 @@ export default function AccountPage() {
     if (Array.isArray(resvRes?.reservations)) setEventReservations(resvRes.reservations)
     if (Array.isArray(myEvRes?.events)) setMyEvents(myEvRes.events)
     if (myEvRes?.trust) setOrganizerTrust(myEvRes.trust as OrganizerTrust)
+    // Diagnostic: shows in the browser console exactly what the organizer
+    // tab keys off — the events count + submitted-count trust. If the tab is
+    // missing, this reveals whether /api/events/my returned data for THIS
+    // logged-in customer (vs. a stale deploy or a different account).
+    console.log('[account] /api/events/my → for customer=%s: %d event(s), trust=%o',
+      customerId, Array.isArray(myEvRes?.events) ? myEvRes.events.length : 'n/a', myEvRes?.trust)
     setLoadingData(false)
   }, [])
 
