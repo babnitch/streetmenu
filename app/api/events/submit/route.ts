@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}))
+  console.log('[events/submit] received from customer=%s: title=%s date=%s city=%s category=%s price=%s',
+    session.id, body?.title, body?.date, body?.city, body?.category, body?.ticket_price ?? body?.price)
   if (!body?.title || !body?.date || !body?.city || !body?.category || !body?.whatsapp) {
     return NextResponse.json({
       error: 'Champs requis manquants / Missing required fields',
@@ -90,9 +92,10 @@ export async function POST(req: NextRequest) {
   const { data: event, error: insErr } = await supabaseAdmin
     .from('events').insert(insertRow).select('id, title').single()
   if (insErr || !event) {
-    console.error('[events/submit] insert failed:', insErr?.message)
+    console.error('[events/submit] insert failed:', insErr?.message, insErr?.details, insErr?.hint)
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
   }
+  console.log('[events/submit] insert ok: event_id=%s is_active=%s auto_approved=%s', event.id, autoApprove, autoApprove)
 
   // Tier inserts — when the submit form sent a non-empty tiers[]
   // payload, create one event_ticket_tiers row per entry. Failures

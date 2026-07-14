@@ -159,28 +159,34 @@ export default function SubmitEventPage() {
 
     setSubmitting(true)
 
-    let cover_photo = ''
-    if (photo) {
-      // Server-side compression via sharp → WebP / 800×450 / EXIF
-      // stripped / blur placeholder. See /api/upload/image.
-      const fd = new FormData()
-      fd.append('file', photo)
-      fd.append('kind', 'event_cover')
-      fd.append('pathPrefix', 'events')
-      const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-      if (r.ok) {
-        const j = await r.json()
-        if (typeof j?.url === 'string') cover_photo = j.url
+    // Everything below is wrapped so a thrown fetch (network drop, session
+    // expiry) or a non-JSON response (a 500 HTML error page) can't leave the
+    // form stuck on the spinner with no feedback — the earlier failure mode
+    // that read as "submit does nothing / nothing saves".
+    try {
+      let cover_photo = ''
+      if (photo) {
+        // Server-side compression via sharp → WebP / 800×450 / EXIF
+        // stripped / blur placeholder. See /api/upload/image. A failed
+        // upload is non-fatal: the event still submits without a cover.
+        try {
+          const fd = new FormData()
+          fd.append('file', photo)
+          fd.append('kind', 'event_cover')
+          fd.append('pathPrefix', 'events')
+          const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
+          if (r.ok) {
+            const j = await r.json()
+            if (typeof j?.url === 'string') cover_photo = j.url
+          } else {
+            console.warn('[events/submit] photo upload failed:', r.status)
+          }
+        } catch (err) {
+          console.warn('[events/submit] photo upload threw:', err)
+        }
       }
-    }
 
-    // Hand off to /api/events/submit so the auto-approve gate + counter
-    // increments happen server-side under the trust model. The route also
-    // writes audit rows + pings the submitter over WhatsApp.
-    const res = await fetch('/api/events/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      const payload = {
         title:           form.title,
         description:     form.description,
         date:            form.date,
@@ -198,16 +204,31 @@ export default function SubmitEventPage() {
         whatsapp:        form.whatsapp,
         organizer_name:  form.organizer_name,
         tiers:           tierPayload,
-      }),
-    })
-    const data = await res.json()
-    setSubmitting(false)
-    if (!res.ok) {
-      setError(data?.error ?? t('evt.errorServer'))
-      return
+      }
+      console.log('[events/submit] POST payload:', payload)
+
+      // Hand off to /api/events/submit so the auto-approve gate + counter
+      // increments happen server-side under the trust model. The route also
+      // writes audit rows + pings the submitter over WhatsApp.
+      const res  = await fetch('/api/events/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => ({}))
+      console.log('[events/submit] response:', res.status, data)
+      if (!res.ok) {
+        setError(data?.error ?? t('evt.errorServer'))
+        return
+      }
+      setAutoApproved(!!data.auto_approved)
+      setSuccess(true)
+    } catch (err) {
+      console.error('[events/submit] submit failed:', err)
+      setError(t('evt.errorServer'))
+    } finally {
+      setSubmitting(false)
     }
-    setAutoApproved(!!data.auto_approved)
-    setSuccess(true)
   }
 
   if (authLoading) {
