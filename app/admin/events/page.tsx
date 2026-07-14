@@ -94,11 +94,25 @@ export default function AdminEventsPage() {
     setSaving(id)
     try {
       // Server route handles counter + auto-approve gate + WhatsApp ping.
-      const res = await fetch(`/api/admin/events/${id}/approve`, { method: 'POST' })
+      const res  = await fetch(`/api/admin/events/${id}/approve`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      console.log('[admin/events] approve', id, '→', res.status, data)
       if (res.ok) {
-        // Refetch to surface any newly-granted trust on the submitter.
-        await fetchEvents()
+        // Optimistically flip the event to active so it leaves the Pending
+        // tab and every derived count (pending/active) updates instantly —
+        // don't make the UI wait on (or depend on) the background refetch.
+        setEvents(prev => prev.map(e => e.id === id ? { ...e, is_active: true } : e))
+        showToast(bi('✅ Événement approuvé', '✅ Event approved'))
+        // Refetch in the background to surface any newly-granted publisher
+        // trust badge on the submitter. Non-fatal — the optimistic update
+        // above already moved the event.
+        fetchEvents().catch(() => {})
+      } else {
+        showToast(data?.error ?? bi('Erreur lors de l\'approbation', 'Approval failed'), false)
       }
+    } catch (e) {
+      console.error('[admin/events] approve failed:', e)
+      showToast(bi('Erreur réseau lors de l\'approbation', 'Network error during approval'), false)
     } finally {
       setSaving(null)
     }
