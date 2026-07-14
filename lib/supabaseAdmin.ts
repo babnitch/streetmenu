@@ -4,6 +4,11 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 // Lazy-initialised so the build phase never calls createClient with missing env vars.
 let _client: SupabaseClient | null = null
 
+// Opt every request out of Next.js's fetch Data Cache. Without this, GET-based
+// selects can be served from a stale cached snapshot on Vercel.
+const noStoreFetch: typeof fetch = (input, init) =>
+  fetch(input, { ...init, cache: 'no-store' })
+
 export function getSupabaseAdmin(): SupabaseClient {
   if (!_client) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -17,7 +22,16 @@ export function getSupabaseAdmin(): SupabaseClient {
     // deployment (Vercel → Settings → Environment Variables).
     if (!url) throw new Error('[supabaseAdmin] NEXT_PUBLIC_SUPABASE_URL is not set')
     if (!key) throw new Error('[supabaseAdmin] SUPABASE_SERVICE_ROLE_KEY is not set — admin client would silently fall back to RLS-restricted anon access')
-    _client = createClient(url, key, { auth: { persistSession: false } })
+    _client = createClient(url, key, {
+      auth: { persistSession: false },
+      // Next.js patches global fetch and caches GET responses in its Data
+      // Cache. supabase-js issues selects as GETs, so on Vercel an admin read
+      // can return a stale snapshot (e.g. /api/events/my keeps returning the
+      // organizer's events as they were on the first call). Force cache:
+      // 'no-store' on every request through this client so admin queries and
+      // mutations always hit Postgres fresh.
+      global: { fetch: noStoreFetch },
+    })
   }
   return _client
 }
