@@ -984,7 +984,11 @@ export default function AccountPage() {
                 <div className="flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
                   <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
                   <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
-                  {myEvents.length > 0 && (
+                  {/* Show the organizer tab when the user has any events OR has
+                     ever submitted one — a submitted-but-not-yet-returned event
+                     (pending approval, transient fetch hiccup) must not make the
+                     tab vanish, else the organizer loses their only way in. */}
+                  {(myEvents.length > 0 || (organizerTrust?.events_submitted_count ?? 0) > 0) && (
                     <TabBtn icon="🎉" label={bi('Mes événements', 'My events')} active={customerTab === 'events'} onClick={() => setCustomerTab('events')} />
                   )}
                   <TabBtn icon="👤" label={t('account.profileTab')}  active={customerTab === 'profile'}  onClick={() => setCustomerTab('profile')} />

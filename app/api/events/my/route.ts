@@ -26,9 +26,15 @@ export async function GET(req: NextRequest) {
     .limit(50)
   if (!isAdmin) {
     if (session.role !== 'customer') return NextResponse.json({ events: [] })
-    query = query.eq('organizer_id', session.id)
+    // Events are linked to their submitter via organizer_id (the current
+    // submit flow). Legacy rows created before that column existed used
+    // submitted_by, so match either — an organizer must never lose sight
+    // of an event just because of which column carried the link.
+    query = query.or(`organizer_id.eq.${session.id},submitted_by.eq.${session.id}`)
   }
   const { data: events, error } = await query
+  console.log('[events/my] customer_id=%s isAdmin=%s → %d event(s)%s',
+    session.id, isAdmin, events?.length ?? 0, error ? ` ERROR: ${error.message}` : '')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   if (!events || events.length === 0) return NextResponse.json({ events: [] })
