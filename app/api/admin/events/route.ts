@@ -19,13 +19,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   }
 
+  // No filters (no is_active / date / city / limit) — the admin console must
+  // see every event. Supabase caps unbounded selects at 1000 rows by default;
+  // an explicit .range keeps that ceiling obvious and lifts it if the table
+  // ever grows past it.
   const { data: events, error } = await supabaseAdmin
     .from('events')
     .select('*')
     .order('created_at', { ascending: false })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    .range(0, 9999)
+  if (error) {
+    console.error('[admin/events] query failed:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   const list = events ?? []
+  const inactive = list.filter(e => !e.is_active).length
+  console.log('[admin/events] returning %d events (%d pending / %d active)',
+    list.length, inactive, list.length - inactive)
   if (list.length === 0) {
     return NextResponse.json({ events: [], aggregates: {}, submitters: {} })
   }
