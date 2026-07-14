@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
-import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
@@ -14,6 +13,11 @@ import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@
 // single query so the table can render reservation + revenue per row without
 // per-event roundtrips.
 interface EventAggregate { reservations_count: number; tickets_count: number; revenue: number; commission: number }
+
+// Filter tabs. Pending = awaiting approval (is_active=false); Active = live
+// (is_active=true, not yet completed); Completed = event_status 'completed';
+// All = everything, with pending pinned to the top.
+type EventTab = 'all' | 'pending' | 'active' | 'completed'
 interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -34,7 +38,7 @@ export default function AdminEventsPage() {
   const [aggregates, setAggregates] = useState<Record<string, EventAggregate>>({})
   const [submitters, setSubmitters] = useState<Record<string, Submitter>>({})
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'pending' | 'approved'>('pending')
+  const [tab, setTab] = useState<EventTab>('pending')
   const [saving, setSaving] = useState<string | null>(null)
   const [currentRole, setCurrentRole] = useState<string | null>(null)
 
@@ -42,48 +46,18 @@ export default function AdminEventsPage() {
   const canTogglePayment = currentRole === 'super_admin' || currentRole === 'admin'
 
   const fetchEvents = useCallback(async () => {
-    const { data } = await supabase
-      .from('events')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (data) setEvents(data)
-
-    // Reservation aggregates — single query, group client-side. Cancelled
-    // reservations are excluded from the count; only 'paid' rows contribute
-    // to revenue + platform commission.
-    if (data && data.length > 0) {
-      const ids = data.map(e => e.id)
-      const { data: resv } = await supabase
-        .from('event_reservations')
-        .select('event_id, payment_status, reservation_status, total_price, quantity, commission_amount')
-        .in('event_id', ids)
-      const agg: Record<string, EventAggregate> = {}
-      for (const r of resv ?? []) {
-        const a = agg[r.event_id] ?? { reservations_count: 0, tickets_count: 0, revenue: 0, commission: 0 }
-        if (r.reservation_status !== 'cancelled') {
-          a.reservations_count += 1
-          a.tickets_count      += Number(r.quantity ?? 0)
-        }
-        if (r.payment_status === 'paid') {
-          a.revenue    += Number(r.total_price ?? 0)
-          a.commission += Number(r.commission_amount ?? 0)
-        }
-        agg[r.event_id] = a
-      }
-      setAggregates(agg)
-
-      // Submitter trust info. Unique organizer_id set, single query.
-      const orgIds = Array.from(new Set(data.map(e => e.organizer_id).filter(Boolean) as string[]))
-      if (orgIds.length > 0) {
-        const { data: subs } = await supabase
-          .from('customers')
-          .select('id, name, phone, events_approved_count, event_auto_approve')
-          .in('id', orgIds)
-        const subMap: Record<string, Submitter> = {}
-        for (const s of subs ?? []) subMap[s.id] = s as Submitter
-        setSubmitters(subMap)
-      }
-    }
+    // Admin console needs EVERY event, including pending (is_active=false)
+    // ones awaiting approval. The browser anon client can't see those (RLS
+    // public_active_read: is_active = TRUE), nor read event_reservations /
+    // customers (service-role-locked), so we go through the admin API route
+    // which runs as supabaseAdmin and gates on the session role.
+    try {
+      const res = await fetch('/api/admin/events', { cache: 'no-store' })
+      const d = await res.json().catch(() => ({}))
+      if (Array.isArray(d?.events)) setEvents(d.events)
+      if (d?.aggregates) setAggregates(d.aggregates as Record<string, EventAggregate>)
+      if (d?.submitters) setSubmitters(d.submitters as Record<string, Submitter>)
+    } catch { /* leave lists empty on failure */ }
     setLoading(false)
   }, [])
 
@@ -162,9 +136,24 @@ export default function AdminEventsPage() {
     if (res.ok) await fetchEvents()
   }
 
-  const pending  = events.filter(e => !e.is_active)
-  const approved = events.filter(e => e.is_active)
-  const shown = tab === 'pending' ? pending : approved
+  const isCompleted = (e: Event) => e.event_status === 'completed'
+  const pending   = events.filter(e => !e.is_active)
+  const active    = events.filter(e => e.is_active && !isCompleted(e))
+  const completed = events.filter(isCompleted)
+
+  // "All" pins pending events to the top so approvals never get buried under
+  // the (usually larger) pile of already-live events.
+  const allSorted = [...events].sort((a, b) => {
+    const ap = a.is_active ? 1 : 0
+    const bp = b.is_active ? 1 : 0
+    return ap - bp
+  })
+
+  const shown =
+    tab === 'pending'   ? pending   :
+    tab === 'active'    ? active    :
+    tab === 'completed' ? completed :
+    allSorted
 
   return (
     <div>
@@ -182,42 +171,50 @@ export default function AdminEventsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <p className="text-xs text-ink-secondary font-medium">{t('admin.evtPendingTab')}</p>
+          <p className="text-xs text-ink-secondary font-medium">{bi('Total', 'All')}</p>
+          <p className="text-2xl font-bold text-ink-primary mt-1">{events.length}</p>
+        </div>
+        <div className={`bg-white rounded-2xl p-4 shadow-sm ${pending.length > 0 ? 'ring-2 ring-brand' : ''}`}>
+          <p className="text-xs text-ink-secondary font-medium">{bi('En attente', 'Pending')}</p>
           <p className={`text-2xl font-bold mt-1 ${pending.length > 0 ? 'text-brand' : 'text-ink-primary'}`}>
             {pending.length}
           </p>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <p className="text-xs text-ink-secondary font-medium">{t('admin.evtApprovedTab')}</p>
-          <p className="text-2xl font-bold text-ink-primary mt-1">{approved.length}</p>
+          <p className="text-xs text-ink-secondary font-medium">{bi('Actifs', 'Active')}</p>
+          <p className="text-2xl font-bold text-ink-primary mt-1">{active.length}</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <p className="text-xs text-ink-secondary font-medium">{bi('Terminés', 'Completed')}</p>
+          <p className="text-2xl font-bold text-ink-primary mt-1">{completed.length}</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-surface-muted p-1 rounded-xl w-fit mb-5">
-        <button
-          onClick={() => setTab('pending')}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-            tab === 'pending' ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
-          }`}
-        >
-          {t('admin.evtPendingTab')}
-          {pending.length > 0 && (
-            <span className="ml-1.5 bg-brand text-white text-xs px-1.5 py-0.5 rounded-full">
-              {pending.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab('approved')}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-            tab === 'approved' ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
-          }`}
-        >
-          {t('admin.evtApprovedTab')}
-        </button>
+      <div className="flex gap-1 bg-surface-muted p-1 rounded-xl w-fit mb-5 flex-wrap">
+        {([
+          ['all',       bi('Tous', 'All'),          events.length],
+          ['pending',   bi('En attente', 'Pending'), pending.length],
+          ['active',    bi('Actifs', 'Active'),      active.length],
+          ['completed', bi('Terminés', 'Completed'), completed.length],
+        ] as [EventTab, string, number][]).map(([value, label, count]) => (
+          <button
+            key={value}
+            onClick={() => setTab(value)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+              tab === value ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
+            }`}
+          >
+            {label}
+            {value === 'pending' && count > 0 && (
+              <span className="ml-1.5 bg-brand text-white text-xs px-1.5 py-0.5 rounded-full">
+                {count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Content */}
@@ -229,7 +226,7 @@ export default function AdminEventsPage() {
       ) : shown.length === 0 ? (
         <div className="text-center py-16 text-ink-tertiary">
           <div className="text-4xl mb-3">📭</div>
-          <p>{tab === 'pending' ? t('admin.evtNoPending') : t('admin.evtNoApproved')}</p>
+          <p>{tab === 'pending' ? t('admin.evtNoPending') : bi('Aucun événement', 'No events')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -250,8 +247,8 @@ export default function AdminEventsPage() {
                   ? () => revokeAutoApprove(evt.organizer_id!)
                   : undefined
               }
-              tab={tab}
               categoryDisplay={categoryLabel(evt.category, locale)}
+              pendingLabel={bi('⏳ En attente d\'approbation', '⏳ Pending approval')}
               approveLabel={t('admin.evtApproveBtn')}
               rejectLabel={t('admin.evtRejectBtn')}
               organizerLabel={t('admin.evtOrganizer')}
@@ -276,12 +273,12 @@ export default function AdminEventsPage() {
 
 function EventRow({
   event, aggregate, submitter, saving, canTogglePayment,
-  onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove, tab,
+  onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove,
   approveLabel, rejectLabel, organizerLabel,
   reservationsLabel, ticketsLabel, revenueLabel, commissionLabel, netLabel,
   priceLabel, freeLabel, freeBadgeLabel,
   verifiedLabel, progressLabel, revokeAutoLabel,
-  categoryDisplay,
+  categoryDisplay, pendingLabel,
 }: {
   event: Event
   aggregate?: EventAggregate
@@ -293,7 +290,6 @@ function EventRow({
   onSetMode: (m: PaymentMode) => void
   onToggleWhatsapp: (n: boolean) => void
   onRevokeAutoApprove?: () => void
-  tab: 'pending' | 'approved'
   approveLabel: string
   rejectLabel: string
   organizerLabel: string
@@ -309,6 +305,7 @@ function EventRow({
   progressLabel: string
   revokeAutoLabel: string
   categoryDisplay: string
+  pendingLabel: string
 }) {
   const bi = useBi()
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
@@ -331,8 +328,17 @@ function EventRow({
   const commission  = Number(aggregate?.commission ?? 0)
   const net         = gross - commission
 
+  // Pending (is_active=false) rows get an amber ring + banner so approvals
+  // stand out from the pile of already-live events.
+  const isPending = !event.is_active
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+    <div className={`bg-white rounded-2xl shadow-sm overflow-hidden ${isPending ? 'ring-2 ring-amber-400' : ''}`}>
+      {isPending && (
+        <div className="bg-amber-50 text-amber-800 text-xs font-semibold px-4 py-1.5 border-b border-amber-200">
+          {pendingLabel}
+        </div>
+      )}
       <div className="flex gap-4 p-4">
         {/* Thumbnail */}
         <div className="w-20 h-20 flex-shrink-0 rounded-xl bg-brand-light overflow-hidden relative">
@@ -483,7 +489,7 @@ function EventRow({
         >
           {rejectLabel}
         </button>
-        {tab === 'pending' && (
+        {isPending && (
           <button
             onClick={onApprove}
             disabled={saving}
