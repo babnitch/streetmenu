@@ -47,6 +47,7 @@ export async function POST(
   // briefly but never persist a wrong total because no second-pass
   // counter exists.
   const nextSold = Math.max(0, Number(event.tickets_sold ?? 0) - Number(r.quantity ?? 0))
+  console.log('[events/reject] event=%s tickets_sold %d → %d (-%d)', event.id, Number(event.tickets_sold ?? 0), nextSold, Number(r.quantity ?? 0))
   await Promise.all([
     supabaseAdmin
       .from('event_reservations')

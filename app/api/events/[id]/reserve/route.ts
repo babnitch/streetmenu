@@ -210,14 +210,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
   }
 
-  // Bump global tickets_sold + per-tier sold_count. Race-window same
-  // as the legacy code — acceptable at this scale.
+  // Bump global tickets_sold + per-tier sold_count by the RESERVED QUANTITY
+  // (not +1). Race-window same as the legacy code — acceptable at this scale.
+  const nextSold = sold + totalQuantity
+  console.log('[events/reserve] event=%s tickets_sold %d → %d (+%d across %d row(s))',
+    event.id, sold, nextSold, totalQuantity, rowsToInsert.length)
   await supabaseAdmin
     .from('events')
-    .update({ tickets_sold: sold + totalQuantity })
+    .update({ tickets_sold: nextSold })
     .eq('id', event.id)
   const bumps = Array.from(tierBumps.values())
   for (const { newSold, row } of bumps) {
+    console.log('[events/reserve] tier=%s sold_count %d → %d', row.id, row.sold_count, newSold)
     await supabaseAdmin
       .from('event_ticket_tiers')
       .update({ sold_count: newSold, updated_at: new Date().toISOString() })

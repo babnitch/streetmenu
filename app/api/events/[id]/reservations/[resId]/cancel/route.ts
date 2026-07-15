@@ -49,6 +49,7 @@ export async function POST(
 
   const sold = Number(event.tickets_sold ?? 0)
   const nextSold = Math.max(0, sold - Number(r.quantity ?? 0))
+  console.log('[events/cancel] event=%s tickets_sold %d → %d (-%d)', event.id, sold, nextSold, Number(r.quantity ?? 0))
 
   await Promise.all([
     supabaseAdmin

@@ -1633,6 +1633,7 @@ export async function handleEventSession(
       await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
       return ok()
     }
+    console.log('[whatsapp/reserve-pay] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + quantity, quantity)
     await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
 
     let depositResult
@@ -1796,6 +1797,7 @@ async function confirmEventReservationWhatsapp(opts: {
     await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
     return ok()
   }
+  console.log('[whatsapp/reserve] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + q, q)
   await supabaseAdmin.from('events').update({ tickets_sold: sold + q }).eq('id', event.id)
   await writeAudit({
     action:          'event_reservation_created',

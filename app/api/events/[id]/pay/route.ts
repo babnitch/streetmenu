@@ -160,11 +160,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
   }
 
+  console.log('[events/pay] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + quantity, quantity)
   await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
   // Per-tier sold_count bump too, mirroring the free reserve flow so the
   // public picker's "remaining" stays accurate even before the deposit
   // settles. The webhook releases this back on FAILED/REJECTED.
   if (tier) {
+    console.log('[events/pay] tier=%s sold_count %d → %d', tier.id, tier.sold_count, tier.sold_count + quantity)
     await supabaseAdmin
       .from('event_ticket_tiers')
       .update({ sold_count: tier.sold_count + quantity, updated_at: new Date().toISOString() })
