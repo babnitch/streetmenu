@@ -19,7 +19,14 @@ import PromotePanel from '@/components/PromotePanel'
 import EventTiersPanel from '@/components/EventTiersPanel'
 import PhoneInput from '@/components/PhoneInput'
 import { useDataMode } from '@/lib/dataMode'
+import { categoryLabel } from '@/lib/categoryLabels'
+import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
+
+// Event categories — kept in sync with app/events/submit/page.tsx.
+const EVENT_EDIT_CATEGORIES = [
+  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
+] as const
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
 const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'), { ssr: false })
@@ -148,9 +155,11 @@ export default function AccountPage() {
   // means the "Mes événements" tab stays hidden.
   interface MyEvent {
     id: string; title: string; date: string; time: string | null
+    description?: string | null; neighborhood?: string | null; category?: string | null
     venue: string | null; city: string | null; cover_photo: string | null
     ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
-    payment_enabled: boolean; organizer_name: string | null; event_status: string | null
+    payment_enabled: boolean; payment_mode?: string | null; whatsapp_payment_enabled?: boolean
+    organizer_name: string | null; event_status: string | null
     is_active: boolean
     requires_confirmation?: boolean
     reservations_open?:     boolean
@@ -1898,9 +1907,11 @@ function orderShortId(id: string): string {
 // already in scope — onChanged triggers a parent reload after any mutation.
 interface MyEventsPanelEvent {
   id: string; title: string; date: string; time: string | null
+  description?: string | null; neighborhood?: string | null; category?: string | null
   venue: string | null; city: string | null; cover_photo: string | null
   ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
-  payment_enabled: boolean; organizer_name: string | null; event_status: string | null
+  payment_enabled: boolean; payment_mode?: string | null; whatsapp_payment_enabled?: boolean
+  organizer_name: string | null; event_status: string | null
   is_active: boolean
   requires_confirmation?: boolean
   reservations_open?:     boolean
@@ -1921,6 +1932,13 @@ interface MyEventReservation {
   reservation_status: 'pending' | 'confirmed' | 'cancelled' | 'attended' | 'rejected'
   created_at: string
 }
+interface EventEditForm {
+  title: string; description: string; date: string; time: string
+  venue: string; neighborhood: string; category: string
+  ticket_price: string; max_tickets: string
+  payment_mode: PaymentMode; whatsapp_payment_enabled: boolean
+  cover_photo: string
+}
 
 function MyEventsPanel({
   events, trust, onChanged,
@@ -1930,10 +1948,24 @@ function MyEventsPanel({
   onChanged: () => void
 }) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [reservations, setReservations] = useState<MyEventReservation[]>([])
   const [loadingResv, setLoadingResv] = useState(false)
   const [acting, setActing] = useState<string | null>(null)
+  // Edit-event modal state.
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState<EventEditForm | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editPhotoUploading, setEditPhotoUploading] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  // Message-attendees modal state.
+  const [messaging, setMessaging] = useState(false)
+  const [messageText, setMessageText] = useState('')
+  const [sendingMsg, setSendingMsg] = useState(false)
+  const [msgResult, setMsgResult] = useState<string | null>(null)
+  // Transient banner shown on the detail view after an edit saves.
+  const [savedBanner, setSavedBanner] = useState<string | null>(null)
   // Reservation list filter — All / Pending / Confirmed / Attended.
   // Defaults to All so the organizer sees everything by default.
   const [resvFilter, setResvFilter] = useState<'all' | 'pending' | 'confirmed' | 'attended'>('all')
@@ -2065,6 +2097,104 @@ function MyEventsPanel({
     } finally { setSavingSettings(false) }
   }
 
+  // ── Edit event ──
+  function openEdit() {
+    if (!selected) return
+    setEditForm({
+      title:        selected.title ?? '',
+      description:  selected.description ?? '',
+      date:         selected.date ? String(selected.date).slice(0, 10) : '',
+      time:         selected.time ?? '',
+      venue:        selected.venue ?? '',
+      neighborhood: selected.neighborhood ?? '',
+      category:     selected.category ?? '',
+      ticket_price: selected.ticket_price != null ? String(selected.ticket_price) : '',
+      max_tickets:  selected.max_tickets != null ? String(selected.max_tickets) : '',
+      payment_mode: (selected.payment_mode as PaymentMode) ?? 'reservation_only',
+      whatsapp_payment_enabled: !!selected.whatsapp_payment_enabled,
+      cover_photo:  selected.cover_photo ?? '',
+    })
+    setEditError(null)
+    setEditing(true)
+  }
+  function setEdit<K extends keyof EventEditForm>(key: K, value: EventEditForm[K]) {
+    setEditForm(prev => (prev ? { ...prev, [key]: value } : prev))
+  }
+  async function handleEditPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setEditPhotoUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('kind', 'event_cover')
+      fd.append('pathPrefix', 'events')
+      const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
+      if (r.ok) {
+        const j = await r.json()
+        if (typeof j?.url === 'string') setEdit('cover_photo', j.url)
+      }
+    } finally { setEditPhotoUploading(false) }
+  }
+  async function saveEdit() {
+    if (!selected || !editForm) return
+    if (!editForm.title.trim() || !editForm.date || !editForm.category) {
+      setEditError(bi('Titre, date et catégorie requis.', 'Title, date and category are required.'))
+      return
+    }
+    setSavingEdit(true)
+    setEditError(null)
+    try {
+      const res = await fetch(`/api/events/${selected.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title:        editForm.title,
+          description:  editForm.description,
+          date:         editForm.date,
+          time:         editForm.time,
+          venue:        editForm.venue,
+          neighborhood: editForm.neighborhood,
+          category:     editForm.category,
+          ticket_price: editForm.ticket_price === '' ? null : Number(editForm.ticket_price),
+          max_tickets:  editForm.max_tickets === '' ? 0 : Number(editForm.max_tickets),
+          payment_mode: editForm.payment_mode,
+          whatsapp_payment_enabled: editForm.whatsapp_payment_enabled,
+          cover_photo:  editForm.cover_photo || null,
+        }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setEditError(d?.error ?? bi('Erreur', 'Error')); return }
+      setEditing(false)
+      setSavedBanner(
+        d.notified_count > 0
+          ? bi(`✅ Enregistré — ${d.notified_count} inscrit(s) notifié(s)`, `✅ Saved — ${d.notified_count} attendee(s) notified`)
+          : bi('✅ Événement mis à jour', '✅ Event updated'),
+      )
+      setTimeout(() => setSavedBanner(null), 4000)
+      onChanged()
+    } finally { setSavingEdit(false) }
+  }
+
+  // ── Message attendees ──
+  async function sendMessage() {
+    if (!selected || !messageText.trim()) return
+    setSendingMsg(true)
+    setMsgResult(null)
+    try {
+      const res = await fetch(`/api/events/${selected.id}/message`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: messageText.trim() }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setMsgResult(d?.error ?? bi('Erreur', 'Error')); return }
+      setMsgResult(bi(`✅ Envoyé à ${d.sent_count} inscrit(s)`, `✅ Sent to ${d.sent_count} attendee(s)`))
+      setMessageText('')
+      setTimeout(() => { setMessaging(false); setMsgResult(null) }, 2000)
+    } finally { setSendingMsg(false) }
+  }
+
   if (events.length === 0) {
     return (
       <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
@@ -2125,6 +2255,29 @@ function MyEventsPanel({
               </div>
             </div>
           )}
+        </div>
+
+        {savedBanner && (
+          <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl px-4 py-2.5 text-sm font-semibold mb-4">
+            {savedBanner}
+          </div>
+        )}
+
+        {/* Organizer actions — edit details (notifies attendees on significant
+            changes) and message everyone who reserved. */}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={openEdit}
+            className="flex-1 text-sm font-semibold px-3 py-2.5 rounded-xl border border-brand text-brand bg-white hover:bg-brand-light transition-colors"
+          >
+            ✏️ {bi('Modifier', 'Edit')}
+          </button>
+          <button
+            onClick={() => { setMessageText(''); setMsgResult(null); setMessaging(true) }}
+            className="flex-1 text-sm font-semibold px-3 py-2.5 rounded-xl bg-brand text-white hover:bg-brand-dark transition-colors"
+          >
+            📨 {bi('Message aux inscrits', 'Message attendees')}
+          </button>
         </div>
 
         {/* Ticket tiers panel — self-contained CRUD for the event's
@@ -2318,6 +2471,181 @@ function MyEventsPanel({
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {/* ── Edit event modal ── */}
+        {editing && editForm && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => !savingEdit && setEditing(false)}>
+            <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-card w-full sm:max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-ink-primary">✏️ {bi('Modifier l\'événement', 'Edit event')}</h3>
+                  <button onClick={() => !savingEdit && setEditing(false)} className="text-ink-tertiary hover:text-ink-primary text-xl leading-none">×</button>
+                </div>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-ink-secondary">{bi('Titre', 'Title')}</span>
+                  <input value={editForm.title} onChange={e => setEdit('title', e.target.value)}
+                    className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-ink-secondary">{bi('Description', 'Description')}</span>
+                  <textarea value={editForm.description} onChange={e => setEdit('description', e.target.value)} rows={3}
+                    className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm resize-none" />
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Date', 'Date')}</span>
+                    <input type="date" value={editForm.date} onChange={e => setEdit('date', e.target.value)}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Heure', 'Time')}</span>
+                    <input type="time" value={editForm.time} onChange={e => setEdit('time', e.target.value)}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Lieu', 'Venue')}</span>
+                    <input value={editForm.venue} onChange={e => setEdit('venue', e.target.value)}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Quartier', 'Neighborhood')}</span>
+                    <input value={editForm.neighborhood} onChange={e => setEdit('neighborhood', e.target.value)}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-ink-secondary">{bi('Catégorie', 'Category')}</span>
+                  <select value={editForm.category} onChange={e => setEdit('category', e.target.value)}
+                    className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm">
+                    <option value="">—</option>
+                    {EVENT_EDIT_CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+                  </select>
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Prix billet (FCFA)', 'Ticket price (FCFA)')}</span>
+                    <input type="number" min={0} value={editForm.ticket_price} onChange={e => setEdit('ticket_price', e.target.value)}
+                      placeholder={bi('0 = gratuit', '0 = free')}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Places max', 'Max tickets')}</span>
+                    <input type="number" min={0} value={editForm.max_tickets} onChange={e => setEdit('max_tickets', e.target.value)}
+                      placeholder={bi('0 = illimité', '0 = unlimited')}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                </div>
+
+                {/* Payment mode — only meaningful for paid events. */}
+                {Number(editForm.ticket_price || 0) > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Paiement', 'Payment')}</span>
+                    <div className="inline-flex rounded-xl bg-surface-muted p-0.5 w-full">
+                      {([
+                        ['reservation_only', bi('📋 Réservation', '📋 Reservation')],
+                        ['payment_only',     bi('💰 Paiement', '💰 Payment')],
+                        ['both',             bi('💰📋 Les deux', '💰📋 Both')],
+                      ] as [PaymentMode, string][]).map(([value, label]) => (
+                        <button key={value} type="button" onClick={() => setEdit('payment_mode', value)}
+                          className={`flex-1 text-xs font-semibold px-2 py-1.5 rounded-lg transition-colors ${
+                            editForm.payment_mode === value ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {canPayOnline(editForm.payment_mode) && (
+                      <label className="flex items-center gap-2 text-sm text-ink-primary cursor-pointer">
+                        <input type="checkbox" checked={editForm.whatsapp_payment_enabled}
+                          onChange={e => setEdit('whatsapp_payment_enabled', e.target.checked)}
+                          className="w-4 h-4 rounded border-divider text-brand" />
+                        💬💰 {bi('Autoriser le paiement via WhatsApp', 'Allow payment via WhatsApp')}
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-ink-secondary">{bi('Photo de couverture', 'Cover photo')}</span>
+                  <div className="mt-1 flex items-center gap-3">
+                    {editForm.cover_photo && (
+                      <Image src={editForm.cover_photo} alt="" width={56} height={56} className="w-14 h-14 rounded-xl object-cover" />
+                    )}
+                    <input type="file" accept="image/*" onChange={handleEditPhoto} className="text-xs flex-1" />
+                    {editPhotoUploading && <span className="text-xs text-ink-tertiary">…</span>}
+                  </div>
+                </label>
+
+                {editError && <p className="text-sm text-rose-600 font-medium">{editError}</p>}
+
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => setEditing(false)} disabled={savingEdit}
+                    className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-surface-muted text-ink-secondary hover:bg-divider disabled:opacity-50">
+                    {bi('Annuler', 'Cancel')}
+                  </button>
+                  <button onClick={saveEdit} disabled={savingEdit || editPhotoUploading}
+                    className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-brand text-white hover:bg-brand-dark disabled:opacity-50">
+                    {savingEdit ? '…' : bi('💾 Enregistrer', '💾 Save')}
+                  </button>
+                </div>
+                <p className="text-[11px] text-ink-tertiary text-center">
+                  {bi('Les inscrits sont notifiés si la date, l\'heure, le lieu ou le prix change.',
+                     'Attendees are notified if the date, time, venue or price changes.')}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Message attendees modal ── */}
+        {messaging && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => !sendingMsg && setMessaging(false)}>
+            <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-card w-full sm:max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-ink-primary">📨 {bi('Message aux inscrits', 'Message attendees')}</h3>
+                  <button onClick={() => !sendingMsg && setMessaging(false)} className="text-ink-tertiary hover:text-ink-primary text-xl leading-none">×</button>
+                </div>
+                <p className="text-sm text-ink-tertiary">
+                  {bi(
+                    `Ce message sera envoyé à ${selected.reservations_count} personne(s) inscrite(s).`,
+                    `This message will be sent to ${selected.reservations_count} registered attendee(s).`,
+                  )}
+                </p>
+                <textarea
+                  value={messageText}
+                  onChange={e => setMessageText(e.target.value.slice(0, 1000))}
+                  rows={5}
+                  placeholder={bi('Votre message…', 'Your message…')}
+                  className="w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm resize-none"
+                />
+                <div className="flex items-center justify-between text-xs text-ink-tertiary">
+                  <span>{messageText.length}/1000</span>
+                  <span>{bi('Max 2 messages/jour', 'Max 2 messages/day')}</span>
+                </div>
+                {msgResult && <p className="text-sm font-medium text-ink-primary">{msgResult}</p>}
+                <div className="flex gap-2">
+                  <button onClick={() => setMessaging(false)} disabled={sendingMsg}
+                    className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-surface-muted text-ink-secondary hover:bg-divider disabled:opacity-50">
+                    {bi('Annuler', 'Cancel')}
+                  </button>
+                  <button onClick={sendMessage} disabled={sendingMsg || !messageText.trim()}
+                    className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-brand text-white hover:bg-brand-dark disabled:opacity-50">
+                    {sendingMsg ? '…' : bi('Envoyer', 'Send')}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

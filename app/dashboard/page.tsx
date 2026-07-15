@@ -126,6 +126,13 @@ export default function DashboardPage() {
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  // Message-customers modal (owner/manager only). Free, targeted send to the
+  // restaurant's customers — distinct from the paid city broadcast.
+  const [msgOpen, setMsgOpen] = useState(false)
+  const [msgText, setMsgText] = useState('')
+  const [msgTarget, setMsgTarget] = useState<'active' | 'recent_7days'>('active')
+  const [msgSending, setMsgSending] = useState(false)
+  const [msgResult, setMsgResult] = useState<string | null>(null)
   // `team` + `settings` land via the Restaurant-mode TopNav/BottomNav. Full
   // UI for them arrives in a follow-up; for now they show a stub so the
   // tab bar has something sensible to display instead of the default.
@@ -367,6 +374,24 @@ export default function DashboardPage() {
     }
   }
 
+  async function sendCustomerMessage() {
+    if (!selectedRestaurant || !msgText.trim()) return
+    setMsgSending(true)
+    setMsgResult(null)
+    try {
+      const res = await fetch(`/api/restaurants/${selectedRestaurant.id}/message`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: msgText.trim(), target: msgTarget }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setMsgResult(d?.error ?? bi('Erreur', 'Error')); return }
+      setMsgResult(bi(`✅ Envoyé à ${d.sent_count} client(s)`, `✅ Sent to ${d.sent_count} customer(s)`))
+      setMsgText('')
+      setTimeout(() => { setMsgOpen(false); setMsgResult(null) }, 2000)
+    } finally { setMsgSending(false) }
+  }
+
   async function updateOrderStatus(orderId: string, status: TargetStatus) {
     setUpdatingOrderId(orderId)
     setUpdateError('')
@@ -466,6 +491,67 @@ export default function DashboardPage() {
               {selectedRestaurant.is_open ? t('dash.openBtn') : t('dash.closedBtn')}
             </button>
           </div>
+
+          {/* Message customers — owner/manager only. Free targeted send. */}
+          {(effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin') && (
+            <button
+              onClick={() => { setMsgText(''); setMsgTarget('active'); setMsgResult(null); setMsgOpen(true) }}
+              className="w-full mb-4 text-sm font-semibold px-3 py-2.5 rounded-xl border border-brand text-brand bg-white hover:bg-brand-light transition-colors"
+            >
+              📨 {bi('Message aux clients', 'Message customers')}
+            </button>
+          )}
+
+          {msgOpen && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => !msgSending && setMsgOpen(false)}>
+              <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-card w-full sm:max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-ink-primary">📨 {bi('Message aux clients', 'Message customers')}</h3>
+                    <button onClick={() => !msgSending && setMsgOpen(false)} className="text-ink-tertiary hover:text-ink-primary text-xl leading-none">×</button>
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Destinataires', 'Recipients')}</span>
+                    <div className="mt-1 inline-flex rounded-xl bg-surface-muted p-0.5 w-full">
+                      {([
+                        ['active',       bi('Commandes actives', 'Active orders')],
+                        ['recent_7days', bi('7 derniers jours', 'Last 7 days')],
+                      ] as ['active' | 'recent_7days', string][]).map(([value, label]) => (
+                        <button key={value} type="button" onClick={() => setMsgTarget(value)}
+                          className={`flex-1 text-xs font-semibold px-2 py-1.5 rounded-lg transition-colors ${
+                            msgTarget === value ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <textarea
+                    value={msgText}
+                    onChange={e => setMsgText(e.target.value.slice(0, 1000))}
+                    rows={5}
+                    placeholder={bi('Votre message…', 'Your message…')}
+                    className="w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm resize-none"
+                  />
+                  <div className="flex items-center justify-between text-xs text-ink-tertiary">
+                    <span>{msgText.length}/1000</span>
+                    <span>{bi('Max 1 message/jour', 'Max 1 message/day')}</span>
+                  </div>
+                  {msgResult && <p className="text-sm font-medium text-ink-primary">{msgResult}</p>}
+                  <div className="flex gap-2">
+                    <button onClick={() => setMsgOpen(false)} disabled={msgSending}
+                      className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-surface-muted text-ink-secondary hover:bg-divider disabled:opacity-50">
+                      {bi('Annuler', 'Cancel')}
+                    </button>
+                    <button onClick={sendCustomerMessage} disabled={msgSending || !msgText.trim()}
+                      className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-brand text-white hover:bg-brand-dark disabled:opacity-50">
+                      {msgSending ? '…' : bi('Envoyer', 'Send')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Inline tab bar removed — tab switching lives in the TopNav
               (desktop) and BottomNav (mobile). Rendering it here as well

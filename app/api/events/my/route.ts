@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   // 50 most-recent — organizers rarely run more, admins paginate later.
   let query = supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, city, cover_photo, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, organizer_id, organizer_name, event_status, is_active, requires_confirmation, reservations_open, created_at')
+    .select('id, title, description, date, time, venue, neighborhood, category, city, cover_photo, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, organizer_id, organizer_name, event_status, is_active, requires_confirmation, reservations_open, created_at')
     .order('date', { ascending: false })
     .limit(50)
   if (!isAdmin) {

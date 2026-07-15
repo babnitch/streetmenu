@@ -19,6 +19,7 @@ import {
 import { validateVoucher, consumeVoucherForOrder, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
 import { formatPrepTime } from '@/lib/prepTime'
+import { sendEventMessage } from '@/lib/directMessaging'
 import {
   normalizeMode, modeFromLegacy, effectiveWhatsAppMode, type PaymentMode,
 } from '@/lib/paymentMode'
@@ -480,6 +481,10 @@ export async function handleOrderCommand(
   phone: string,
   cmd: string,
   customer: OrderingCustomer,
+  // Raw (original-case) message body. `cmd` is lower-cased for matching, but
+  // free-text tails (e.g. an organizer's message to attendees) must keep their
+  // casing, so those are captured from `body`. Defaults to `cmd` when omitted.
+  body: string = cmd,
 ): Promise<NextResponse | null> {
   const lang = normalizeLang(customer.preferred_language)
   if (cmd === 'commander' || cmd === 'order' || cmd === 'commande') {
@@ -980,6 +985,60 @@ export async function handleOrderCommand(
     await sendWhatsApp(from,
       `${pickLang(`📋 *Réservations — ${event.title}:*`, `📋 *Reservations — ${event.title}:*`, lang)}\n\n${lines.join('\n\n')}\n\n` +
       pickLang(`Gérez les présences sur le site:`, `Manage attendance on the site:`, lang) + `\n${BASE_URL}/account?tab=events`)
+    return ok()
+  }
+
+  // "modifier XXXX" / "edit XXXX" — deep-link the organizer to the web edit
+  // form. Rich editing (fields + photo) lives on the site; the bot just
+  // routes them there. Scoped to the caller's own events.
+  const editMatch = cmd.match(/^(?:modifier|edit)\s+([0-9a-f]{4})$/i)
+  if (editMatch) {
+    const code4 = editMatch[1].toLowerCase()
+    const { data: candidates } = await supabaseAdmin
+      .from('events').select('id, title, organizer_id').eq('organizer_id', customer.id).limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from, pickLang(
+        `❌ Événement #${code4.toUpperCase()} introuvable dans vos événements.`,
+        `❌ Event #${code4.toUpperCase()} not found in your events.`, lang))
+      return ok()
+    }
+    await sendWhatsApp(from,
+      `✏️ *${event.title}*\n\n` +
+      pickLang('Modifiez votre événement ici', 'Edit your event here', lang) +
+      `:\n${BASE_URL}/account?tab=events`)
+    return ok()
+  }
+
+  // "message evenement XXXX <text>" / "message event XXXX <text>" — free,
+  // targeted send to everyone who reserved for the event. The text is
+  // captured from the raw body so its casing survives (cmd is lower-cased).
+  // Rate-limited to 2/event/day inside sendEventMessage.
+  const msgEventMatch = body.trim().match(/^message\s+(?:evenement|événement|event)\s+([0-9a-f]{4})\s+([\s\S]+)$/i)
+  if (msgEventMatch) {
+    const code4 = msgEventMatch[1].toLowerCase()
+    const text  = msgEventMatch[2].trim()
+    const { data: candidates } = await supabaseAdmin
+      .from('events')
+      .select('id, title, date, time, venue, organizer_id, organizer_name')
+      .eq('organizer_id', customer.id).limit(50)
+    const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
+    if (!event) {
+      await sendWhatsApp(from, pickLang(
+        `❌ Événement #${code4.toUpperCase()} introuvable dans vos événements.`,
+        `❌ Event #${code4.toUpperCase()} not found in your events.`, lang))
+      return ok()
+    }
+    const result = await sendEventMessage(event, text, customer.id, 'customer')
+    if (!result.ok) {
+      await sendWhatsApp(from, result.rate_limited
+        ? pickLang('⏳ Limite atteinte (2 messages/jour pour cet événement).', '⏳ Limit reached (2 messages/day for this event).', lang)
+        : pickLang('❌ Message invalide (max 1000 caractères).', '❌ Invalid message (max 1000 chars).', lang))
+      return ok()
+    }
+    await sendWhatsApp(from, pickLang(
+      `📨 Message envoyé à ${result.sent_count} inscrit(s).`,
+      `📨 Message sent to ${result.sent_count} attendee(s).`, lang))
     return ok()
   }
 

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, pickLang, normalizeLang, getLangByPhone, type Lang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
+import { sendRestaurantMessage } from '@/lib/directMessaging'
 import {
   handleOrderCommand,
   handleOrderingSession,
@@ -571,7 +572,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (customer) {
-    return handleCustomer(from, phone, cmd, customer as Parameters<typeof handleCustomer>[3])
+    return handleCustomer(from, phone, cmd, customer as Parameters<typeof handleCustomer>[3], body)
   }
 
   // Brand-new user → start customer signup
@@ -2064,6 +2065,35 @@ async function handleVendor(
     return ok()
   }
 
+  // "message clients <text>" / "message customers <text>" — free, targeted
+  // send to the restaurant's customers with active orders. Owner/manager only.
+  // Text captured from the raw body to preserve casing. Rate-limited to
+  // 1/restaurant/day inside sendRestaurantMessage.
+  const msgCustomersMatch = body.trim().match(/^message\s+(?:clients|customers)\s+([\s\S]+)$/i)
+  if (msgCustomersMatch) {
+    if (!(isOwner || isManager)) {
+      await sendWhatsApp(from, pickLang(
+        '❌ Seuls le propriétaire ou un manager peuvent envoyer un message aux clients.',
+        '❌ Only the owner or a manager can message customers.', lang))
+      return ok()
+    }
+    const text = msgCustomersMatch[1].trim()
+    const result = await sendRestaurantMessage(
+      { id: restaurant.id, name: restaurant.name }, text, 'active',
+      restaurant.customer_id ?? restaurant.id, 'customer',
+    )
+    if (!result.ok) {
+      await sendWhatsApp(from, result.rate_limited
+        ? pickLang('⏳ Limite atteinte (1 message/jour).', '⏳ Limit reached (1 message/day).', lang)
+        : pickLang('❌ Message invalide (max 1000 caractères).', '❌ Invalid message (max 1000 chars).', lang))
+      return ok()
+    }
+    await sendWhatsApp(from, pickLang(
+      `📨 Message envoyé à ${result.sent_count} client(s).`,
+      `📨 Message sent to ${result.sent_count} customer(s).`, lang))
+    return ok()
+  }
+
   // ── VENDOR ORDER ACTIONS: ok XXXX / pret XXXX / annuler XXXX ─────────────
   if (canViewOrders) {
     const actionResp = await handleVendorOrderAction(from, body, { id: restaurant.id, name: restaurant.name })
@@ -2098,6 +2128,9 @@ async function handleCustomer(
   phone:    string,
   cmd:      string,
   customer: { id: string; name: string; phone: string; city: string; preferred_language?: string | null },
+  // Original-case message body — threaded through to handleOrderCommand so
+  // free-text tails (organizer → attendees message) keep their casing.
+  body:     string = cmd,
 ): Promise<NextResponse> {
   const lang: Lang = normalizeLang(customer.preferred_language)
 
@@ -2274,7 +2307,7 @@ async function handleCustomer(
   if (retry) return retry
 
   // Customer ordering intents (commander / mes commandes)
-  const ordering = await handleOrderCommand(from, phone, cmd, customer as OrderingCustomer)
+  const ordering = await handleOrderCommand(from, phone, cmd, customer as OrderingCustomer, body)
   if (ordering) return ordering
 
   if (cmd === 'restaurant' || cmd === 'inscription' || cmd === 'register') {
