@@ -5,6 +5,7 @@ import { writeAudit } from '@/lib/audit'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
+import { generateReservationCode } from '@/lib/reservationCode'
 
 export const dynamic = 'force-dynamic'
 
@@ -136,6 +137,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Pending reservation FIRST so we have an id to thread into PawaPay's
   // statementDescription. Bump tickets_sold under the same write so concurrent
   // callers see the new count immediately.
+  const reservationCode = await generateReservationCode()
   const { data: reservation, error: insErr } = await supabaseAdmin
     .from('event_reservations')
     .insert({
@@ -148,11 +150,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       commission_amount:  commissionAmount,
       payment_status:     'pending',
       reservation_status: 'confirmed',
+      reservation_code:   reservationCode,
       tier_id:            tier?.id    ?? null,
       tier_name:          tier?.name  ?? null,
       tier_price:         tier?.price ?? null,
     })
-    .select('id')
+    .select('id, reservation_code')
     .single()
 
   if (insErr || !reservation) {
@@ -217,9 +220,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   return NextResponse.json({
-    ok:             true,
-    reservation_id: reservation.id,
-    depositId:      depositResult.depositId,
+    ok:               true,
+    reservation_id:   reservation.id,
+    reservation_code: reservation.reservation_code,
+    depositId:        depositResult.depositId,
     status:         depositResult.status,
     mno:            depositResult.correspondent,
     mnoLabel:       mnoLabel(depositResult.correspondent),

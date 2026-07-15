@@ -1930,6 +1930,7 @@ interface MyEventReservation {
   payment_status: 'not_required' | 'pending' | 'paid' | 'failed'
   payment_method: string | null
   reservation_status: 'pending' | 'confirmed' | 'cancelled' | 'attended' | 'rejected'
+  reservation_code: string | null
   created_at: string
 }
 interface EventEditForm {
@@ -1990,12 +1991,13 @@ function MyEventsPanel({
 
   async function cancel(resId: string) {
     const r = reservations.find(x => x.id === resId)
+    const code = r?.reservation_code ?? resId.slice(-4).toUpperCase()
     const warn = r?.payment_status === 'paid'
       ? bi(
-          `Annuler #${resId.slice(-4).toUpperCase()}? Le client devra être remboursé.`,
-          `Cancel #${resId.slice(-4).toUpperCase()}? The customer will need a refund.`,
+          `Annuler #${code}? Le client devra être remboursé.`,
+          `Cancel #${code}? The customer will need a refund.`,
         )
-      : bi(`Annuler #${resId.slice(-4).toUpperCase()}?`, `Cancel #${resId.slice(-4).toUpperCase()}?`)
+      : bi(`Annuler #${code}?`, `Cancel #${code}?`)
     if (!confirm(warn)) return
     setActing(resId)
     try {
@@ -2412,7 +2414,14 @@ function MyEventsPanel({
                 <div key={r.id} className="bg-white rounded-2xl shadow-sm p-3">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="min-w-0">
-                      <p className="font-semibold text-ink-primary text-sm truncate">{r.customer_name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-ink-primary text-sm truncate">{r.customer_name}</p>
+                        {r.reservation_code && (
+                          <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-ink-primary text-white tracking-wider">
+                            #{r.reservation_code}
+                          </span>
+                        )}
+                      </div>
                       <a href={wa} target="_blank" rel="noopener noreferrer"
                          className="text-xs text-brand-darker font-mono hover:underline">
                         📱 {r.customer_phone}
@@ -2745,7 +2754,7 @@ function EventReservationCard({
     e.preventDefault()
     e.stopPropagation()
     if (!ev) return
-    const id4 = reservation.id.slice(-4).toUpperCase()
+    const id4 = reservation.reservation_code ?? reservation.id.slice(-4).toUpperCase()
     const warn = reservation.payment_status === 'paid'
       ? bi(
           `Annuler #${id4}? L'organisateur vous contactera pour le remboursement.`,
@@ -2782,6 +2791,12 @@ function EventReservationCard({
                 <> · {Number(reservation.total_price).toLocaleString()} FCFA</>
               )}
             </p>
+            {reservation.reservation_code && (
+              <p className="text-xs mt-1">
+                <span className="font-semibold text-ink-tertiary">{bi('Code', 'Code')}: </span>
+                <span className="font-bold font-mono tracking-wider text-ink-primary">#{reservation.reservation_code}</span>
+              </p>
+            )}
           </div>
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${s.cls}`}>
             {s.label}

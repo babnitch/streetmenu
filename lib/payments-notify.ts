@@ -111,7 +111,7 @@ export async function notifyPaidReservation(
 ): Promise<void> {
   const { data: r } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, event_id, customer_name, customer_phone, quantity, total_price')
+    .select('id, event_id, customer_name, customer_phone, quantity, total_price, reservation_code')
     .eq('id', reservationId)
     .maybeSingle()
   if (!r) {
@@ -129,7 +129,7 @@ export async function notifyPaidReservation(
   }
 
   const total   = Number(r.total_price ?? 0)
-  const id4     = r.id.replace(/-/g, '').slice(-4).toUpperCase()
+  const id4     = r.reservation_code ?? r.id.replace(/-/g, '').slice(-4).toUpperCase()
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
@@ -152,6 +152,7 @@ export async function notifyPaidReservation(
         `🎟 ${r.quantity} ticket(s)`,
         lang,
       ),
+      pickLang(`🎫 Code de réservation: *#${id4}*`, `🎫 Reservation code: *#${id4}*`, lang),
       `💰 ${total.toLocaleString()} FCFA · ${mno}`,
       ``,
       pickLang(`À bientôt!`, `See you soon!`, lang),

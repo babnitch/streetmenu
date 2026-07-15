@@ -20,6 +20,7 @@ import { validateVoucher, consumeVoucherForOrder, isPercentDiscount } from '@/li
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
 import { formatPrepTime } from '@/lib/prepTime'
 import { sendEventMessage } from '@/lib/directMessaging'
+import { generateReservationCode } from '@/lib/reservationCode'
 import {
   normalizeMode, modeFromLegacy, effectiveWhatsAppMode, type PaymentMode,
 } from '@/lib/paymentMode'
@@ -58,6 +59,35 @@ function sessionExpiry(minutes = 30): string {
 
 function last4(orderId: string): string {
   return orderId.replace(/-/g, '').slice(-4).toUpperCase()
+}
+
+// Resolve a reservation from a typed short code, scoped to events the given
+// organizer owns. Primary match is the stored reservation_code; falls back to
+// the legacy UUID-last-4 so codes quoted before the migration still resolve.
+interface ResolvedReservation {
+  id: string; event_id: string; reservation_status: string; reservation_code: string | null
+  quantity: number; customer_name: string; customer_phone: string
+  events: { organizer_id: string; title: string } | null
+}
+async function resolveReservationByCode(organizerId: string, code: string): Promise<ResolvedReservation | null> {
+  const cols = 'id, event_id, reservation_status, reservation_code, quantity, customer_name, customer_phone, events!inner(organizer_id, title)'
+  const { data } = await supabaseAdmin
+    .from('event_reservations')
+    .select(cols)
+    .eq('events.organizer_id', organizerId)
+    .ilike('reservation_code', code.trim())
+    .limit(1)
+  if (data && data.length) return data[0] as unknown as ResolvedReservation
+  // Legacy fallback — match the trailing 4 hex of the UUID.
+  const low = code.trim().toLowerCase()
+  const { data: all } = await supabaseAdmin
+    .from('event_reservations')
+    .select(cols)
+    .eq('events.organizer_id', organizerId)
+    .order('created_at', { ascending: false })
+    .limit(300)
+  return ((all ?? []) as unknown as ResolvedReservation[])
+    .find(r => r.id.replace(/-/g, '').toLowerCase().endsWith(low)) ?? null
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -740,7 +770,7 @@ export async function handleOrderCommand(
   if (cmd === 'mes reservations' || cmd === 'mes réservations' || cmd === 'my reservations') {
     const { data } = await supabaseAdmin
       .from('event_reservations')
-      .select('id, quantity, total_price, payment_status, reservation_status, created_at, events(id, title, date, venue, event_status)')
+      .select('id, quantity, total_price, payment_status, reservation_status, reservation_code, created_at, events(id, title, date, venue, event_status)')
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false })
       .limit(10)
@@ -780,7 +810,8 @@ export async function handleOrderCommand(
         : ''
       const pay   = payLabel[r.payment_status ?? 'not_required'] ?? ''
       const stat  = statusLabel[r.reservation_status] ?? r.reservation_status
-      return `${i + 1}. *${ev?.title ?? '—'}* (${dateStr})\n   🎟 ${r.quantity} place(s)${r.total_price > 0 ? ` · ${Number(r.total_price).toLocaleString()} FCFA` : ''}\n   ${stat}${pay ? ` · ${pay}` : ''}`
+      const codeStr = r.reservation_code ? ` · #${r.reservation_code}` : ''
+      return `${i + 1}. *${ev?.title ?? '—'}* (${dateStr})${codeStr}\n   🎟 ${r.quantity} place(s)${r.total_price > 0 ? ` · ${Number(r.total_price).toLocaleString()} FCFA` : ''}\n   ${stat}${pay ? ` · ${pay}` : ''}`
     })
 
     // Seed a reservations_browse session so "annuler reservation N" can
@@ -943,10 +974,10 @@ export async function handleOrderCommand(
     return ok()
   }
 
-  // "reservations XXXX" — organizer-side read-only listing by event short
-  // code. Mutation flows (mark attended, cancel event) stay on the web /
-  // account "Mes événements" tab; this is the WhatsApp-side quick view.
-  const reservationsMatch = cmd.match(/^reservations?\s+([0-9a-f]{4})$/i)
+  // "reservations XXXX" — organizer-side read-only listing by EVENT short
+  // code. Requires the plural so it doesn't collide with the singular
+  // "reservation CODE" (single-reservation details) added below.
+  const reservationsMatch = cmd.match(/^reservations\s+([0-9a-f]{4})$/i)
   if (reservationsMatch) {
     const code4 = reservationsMatch[1].toLowerCase()
     // Constrain to events the caller organizes.
@@ -964,7 +995,7 @@ export async function handleOrderCommand(
     }
     const { data: resvs } = await supabaseAdmin
       .from('event_reservations')
-      .select('customer_name, customer_phone, quantity, payment_status, reservation_status')
+      .select('customer_name, customer_phone, quantity, payment_status, reservation_status, reservation_code')
       .eq('event_id', event.id)
       .order('created_at', { ascending: false })
       .limit(20)
@@ -980,11 +1011,13 @@ export async function handleOrderCommand(
       const stat = r.reservation_status === 'cancelled' ? pickLang(' · ❌ Annulée', ' · ❌ Cancelled', lang)
         : r.reservation_status === 'attended' ? pickLang(' · 🎉 Participée', ' · 🎉 Attended', lang)
         : ''
-      return `${i + 1}. ${r.customer_name} — ${pickLang(`${r.quantity} place(s)`, `${r.quantity} spot(s)`, lang)} — ${pay}${stat}\n   📱 ${r.customer_phone}`
+      const code = r.reservation_code ? `*#${r.reservation_code}* — ` : ''
+      return `${i + 1}. ${code}${r.customer_name} — ${pickLang(`${r.quantity} place(s)`, `${r.quantity} spot(s)`, lang)} — ${pay}${stat}\n   📱 ${r.customer_phone}`
     })
     await sendWhatsApp(from,
       `${pickLang(`📋 *Réservations — ${event.title}:*`, `📋 *Reservations — ${event.title}:*`, lang)}\n\n${lines.join('\n\n')}\n\n` +
-      pickLang(`Gérez les présences sur le site:`, `Manage attendance on the site:`, lang) + `\n${BASE_URL}/account?tab=events`)
+      pickLang(`✅ Pointer une présence: envoyez "present CODE" (ex: present A3F7).`, `✅ Check someone in: send "present CODE" (e.g. present A3F7).`, lang) + '\n' +
+      pickLang(`Ou gérez tout sur le site:`, `Or manage everything on the site:`, lang) + `\n${BASE_URL}/account?tab=events`)
     return ok()
   }
 
@@ -1178,23 +1211,16 @@ export async function handleOrderCommand(
   // confirms / rejects a pending reservation by its 4-char ID suffix.
   // Customer notification is handled inside the API handlers via the
   // shared sendWhatsApp helper, so we just delegate over fetch.
-  const reservDecisionMatch = cmd.match(/^(confirmer|rejeter|confirm|reject)\s+reservation\s+([0-9a-f]{4})$/i)
+  const reservDecisionMatch = cmd.match(/^(confirmer|rejeter|confirm|reject)\s+reservation\s+([a-z0-9]{4,6})$/i)
   if (reservDecisionMatch) {
     const verb  = reservDecisionMatch[1].toLowerCase()
-    const code4 = reservDecisionMatch[2].toLowerCase()
+    const code4 = reservDecisionMatch[2]
     const action = (verb === 'confirmer' || verb === 'confirm') ? 'confirm' : 'reject'
 
-    // Resolve the reservation by short code, scoped to this organizer.
-    const { data: pendings } = await supabaseAdmin
-      .from('event_reservations')
-      .select('id, event_id, reservation_status, events!inner(organizer_id, title)')
-      .eq('events.organizer_id', customer.id)
-      .neq('reservation_status', 'cancelled')
-      .neq('reservation_status', 'rejected')
-      .order('created_at', { ascending: false })
-      .limit(100)
-    const match = (pendings ?? []).find(r => r.id.replace(/-/g, '').toLowerCase().endsWith(code4))
-    if (!match) {
+    // Resolve the reservation by its code (or legacy UUID suffix), scoped to
+    // this organizer's events.
+    const match = await resolveReservationByCode(customer.id, code4)
+    if (!match || match.reservation_status === 'cancelled' || match.reservation_status === 'rejected') {
       await sendWhatsApp(from, pickLang(`❌ Réservation #${code4.toUpperCase()} introuvable.`, `❌ Reservation #${code4.toUpperCase()} not found.`, lang))
       return ok()
     }
@@ -1220,13 +1246,15 @@ export async function handleOrderCommand(
       const ev = r?.events as unknown as { title: string } | null
       if (r?.customer_phone) {
         const custLang = await getLangByPhone(r.customer_phone)
+        const codeSuffix = match.reservation_code ? `\n🎫 #${match.reservation_code}` : ''
         await sendWhatsApp(r.customer_phone, pickLang(
-          `✅ *Votre réservation est confirmée!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} place(s)`,
-          `✅ *Your reservation is confirmed!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} spot(s)`,
+          `✅ *Votre réservation est confirmée!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} place(s)${codeSuffix}`,
+          `✅ *Your reservation is confirmed!*\n🎉 ${ev?.title ?? ''}\n🎟 ${r.quantity} spot(s)${codeSuffix}`,
           custLang,
         )).catch(() => null)
       }
-      await sendWhatsApp(from, pickLang(`✅ Réservation #${code4.toUpperCase()} confirmée.`, `✅ Reservation #${code4.toUpperCase()} confirmed.`, lang))
+      const shownCode = match.reservation_code ?? code4.toUpperCase()
+      await sendWhatsApp(from, pickLang(`✅ Réservation #${shownCode} confirmée.`, `✅ Reservation #${shownCode} confirmed.`, lang))
     } else {
       // Reject — also release seats.
       const { data: r } = await supabaseAdmin
@@ -1259,6 +1287,78 @@ export async function handleOrderCommand(
       }
       await sendWhatsApp(from, pickLang(`❌ Réservation #${code4.toUpperCase()} rejetée.`, `❌ Reservation #${code4.toUpperCase()} rejected.`, lang))
     }
+    return ok()
+  }
+
+  // "present CODE" / "présent CODE" / "checkin CODE" — organizer marks a
+  // reservation as attended (door check-in) by its short code.
+  const presentMatch = cmd.match(/^(?:present|présent|checkin|check-in|pointer)\s+([a-z0-9]{4,6})$/i)
+  if (presentMatch) {
+    const code = presentMatch[1]
+    const match = await resolveReservationByCode(customer.id, code)
+    if (!match) {
+      await sendWhatsApp(from, pickLang(`❌ Réservation #${code.toUpperCase()} introuvable.`, `❌ Reservation #${code.toUpperCase()} not found.`, lang))
+      return ok()
+    }
+    const shown = match.reservation_code ?? code.toUpperCase()
+    if (match.reservation_status === 'cancelled' || match.reservation_status === 'rejected') {
+      await sendWhatsApp(from, pickLang(
+        `❌ Réservation #${shown} annulée — impossible de pointer.`,
+        `❌ Reservation #${shown} was cancelled — can't check in.`, lang))
+      return ok()
+    }
+    if (match.reservation_status === 'attended') {
+      await sendWhatsApp(from, pickLang(
+        `✅ #${shown} déjà pointé (${match.customer_name}).`,
+        `✅ #${shown} already checked in (${match.customer_name}).`, lang))
+      return ok()
+    }
+    await supabaseAdmin
+      .from('event_reservations')
+      .update({ reservation_status: 'attended', updated_at: new Date().toISOString() })
+      .eq('id', match.id)
+    const { writeAudit } = await import('@/lib/audit')
+    await writeAudit({
+      action:          'event_reservation_attended',
+      targetType:      'event_reservation',
+      targetId:        match.id,
+      performedBy:     customer.id,
+      performedByType: 'organizer',
+      previousData:    { reservation_status: match.reservation_status },
+      metadata:        { event_id: match.event_id, quantity: match.quantity, via: 'whatsapp' },
+    })
+    await sendWhatsApp(from, pickLang(
+      `🎉 *Présence enregistrée!*\n#${shown} — ${match.customer_name} (${match.quantity} place(s))`,
+      `🎉 *Checked in!*\n#${shown} — ${match.customer_name} (${match.quantity} spot(s))`, lang))
+    return ok()
+  }
+
+  // "reservation CODE" (singular) — organizer looks up one reservation's
+  // details by its short code. (Plural "reservations XXXX" lists an event.)
+  const reservLookupMatch = cmd.match(/^reservation\s+([a-z0-9]{4,6})$/i)
+  if (reservLookupMatch) {
+    const code = reservLookupMatch[1]
+    const match = await resolveReservationByCode(customer.id, code)
+    if (!match) {
+      await sendWhatsApp(from, pickLang(`❌ Réservation #${code.toUpperCase()} introuvable.`, `❌ Reservation #${code.toUpperCase()} not found.`, lang))
+      return ok()
+    }
+    const shown = match.reservation_code ?? code.toUpperCase()
+    const done = ['attended', 'cancelled', 'rejected'].includes(match.reservation_status)
+    const statLabel = match.reservation_status === 'attended' ? pickLang('🎉 Présent', '🎉 Attended', lang)
+      : match.reservation_status === 'cancelled' ? pickLang('❌ Annulée', '❌ Cancelled', lang)
+      : match.reservation_status === 'rejected' ? pickLang('❌ Refusée', '❌ Rejected', lang)
+      : match.reservation_status === 'pending' ? pickLang('⏳ En attente', '⏳ Pending', lang)
+      : pickLang('✅ Confirmée', '✅ Confirmed', lang)
+    await sendWhatsApp(from, [
+      pickLang(`🎟 *Réservation #${shown}*`, `🎟 *Reservation #${shown}*`, lang),
+      `🎉 ${match.events?.title ?? ''}`,
+      `👤 ${match.customer_name}`,
+      `📱 ${match.customer_phone}`,
+      `🎫 ${match.quantity} ${pickLang('place(s)', 'spot(s)', lang)}`,
+      statLabel,
+      done ? '' : pickLang(`Envoyez "present ${shown}" pour pointer.`, `Send "present ${shown}" to check in.`, lang),
+    ].filter(Boolean).join('\n'))
     return ok()
   }
 
@@ -1616,6 +1716,7 @@ export async function handleEventSession(
       await sendWhatsApp(from, pickLang('❌ Complet.', '❌ Sold out.', lang))
       return ok()
     }
+    const reservationCode = await generateReservationCode()
     const { data: reservation, error: insErr } = await supabaseAdmin
       .from('event_reservations')
       .insert({
@@ -1628,7 +1729,8 @@ export async function handleEventSession(
         commission_amount:  commissionAmount,
         payment_status:     'pending',
         reservation_status: 'confirmed',
-      }).select('id').single()
+        reservation_code:   reservationCode,
+      }).select('id, reservation_code').single()
     if (insErr || !reservation) {
       await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
       return ok()
@@ -1779,6 +1881,7 @@ async function confirmEventReservationWhatsapp(opts: {
   sold: number; ticketPrice: number; lang: Lang
 }): Promise<NextResponse> {
   const { from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang } = opts
+  const reservationCode = await generateReservationCode()
   const { data: reservation, error: insErr } = await supabaseAdmin
     .from('event_reservations')
     .insert({
@@ -1791,8 +1894,9 @@ async function confirmEventReservationWhatsapp(opts: {
       commission_amount:  commissionAmount,
       payment_status:     'not_required',
       reservation_status: 'confirmed',
+      reservation_code:   reservationCode,
     })
-    .select('id').single()
+    .select('id, reservation_code').single()
   if (insErr || !reservation) {
     await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
     return ok()
@@ -1824,10 +1928,11 @@ async function confirmEventReservationWhatsapp(opts: {
     `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
     event.venue ? `📍 ${event.venue}` : '',
     pickLang(`🎟 ${q} place(s)`, `🎟 ${q} spot(s)`, lang),
+    pickLang(`🎫 Code de réservation: *#${reservationCode}*`, `🎫 Reservation code: *#${reservationCode}*`, lang),
     payLine,
   ].filter(Boolean).join('\n'))
 
-  await pingOrganizer(event, customer, q, totalPrice, dateStr)
+  await pingOrganizer(event, customer, q, totalPrice, dateStr, reservationCode)
   return ok()
 }
 
@@ -1934,6 +2039,7 @@ async function pingOrganizer(
   quantity: number,
   total:    number,
   dateStr:  string,
+  reservationCode?: string,
 ): Promise<void> {
   let organizerPhone: string | null = null
   if (event.organizer_id) {
@@ -1944,7 +2050,9 @@ async function pingOrganizer(
   if (!organizerPhone) return
   const orgLang = await getLangByPhone(organizerPhone)
   await sendWhatsApp(organizerPhone, [
-    pickLang(`🔔 *Nouvelle réservation!*`, `🔔 *New reservation!*`, orgLang),
+    reservationCode
+      ? pickLang(`🔔 *Nouvelle réservation!* — #${reservationCode}`, `🔔 *New reservation!* — #${reservationCode}`, orgLang)
+      : pickLang(`🔔 *Nouvelle réservation!*`, `🔔 *New reservation!*`, orgLang),
     ``,
     `🎉 ${event.title}`,
     `📅 ${dateStr}`,

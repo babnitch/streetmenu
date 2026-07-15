@@ -169,6 +169,7 @@ export interface EventReservation {
   payment_id:         string | null
   payment_method:     string | null
   reservation_status: 'pending' | 'confirmed' | 'cancelled' | 'attended' | 'rejected'
+  reservation_code:   string | null   // short check-in code, e.g. "A3F7"
   created_at:         string
   updated_at:         string
   // Joined view when /api/customer/reservations or admin queries include it

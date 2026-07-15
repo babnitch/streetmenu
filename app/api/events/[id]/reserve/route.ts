@@ -5,6 +5,7 @@ import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canReserve, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
+import { generateReservationCodes } from '@/lib/reservationCode'
 
 export const dynamic = 'force-dynamic'
 
@@ -186,7 +187,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 409 })
   }
 
-  const insertPayload = rowsToInsert.map(r => ({
+  // One unique short code per inserted row (customers quote it; organizers
+  // check people in by it). Multi-tier bookings insert several rows, each
+  // with its own code.
+  const codes = await generateReservationCodes(rowsToInsert.length)
+  const insertPayload = rowsToInsert.map((r, idx) => ({
     event_id:           event.id,
     customer_id:        customerId,
     customer_name:      custName,
@@ -196,6 +201,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     commission_amount:  r.commission_amount,
     payment_status:     'not_required',
     reservation_status: initialStatus,
+    reservation_code:   codes[idx],
     tier_id:            r.tier_id,
     tier_name:          r.tier_name,
     tier_price:         r.tier_price,
@@ -204,7 +210,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from('event_reservations')
     .insert(insertPayload)
-    .select('id, quantity, total_price, tier_id, tier_name')
+    .select('id, quantity, total_price, tier_id, tier_name, reservation_code')
   if (insErr || !inserted || inserted.length === 0) {
     console.error('[events/reserve] insert failed:', insErr?.message)
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
@@ -252,6 +258,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ? inserted.map(r => `🎟 ${r.tier_name} × ${r.quantity}${r.total_price > 0 ? ` — ${Number(r.total_price).toLocaleString()} FCFA` : ''}`)
     : [pickLang(`🎟 ${totalQuantity} place(s)`, `🎟 ${totalQuantity} ticket(s)`, lang)]
 
+  // Primary reservation code (shown prominently). Multi-tier bookings list
+  // all their codes; the common single-row case shows just one.
+  const primaryCode = inserted[0].reservation_code as string
+  const codeLineFor = (lang: 'fr' | 'en') => inserted.length > 1
+    ? pickLang(
+        `🎟 Codes de réservation: ${inserted.map(r => `#${r.reservation_code}`).join(', ')}`,
+        `🎟 Reservation codes: ${inserted.map(r => `#${r.reservation_code}`).join(', ')}`,
+        lang,
+      )
+    : pickLang(`🎟 Code de réservation: *#${primaryCode}*`, `🎟 Reservation code: *#${primaryCode}*`, lang)
+
   const custLang = await getLangByPhone(custPhone)
   const dateStr = new Date(event.date).toLocaleDateString(custLang === 'en' ? 'en-GB' : 'fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
@@ -277,6 +294,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
     event.venue ? `📍 ${event.venue}` : '',
     ...tierLinesFor(custLang),
+    codeLineFor(custLang),
     priceLine,
   ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] customer ping failed:', (e as Error).message))
 
@@ -293,14 +311,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const orgDateStr = new Date(event.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', {
       day: '2-digit', month: 'long', year: 'numeric',
     })
-    const id4 = inserted[0].id.replace(/-/g, '').slice(-4).toUpperCase()
     const organizerHeader = needsApproval
       ? pickLang(
-          `📋 *Nouvelle réservation en attente*\nID #${id4} — répondez "confirmer reservation ${id4}" ou "rejeter reservation ${id4}".`,
-          `📋 *New reservation pending*\nID #${id4} — reply "confirmer reservation ${id4}" or "rejeter reservation ${id4}".`,
+          `📋 *Nouvelle réservation en attente*\nCode #${primaryCode} — répondez "confirmer reservation ${primaryCode}" ou "rejeter reservation ${primaryCode}".`,
+          `📋 *New reservation pending*\nCode #${primaryCode} — reply "confirmer reservation ${primaryCode}" or "rejeter reservation ${primaryCode}".`,
           orgLang,
         )
-      : pickLang(`🎟 *Nouvelle réservation*`, `🎟 *New reservation*`, orgLang)
+      : pickLang(`🎟 *Nouvelle réservation* — #${primaryCode}`, `🎟 *New reservation* — #${primaryCode}`, orgLang)
     await sendWhatsApp(organizerPhone, [
       organizerHeader,
       ``,
@@ -309,15 +326,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `👤 ${custName}`,
       `📱 ${custPhone}`,
       ...tierLinesFor(orgLang),
+      codeLineFor(orgLang),
       totalPrice > 0 ? `💰 ${totalPrice.toLocaleString()} FCFA` : '',
     ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] organizer ping failed:', (e as Error).message))
   }
 
   return NextResponse.json({
     ok: true,
-    reservation_id:  inserted[0].id,
-    reservation_ids: inserted.map(r => r.id),
-    quantity:        totalQuantity,
-    total_price:     totalPrice,
+    reservation_id:    inserted[0].id,
+    reservation_ids:   inserted.map(r => r.id),
+    reservation_code:  primaryCode,
+    reservation_codes: inserted.map(r => r.reservation_code),
+    quantity:          totalQuantity,
+    total_price:       totalPrice,
   })
 }

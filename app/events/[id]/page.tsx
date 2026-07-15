@@ -63,6 +63,7 @@ export default function EventDetailPage() {
   const [submitting, setSubmitting] = useState(false)
   const [reserveError, setReserveError] = useState('')
   const [reservationId, setReservationId] = useState<string | null>(null)
+  const [reservationCode, setReservationCode] = useState<string | null>(null)
   // Which path the open modal is running: true = pay online, false = reserve.
   // Set when the customer taps the Pay vs Reserve button (mode 'both' offers
   // both); replaces the old event.payment_enabled branch inside the modal.
@@ -188,6 +189,7 @@ export default function EventDetailPage() {
     setQuantity(1)
     setReserveError('')
     setReservationId(null)
+    setReservationCode(null)
     setGuestName('')
     setGuestPhone('')
     setMomoPhone('')
@@ -259,6 +261,7 @@ export default function EventDetailPage() {
         return
       }
       setReservationId(data.reservation_id)
+      setReservationCode(data.reservation_code ?? null)
       setActiveDepositId(data.depositId)
       setPayPhase('waiting')
       startPolling(data.depositId)
@@ -291,6 +294,7 @@ export default function EventDetailPage() {
         return
       }
       setReservationId(data.reservation_id)
+      setReservationCode(data.reservation_code ?? null)
       // Re-fetch event so the remaining counter reflects the new sale.
       const { data: refreshed } = await supabase.from('events').select('*').eq('id', event!.id).single()
       if (refreshed) setEvent(refreshed)
@@ -549,6 +553,19 @@ export default function EventDetailPage() {
                 <p className="text-sm text-ink-secondary mb-4">
                   {bi('Un message WhatsApp vient de partir.', 'A WhatsApp message just went out.')}
                 </p>
+                {reservationCode && (
+                  <div className="mb-4 rounded-2xl bg-brand-light border border-brand-badge px-4 py-3">
+                    <p className="text-xs text-brand-darker font-semibold">
+                      {bi('Votre code de réservation', 'Your reservation code')}
+                    </p>
+                    <p className="text-2xl font-bold font-mono tracking-widest text-ink-primary mt-0.5">
+                      #{reservationCode}
+                    </p>
+                    <p className="text-[11px] text-ink-tertiary mt-1">
+                      {bi('Présentez ce code à l\'entrée.', 'Show this code at the entrance.')}
+                    </p>
+                  </div>
+                )}
                 <Link
                   href="/account?tab=orders"
                   className="block w-full bg-brand hover:bg-brand-dark text-white py-2.5 rounded-full text-sm font-semibold transition-colors"
@@ -588,7 +605,7 @@ export default function EventDetailPage() {
                 </h3>
                 {reserveError && <p className="text-xs text-danger mt-2 mb-4">{reserveError}</p>}
                 <button
-                  onClick={() => { setPayPhase('idle'); setReserveError(''); setActiveDepositId(null); setReservationId(null) }}
+                  onClick={() => { setPayPhase('idle'); setReserveError(''); setActiveDepositId(null); setReservationId(null); setReservationCode(null) }}
                   className="w-full bg-brand hover:bg-brand-dark text-white py-2.5 rounded-full text-sm font-semibold transition-colors mb-2"
                 >
                   {bi('Réessayer', 'Try again')}
