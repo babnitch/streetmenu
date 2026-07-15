@@ -308,6 +308,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (organizerPhone) {
     const orgLang = await getLangByPhone(organizerPhone)
+    console.log('[notify] customer phone=%s lang=%s, organizer phone=%s lang=%s',
+      custPhone, custLang, organizerPhone, orgLang)
     const orgDateStr = new Date(event.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', {
       day: '2-digit', month: 'long', year: 'numeric',
     })

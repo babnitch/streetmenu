@@ -28,6 +28,18 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   function setLocale(l: Locale) {
     setLocaleState(l)
     try { localStorage.setItem('sm_locale', l) } catch {}
+    // Persist to the customer's account so WhatsApp notifications
+    // (which read customers.preferred_language) match the site language.
+    // Best-effort + fire-and-forget: a 401 for guests/admins is expected
+    // and ignored.
+    try {
+      fetch('/api/customer/language', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: l }),
+        keepalive: true,
+      }).catch(() => {})
+    } catch {}
   }
 
   function t(key: TranslationKey): string {
