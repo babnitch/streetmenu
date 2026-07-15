@@ -7,6 +7,7 @@ import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
+import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, city, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, reservations_open')
+    .select('id, title, date, time, venue, city, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, reservations_open')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -173,8 +174,34 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       await supabaseAdmin.from('event_ticket_tiers')
         .update({ sold_count: tier.sold_count + quantity, updated_at: new Date().toISOString() }).eq('id', tier.id)
     }
-    if (appliedVoucher) await consumeVoucherForReservation(appliedVoucher.id, customerId)
+    if (appliedVoucher) {
+      try { await consumeVoucherForReservation(appliedVoucher.id, customerId) }
+      catch (e) { console.error('[events/pay] voucher error:', (e as Error).message) }
+    }
     console.log('[events/pay] voucher %s → free reservation (-%d FCFA)', appliedVoucher?.code, discountAmount)
+
+    // Confirm to the customer — unlike the paid path, no deposit webhook will
+    // fire, so this branch must send the confirmation itself.
+    if (custPhone) {
+      const lang = await getLangByPhone(custPhone)
+      const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', {
+        day: '2-digit', month: 'long', year: 'numeric',
+      })
+      console.log('[reserve] sending WhatsApp to customer:', custPhone)
+      await sendWhatsApp(custPhone, [
+        pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, lang),
+        ``,
+        `🎉 ${event.title}`,
+        `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+        event.venue ? `📍 ${event.venue}` : '',
+        pickLang(`🎟 ${quantity} place(s)`, `🎟 ${quantity} ticket(s)`, lang),
+        pickLang(`🎫 Code de réservation: *#${freeRes.reservation_code}*`, `🎫 Reservation code: *#${freeRes.reservation_code}*`, lang),
+        appliedVoucher ? pickLang(`🎫 Code ${appliedVoucher.code}: -${discountAmount.toLocaleString()} FCFA (gratuit!)`, `🎫 Code ${appliedVoucher.code}: -${discountAmount.toLocaleString()} FCFA (free!)`, lang) : '',
+      ].filter(Boolean).join('\n'))
+        .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
+        .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
+    }
+
     return NextResponse.json({
       ok: true, reservation_id: freeRes.id, reservation_code: freeRes.reservation_code,
       free_after_discount: true, original_price: totalPrice, discount_amount: discountAmount, total_price: 0,

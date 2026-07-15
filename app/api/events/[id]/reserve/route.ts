@@ -249,6 +249,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     console.error('[events/reserve] insert failed:', insErr?.message)
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
   }
+  console.log('[reserve] reservation created:', inserted[0].id)
 
   // Bump global tickets_sold + per-tier sold_count by the RESERVED QUANTITY
   // (not +1). Race-window same as the legacy code — acceptable at this scale.
@@ -268,11 +269,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .eq('id', row.id)
   }
 
-  // Consume the voucher once the reservation is committed — increments uses +
-  // marks the customer's claim used. Best-effort (never throws).
+  // Consume the voucher once the reservation is committed. Isolated in its own
+  // try/catch so a consumption failure can NEVER block the confirmation ping
+  // below — the reservation already exists and must be acknowledged.
   if (appliedVoucher) {
-    await consumeVoucherForReservation(appliedVoucher.id, customerId)
-    console.log('[events/reserve] voucher %s applied: -%d FCFA (%d → %d)', appliedVoucher.code, discountTotal, totalPrice, finalTotal)
+    try {
+      await consumeVoucherForReservation(appliedVoucher.id, customerId)
+      console.log('[reserve] voucher consumed: %s (-%d FCFA, %d → %d)', appliedVoucher.code, discountTotal, totalPrice, finalTotal)
+    } catch (e) {
+      console.error('[reserve] voucher error:', (e as Error).message)
+    }
   }
 
   await writeAudit({
@@ -339,6 +345,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         custLang,
       )
     : pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, custLang)
+  console.log('[reserve] sending WhatsApp to customer:', custPhone)
   await sendWhatsApp(custPhone, [
     customerHeader,
     ``,
@@ -349,7 +356,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     codeLineFor(custLang),
     discountLineFor(custLang),
     priceLine,
-  ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] customer ping failed:', (e as Error).message))
+  ].filter(Boolean).join('\n'))
+    .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
+    .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
 
   let organizerPhone: string | null = null
   if (event.organizer_id) {
