@@ -9,11 +9,15 @@ import { useMode, type DashboardTab } from '@/lib/modeContext'
 // Mobile-only fixed bottom tab bar. Two variants:
 //
 // - Client mode:      🏠 Home · 🎉 Events · 📦 Orders · 👤 Account
-// - Restaurant mode:  📦 Orders · 🍽️ Menu (manager+) · 🎫 Vouchers · 👤 Account
+// - Restaurant mode:  📦 Orders · 🍽️ Menu (mgr+) · 🎫 Vouchers (mgr+) · 🎉 Events · 👤 Account
 //
-// Team + Settings were removed from the restaurant bar — they now live
-// inside the Account page so the bar stays at 4 tabs on the smallest
-// phones. Hidden at md+ (≥768px) — the TopNav takes over there.
+// Team + Settings live inside the Account page so the bar stays lean.
+// Events shows in BOTH modes — a restaurant owner is also an event publisher,
+// so they must always be one tap from /events. Vouchers is kept in the bar
+// (not dropped for Events) because on mobile the BottomNav is the ONLY way to
+// reach the dashboard Vouchers tab — the TopNav is md+ only. That puts
+// owner/manager at 5 tabs, still legible on a 375px screen. Hidden at md+
+// (≥768px) — the TopNav takes over there.
 
 interface TabSpec {
   /** Route navigated to when the tab is tapped. For dashboard tabs this
@@ -157,6 +161,11 @@ export default function BottomNav() {
         match: (p: string) => p.startsWith('/dashboard') && (dashTab === 'vouchers' || dashTab === 'validate'),
         onClick: () => goToDashTab('vouchers') }
     ] : []),
+    // Events — always present in restaurant mode too, since owners publish
+    // events. Plain route-nav to /events (not a dashboard tab, and NOT
+    // /account?tab=events), so it lands on the public events browse page.
+    { href: '/events', icon: '🎉', label: bi('Événements', 'Events'),
+      match: p => p.startsWith('/events') },
     { href: '/account',                icon: '👤', label: bi('Compte', 'Account'),
       match: p => p === '/account' },
   ]
