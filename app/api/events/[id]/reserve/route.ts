@@ -314,7 +314,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const organizerHeader = needsApproval
       ? pickLang(
           `📋 *Nouvelle réservation en attente*\nCode #${primaryCode} — répondez "confirmer reservation ${primaryCode}" ou "rejeter reservation ${primaryCode}".`,
-          `📋 *New reservation pending*\nCode #${primaryCode} — reply "confirmer reservation ${primaryCode}" or "rejeter reservation ${primaryCode}".`,
+          `📋 *New reservation pending*\nCode #${primaryCode} — reply "confirm reservation ${primaryCode}" or "reject reservation ${primaryCode}".`,
           orgLang,
         )
       : pickLang(`🎟 *Nouvelle réservation* — #${primaryCode}`, `🎟 *New reservation* — #${primaryCode}`, orgLang)

@@ -130,7 +130,8 @@ export async function notifyPaidReservation(
 
   const total   = Number(r.total_price ?? 0)
   const id4     = r.reservation_code ?? r.id.replace(/-/g, '').slice(-4).toUpperCase()
-  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
+  // Format the date in each recipient's language (customer vs organizer).
+  const fmtDate = (l: string) => new Date(event.date).toLocaleDateString(l === 'en' ? 'en-GB' : 'fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
   const mno = correspondent ? mnoLabel(correspondent) : 'mobile money'
@@ -145,7 +146,7 @@ export async function notifyPaidReservation(
       pickLang(`🎟 *Réservation payée!*`, `🎟 *Reservation paid!*`, lang),
       ``,
       `🎉 ${event.title}`,
-      `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+      `📅 ${fmtDate(lang)}${event.time ? ` · ${event.time}` : ''}`,
       event.venue ? `📍 ${event.venue}` : '',
       pickLang(
         `🎟 ${r.quantity} place(s)`,
@@ -186,7 +187,7 @@ export async function notifyPaidReservation(
     ``,
     pickLang(`🎟 Réservation #${id4}`, `🎟 Reservation #${id4}`, orgLang),
     `🎉 ${event.title}`,
-    `📅 ${dateStr}`,
+    `📅 ${fmtDate(orgLang)}`,
     `👤 ${r.customer_name}`,
     `📱 ${r.customer_phone}`,
     pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),

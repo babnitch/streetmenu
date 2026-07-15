@@ -82,7 +82,9 @@ export async function POST(
   // Notify the other party. Customer self-cancel → ping organizer; organizer
   // or admin cancel → ping customer. The cancelling party gets a 200 instead
   // of a redundant message.
-  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
+  // Each recipient's date is formatted in THEIR language below (organizer vs
+  // customer) — not a single shared locale.
+  const fmtDate = (l: string) => new Date(event.date).toLocaleDateString(l === 'en' ? 'en-GB' : 'fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
   const codeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
@@ -104,7 +106,7 @@ export async function POST(
         pickLang(`❌ *Réservation${codeStr} annulée*`, `❌ *Reservation${codeStr} cancelled*`, orgLang),
         ``,
         `🎉 ${event.title}`,
-        `📅 ${dateStr}`,
+        `📅 ${fmtDate(orgLang)}`,
         `👤 ${r.customer_name}`,
         `📱 ${r.customer_phone}`,
         pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
@@ -128,7 +130,7 @@ export async function POST(
           `❌ *Your reservation${codeStr} for ${event.title} has been cancelled.*`,
           custLang,
         ),
-        `📅 ${dateStr}`,
+        `📅 ${fmtDate(custLang)}`,
         pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, custLang),
         reason ? `📝 ${reason}` : '',
         refundLine,
