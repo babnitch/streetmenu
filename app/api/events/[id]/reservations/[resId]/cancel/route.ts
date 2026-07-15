@@ -25,7 +25,7 @@ export async function POST(
 
   const { data: r } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price')
+    .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price, reservation_code')
     .eq('id', params.resId).eq('event_id', params.id).maybeSingle()
   if (!r) return NextResponse.json({ error: 'Réservation introuvable / Reservation not found' }, { status: 404 })
   if (r.reservation_status === 'cancelled') {
@@ -85,6 +85,7 @@ export async function POST(
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
+  const codeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
   if (isOwner) {
     let organizerPhone: string | null = null
     if (event.organizer_id) {
@@ -100,7 +101,7 @@ export async function POST(
     if (organizerPhone) {
       const orgLang = await getLangByPhone(organizerPhone)
       await sendWhatsApp(organizerPhone, [
-        pickLang(`❌ *Réservation annulée*`, `❌ *Reservation cancelled*`, orgLang),
+        pickLang(`❌ *Réservation${codeStr} annulée*`, `❌ *Reservation${codeStr} cancelled*`, orgLang),
         ``,
         `🎉 ${event.title}`,
         `📅 ${dateStr}`,
@@ -122,9 +123,11 @@ export async function POST(
           )
         : ''
       await sendWhatsApp(r.customer_phone, [
-        pickLang(`❌ *Réservation annulée*`, `❌ *Reservation cancelled*`, custLang),
-        ``,
-        `🎉 ${event.title}`,
+        pickLang(
+          `❌ *Votre réservation${codeStr} pour ${event.title} a été annulée.*`,
+          `❌ *Your reservation${codeStr} for ${event.title} has been cancelled.*`,
+          custLang,
+        ),
         `📅 ${dateStr}`,
         pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, custLang),
         reason ? `📝 ${reason}` : '',

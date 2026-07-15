@@ -854,7 +854,7 @@ export async function handleOrderCommand(
     // organizer ping reuses sendWhatsApp.
     const { data: r } = await supabaseAdmin
       .from('event_reservations')
-      .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price')
+      .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price, reservation_code')
       .eq('id', resvId).maybeSingle()
     if (!r || r.customer_id !== customer.id) {
       await sendWhatsApp(from, pickLang(`❌ Réservation introuvable.`, `❌ Reservation not found.`, lang))
@@ -889,6 +889,7 @@ export async function handleOrderCommand(
       metadata:        { event_id: ev.id, quantity: r.quantity, needs_refund: r.payment_status === 'paid', via: 'whatsapp' },
     })
 
+    const cancelCodeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
     const refundLine = r.payment_status === 'paid'
       ? '\n' + pickLang(
           `⚠️ Cette réservation a été payée. Contactez l'organisateur pour un remboursement.`,
@@ -896,7 +897,7 @@ export async function handleOrderCommand(
           lang,
         )
       : ''
-    await sendWhatsApp(from, `${pickLang('✅ Réservation annulée.', '✅ Reservation cancelled.', lang)}${refundLine}`)
+    await sendWhatsApp(from, `${pickLang(`✅ Réservation${cancelCodeStr} annulée.`, `✅ Reservation${cancelCodeStr} cancelled.`, lang)}${refundLine}`)
 
     // Organizer ping — reuse the customer-cancel pathway from the API.
     let organizerPhone: string | null = null
@@ -909,7 +910,7 @@ export async function handleOrderCommand(
       const orgLang = await getLangByPhone(organizerPhone)
       const dateStr = new Date(ev.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
       await sendWhatsApp(organizerPhone, [
-        pickLang(`❌ *Réservation annulée*`, `❌ *Reservation cancelled*`, orgLang),
+        pickLang(`❌ *Réservation${cancelCodeStr} annulée*`, `❌ *Reservation${cancelCodeStr} cancelled*`, orgLang),
         ``,
         `🎉 ${ev.title}`,
         `📅 ${dateStr}`,
@@ -1278,14 +1279,16 @@ export async function handleOrderCommand(
         })
         if (r.customer_phone) {
           const custLang = await getLangByPhone(r.customer_phone)
+          const codeStr = match.reservation_code ? ` #${match.reservation_code}` : ''
           await sendWhatsApp(r.customer_phone, pickLang(
-            `❌ *Votre réservation a été refusée*\n🎉 ${ev?.title ?? ''}`,
-            `❌ *Your reservation was declined*\n🎉 ${ev?.title ?? ''}`,
+            `❌ *Votre réservation${codeStr} pour ${ev?.title ?? ''} a été refusée.*`,
+            `❌ *Your reservation${codeStr} for ${ev?.title ?? ''} has been declined.*`,
             custLang,
           )).catch(() => null)
         }
       }
-      await sendWhatsApp(from, pickLang(`❌ Réservation #${code4.toUpperCase()} rejetée.`, `❌ Reservation #${code4.toUpperCase()} rejected.`, lang))
+      const shownRejectCode = match.reservation_code ?? code4.toUpperCase()
+      await sendWhatsApp(from, pickLang(`❌ Réservation #${shownRejectCode} rejetée.`, `❌ Reservation #${shownRejectCode} rejected.`, lang))
     }
     return ok()
   }

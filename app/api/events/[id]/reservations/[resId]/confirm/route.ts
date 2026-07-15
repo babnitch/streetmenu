@@ -56,14 +56,16 @@ export async function POST(
     const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', {
       day: '2-digit', month: 'long', year: 'numeric',
     })
+    const codeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
     await sendWhatsApp(r.customer_phone, [
-      pickLang(`✅ *Votre réservation est confirmée!*`, `✅ *Your reservation is confirmed!*`, lang),
-      ``,
-      `🎉 ${event.title}`,
+      pickLang(
+        `✅ *Votre réservation${codeStr} pour ${event.title} est confirmée!*`,
+        `✅ *Your reservation${codeStr} for ${event.title} is confirmed!*`,
+        lang,
+      ),
       `📅 ${dateStr}`,
       event.venue ? `📍 ${event.venue}` : '',
       pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, lang),
-      r.reservation_code ? pickLang(`🎫 Code: *#${r.reservation_code}*`, `🎫 Code: *#${r.reservation_code}*`, lang) : '',
     ].filter(Boolean).join('\n')).catch(() => null)
   }
 

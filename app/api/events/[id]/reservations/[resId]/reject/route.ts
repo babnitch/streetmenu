@@ -33,7 +33,7 @@ export async function POST(
 
   const { data: r } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, event_id, customer_phone, customer_name, quantity, reservation_status, payment_status')
+    .select('id, event_id, customer_phone, customer_name, quantity, reservation_status, payment_status, reservation_code')
     .eq('id', params.resId)
     .eq('event_id', params.id)
     .maybeSingle()
@@ -69,11 +69,14 @@ export async function POST(
 
   if (r.customer_phone) {
     const lang = await getLangByPhone(r.customer_phone)
+    const codeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
     await sendWhatsApp(r.customer_phone, [
-      pickLang(`❌ *Votre réservation a été refusée*`, `❌ *Your reservation was declined*`, lang),
-      ``,
-      `🎉 ${event.title}`,
-      reason ? `📝 ${reason}` : '',
+      pickLang(
+        `❌ *Votre réservation${codeStr} pour ${event.title} a été refusée.*`,
+        `❌ *Your reservation${codeStr} for ${event.title} has been declined.*`,
+        lang,
+      ),
+      reason ? `\n📝 ${reason}` : '',
       r.payment_status === 'paid'
         ? pickLang(
             `💰 Le remboursement sera traité par l'organisateur.`,
