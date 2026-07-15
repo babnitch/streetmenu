@@ -6,6 +6,7 @@ import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawap
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
+import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 
 export const dynamic = 'force-dynamic'
 
@@ -132,7 +133,53 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const totalPrice = ticketPrice * quantity
   const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
-  const commissionAmount = Math.round(totalPrice * commissionRate)
+
+  // ── Promo code / voucher ───────────────────────────────────────────────────
+  // Validated against THIS event; discount reduces the charged amount and
+  // commission is recomputed off the discounted total.
+  const voucherInput = typeof body.voucher_code === 'string' ? body.voucher_code.trim() : ''
+  let appliedVoucher: { id: string; code: string } | null = null
+  let discountAmount = 0
+  if (voucherInput && totalPrice > 0) {
+    const vres = await validateVoucher(voucherInput, { customerId, eventId: event.id, orderTotal: totalPrice })
+    if (!vres.ok) {
+      return NextResponse.json({ error: vres.message, voucher_rejected: vres.reason }, { status: 422 })
+    }
+    appliedVoucher = { id: vres.voucher.id, code: vres.voucher.code }
+    discountAmount = vres.discount
+  }
+  const finalTotal = Math.max(0, totalPrice - discountAmount)
+  const commissionAmount = finalTotal > 0 ? Math.round(finalTotal * commissionRate) : 0
+
+  // A 100%-off voucher makes the ticket free — PawaPay can't take a 0 deposit,
+  // so confirm it as a free reservation and skip the payment step entirely.
+  if (finalTotal <= 0) {
+    const freeCode = await generateReservationCode()
+    const { data: freeRes, error: freeErr } = await supabaseAdmin
+      .from('event_reservations')
+      .insert({
+        event_id: event.id, customer_id: customerId, customer_name: custName, customer_phone: custPhone,
+        quantity, total_price: 0, commission_amount: 0,
+        discount_amount: discountAmount, voucher_code: appliedVoucher?.code ?? null,
+        payment_status: 'not_required', reservation_status: 'confirmed', reservation_code: freeCode,
+        tier_id: tier?.id ?? null, tier_name: tier?.name ?? null, tier_price: tier?.price ?? null,
+      })
+      .select('id, reservation_code').single()
+    if (freeErr || !freeRes) {
+      return NextResponse.json({ error: freeErr?.message ?? 'Erreur / Error' }, { status: 500 })
+    }
+    await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
+    if (tier) {
+      await supabaseAdmin.from('event_ticket_tiers')
+        .update({ sold_count: tier.sold_count + quantity, updated_at: new Date().toISOString() }).eq('id', tier.id)
+    }
+    if (appliedVoucher) await consumeVoucherForReservation(appliedVoucher.id, customerId)
+    console.log('[events/pay] voucher %s → free reservation (-%d FCFA)', appliedVoucher?.code, discountAmount)
+    return NextResponse.json({
+      ok: true, reservation_id: freeRes.id, reservation_code: freeRes.reservation_code,
+      free_after_discount: true, original_price: totalPrice, discount_amount: discountAmount, total_price: 0,
+    })
+  }
 
   // Pending reservation FIRST so we have an id to thread into PawaPay's
   // statementDescription. Bump tickets_sold under the same write so concurrent
@@ -146,8 +193,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       customer_name:      custName,
       customer_phone:     custPhone,
       quantity,
-      total_price:        totalPrice,
+      total_price:        finalTotal,
       commission_amount:  commissionAmount,
+      discount_amount:    discountAmount,
+      voucher_code:       appliedVoucher?.code ?? null,
       payment_status:     'pending',
       reservation_status: 'confirmed',
       reservation_code:   reservationCode,
@@ -183,7 +232,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let depositResult
   try {
     depositResult = await createDeposit({
-      amount:      totalPrice,
+      amount:      finalTotal,
       currency:    mno.currency,
       phoneNumber,
       orderId:     reservation.id,
@@ -203,6 +252,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
     .eq('id', reservation.id)
 
+  // Consume the voucher now that payment is under way — mirrors the restaurant
+  // order flow (consume at creation, not at settlement).
+  if (appliedVoucher) {
+    await consumeVoucherForReservation(appliedVoucher.id, customerId)
+    console.log('[events/pay] voucher %s applied: -%d FCFA (%d → %d)', appliedVoucher.code, discountAmount, totalPrice, finalTotal)
+  }
+
   await writeAudit({
     action:          'event_payment_initiated',
     targetType:      'event_reservation',
@@ -213,7 +269,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       event_id:      event.id,
       deposit_id:    depositResult.depositId,
       correspondent: depositResult.correspondent,
-      amount:        totalPrice,
+      amount:        finalTotal,
+      original_price: totalPrice,
+      voucher_code:  appliedVoucher?.code ?? null,
+      discount_amount: discountAmount,
       currency:      mno.currency,
       quantity,
     },
@@ -228,6 +287,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     mno:            depositResult.correspondent,
     mnoLabel:       mnoLabel(depositResult.correspondent),
     currency:       mno.currency,
-    amount:         totalPrice,
+    amount:         finalTotal,
+    original_price: totalPrice,
+    discount_amount: discountAmount,
+    voucher_code:   appliedVoucher?.code ?? null,
   })
 }

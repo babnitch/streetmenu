@@ -17,6 +17,7 @@ export interface VoucherRow {
   expires_at:       string | null
   city:             string | null
   restaurant_id:    string | null
+  event_id?:        string | null   // optional until event-vouchers migration applied
 }
 
 // Per-customer cap that applies when the voucher row doesn't specify one
@@ -30,13 +31,15 @@ export type VoucherRejectReason =
   | 'expired'
   | 'exhausted'
   | 'wrong_restaurant'
+  | 'wrong_event'
   | 'wrong_city'
   | 'min_order'
   | 'per_customer_limit'
 
 export interface VoucherApplyContext {
   customerId?:   string | null   // logged-in customer placing the order
-  restaurantId?: string          // the order's restaurant
+  restaurantId?: string          // the order's restaurant (restaurant flow)
+  eventId?:      string          // the reservation's event (event flow)
   orderTotal:    number          // subtotal before discount (FCFA)
   city?:         string | null   // customer's city (restaurant_city for restaurant-scoped)
 }
@@ -80,6 +83,7 @@ const REJECT_MESSAGES: Record<VoucherRejectReason, string> = {
   expired:            'Code expiré / Code expired',
   exhausted:          'Code épuisé / Code fully used',
   wrong_restaurant:   'Ce code ne s\'applique pas à ce restaurant / Not valid for this restaurant',
+  wrong_event:        'Ce code ne s\'applique pas à cet événement / Not valid for this event',
   wrong_city:         'Ce code ne s\'applique pas dans votre ville / Not valid in your city',
   min_order:          'Montant minimum non atteint / Minimum order not met',
   per_customer_limit: 'Déjà utilisé / Already used',
@@ -105,7 +109,7 @@ export async function validateVoucher(
   // so this is defence-in-depth rather than the primary case-normaliser.
   const { data: v, error: lookupErr } = await supabaseAdmin
     .from('vouchers')
-    .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id, per_customer_max')
+    .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id, event_id, per_customer_max')
     .ilike('code', normalized)
     .maybeSingle()
   if (lookupErr) console.error('[vouchers] lookup error:', lookupErr.message)
@@ -125,10 +129,21 @@ export async function validateVoucher(
     if (status === 'exhausted') return reject('exhausted')
   }
 
-  // Restaurant scoping
+  // Restaurant scoping — a restaurant-scoped voucher only applies to that
+  // restaurant's orders (and never to an event reservation, where
+  // ctx.restaurantId is undefined).
   if (voucher.restaurant_id && voucher.restaurant_id !== ctx.restaurantId) {
     console.log(`[vouchers] validate: wrong_restaurant (voucher=${voucher.restaurant_id} order=${ctx.restaurantId})`)
     return reject('wrong_restaurant')
+  }
+
+  // Event scoping — an event-scoped voucher only applies to that event's
+  // reservations (and never to a restaurant order, where ctx.eventId is
+  // undefined). Vouchers with both restaurant_id and event_id NULL are
+  // platform-wide and skip both checks.
+  if (voucher.event_id && voucher.event_id !== ctx.eventId) {
+    console.log(`[vouchers] validate: wrong_event (voucher=${voucher.event_id} ctx=${ctx.eventId})`)
+    return reject('wrong_event')
   }
 
   // City scoping — if voucher is city-restricted, require either a matching
@@ -205,6 +220,37 @@ export async function assignWelcomeVoucher(customerId: string): Promise<void> {
     await supabaseAdmin.from('customer_vouchers').insert({ customer_id: customerId, voucher_id: voucher.id })
   } catch (e) {
     console.error('[vouchers] assignWelcomeVoucher failed:', (e as Error).message)
+  }
+}
+
+// Call after a successful event-reservation write. Same as
+// consumeVoucherForOrder but does NOT set customer_vouchers.order_id — that
+// column FKs to orders(id), so a reservation id can't go there. Increments
+// vouchers.current_uses and marks the customer's claim (if any) as used.
+// Never throws.
+export async function consumeVoucherForReservation(
+  voucherId:  string,
+  customerId: string | null,
+): Promise<void> {
+  try {
+    const { data: v } = await supabaseAdmin.from('vouchers')
+      .select('current_uses').eq('id', voucherId).maybeSingle()
+    const next = (v?.current_uses ?? 0) + 1
+    await supabaseAdmin.from('vouchers').update({ current_uses: next, uses_count: next }).eq('id', voucherId)
+
+    if (customerId) {
+      const { data: claim } = await supabaseAdmin
+        .from('customer_vouchers')
+        .select('id').eq('customer_id', customerId).eq('voucher_id', voucherId)
+        .is('used_at', null).limit(1).maybeSingle()
+      if (claim) {
+        await supabaseAdmin.from('customer_vouchers')
+          .update({ used_at: new Date().toISOString(), used: true })
+          .eq('id', claim.id)
+      }
+    }
+  } catch (e) {
+    console.error('[vouchers] consumeForReservation failed for', voucherId, (e as Error).message)
   }
 }
 

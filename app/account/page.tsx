@@ -17,6 +17,7 @@ import NotificationsPanel from '@/components/NotificationsPanel'
 import BroadcastPanel from '@/components/BroadcastPanel'
 import PromotePanel from '@/components/PromotePanel'
 import EventTiersPanel from '@/components/EventTiersPanel'
+import EventVouchersPanel from '@/components/EventVouchersPanel'
 import PhoneInput from '@/components/PhoneInput'
 import { useDataMode } from '@/lib/dataMode'
 import { categoryLabel } from '@/lib/categoryLabels'
@@ -2286,6 +2287,9 @@ function MyEventsPanel({
             tiered pricing. Renders empty state when the event still
             uses the legacy single price. */}
         <EventTiersPanel eventId={selected.id} />
+
+        {/* Promo codes — organizer creates event-scoped vouchers. */}
+        <EventVouchersPanel eventId={selected.id} />
 
         {/* Event-level controls — reservations open/close, manual approval
             toggle, capacity bump. Each PATCH refreshes the parent so the

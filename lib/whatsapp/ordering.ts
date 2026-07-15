@@ -16,7 +16,7 @@ import {
   normalizeLang,
   type Lang,
 } from '@/lib/whatsapp'
-import { validateVoucher, consumeVoucherForOrder, isPercentDiscount } from '@/lib/vouchers'
+import { validateVoucher, consumeVoucherForOrder, consumeVoucherForReservation, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
 import { formatPrepTime } from '@/lib/prepTime'
 import { sendEventMessage } from '@/lib/directMessaging'
@@ -1649,7 +1649,21 @@ export async function handleEventSession(
     )
 
     if (effMode === 'reservation_only') {
-      // Free OR pay-at-door — insert the reservation immediately.
+      // Paid pay-at-door — offer a promo code before confirming. Free events
+      // have nothing to discount, so they confirm immediately.
+      if (totalPrice > 0) {
+        await supabaseAdmin.from('signup_sessions').upsert({
+          phone, user_type: 'event_reserve', step: 5,
+          data: { ...data, quantity: q, base_total: totalPrice, commission_rate: commissionRate },
+          expires_at: sessionExpiry(15),
+        })
+        await sendWhatsApp(from, pickLang(
+          `🎫 Entrez un code promo, ou envoyez *oui* pour confirmer.`,
+          `🎫 Enter a promo code, or send *yes* to confirm.`,
+          lang,
+        ))
+        return ok()
+      }
       return confirmEventReservationWhatsapp({ from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang })
     }
 
@@ -1673,6 +1687,69 @@ export async function handleEventSession(
     return ok()
     // eventTitle unused at this step — silence by referencing in the log on success.
     void eventTitle
+  }
+
+  // ── event_reserve step 5: promo code (pay-at-door path) ──
+  // The customer types a code, or "oui/yes" to confirm without/with it.
+  if (user_type === 'event_reserve' && step === 5) {
+    const eventId   = data?.event_id as string | undefined
+    const q         = Number(data?.quantity ?? 0)
+    const baseTotal = Number(data?.base_total ?? 0)
+    const commissionRate = Number(data?.commission_rate ?? 0.10) || 0.10
+    if (!eventId || !q) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
+      return ok()
+    }
+    const { data: event } = await supabaseAdmin
+      .from('events')
+      .select('id, title, date, time, venue, organizer_id, whatsapp, tickets_sold, ticket_price')
+      .eq('id', eventId).maybeSingle()
+    if (!event) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
+      return ok()
+    }
+    const sold = Number(event.tickets_sold ?? 0)
+    const ticketPrice = Number(event.ticket_price ?? 0)
+
+    // "oui/yes/ok" → confirm with whatever discount is currently on the session.
+    if (['oui', 'yes', 'o', 'y', 'ok'].includes(cmd)) {
+      const discount   = Number(data?.discount_amount ?? 0)
+      const total      = Math.max(0, baseTotal - discount)
+      const commission = total > 0 ? Math.round(total * commissionRate) : 0
+      return confirmEventReservationWhatsapp({
+        from, phone, customer, event: event as EventReserveRow, q,
+        totalPrice: total, commissionAmount: commission, sold, ticketPrice, lang,
+        voucherCode: (data?.voucher_code as string) ?? null,
+        voucherId:   (data?.voucher_id as string) ?? null,
+        discountAmount: discount,
+      })
+    }
+
+    // Otherwise treat the message as a promo code and validate it.
+    const vres = await validateVoucher(cmd, { customerId: customer.id, eventId, orderTotal: baseTotal })
+    if (!vres.ok) {
+      await sendWhatsApp(from, pickLang(
+        `Code invalide. Envoyez *oui* pour réserver sans code.`,
+        `Invalid code. Send *yes* to reserve without a code.`,
+        lang,
+      ))
+      return ok()
+    }
+    const discount = vres.discount
+    const total    = Math.max(0, baseTotal - discount)
+    await supabaseAdmin.from('signup_sessions').upsert({
+      phone, user_type: 'event_reserve', step: 5,
+      data: { ...data, voucher_code: vres.voucher.code, voucher_id: vres.voucher.id, discount_amount: discount },
+      expires_at: sessionExpiry(15),
+    })
+    await sendWhatsApp(from, pickLang(
+      `🎫 ${vres.voucher.code} appliqué! Nouveau total: *${total.toLocaleString()} FCFA*.\nEnvoyez *oui* pour confirmer.`,
+      `🎫 ${vres.voucher.code} applied! New total: *${total.toLocaleString()} FCFA*.\nSend *yes* to confirm.`,
+      lang,
+    ))
+    return ok()
   }
 
   // ── event_reserve step 2: MoMo number ──
@@ -1882,8 +1959,11 @@ async function confirmEventReservationWhatsapp(opts: {
   from: string; phone: string; customer: OrderingCustomer
   event: EventReserveRow; q: number; totalPrice: number; commissionAmount: number
   sold: number; ticketPrice: number; lang: Lang
+  voucherCode?: string | null; voucherId?: string | null; discountAmount?: number
 }): Promise<NextResponse> {
   const { from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang } = opts
+  const voucherCode = opts.voucherCode ?? null
+  const discountAmount = opts.discountAmount ?? 0
   const reservationCode = await generateReservationCode()
   const { data: reservation, error: insErr } = await supabaseAdmin
     .from('event_reservations')
@@ -1895,6 +1975,8 @@ async function confirmEventReservationWhatsapp(opts: {
       quantity:           q,
       total_price:        totalPrice,
       commission_amount:  commissionAmount,
+      discount_amount:    discountAmount,
+      voucher_code:       voucherCode,
       payment_status:     'not_required',
       reservation_status: 'confirmed',
       reservation_code:   reservationCode,
@@ -1904,6 +1986,7 @@ async function confirmEventReservationWhatsapp(opts: {
     await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
     return ok()
   }
+  if (opts.voucherId) await consumeVoucherForReservation(opts.voucherId, customer.id)
   console.log('[whatsapp/reserve] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + q, q)
   await supabaseAdmin.from('events').update({ tickets_sold: sold + q }).eq('id', event.id)
   await writeAudit({
@@ -1934,6 +2017,9 @@ async function confirmEventReservationWhatsapp(opts: {
     event.venue ? `📍 ${event.venue}` : '',
     pickLang(`🎟 ${q} place(s)`, `🎟 ${q} spot(s)`, lang),
     pickLang(`🎫 Code de réservation: *#${reservationCode}*`, `🎫 Reservation code: *#${reservationCode}*`, lang),
+    voucherCode && discountAmount > 0
+      ? pickLang(`🎫 Code ${voucherCode}: -${discountAmount.toLocaleString()} FCFA`, `🎫 Code ${voucherCode}: -${discountAmount.toLocaleString()} FCFA`, lang)
+      : '',
     payLine,
   ].filter(Boolean).join('\n'))
 

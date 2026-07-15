@@ -8,7 +8,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
-import { useLanguage, useBi } from '@/lib/languageContext'
+import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
 import EventSocialPanel from '@/components/EventSocialPanel'
@@ -64,6 +64,12 @@ export default function EventDetailPage() {
   const [reserveError, setReserveError] = useState('')
   const [reservationId, setReservationId] = useState<string | null>(null)
   const [reservationCode, setReservationCode] = useState<string | null>(null)
+  // Promo code state — collapsible section above the Reserve/Pay button.
+  const [promoOpen, setPromoOpen] = useState(false)
+  const [promoInput, setPromoInput] = useState('')
+  const [promoChecking, setPromoChecking] = useState(false)
+  const [promoError, setPromoError] = useState('')
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; discount: number } | null>(null)
   // Which path the open modal is running: true = pay online, false = reserve.
   // Set when the customer taps the Pay vs Reserve button (mode 'both' offers
   // both); replaces the old event.payment_enabled branch inside the modal.
@@ -169,6 +175,44 @@ export default function EventDetailPage() {
         .filter(i => i.quantity > 0)
     : []
   const totalForQty = hasTiers ? tierTotalPrice : ticketPrice * quantity
+  // Applied-promo discount, capped at the current total (guards against a
+  // stale fixed discount exceeding a smaller quantity). finalTotal is the
+  // amount actually charged / shown on the button.
+  const promoDiscount = appliedPromo ? Math.min(appliedPromo.discount, totalForQty) : 0
+  const finalTotal    = Math.max(0, totalForQty - promoDiscount)
+
+  // Validate a promo code against this event for the current total. Preview
+  // only — the reserve/pay route re-validates and consumes at booking time.
+  async function applyPromo() {
+    const code = promoInput.trim()
+    if (!code || promoChecking) return
+    setPromoChecking(true)
+    setPromoError('')
+    try {
+      const res = await fetch(`/api/events/${event!.id}/vouchers/validate`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ code, orderTotal: totalForQty }),
+      })
+      const d = await res.json()
+      if (!d.ok) {
+        setAppliedPromo(null)
+        setPromoError(pickBi(d.message ?? 'Code invalide / Invalid code', locale))
+        return
+      }
+      setAppliedPromo({ code: d.voucher.code, discount: d.discount })
+      setPromoError('')
+    } catch {
+      setPromoError(bi('Erreur, réessayez.', 'Error, try again.'))
+    } finally {
+      setPromoChecking(false)
+    }
+  }
+  function clearPromo() {
+    setAppliedPromo(null)
+    setPromoInput('')
+    setPromoError('')
+  }
 
   const trimmedMomo  = momoPhone.trim()
   const momoValid    = trimmedMomo ? hasSupportedCountryPrefix(trimmedMomo) : false
@@ -190,6 +234,10 @@ export default function EventDetailPage() {
     setReserveError('')
     setReservationId(null)
     setReservationCode(null)
+    setPromoOpen(false)
+    setPromoInput('')
+    setPromoError('')
+    setAppliedPromo(null)
     setGuestName('')
     setGuestPhone('')
     setMomoPhone('')
@@ -245,6 +293,7 @@ export default function EventDetailPage() {
         phoneNumber: trimmedMomo,
       }
       if (hasTiers && tierItem) body.tier_id = tierItem.tier_id
+      if (appliedPromo) body.voucher_code = appliedPromo.code
       if (!me) {
         body.customer_name  = guestName.trim()
         body.customer_phone = guestPhone.trim()
@@ -279,6 +328,7 @@ export default function EventDetailPage() {
       const body: Record<string, unknown> = hasTiers
         ? { items: selectedTierItems.map(i => ({ tier_id: i.tier_id, quantity: i.quantity })) }
         : { quantity }
+      if (appliedPromo) body.voucher_code = appliedPromo.code
       if (!me) {
         body.customer_name  = guestName.trim()
         body.customer_phone = guestPhone.trim()
@@ -631,7 +681,7 @@ export default function EventDetailPage() {
                 </label>
                 <select
                   value={quantity}
-                  onChange={e => setQuantity(Number(e.target.value))}
+                  onChange={e => { setQuantity(Number(e.target.value)); clearPromo() }}
                   className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface mb-3"
                   disabled={submitting}
                 >
@@ -698,6 +748,61 @@ export default function EventDetailPage() {
                   </>
                 )}
 
+                {/* Promo code — collapsible, above the total so the total
+                    reflects any discount. */}
+                {!isFree && (
+                  <div className="mb-3">
+                    {!promoOpen && !appliedPromo && (
+                      <button
+                        type="button"
+                        onClick={() => setPromoOpen(true)}
+                        className="text-xs font-semibold text-brand hover:text-brand-dark"
+                      >
+                        🎫 {bi('Code promo', 'Promo code')}
+                      </button>
+                    )}
+                    {(promoOpen || appliedPromo) && !appliedPromo && (
+                      <div>
+                        <label className="block text-xs text-ink-secondary mb-1">🎫 {bi('Code promo', 'Promo code')}</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={promoInput}
+                            onChange={e => setPromoInput(e.target.value.toUpperCase())}
+                            placeholder={bi('Ex: EVT-A3F7', 'e.g. EVT-A3F7')}
+                            className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm bg-surface uppercase"
+                            disabled={promoChecking || submitting}
+                          />
+                          <button
+                            type="button"
+                            onClick={applyPromo}
+                            disabled={promoChecking || submitting || !promoInput.trim()}
+                            className="px-3 py-2 rounded-xl text-sm font-semibold bg-brand text-white hover:bg-brand-dark disabled:opacity-50"
+                          >
+                            {promoChecking ? '…' : bi('Appliquer', 'Apply')}
+                          </button>
+                        </div>
+                        {promoError && <p className="text-xs text-danger mt-1">{promoError}</p>}
+                      </div>
+                    )}
+                    {appliedPromo && (
+                      <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                        <span className="text-xs font-semibold text-emerald-700">
+                          🎫 {appliedPromo.code} — -{promoDiscount.toLocaleString()} FCFA {bi('appliqué!', 'applied!')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearPromo}
+                          disabled={submitting}
+                          className="text-xs text-emerald-700 hover:text-emerald-900 font-semibold underline"
+                        >
+                          {bi('Retirer', 'Remove')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {!isFree && (
                   <div className="bg-brand-light rounded-xl px-3 py-2 mb-3 text-sm flex items-center justify-between">
                     <span className="text-brand-darker">
@@ -706,7 +811,14 @@ export default function EventDetailPage() {
                         : bi('Total (à payer sur place)', 'Total (pay at the door)')}
                     </span>
                     <span className="font-bold text-brand-darker">
-                      {totalForQty.toLocaleString()} FCFA
+                      {promoDiscount > 0 && (
+                        <span className="text-ink-tertiary line-through font-normal mr-2">
+                          {totalForQty.toLocaleString()}
+                        </span>
+                      )}
+                      <span className={promoDiscount > 0 ? 'text-emerald-600' : ''}>
+                        {finalTotal.toLocaleString()} FCFA
+                      </span>
                     </span>
                   </div>
                 )}
@@ -739,7 +851,7 @@ export default function EventDetailPage() {
                     {submitting
                       ? bi('Envoi…', 'Sending…')
                       : payNow
-                        ? `${bi('Payer', 'Pay')} ${totalForQty.toLocaleString()} FCFA`
+                        ? `${bi('Payer', 'Pay')} ${finalTotal.toLocaleString()} FCFA`
                         : bi('Confirmer', 'Confirm')}
                   </button>
                 </div>

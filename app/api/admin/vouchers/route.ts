@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('vouchers')
-    .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id, created_at, restaurants(name)')
+    .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id, event_id, created_at, restaurants(name), events(title)')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     ...v,
     status: deriveStatus(v),
     restaurant_name: (v.restaurants as unknown as { name: string } | null)?.name ?? null,
+    event_name: (v.events as unknown as { title: string } | null)?.title ?? null,
   }))
   return NextResponse.json({ vouchers })
 }
@@ -52,6 +53,8 @@ export async function POST(req: NextRequest) {
   // per_customer_max column is optional until the voucher-system migration
   // runs. We silently omit it when not provided so this route works on
   // either schema version.
+  // Scope is at most one of restaurant / event (event wins if both sent).
+  const eventId = payload.event_id || null
   const row: Record<string, unknown> = {
     code,
     discount_type:  discountType,
@@ -60,7 +63,8 @@ export async function POST(req: NextRequest) {
     max_uses:       payload.max_uses != null && payload.max_uses !== '' ? parseInt(String(payload.max_uses), 10) : null,
     expires_at:     payload.expires_at || null,
     city:           payload.city ? String(payload.city).trim() : null,
-    restaurant_id:  payload.restaurant_id || null,
+    restaurant_id:  eventId ? null : (payload.restaurant_id || null),
+    event_id:       eventId,
     is_active:      payload.is_active !== false,
   }
 

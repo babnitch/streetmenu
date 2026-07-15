@@ -23,17 +23,23 @@ interface VoucherWithStatus {
   city: string | null
   restaurant_id: string | null
   restaurant_name: string | null
+  event_id: string | null
+  event_name: string | null
   status: 'active' | 'inactive' | 'expired' | 'exhausted'
   created_at: string
 }
 
 interface RestaurantLite { id: string; name: string }
+interface EventLite { id: string; title: string }
 
 export default function AdminVouchersPage() {
   const bi = useBi()
   const { t } = useLanguage()
   const [vouchers, setVouchers] = useState<VoucherWithStatus[]>([])
   const [restaurants, setRestaurants] = useState<RestaurantLite[]>([])
+  const [events, setEvents] = useState<EventLite[]>([])
+  // Scope select value: '' = platform, 'r:<id>' = restaurant, 'e:<id>' = event.
+  const [scope, setScope] = useState('')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -52,15 +58,16 @@ export default function AdminVouchersPage() {
   const [perCustomerMax, setPerCustomerMax] = useState('1')
   const [expiresAt, setExpiresAt] = useState('')
   const [city, setCity] = useState('')
-  const [restaurantId, setRestaurantId] = useState('')  // empty = platform-wide
   const [isActive, setIsActive] = useState(true)
 
   useEffect(() => {
     fetchVouchers()
-    // Restaurant list for the scope dropdown. Anon-readable; only needs
-    // id + name so RLS on other columns doesn't matter.
+    // Restaurant + event lists for the scope dropdown. Anon-readable; only
+    // need id + name/title.
     supabase.from('restaurants').select('id, name').is('deleted_at', null).neq('status', 'deleted').order('name')
       .then(({ data }) => { if (data) setRestaurants(data) })
+    supabase.from('events').select('id, title').eq('is_active', true).order('date', { ascending: false }).limit(200)
+      .then(({ data }) => { if (data) setEvents(data) })
   }, [])
 
   async function fetchVouchers() {
@@ -89,7 +96,8 @@ export default function AdminVouchersPage() {
         per_customer_max: perCustomerMax ? parseInt(perCustomerMax) : 1,
         expires_at: expiresAt || null,
         city: city.trim() || null,
-        restaurant_id: restaurantId || null,
+        restaurant_id: scope.startsWith('r:') ? scope.slice(2) : null,
+        event_id:      scope.startsWith('e:') ? scope.slice(2) : null,
         is_active: isActive,
       }),
     })
@@ -102,7 +110,7 @@ export default function AdminVouchersPage() {
   function resetForm() {
     setCode(''); setDiscountType('percent'); setDiscountValue('')
     setMinOrder('0'); setMaxUses(''); setPerCustomerMax('1')
-    setExpiresAt(''); setCity(''); setRestaurantId(''); setIsActive(true)
+    setExpiresAt(''); setCity(''); setScope(''); setIsActive(true)
   }
 
   async function toggleActive(v: VoucherWithStatus) {
@@ -248,14 +256,21 @@ export default function AdminVouchersPage() {
             <div className="col-span-2">
               <label className="block text-xs text-ink-secondary mb-1">{bi('Portée', 'Scope')}</label>
               <select
-                value={restaurantId}
-                onChange={e => setRestaurantId(e.target.value)}
+                value={scope}
+                onChange={e => setScope(e.target.value)}
                 className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white"
               >
-                <option value="">{bi('Plateforme', 'Platform-wide')}</option>
-                {restaurants.map(r => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
+                <option value="">{bi('Plateforme (restaurants + événements)', 'Platform-wide (restaurants + events)')}</option>
+                <optgroup label={bi('Restaurant', 'Restaurant')}>
+                  {restaurants.map(r => (
+                    <option key={r.id} value={`r:${r.id}`}>{r.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label={bi('Événement', 'Event')}>
+                  {events.map(ev => (
+                    <option key={ev.id} value={`e:${ev.id}`}>🎉 {ev.title}</option>
+                  ))}
+                </optgroup>
               </select>
             </div>
 
@@ -356,9 +371,11 @@ export default function AdminVouchersPage() {
                       {isPercentDiscount(v.discount_type) ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
                     </td>
                     <td className="px-4 py-3 text-ink-secondary text-xs">
-                      {v.restaurant_name
-                        ? <span className="bg-brand-light text-brand-darker px-2 py-0.5 rounded-full">{v.restaurant_name}</span>
-                        : <span className="bg-brand-light text-brand-darker px-2 py-0.5 rounded-full">Plateforme</span>}
+                      {v.event_name
+                        ? <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">🎉 {v.event_name}</span>
+                        : v.restaurant_name
+                          ? <span className="bg-brand-light text-brand-darker px-2 py-0.5 rounded-full">{v.restaurant_name}</span>
+                          : <span className="bg-brand-light text-brand-darker px-2 py-0.5 rounded-full">{bi('Plateforme', 'Platform')}</span>}
                       {v.city && <span className="ml-1 text-ink-tertiary">· {v.city}</span>}
                     </td>
                     <td className="px-4 py-3 text-ink-secondary">
