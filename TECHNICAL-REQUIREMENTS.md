@@ -292,6 +292,7 @@ Legacy — kept for compatibility with the early prototype; current code reads `
 | `TWILIO_ACCOUNT_SID` | yes | Twilio REST API account |
 | `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET` | yes | Twilio API Key auth (preferred over auth-token) |
 | `TWILIO_WHATSAPP_NUMBER` | yes | `whatsapp:+14155238886` for sandbox |
+| `TWILIO_SMS_NUMBER` | no | Regular Twilio phone number for the SMS fallback on verification codes. Falls back to `TWILIO_PHONE_NUMBER` if unset; SMS is disabled if neither is present. |
 | `PAWAPAY_API_TOKEN` | yes | Bearer token |
 | `PAWAPAY_BASE_URL` | yes | `https://api.sandbox.pawapay.io` or prod |
 | `PAWAPAY_ENVIRONMENT` | yes | `sandbox` or `production` (controls webhook signature verification) |

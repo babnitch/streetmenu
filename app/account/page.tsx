@@ -43,6 +43,9 @@ const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/pag
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type LoginTab    = 'customer' | 'team'
+// Delivery channel for the verification code. WhatsApp is the free default;
+// SMS is the fallback for users without WhatsApp.
+type Channel     = 'whatsapp' | 'sms'
 type AuthStep    = 'loading' | 'login' | 'register' | 'otp' | 'dashboard'
 
 // Read a `?return=` target from the URL, but only trust same-site absolute
@@ -159,6 +162,16 @@ export default function AccountPage() {
   const [city,        setCity]        = useState('')
   const [otp,         setOtp]         = useState('')
   const [sending,     setSending]     = useState(false)
+  // Separate spinner for the "Get via SMS" link so it can show its own
+  // loading state without lighting up the primary WhatsApp button.
+  const [smsSending,  setSmsSending]  = useState(false)
+  // Channel the code was actually delivered on (drives the OTP-screen
+  // "sent via WhatsApp / SMS" line and the resend). Set from the send-code
+  // response, so an auto-fallback from WhatsApp to SMS is reflected too.
+  const [sentChannel, setSentChannel] = useState<Channel>('whatsapp')
+  // Channel chosen at the phone step, carried into the register step so a
+  // new user who picked SMS still gets SMS after filling name/city.
+  const [pendingChannel, setPendingChannel] = useState<Channel>('whatsapp')
   const [verifying,   setVerifying]   = useState(false)
   const [loggingIn,   setLoggingIn]   = useState(false)
   const [error,       setError]       = useState('')
@@ -281,23 +294,20 @@ export default function AccountPage() {
     if (resending || resendCooldown > 0 || resendCount >= 3) return
     setResending(true)
     try {
-      const res = await fetch('/api/auth/send-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: phone.trim(),
-          ...(name.trim() ? { name: name.trim() } : {}),
-          ...(city        ? { city }               : {}),
-        }),
+      // Resend on whichever channel the code was last sent to.
+      const sent = await requestCode(phone.trim(), sentChannel, {
+        ...(name.trim() ? { name: name.trim() } : {}),
+        ...(city        ? { city }               : {}),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        showToast(data.error || bi('Erreur', 'Error'), false)
+      if (!sent.ok) {
+        showToast(sent.error || bi('Erreur', 'Error'), false)
         return
       }
       setResendCount(c => c + 1)
       setResendCooldown(30)
-      showToast(bi('Code renvoyé!', 'Code resent!'))
+      showToast(sent.channel === 'sms'
+        ? bi('Code renvoyé par SMS!', 'Code resent via SMS!')
+        : bi('Code renvoyé!', 'Code resent!'))
     } finally {
       setResending(false)
     }
@@ -446,16 +456,36 @@ export default function AccountPage() {
   // Lets the OTP screen greet them by name without exposing their details.
   const [knownName, setKnownName] = useState<string | null>(null)
 
+  // Low-level send-code request. Threads the chosen channel and records
+  // which channel the server actually used (an auto-fallback flips it to
+  // 'sms'). Returns the parsed response so callers can branch on ok.
+  async function requestCode(
+    cleaned: string,
+    channel: Channel,
+    extra: Record<string, string> = {},
+  ): Promise<{ ok: boolean; error?: string; channel: Channel; fallback: boolean }> {
+    const res  = await fetch('/api/auth/send-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: cleaned, channel, ...extra }),
+    })
+    const data = await res.json()
+    const used: Channel = data.channel === 'sms' ? 'sms' : channel
+    if (res.ok) setSentChannel(used)
+    return { ok: res.ok, error: data.error, channel: used, fallback: !!data.fallback }
+  }
+
   // ── Customer login: check phone, then send OTP ──
   // Two-phase flow so a customer who registered via WhatsApp goes straight to
-  // code entry instead of being asked for name/city again.
-  async function handleSendCode(e: React.FormEvent) {
-    e.preventDefault()
+  // code entry instead of being asked for name/city again. `channel` is
+  // chosen by which button the user clicked (WhatsApp primary, SMS link).
+  async function handleSendCode(e: React.FormEvent | undefined, channel: Channel = 'whatsapp') {
+    e?.preventDefault()
     setError('')
     const cleaned = phone.trim()
-    console.log('[login-flow] submit, cleaned phone =', JSON.stringify(cleaned))
+    console.log('[login-flow] submit, cleaned phone =', JSON.stringify(cleaned), 'channel =', channel)
     if (!cleaned) return
-    setSending(true)
+    if (channel === 'sms') setSmsSending(true); else setSending(true)
     try {
       console.log('[login-flow] calling check-phone…')
       const checkRes = await fetch(
@@ -468,14 +498,9 @@ export default function AccountPage() {
       if (check.exists) {
         console.log('[login-flow] existing customer — skipping register form, sending code')
         setKnownName(check.name ?? null)
-        const sendRes = await fetch('/api/auth/send-code', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: cleaned }),
-        })
-        const sendData = await sendRes.json()
-        console.log('[login-flow] send-code status =', sendRes.status, 'body =', sendData)
-        if (!sendRes.ok) { setError(sendData.error || bi('Erreur', 'Error')); return }
+        const sent = await requestCode(cleaned, channel)
+        if (!sent.ok) { setError(sent.error || bi('Erreur', 'Error')); return }
+        if (sent.fallback) showToast(bi('WhatsApp indisponible — code envoyé par SMS', 'WhatsApp unavailable — code sent via SMS'))
         setResendCount(0)
         setResendCooldown(30)
         setStep('otp')
@@ -484,9 +509,11 @@ export default function AccountPage() {
 
       console.log('[login-flow] new customer — showing register form')
       setKnownName(null)
+      // Remember the chosen channel so the register step's send matches it.
+      setPendingChannel(channel)
       setStep('register')
     } finally {
-      setSending(false)
+      if (channel === 'sms') setSmsSending(false); else setSending(false)
     }
   }
 
@@ -497,13 +524,9 @@ export default function AccountPage() {
     if (!name.trim() || !city) return
     setSending(true)
     try {
-      const res  = await fetch('/api/auth/send-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), name: name.trim(), city }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
+      const sent = await requestCode(phone.trim(), pendingChannel, { name: name.trim(), city })
+      if (!sent.ok) { setError(sent.error || bi('Erreur', 'Error')); return }
+      if (sent.fallback) showToast(bi('WhatsApp indisponible — code envoyé par SMS', 'WhatsApp unavailable — code sent via SMS'))
       setResendCount(0)
       setResendCooldown(30)
       setStep('otp')
@@ -835,7 +858,7 @@ export default function AccountPage() {
             </div>
 
             {loginTab === 'customer' && (
-              <form onSubmit={handleSendCode} autoComplete="on" className="space-y-3">
+              <form onSubmit={e => handleSendCode(e, 'whatsapp')} autoComplete="on" className="space-y-3">
                 <div>
                   <label className="block text-xs text-ink-secondary mb-1">{t('account.phoneLbl')}</label>
                   <PhoneInput
@@ -852,12 +875,25 @@ export default function AccountPage() {
                   <span className="text-sm text-ink-secondary">{t('account.rememberMe')}</span>
                 </label>
                 {error && <p className="text-xs text-danger">{error}</p>}
+                {/* Primary: WhatsApp (free). */}
                 <button
                   type="submit"
-                  disabled={sending || !phone.trim()}
+                  disabled={sending || smsSending || !phone.trim()}
                   className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
                 >
-                  {sending ? t('account.sending') : t('account.sendOtp')}
+                  {sending ? t('account.sending') : bi('📱 Recevoir par WhatsApp', '📱 Get via WhatsApp')}
+                </button>
+                {/* Fallback: SMS, as a quiet link so it doesn't compete with
+                    the primary action. */}
+                <button
+                  type="button"
+                  onClick={() => handleSendCode(undefined, 'sms')}
+                  disabled={sending || smsSending || !phone.trim()}
+                  className="w-full text-ink-tertiary hover:text-ink-secondary disabled:text-ink-tertiary/60 text-sm py-1.5 transition-colors"
+                >
+                  {smsSending
+                    ? bi('Envoi du SMS…', 'Sending SMS…')
+                    : bi('Pas de WhatsApp ? Recevoir par SMS 💬', 'No WhatsApp? Get via SMS 💬')}
                 </button>
               </form>
             )}
@@ -947,7 +983,12 @@ export default function AccountPage() {
                 <p className="text-sm text-ink-primary font-semibold mt-1">👋 {knownName}</p>
               )}
               <p className="text-sm text-ink-secondary mt-1">{phone}</p>
-              <p className="text-xs text-brand-darker font-medium mt-1">{t('account.checkWhatsApp')}</p>
+              {/* Confirm which channel actually delivered the code. */}
+              <p className="text-xs text-brand-darker font-medium mt-1">
+                {sentChannel === 'sms'
+                  ? bi('Code envoyé par SMS', 'Code sent via SMS')
+                  : bi('Code envoyé par WhatsApp', 'Code sent via WhatsApp')}
+              </p>
             </div>
             <OtpInput
               value={otp}

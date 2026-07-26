@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendSMS } from '@/lib/sms'
 import { normalizePhone } from '@/lib/phone'
 import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
 import { sanitizeText } from '@/lib/sanitize'
+
+type Channel = 'whatsapp' | 'sms'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,6 +19,9 @@ export async function POST(req: NextRequest) {
   const phone: string = normalizePhone(body.phone)
   const name: string  = sanitizeText(body.name, 60)
   const city: string  = sanitizeText(body.city, 40)
+  // Which channel to deliver the code on. Defaults to WhatsApp (free); the
+  // login page also offers SMS explicitly for users without WhatsApp.
+  const channel: Channel = body.channel === 'sms' ? 'sms' : 'whatsapp'
 
   if (!phone) {
     return NextResponse.json({ error: 'Phone required' }, { status: 400 })
@@ -56,7 +62,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to generate code' }, { status: 500 })
   }
 
-  // Send via WhatsApp.
+  // Message body — identical for both channels, and short enough to fit a
+  // single SMS segment (< 160 chars).
   //
   // Format is tuned for iOS Security Code AutoFill: the word "code" appears,
   // the digits come right after a colon, and the code is the LAST thing in
@@ -68,7 +75,33 @@ export async function POST(req: NextRequest) {
     `Tchop & Ndjoka\n` +
     `Votre code de vérification / Your verification code: ${code}`
 
-  await sendWhatsApp(phone, msg)
+  // Deliver on the requested channel. If WhatsApp send errors (e.g. the
+  // number has no WhatsApp), auto-fall back to SMS and report it so the UI
+  // can tell the user. Note: Twilio still returns success for WhatsApp when
+  // the recipient silently has no WhatsApp, so this only catches hard send
+  // failures — the explicit "Get via SMS" link covers the silent case.
+  let usedChannel: Channel = channel
+  let fallback = false
 
-  return NextResponse.json({ sent: true })
+  if (channel === 'sms') {
+    const r = await sendSMS(phone, msg)
+    if (!r.ok) {
+      console.error('[send-code] SMS send failed:', r.error)
+      return NextResponse.json({ error: 'Failed to send SMS code' }, { status: 502 })
+    }
+  } else {
+    const r = await sendWhatsApp(phone, msg)
+    if (!r.ok) {
+      console.warn('[send-code] WhatsApp send failed, falling back to SMS:', r.error)
+      const s = await sendSMS(phone, msg)
+      if (!s.ok) {
+        console.error('[send-code] SMS fallback also failed:', s.error)
+        return NextResponse.json({ error: 'Failed to send code' }, { status: 502 })
+      }
+      usedChannel = 'sms'
+      fallback = true
+    }
+  }
+
+  return NextResponse.json({ sent: true, channel: usedChannel, fallback })
 }
