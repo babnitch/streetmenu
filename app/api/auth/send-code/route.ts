@@ -56,10 +56,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to generate code' }, { status: 500 })
   }
 
-  // Send via WhatsApp
+  // Send via WhatsApp.
+  //
+  // Format is tuned for iOS Security Code AutoFill: the word "code" appears,
+  // the digits come right after a colon, and the code is the LAST thing in
+  // the message on its own line — with no bold/asterisks or trailing text,
+  // any of which stop iOS from surfacing the code above the keyboard. The
+  // route has no per-user language, so the label is bilingual on one line
+  // and the (unformatted) code closes the message.
   const msg =
-    `🔐 Votre code Tchop & Ndjoka: *${code}*\n` +
-    `Valide 5 minutes. / Your code: *${code}*. Valid 5 minutes.`
+    `Tchop & Ndjoka\n` +
+    `Votre code de vérification / Your verification code: ${code}`
 
   await sendWhatsApp(phone, msg)
 
