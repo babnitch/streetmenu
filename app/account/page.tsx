@@ -75,6 +75,44 @@ const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
   profile: 'Mon profil / My Profile',
 }
 
+// ── "Remember my number" persistence ────────────────────────────────────────
+// The last-used customer phone (full +E.164) and its country ISO are kept in
+// localStorage so a returning customer lands on a pre-filled login field. This
+// is deliberately NOT a cookie: it never travels with requests and logout does
+// not touch it (unless the user unticks the checkbox).
+const LAST_PHONE_KEY   = 'tn_last_phone'
+const LAST_COUNTRY_KEY = 'tn_last_country'
+
+function readSavedPhone(): { phone: string; country: string } {
+  if (typeof window === 'undefined') return { phone: '', country: '' }
+  try {
+    return {
+      phone:   localStorage.getItem(LAST_PHONE_KEY)   ?? '',
+      country: localStorage.getItem(LAST_COUNTRY_KEY) ?? '',
+    }
+  } catch {
+    // localStorage can throw in private mode / when storage is disabled.
+    return { phone: '', country: '' }
+  }
+}
+
+function saveLastPhone(phone: string, country: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const trimmed = phone.trim()
+    if (trimmed) localStorage.setItem(LAST_PHONE_KEY, trimmed)
+    if (country) localStorage.setItem(LAST_COUNTRY_KEY, country)
+  } catch { /* storage unavailable — pre-fill just won't work next time */ }
+}
+
+function clearSavedPhone() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(LAST_PHONE_KEY)
+    localStorage.removeItem(LAST_COUNTRY_KEY)
+  } catch { /* nothing to clear */ }
+}
+
 interface SessionUser {
   id:     string
   name:   string
@@ -118,6 +156,14 @@ export default function AccountPage() {
   const [email,       setEmail]       = useState('')
   const [password,    setPassword]    = useState('')
   const [rememberMe,  setRememberMe]  = useState(false)
+  // Separate from `rememberMe` (which persists the login session): this
+  // just remembers the typed phone number so a returning customer finds
+  // the field pre-filled. Checked by default; see readSavedPhone /
+  // saveLastPhone below. Persisted to localStorage, never to a cookie.
+  const [rememberPhone, setRememberPhone] = useState(true)
+  // ISO of the country picked in PhoneInput, captured from its onChange
+  // meta so we can persist it alongside the number.
+  const [phoneCountry,  setPhoneCountry]  = useState('')
   const [name,        setName]        = useState('')
   const [city,        setCity]        = useState('')
   const [otp,         setOtp]         = useState('')
@@ -279,6 +325,17 @@ export default function AccountPage() {
       console.log('[account] post-mount effect setting tab:', q)
       setCustomerTab(q as CustomerTab)
     }
+  }, [])
+
+  // ── On mount: pre-fill the phone field with the remembered number ──
+  // PhoneInput re-derives the country from the +E.164 value, but we also
+  // seed phoneCountry from the saved ISO as a fallback for ambiguous dial
+  // codes. Runs once; a returning (or just-logged-out) customer sees the
+  // field ready to go.
+  useEffect(() => {
+    const { phone: savedPhone, country: savedCountry } = readSavedPhone()
+    if (savedPhone)   setPhone(savedPhone)
+    if (savedCountry) setPhoneCountry(savedCountry)
   }, [])
 
   // ── On mount: check JWT session ──
@@ -482,6 +539,9 @@ export default function AccountPage() {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
+      // Login succeeded — remember (or forget) the number per the checkbox.
+      if (rememberPhone) saveLastPhone(phone, phoneCountry)
+      else clearSavedPhone()
       const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
       // Login gate return — send the user back to where they came from
       // (e.g. /events/submit) now that the session cookie is set.
@@ -529,10 +589,20 @@ export default function AccountPage() {
 
   // ── Sign out ──
   async function handleSignOut() {
+    // Logout clears the session cookie only. The remembered phone number
+    // is left in localStorage so the login field stays pre-filled — unless
+    // the customer unticked "Remember my number", in which case we drop it.
     await fetch('/api/auth/logout', { method: 'POST' })
+    if (!rememberPhone) clearSavedPhone()
     setUser(null)
-    setPhone(''); setEmail(''); setPassword(''); setName(''); setCity(''); setOtp('')
+    setEmail(''); setPassword(''); setName(''); setCity(''); setOtp('')
     setMyRestaurants([]); setCustomerVouchers([]); setOrders([])
+    // Re-seed the phone field from whatever survived above, so the
+    // remembered number reappears on the login screen (the mount effect
+    // only runs on a fresh page load).
+    const { phone: savedPhone, country: savedCountry } = readSavedPhone()
+    setPhone(savedPhone)
+    setPhoneCountry(savedCountry)
     setStep('login')
   }
 
@@ -777,13 +847,17 @@ export default function AccountPage() {
                   <label className="block text-xs text-ink-secondary mb-1">{t('account.phoneLbl')}</label>
                   <PhoneInput
                     value={phone}
-                    onChange={(full) => setPhone(full)}
+                    onChange={(full, meta) => { setPhone(full); setPhoneCountry(meta.country.iso) }}
                     autoComplete="tel"
                     name="phone"
                     wrapperClassName="rounded-2xl"
                   />
                   <p className="text-xs text-ink-tertiary mt-1">{t('account.whatsappHint')}</p>
                 </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={rememberPhone} onChange={e => setRememberPhone(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
+                  <span className="text-sm text-ink-secondary">{bi('Se souvenir de mon numéro', 'Remember my number')}</span>
+                </label>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
                   <span className="text-sm text-ink-secondary">{t('account.rememberMe')}</span>
