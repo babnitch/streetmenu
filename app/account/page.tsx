@@ -19,6 +19,7 @@ import PromotePanel from '@/components/PromotePanel'
 import EventTiersPanel from '@/components/EventTiersPanel'
 import EventVouchersPanel from '@/components/EventVouchersPanel'
 import PhoneInput from '@/components/PhoneInput'
+import OtpInput from '@/components/OtpInput'
 import { useDataMode } from '@/lib/dataMode'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
@@ -512,7 +513,12 @@ export default function AccountPage() {
   }
 
   // ── Verify OTP ──
-  async function verifyOtp() {
+  // `code` lets the auto-submit path pass the freshly-completed value
+  // directly — the `otp` state hasn't necessarily flushed yet when the
+  // last digit lands. Manual submit (the button) falls back to state.
+  async function verifyOtp(code?: string) {
+    const codeToUse = (code ?? otp).trim()
+    if (verifying || codeToUse.length < 4) return
     setError('')
     setVerifying(true)
     try {
@@ -521,7 +527,7 @@ export default function AccountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: phone.trim(),
-          code:  otp.trim(),
+          code:  codeToUse,
           rememberMe,
           ...(name.trim() ? { name: name.trim() } : {}),
           ...(city        ? { city }               : {}),
@@ -943,14 +949,16 @@ export default function AccountPage() {
               <p className="text-sm text-ink-secondary mt-1">{phone}</p>
               <p className="text-xs text-brand-darker font-medium mt-1">{t('account.checkWhatsApp')}</p>
             </div>
-            <input
-              type="text" inputMode="numeric"
-              value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              placeholder="1234"
-              className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand text-center tracking-[0.5em] font-mono text-xl mb-3"
+            <OtpInput
+              value={otp}
+              onChange={setOtp}
+              onComplete={verifyOtp}
+              length={4}
+              autoFocus
+              disabled={verifying}
             />
             {error && <p className="text-xs text-danger mb-3">{error}</p>}
-            <button onClick={verifyOtp} disabled={verifying || otp.length < 4}
+            <button onClick={() => verifyOtp()} disabled={verifying || otp.length < 4}
               className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3">
               {verifying ? t('account.verifying') : t('account.verify')}
             </button>
