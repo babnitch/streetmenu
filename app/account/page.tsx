@@ -105,14 +105,6 @@ function saveLastPhone(phone: string, country: string) {
   } catch { /* storage unavailable — pre-fill just won't work next time */ }
 }
 
-function clearSavedPhone() {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.removeItem(LAST_PHONE_KEY)
-    localStorage.removeItem(LAST_COUNTRY_KEY)
-  } catch { /* nothing to clear */ }
-}
-
 interface SessionUser {
   id:     string
   name:   string
@@ -156,11 +148,9 @@ export default function AccountPage() {
   const [email,       setEmail]       = useState('')
   const [password,    setPassword]    = useState('')
   const [rememberMe,  setRememberMe]  = useState(false)
-  // Separate from `rememberMe` (which persists the login session): this
-  // just remembers the typed phone number so a returning customer finds
-  // the field pre-filled. Checked by default; see readSavedPhone /
-  // saveLastPhone below. Persisted to localStorage, never to a cookie.
-  const [rememberPhone, setRememberPhone] = useState(true)
+  // We always remember the typed phone number so a returning customer
+  // finds the field pre-filled (see readSavedPhone / saveLastPhone).
+  // Persisted to localStorage, never to a cookie.
   // ISO of the country picked in PhoneInput, captured from its onChange
   // meta so we can persist it alongside the number.
   const [phoneCountry,  setPhoneCountry]  = useState('')
@@ -539,9 +529,8 @@ export default function AccountPage() {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
-      // Login succeeded — remember (or forget) the number per the checkbox.
-      if (rememberPhone) saveLastPhone(phone, phoneCountry)
-      else clearSavedPhone()
+      // Login succeeded — always remember the number for next time.
+      saveLastPhone(phone, phoneCountry)
       const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
       // Login gate return — send the user back to where they came from
       // (e.g. /events/submit) now that the session cookie is set.
@@ -590,10 +579,8 @@ export default function AccountPage() {
   // ── Sign out ──
   async function handleSignOut() {
     // Logout clears the session cookie only. The remembered phone number
-    // is left in localStorage so the login field stays pre-filled — unless
-    // the customer unticked "Remember my number", in which case we drop it.
+    // is left in localStorage so the login field stays pre-filled.
     await fetch('/api/auth/logout', { method: 'POST' })
-    if (!rememberPhone) clearSavedPhone()
     setUser(null)
     setEmail(''); setPassword(''); setName(''); setCity(''); setOtp('')
     setMyRestaurants([]); setCustomerVouchers([]); setOrders([])
@@ -854,10 +841,6 @@ export default function AccountPage() {
                   />
                   <p className="text-xs text-ink-tertiary mt-1">{t('account.whatsappHint')}</p>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={rememberPhone} onChange={e => setRememberPhone(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
-                  <span className="text-sm text-ink-secondary">{bi('Se souvenir de mon numéro', 'Remember my number')}</span>
-                </label>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
                   <span className="text-sm text-ink-secondary">{t('account.rememberMe')}</span>
