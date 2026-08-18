@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { getPublicTiersForEvent, getAllTiersForEvent } from '@/lib/tiers'
 
@@ -13,10 +14,10 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = getSessionFromRequest(req)
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, organizer_id').eq('id', params.id).maybeSingle()
+    .from('events').select('id, organizer_id, submitted_by').eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ tiers: [] })
 
-  const isOrganizer = session?.id === event.organizer_id
+  const isOrganizer = isEventOrganizer(event, session?.id)
   const isAdmin = session ? ['super_admin', 'admin', 'moderator'].includes(session.role) : false
   const tiers = (isOrganizer || isAdmin)
     ? await getAllTiersForEvent(params.id)
@@ -33,9 +34,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
 
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, organizer_id').eq('id', params.id).maybeSingle()
+    .from('events').select('id, organizer_id, submitted_by').eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
-  if (!isAdmin && event.organizer_id !== session.id) {
+  if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
   }
 

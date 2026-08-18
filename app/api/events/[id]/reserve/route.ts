@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
+import { isPastEvent, PAST_EVENT_ERROR } from '@/lib/eventDate'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canReserve, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCodes } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
+import { samePhone } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, whatsapp, organizer_id, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, requires_confirmation, reservations_open')
+    .select('id, title, date, time, venue, whatsapp, organizer_id, submitted_by, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, requires_confirmation, reservations_open')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -48,6 +51,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
     return NextResponse.json({ error: 'Événement clôturé / Event closed' }, { status: 409 })
+  }
+  // Past events can never take a new booking, whatever the organizer's other
+  // settings say. Mirrors the client-side gate on /events/[id].
+  if (isPastEvent(event.date)) {
+    console.log('[events/reserve] rejected — event %s is past (date=%s)', event.id, event.date)
+    return NextResponse.json({ error: PAST_EVENT_ERROR }, { status: 409 })
   }
   if (event.reservations_open === false) {
     return NextResponse.json({ error: 'Les réservations sont fermées / Reservations are closed' }, { status: 409 })
@@ -63,13 +72,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // ── Resolve customer identity ────────────────────────────────────────────
+  // storedLang is the account's preferred_language — read straight off the row
+  // we already fetch, so the confirmation below never depends on a phone-shape
+  // match. Guests fall back to a phone lookup (then to the site locale).
   let custName  = ''
   let custPhone = ''
+  let storedLang: Lang | null = null
   if (customerId) {
     const { data: c } = await supabaseAdmin
-      .from('customers').select('name, phone').eq('id', customerId).maybeSingle()
+      .from('customers').select('name, phone, preferred_language').eq('id', customerId).maybeSingle()
     custName  = c?.name  ?? ''
     custPhone = c?.phone ?? ''
+    storedLang = c ? normalizeLang(c.preferred_language) : null
   } else {
     custName  = guestName
     custPhone = guestPhone
@@ -78,6 +92,30 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({
       error: 'Nom et téléphone requis / Name and phone required',
     }, { status: 400 })
+  }
+
+  // ── Organizer identity ───────────────────────────────────────────────────
+  // Resolved up-front because it gates the self-booking check below and is
+  // reused for the organizer ping at the end.
+  let organizerPhone: string | null = null
+  if (event.organizer_id) {
+    const { data: o } = await supabaseAdmin
+      .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
+    organizerPhone = o?.phone ?? null
+  }
+  if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
+
+  // An organizer must not book their own event — it inflates tickets_sold,
+  // eats capacity and produces a reservation they'd have to approve for
+  // themselves. Matched by account id first, then by phone so the guest
+  // path (organizer not logged in) is covered too.
+  const selfById    = Boolean(customerId && isEventOrganizer(event, customerId))
+  const selfByPhone = samePhone(custPhone, organizerPhone)
+  if (selfById || selfByPhone) {
+    console.log('[events/reserve] rejected self-booking on event=%s (byId=%s byPhone=%s)', event.id, selfById, selfByPhone)
+    return NextResponse.json({
+      error: 'Vous ne pouvez pas réserver votre propre événement / You cannot book your own event',
+    }, { status: 403 })
   }
 
   // ── Items-shaped vs legacy single-quantity ───────────────────────────────
@@ -319,7 +357,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       )
     : pickLang(`🎟 Code de réservation: *#${primaryCode}*`, `🎟 Reservation code: *#${primaryCode}*`, lang)
 
-  const custLang = await getLangByPhone(custPhone)
+  // ── Customer language ────────────────────────────────────────────────────
+  // Priority: the locale the customer was actually browsing in when they
+  // booked → their account preference → a phone lookup (guests) → FR.
+  // Sending the confirmation in the organizer's language (or a hardcoded
+  // default) is the bug this ordering closes. When a logged-in customer books
+  // from a site locale that disagrees with their stored preference, the stored
+  // value is refreshed so every later notification matches too.
+  const bodyLocale: Lang | null =
+    body.locale === 'en' ? 'en' : body.locale === 'fr' ? 'fr' : null
+  const custLang: Lang = bodyLocale ?? storedLang ?? await getLangByPhone(custPhone)
+  console.log('[reserve] customer lang=%s (locale=%s stored=%s phone=%s)',
+    custLang, bodyLocale ?? '-', storedLang ?? '-', custPhone)
+  if (customerId && bodyLocale && bodyLocale !== storedLang) {
+    await supabaseAdmin
+      .from('customers').update({ preferred_language: bodyLocale }).eq('id', customerId)
+    console.log('[reserve] synced customer=%s preferred_language → %s', customerId, bodyLocale)
+  }
   const dateStr = new Date(event.date).toLocaleDateString(custLang === 'en' ? 'en-GB' : 'fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
@@ -359,14 +413,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   ].filter(Boolean).join('\n'))
     .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
     .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
-
-  let organizerPhone: string | null = null
-  if (event.organizer_id) {
-    const { data: o } = await supabaseAdmin
-      .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
-    organizerPhone = o?.phone ?? null
-  }
-  if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
 
   if (organizerPhone) {
     const orgLang = await getLangByPhone(organizerPhone)

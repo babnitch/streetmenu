@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { isEventOrganizer } from '@/lib/eventAuth'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 import { notifyEventUpdate, type SignificantChanges } from '@/lib/directMessaging'
 
@@ -22,11 +23,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, organizer_id, organizer_name, title, description, date, time, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active')
+    .select('id, organizer_id, submitted_by, organizer_name, title, description, date, time, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active')
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
-  if (!isAdmin && event.organizer_id !== session.id) {
+  if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
   }
 

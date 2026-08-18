@@ -2524,13 +2524,15 @@ function MyEventsPanel({
                 <div key={r.id} className="bg-white rounded-2xl shadow-sm p-3">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="min-w-0">
+                      {/* The code is what the organizer checks people in
+                          with, so it always renders — legacy rows without a
+                          stored code fall back to the id suffix rather than
+                          showing nothing. */}
                       <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-bold font-mono px-2 py-0.5 rounded bg-ink-primary text-white tracking-wider">
+                          #{r.reservation_code ?? r.id.replace(/-/g, '').slice(-4).toUpperCase()}
+                        </span>
                         <p className="font-semibold text-ink-primary text-sm truncate">{r.customer_name}</p>
-                        {r.reservation_code && (
-                          <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-ink-primary text-white tracking-wider">
-                            #{r.reservation_code}
-                          </span>
-                        )}
                       </div>
                       <a href={wa} target="_blank" rel="noopener noreferrer"
                          className="text-xs text-brand-darker font-mono hover:underline">

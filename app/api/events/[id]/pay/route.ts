@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
+import { isPastEvent, PAST_EVENT_ERROR } from '@/lib/eventDate'
+import { samePhone } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, city, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, reservations_open')
+    .select('id, title, date, time, venue, city, whatsapp, organizer_id, submitted_by, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, reservations_open')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -58,6 +61,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
     return NextResponse.json({ error: 'Événement clôturé / Event closed' }, { status: 409 })
+  }
+  // Same past-event gate as /reserve — a finished event can't sell tickets.
+  if (isPastEvent(event.date)) {
+    console.log('[events/pay] rejected — event %s is past (date=%s)', event.id, event.date)
+    return NextResponse.json({ error: PAST_EVENT_ERROR }, { status: 409 })
   }
   if (event.reservations_open === false) {
     return NextResponse.json({ error: 'Les réservations sont fermées / Reservations are closed' }, { status: 409 })
@@ -111,11 +119,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Identity: session > guest body. Same shape as /reserve.
   let custName  = ''
   let custPhone = ''
+  let storedLang: Lang | null = null
   if (customerId) {
     const { data: c } = await supabaseAdmin
-      .from('customers').select('name, phone').eq('id', customerId).maybeSingle()
+      .from('customers').select('name, phone, preferred_language').eq('id', customerId).maybeSingle()
     custName  = c?.name  ?? ''
     custPhone = c?.phone ?? ''
+    storedLang = c ? normalizeLang(c.preferred_language) : null
   } else {
     custName  = guestName
     custPhone = guestPhone
@@ -124,6 +134,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({
       error: 'Nom et téléphone requis / Name and phone required',
     }, { status: 400 })
+  }
+
+  // Organizers can't buy tickets to their own event — same rule as /reserve,
+  // by account id first then by phone (covers the not-logged-in organizer).
+  let organizerPhone: string | null = null
+  if (event.organizer_id) {
+    const { data: o } = await supabaseAdmin
+      .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
+    organizerPhone = o?.phone ?? null
+  }
+  if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
+  const selfById    = Boolean(customerId && isEventOrganizer(event, customerId))
+  const selfByPhone = samePhone(custPhone, organizerPhone)
+  if (selfById || selfByPhone) {
+    console.log('[events/pay] rejected self-booking on event=%s (byId=%s byPhone=%s)', event.id, selfById, selfByPhone)
+    return NextResponse.json({
+      error: 'Vous ne pouvez pas réserver votre propre événement / You cannot book your own event',
+    }, { status: 403 })
+  }
+
+  // Sync the site locale onto the account before the deposit starts: the paid
+  // confirmation is sent later by the PawaPay webhook (notifyPaidReservation),
+  // which only has the phone to go on — so the stored preference has to be
+  // right by then or the customer gets the wrong language.
+  const requestLocale: Lang | null =
+    body.locale === 'en' ? 'en' : body.locale === 'fr' ? 'fr' : null
+  if (customerId && requestLocale && requestLocale !== storedLang) {
+    await supabaseAdmin
+      .from('customers').update({ preferred_language: requestLocale }).eq('id', customerId)
+    console.log('[events/pay] synced customer=%s preferred_language → %s', customerId, requestLocale)
+    storedLang = requestLocale
   }
 
   const country = countryFromCity(event.city)
@@ -183,7 +224,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Confirm to the customer — unlike the paid path, no deposit webhook will
     // fire, so this branch must send the confirmation itself.
     if (custPhone) {
-      const lang = await getLangByPhone(custPhone)
+      // Customer's language, in the same priority order as /reserve: site
+      // locale sent with the request → account preference → phone lookup.
+      const lang: Lang = requestLocale ?? storedLang ?? await getLangByPhone(custPhone)
+      console.log('[events/pay] customer lang=%s (locale=%s stored=%s)', lang, requestLocale ?? '-', storedLang ?? '-')
       const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', {
         day: '2-digit', month: 'long', year: 'numeric',
       })

@@ -16,6 +16,7 @@ import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, effectiveWebMode, canPayOnline, canReserve } from '@/lib/paymentMode'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN } from '@/lib/eventDate'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -150,7 +151,10 @@ export default function EventDetailPage() {
   // Organizer can close the reservation gate independently of event_status —
   // e.g. soft-pause to manage walk-ins. Default is open (column default).
   const reservationsClosed = event.reservations_open === false
-  const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed
+  // A date in the past closes bookings no matter what the organizer set —
+  // the reserve/pay APIs enforce the same rule server-side.
+  const isPast       = isPastEvent(event.date)
+  const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed && !isPast
   // Resolve the 3-way payment mode (free events collapse to reservation_only).
   // reservation_only / both → reserve button; payment_only / both → pay button.
   // For 'both', both buttons render and the customer chooses.
@@ -291,6 +295,10 @@ export default function EventDetailPage() {
       const body: Record<string, unknown> = {
         quantity:    hasTiers ? (tierItem?.quantity ?? 1) : quantity,
         phoneNumber: trimmedMomo,
+        // Site language at booking time — the API confirms in this language
+        // (and syncs it onto the customer's account) so a customer browsing
+        // in French never gets an English confirmation.
+        locale,
       }
       if (hasTiers && tierItem) body.tier_id = tierItem.tier_id
       if (appliedPromo) body.voucher_code = appliedPromo.code
@@ -326,8 +334,8 @@ export default function EventDetailPage() {
       // Tier mode sends items[]; legacy single-price sends quantity.
       // The API accepts both shapes — see app/api/events/[id]/reserve.
       const body: Record<string, unknown> = hasTiers
-        ? { items: selectedTierItems.map(i => ({ tier_id: i.tier_id, quantity: i.quantity })) }
-        : { quantity }
+        ? { items: selectedTierItems.map(i => ({ tier_id: i.tier_id, quantity: i.quantity })), locale }
+        : { quantity, locale }
       if (appliedPromo) body.voucher_code = appliedPromo.code
       if (!me) {
         body.customer_name  = guestName.trim()
@@ -377,6 +385,11 @@ export default function EventDetailPage() {
           <span className="inline-block bg-brand text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
             {categoryLabel(event.category, locale)}
           </span>
+          {isPast && (
+            <span className="inline-block ml-2 bg-ink-primary/90 text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
+              ⏳ {bi('Passé', 'Past')}
+            </span>
+          )}
           <h1 className="text-white text-2xl font-bold leading-tight drop-shadow-lg">
             {event.title}
           </h1>
@@ -428,17 +441,22 @@ export default function EventDetailPage() {
             {bi('❌ Événement annulé', '❌ Event cancelled')}
           </div>
         )}
-        {!isCancelled && isCompleted && (
+        {!isCancelled && isPast && (
+          <div className="bg-surface-muted border border-divider rounded-2xl p-4 text-center text-sm font-semibold text-ink-secondary">
+            ⏳ {bi(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`)}
+          </div>
+        )}
+        {!isCancelled && !isPast && isCompleted && (
           <div className="bg-surface-muted border border-divider rounded-2xl p-4 text-center text-sm font-semibold text-ink-secondary">
             {bi('🏁 Événement terminé', '🏁 Event ended')}
           </div>
         )}
-        {!isCancelled && !isCompleted && soldOut && (
+        {!isCancelled && !isPast && !isCompleted && soldOut && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center text-sm font-semibold text-amber-700">
             {bi('🎟 Complet', '🎟 Sold out')}
           </div>
         )}
-        {!isCancelled && !isCompleted && !soldOut && reservationsClosed && (
+        {!isCancelled && !isPast && !isCompleted && !soldOut && reservationsClosed && (
           <div className="bg-surface-muted border border-divider rounded-2xl p-4 text-center text-sm font-semibold text-ink-secondary">
             🔒 {bi('Les réservations sont fermées.', 'Reservations are closed.')}
           </div>

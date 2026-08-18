@@ -14,6 +14,17 @@
 //     national numbers align with the +E.164 format the webhook stores.
 //  5. Return '' for inputs that produce no digits (caller decides what to do).
 
+// Loose equality for two phone numbers that may be stored in different
+// shapes ("+237670000000", "237670000000", "670 000 000"). Compares the last
+// 9 significant digits — long enough to be unique inside a country, short
+// enough to survive a missing/duplicated dial code. Empty inputs never match.
+export function samePhone(a: string | null | undefined, b: string | null | undefined): boolean {
+  const tail = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '').slice(-9)
+  const ta = tail(a)
+  const tb = tail(b)
+  return ta.length >= 6 && ta === tb
+}
+
 export function normalizePhone(raw: string | null | undefined): string {
   if (!raw) return ''
   let s = raw.replace(/^whatsapp:/i, '').replace(/[^\d+]/g, '')

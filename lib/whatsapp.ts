@@ -50,7 +50,23 @@ export async function getLangByPhone(phone: string | null | undefined): Promise<
     .select('preferred_language')
     .eq('phone', normalised)
     .maybeSingle()
-  return normalizeLang(data?.preferred_language)
+  if (data) return normalizeLang(data.preferred_language)
+
+  // Exact match missed — the same person can be stored as "+237670000000"
+  // while the caller passes "237670000000" (guest checkout, organizer
+  // whatsapp field, hand-typed numbers). Retry on the last 9 digits before
+  // giving up, otherwise the customer silently gets the default language
+  // instead of the one they picked.
+  const tail = normalised.replace(/\D/g, '').slice(-9)
+  if (tail.length >= 6) {
+    const { data: loose } = await supabaseAdmin
+      .from('customers')
+      .select('preferred_language')
+      .like('phone', `%${tail}`)
+      .limit(1)
+    if (loose && loose.length) return normalizeLang(loose[0].preferred_language)
+  }
+  return DEFAULT_LANG
 }
 
 // ── Core send ─────────────────────────────────────────────────────────────────

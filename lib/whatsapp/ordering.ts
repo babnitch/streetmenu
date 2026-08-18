@@ -24,6 +24,9 @@ import { generateReservationCode } from '@/lib/reservationCode'
 import {
   normalizeMode, modeFromLegacy, effectiveWhatsAppMode, type PaymentMode,
 } from '@/lib/paymentMode'
+import { samePhone } from '@/lib/phone'
+import { isEventOrganizer } from '@/lib/eventAuth'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN } from '@/lib/eventDate'
 
 // Reads the restaurant's estimated prep range and formats a single-language
 // WhatsApp line like "🕐 Temps estimé: 20-35 min", or '' when the vendor
@@ -61,33 +64,90 @@ function last4(orderId: string): string {
   return orderId.replace(/-/g, '').slice(-4).toUpperCase()
 }
 
+// PostgREST filter matching either link column an event can carry to its
+// publisher. Mirrors lib/eventAuth.isEventOrganizer + /api/events/my, so an
+// organizer whose event predates `organizer_id` still sees it in chat.
+function organizerScope(customerId: string): string {
+  return `organizer_id.eq.${customerId},submitted_by.eq.${customerId}`
+}
+
 // Resolve a reservation from a typed short code, scoped to events the given
 // organizer owns. Primary match is the stored reservation_code; falls back to
 // the legacy UUID-last-4 so codes quoted before the migration still resolve.
 interface ResolvedReservation {
   id: string; event_id: string; reservation_status: string; reservation_code: string | null
   quantity: number; customer_name: string; customer_phone: string
-  events: { organizer_id: string; title: string } | null
+  events: { organizer_id: string | null; submitted_by: string | null; whatsapp: string | null; title: string } | null
 }
-async function resolveReservationByCode(organizerId: string, code: string): Promise<ResolvedReservation | null> {
-  const cols = 'id, event_id, reservation_status, reservation_code, quantity, customer_name, customer_phone, events!inner(organizer_id, title)'
-  const { data } = await supabaseAdmin
+const RESERVATION_COLS =
+  'id, event_id, reservation_status, reservation_code, quantity, customer_name, customer_phone, events!inner(organizer_id, submitted_by, whatsapp, title)'
+
+async function resolveReservationByCode(
+  organizerId: string,
+  code: string,
+  // Sender's phone. Events published without an account link carry only
+  // events.whatsapp, so organizer_id alone would never resolve them and the
+  // organizer would be told their own reservation doesn't exist.
+  organizerPhone?: string | null,
+): Promise<ResolvedReservation | null> {
+  // Organizers copy the code straight out of the notification, '#' and all.
+  const clean = code.trim().replace(/^#/, '').trim()
+  console.log('[whatsapp/reservation] resolving code=%s organizer=%s phone=%s', clean, organizerId, organizerPhone ?? '-')
+
+  const { data, error } = await supabaseAdmin
     .from('event_reservations')
-    .select(cols)
+    .select(RESERVATION_COLS)
     .eq('events.organizer_id', organizerId)
-    .ilike('reservation_code', code.trim())
+    .ilike('reservation_code', clean)
     .limit(1)
-  if (data && data.length) return data[0] as unknown as ResolvedReservation
-  // Legacy fallback — match the trailing 4 hex of the UUID.
-  const low = code.trim().toLowerCase()
+  if (error) console.error('[whatsapp/reservation] code lookup failed:', error.message)
+  if (data && data.length) {
+    console.log('[whatsapp/reservation] matched by code → reservation=%s', data[0].id)
+    return data[0] as unknown as ResolvedReservation
+  }
+
+  // Events linked to their publisher through the legacy `submitted_by`
+  // column rather than `organizer_id` — same rule as lib/eventAuth.
+  const { data: bySubmitter } = await supabaseAdmin
+    .from('event_reservations')
+    .select(RESERVATION_COLS)
+    .eq('events.submitted_by', organizerId)
+    .ilike('reservation_code', clean)
+    .limit(1)
+  if (bySubmitter && bySubmitter.length) {
+    console.log('[whatsapp/reservation] matched by code + submitted_by → reservation=%s', bySubmitter[0].id)
+    return bySubmitter[0] as unknown as ResolvedReservation
+  }
+
+  // Same code, but scoped by the event's WhatsApp contact instead of the
+  // organizer account.
+  if (organizerPhone) {
+    const { data: byCode } = await supabaseAdmin
+      .from('event_reservations')
+      .select(RESERVATION_COLS)
+      .ilike('reservation_code', clean)
+      .limit(20)
+    const hit = ((byCode ?? []) as unknown as ResolvedReservation[])
+      .find(r => samePhone(r.events?.whatsapp, organizerPhone))
+    if (hit) {
+      console.log('[whatsapp/reservation] matched by code + event whatsapp → reservation=%s', hit.id)
+      return hit
+    }
+  }
+
+  // Legacy fallback — match the trailing 4 hex of the UUID (codes quoted
+  // before the reservation_code migration).
+  const low = clean.toLowerCase()
   const { data: all } = await supabaseAdmin
     .from('event_reservations')
-    .select(cols)
+    .select(RESERVATION_COLS)
     .eq('events.organizer_id', organizerId)
     .order('created_at', { ascending: false })
     .limit(300)
-  return ((all ?? []) as unknown as ResolvedReservation[])
+  const legacy = ((all ?? []) as unknown as ResolvedReservation[])
     .find(r => r.id.replace(/-/g, '').toLowerCase().endsWith(low)) ?? null
+  console.log('[whatsapp/reservation] legacy uuid match: %s', legacy ? legacy.id : 'none')
+  return legacy
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -984,7 +1044,7 @@ export async function handleOrderCommand(
     // Constrain to events the caller organizes.
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, date, organizer_id, whatsapp')
-      .eq('organizer_id', customer.id).limit(50)
+      .or(organizerScope(customer.id)).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(
@@ -1029,7 +1089,7 @@ export async function handleOrderCommand(
   if (editMatch) {
     const code4 = editMatch[1].toLowerCase()
     const { data: candidates } = await supabaseAdmin
-      .from('events').select('id, title, organizer_id').eq('organizer_id', customer.id).limit(50)
+      .from('events').select('id, title, organizer_id').or(organizerScope(customer.id)).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(
@@ -1055,7 +1115,7 @@ export async function handleOrderCommand(
     const { data: candidates } = await supabaseAdmin
       .from('events')
       .select('id, title, date, time, venue, organizer_id, organizer_name')
-      .eq('organizer_id', customer.id).limit(50)
+      .or(organizerScope(customer.id)).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(
@@ -1085,7 +1145,7 @@ export async function handleOrderCommand(
     const code4 = tarifsMatch[1].toLowerCase()
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, organizer_id')
-      .eq('organizer_id', customer.id).limit(50)
+      .or(organizerScope(customer.id)).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
@@ -1123,7 +1183,7 @@ export async function handleOrderCommand(
 
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, organizer_id')
-      .eq('organizer_id', customer.id).limit(50)
+      .or(organizerScope(customer.id)).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
@@ -1184,7 +1244,7 @@ export async function handleOrderCommand(
     const open = (verb === 'ouvrir' || verb === 'open')
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, reservations_open')
-      .eq('organizer_id', customer.id).limit(50)
+      .or(organizerScope(customer.id)).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
@@ -1212,17 +1272,34 @@ export async function handleOrderCommand(
   // confirms / rejects a pending reservation by its 4-char ID suffix.
   // Customer notification is handled inside the API handlers via the
   // shared sendWhatsApp helper, so we just delegate over fetch.
-  const reservDecisionMatch = cmd.match(/^(confirmer|rejeter|confirm|reject)\s+reservation\s+([a-z0-9]{4,6})$/i)
+  // Tolerant on purpose: the organizer may type the accented "réservation",
+  // drop the noun entirely, or paste the code with its leading '#'.
+  const reservDecisionMatch = cmd.match(
+    /^(confirmer|confirme|valider|rejeter|refuser|confirm|reject|decline)\s+(?:r[ée]servations?\s+)?#?\s*([a-z0-9]{4,6})$/i,
+  )
   if (reservDecisionMatch) {
     const verb  = reservDecisionMatch[1].toLowerCase()
     const code4 = reservDecisionMatch[2]
-    const action = (verb === 'confirmer' || verb === 'confirm') ? 'confirm' : 'reject'
+    const action = ['confirmer', 'confirme', 'valider', 'confirm'].includes(verb) ? 'confirm' : 'reject'
+    console.log('[whatsapp] reservation decision: verb=%s action=%s code=%s from=%s customer=%s',
+      verb, action, code4, from, customer.id)
 
     // Resolve the reservation by its code (or legacy UUID suffix), scoped to
-    // this organizer's events.
-    const match = await resolveReservationByCode(customer.id, code4)
-    if (!match || match.reservation_status === 'cancelled' || match.reservation_status === 'rejected') {
-      await sendWhatsApp(from, pickLang(`❌ Réservation #${code4.toUpperCase()} introuvable.`, `❌ Reservation #${code4.toUpperCase()} not found.`, lang))
+    // this organizer's events (by account, or by the event's WhatsApp number).
+    const match = await resolveReservationByCode(customer.id, code4, customer.phone)
+    if (!match) {
+      console.warn('[whatsapp] reservation %s not found for organizer %s', code4, customer.id)
+      await sendWhatsApp(from, pickLang(
+        `❌ Réservation #${code4.toUpperCase()} introuvable parmi vos événements.\nEnvoyez "mes evenements" puis "reservations CODE" pour la liste.`,
+        `❌ Reservation #${code4.toUpperCase()} not found in your events.\nSend "my events" then "reservations CODE" for the list.`,
+        lang))
+      return ok()
+    }
+    if (match.reservation_status === 'cancelled' || match.reservation_status === 'rejected') {
+      const shownClosed = match.reservation_code ?? code4.toUpperCase()
+      await sendWhatsApp(from, pickLang(
+        `❌ Réservation #${shownClosed} déjà clôturée (${match.reservation_status}).`,
+        `❌ Reservation #${shownClosed} is already closed (${match.reservation_status}).`, lang))
       return ok()
     }
 
@@ -1255,6 +1332,7 @@ export async function handleOrderCommand(
         )).catch(() => null)
       }
       const shownCode = match.reservation_code ?? code4.toUpperCase()
+      console.log('[whatsapp] reservation %s confirmed by organizer %s', match.id, customer.id)
       await sendWhatsApp(from, pickLang(`✅ Réservation #${shownCode} confirmée.`, `✅ Reservation #${shownCode} confirmed.`, lang))
     } else {
       // Reject — also release seats.
@@ -1288,6 +1366,7 @@ export async function handleOrderCommand(
         }
       }
       const shownRejectCode = match.reservation_code ?? code4.toUpperCase()
+      console.log('[whatsapp] reservation %s rejected by organizer %s', match.id, customer.id)
       await sendWhatsApp(from, pickLang(`❌ Réservation #${shownRejectCode} rejetée.`, `❌ Reservation #${shownRejectCode} rejected.`, lang))
     }
     return ok()
@@ -1295,10 +1374,10 @@ export async function handleOrderCommand(
 
   // "present CODE" / "présent CODE" / "checkin CODE" — organizer marks a
   // reservation as attended (door check-in) by its short code.
-  const presentMatch = cmd.match(/^(?:present|présent|checkin|check-in|pointer)\s+([a-z0-9]{4,6})$/i)
+  const presentMatch = cmd.match(/^(?:present|présent|checkin|check-in|pointer)\s+#?\s*([a-z0-9]{4,6})$/i)
   if (presentMatch) {
     const code = presentMatch[1]
-    const match = await resolveReservationByCode(customer.id, code)
+    const match = await resolveReservationByCode(customer.id, code, customer.phone)
     if (!match) {
       await sendWhatsApp(from, pickLang(`❌ Réservation #${code.toUpperCase()} introuvable.`, `❌ Reservation #${code.toUpperCase()} not found.`, lang))
       return ok()
@@ -1338,10 +1417,10 @@ export async function handleOrderCommand(
 
   // "reservation CODE" (singular) — organizer looks up one reservation's
   // details by its short code. (Plural "reservations XXXX" lists an event.)
-  const reservLookupMatch = cmd.match(/^reservation\s+([a-z0-9]{4,6})$/i)
+  const reservLookupMatch = cmd.match(/^r[ée]servation\s+#?\s*([a-z0-9]{4,6})$/i)
   if (reservLookupMatch) {
     const code = reservLookupMatch[1]
-    const match = await resolveReservationByCode(customer.id, code)
+    const match = await resolveReservationByCode(customer.id, code, customer.phone)
     if (!match) {
       await sendWhatsApp(from, pickLang(`❌ Réservation #${code.toUpperCase()} introuvable.`, `❌ Reservation #${code.toUpperCase()} not found.`, lang))
       return ok()
@@ -1390,7 +1469,7 @@ export async function handleOrderCommand(
       ))
       return ok()
     }
-    return startReserveFlow(from, phone, event.id, lang)
+    return startReserveFlow(from, phone, event.id, lang, customer)
   }
 
   // "noter" / "rate" — when a customer has a recent delivered order, deep
@@ -1484,7 +1563,7 @@ export async function handleOrderCommand(
     const { data } = await supabaseAdmin
       .from('events')
       .select('id, title, date, is_active, auto_approved, event_status')
-      .eq('organizer_id', customer.id)
+      .or(organizerScope(customer.id))
       .order('date', { ascending: false })
       .limit(10)
 
@@ -1580,7 +1659,7 @@ export async function handleEventSession(
         await sendWhatsApp(from, pickLang('Session expirée. Envoyez "evenements".', 'Session expired. Send "events".', lang))
         return ok()
       }
-      return startReserveFlow(from, phone, eventId, lang)
+      return startReserveFlow(from, phone, eventId, lang, customer)
     }
     if (cmd === 'retour' || cmd === 'back') {
       // The previous event_browse ids may have been overwritten; tell the
@@ -1617,11 +1696,17 @@ export async function handleEventSession(
     // have been sitting on the prompt while others booked).
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city')
+      .select('id, title, date, time, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city')
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement clôturé.', '❌ Event closed.', lang))
+      return ok()
+    }
+    const blockedStep1 = bookingBlock(event, customer, lang)
+    if (blockedStep1) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, blockedStep1)
       return ok()
     }
     const sold = Number(event.tickets_sold ?? 0)
@@ -1703,11 +1788,17 @@ export async function handleEventSession(
     }
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, whatsapp, tickets_sold, ticket_price')
+      .select('id, title, date, time, venue, organizer_id, submitted_by, whatsapp, tickets_sold, ticket_price')
       .eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
+      return ok()
+    }
+    const blockedStep5 = bookingBlock(event, customer, lang)
+    if (blockedStep5) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, blockedStep5)
       return ok()
     }
     const sold = Number(event.tickets_sold ?? 0)
@@ -1770,10 +1861,16 @@ export async function handleEventSession(
     }
 
     const { data: event } = await supabaseAdmin
-      .from('events').select('id, title, city, organizer_id, whatsapp, tickets_sold, max_tickets').eq('id', eventId).maybeSingle()
+      .from('events').select('id, title, date, city, organizer_id, submitted_by, whatsapp, tickets_sold, max_tickets').eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
+      return ok()
+    }
+    const blockedStep2 = bookingBlock(event, customer, lang)
+    if (blockedStep2) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, blockedStep2)
       return ok()
     }
 
@@ -1898,11 +1995,17 @@ export async function handleEventSession(
     // Reserve → re-pull the event to re-check capacity, then confirm.
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, whatsapp, is_active, event_status, tickets_sold, max_tickets')
+      .select('id, title, date, time, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, tickets_sold, max_tickets')
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement clôturé.', '❌ Event closed.', lang))
+      return ok()
+    }
+    const blockedStep3 = bookingBlock(event, customer, lang)
+    if (blockedStep3) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, blockedStep3)
       return ok()
     }
     const sold = Number(event.tickets_sold ?? 0)
@@ -1929,7 +2032,8 @@ export async function handleEventSession(
 // Minimal event shape the reservation confirmation needs.
 interface EventReserveRow {
   id: string; title: string; date: string; time: string | null
-  venue: string | null; organizer_id: string | null; whatsapp: string | null
+  venue: string | null; organizer_id: string | null; submitted_by?: string | null
+  whatsapp: string | null
 }
 
 // Sets the session to step 2 and prompts for the Mobile Money number. Shared by
@@ -1962,6 +2066,13 @@ async function confirmEventReservationWhatsapp(opts: {
   voucherCode?: string | null; voucherId?: string | null; discountAmount?: number
 }): Promise<NextResponse> {
   const { from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang } = opts
+  // Last line of defence — every path funnels through here before the insert.
+  const blocked = bookingBlock(event, customer, lang)
+  if (blocked) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, blocked)
+    return ok()
+  }
   const voucherCode = opts.voucherCode ?? null
   const discountAmount = opts.discountAmount ?? 0
   const reservationCode = await generateReservationCode()
@@ -2054,11 +2165,14 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
   const capacityLine = remaining != null
     ? `👥 ${remaining} ${remaining > 0 ? pickLang('places restantes', 'spots remaining', lang) : pickLang('— ❌ Complet', '— ❌ Sold out', lang)}`
     : ''
-  const tail = remaining === 0
-    ? '\n' + pickLang(`❌ Cet événement est complet.`, `❌ This event is sold out.`, lang)
-    : '\n' + pickLang(
-        `💡 Envoyez 'reserver' pour réserver, ou 'retour' pour la liste.`,
-        `💡 Send 'reserve' to book, or 'back' for the list.`, lang)
+  const past = isPastEvent(event.date)
+  const tail = past
+    ? '\n' + `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
+    : remaining === 0
+      ? '\n' + pickLang(`❌ Cet événement est complet.`, `❌ This event is sold out.`, lang)
+      : '\n' + pickLang(
+          `💡 Envoyez 'reserver' pour réserver, ou 'retour' pour la liste.`,
+          `💡 Send 'reserve' to book, or 'back' for the list.`, lang)
 
   await supabaseAdmin.from('signup_sessions').upsert({
     phone, user_type: 'event_detail', step: 1,
@@ -2078,12 +2192,47 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
   return ok()
 }
 
+// Shared "can this person book this event right now?" guard for the chat
+// flow. Returns the reply to send, or null when the booking may proceed.
+// Mirrors the server-side rules in /api/events/[id]/reserve so the two
+// entry points can't drift apart.
+function bookingBlock(
+  event: {
+    id: string; title?: string; date?: string | null
+    organizer_id?: string | null; submitted_by?: string | null; whatsapp?: string | null
+  },
+  customer: OrderingCustomer | undefined,
+  lang: Lang,
+): string | null {
+  if (isPastEvent(event.date)) {
+    console.log('[whatsapp/reserve] blocked — event %s is past (date=%s)', event.id, event.date)
+    return `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
+  }
+  if (!customer) return null
+  const selfById    = isEventOrganizer(event, customer.id)
+  const selfByPhone = samePhone(event.whatsapp, customer.phone)
+  if (selfById || selfByPhone) {
+    console.log('[whatsapp/reserve] blocked self-booking on event=%s (byId=%s byPhone=%s)', event.id, selfById, selfByPhone)
+    return pickLang(
+      '🚫 Vous ne pouvez pas réserver votre propre événement.',
+      '🚫 You cannot book your own event.',
+      lang,
+    )
+  }
+  return null
+}
+
 // Verifies the event is bookable in-chat and either inserts the
 // reservation directly or kicks off the multi-step quantity prompt.
-async function startReserveFlow(from: string, phone: string, eventId: string, lang: Lang = 'fr'): Promise<NextResponse> {
+async function startReserveFlow(
+  from: string, phone: string, eventId: string, lang: Lang = 'fr',
+  // Present for every in-chat path; used to block an organizer from booking
+  // their own event before the quantity prompt even opens.
+  customer?: OrderingCustomer,
+): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status')
+    .select('id, title, date, organizer_id, submitted_by, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status')
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2092,6 +2241,12 @@ async function startReserveFlow(from: string, phone: string, eventId: string, la
   }
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
     await sendWhatsApp(from, pickLang('❌ Événement clôturé.', '❌ Event closed.', lang))
+    return ok()
+  }
+  const blocked = bookingBlock(event, customer, lang)
+  if (blocked) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, blocked)
     return ok()
   }
   const sold = Number(event.tickets_sold ?? 0)

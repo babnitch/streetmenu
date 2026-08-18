@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -18,10 +19,10 @@ export async function POST(
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
 
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, organizer_id').eq('id', params.id).maybeSingle()
+    .from('events').select('id, organizer_id, submitted_by').eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
 
-  if (!isAdmin && event.organizer_id !== session.id) {
+  if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
   }
 

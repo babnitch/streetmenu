@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
@@ -33,11 +34,11 @@ export async function POST(
   }
 
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, title, date, organizer_id, tickets_sold').eq('id', params.id).maybeSingle()
+    .from('events').select('id, title, date, organizer_id, submitted_by, tickets_sold').eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
 
   // Authz: customer self-cancel, organizer, or admin.
-  const isOrganizer = event.organizer_id && event.organizer_id === session.id
+  const isOrganizer = isEventOrganizer(event, session.id)
   const isOwner     = r.customer_id && r.customer_id === session.id
   if (!isAdmin && !isOrganizer && !isOwner) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })

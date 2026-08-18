@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { deriveStatus } from '@/lib/vouchers'
 
@@ -15,9 +16,9 @@ async function authorize(req: NextRequest, eventId: string) {
   if (!session) return { error: NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 }) }
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, organizer_id, title, city').eq('id', eventId).maybeSingle()
+    .from('events').select('id, organizer_id, submitted_by, title, city').eq('id', eventId).maybeSingle()
   if (!event) return { error: NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 }) }
-  if (!isAdmin && event.organizer_id !== session.id) {
+  if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return { error: NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 }) }
   }
   return { session, event }

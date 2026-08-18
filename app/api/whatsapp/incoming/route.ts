@@ -2100,6 +2100,25 @@ async function handleVendor(
     if (actionResp) return actionResp
   }
 
+  // ── Customer / organizer commands for a vendor's number ──────────────────
+  // A restaurant owner is very often also an event organizer. Routing lands
+  // them here (they own a restaurant), so without this delegation their
+  // organizer commands — "confirmer reservation A3F7", "mes evenements",
+  // "reservations XXXX" — silently fell through to the "I didn't understand"
+  // reply below. Only reached once every vendor command has missed.
+  const { data: vendorCustomer } = await supabaseAdmin
+    .from('customers').select('id, name, phone, city, preferred_language')
+    .eq('phone', phone).maybeSingle()
+  if (vendorCustomer) {
+    const delegated = await handleOrderCommand(
+      from, phone, cmd, vendorCustomer as OrderingCustomer, body,
+    )
+    if (delegated) {
+      console.log('[whatsapp] vendor command delegated to customer/organizer handler: %s', cmd)
+      return delegated
+    }
+  }
+
   // ── Unknown ──────────────────────────────────────────────────────────────
   await sendWhatsApp(from, pickLang(
     'Je n\'ai pas compris. Envoyez *aide* pour la liste des commandes.',

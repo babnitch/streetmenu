@@ -14,6 +14,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { useCity } from '@/lib/cityContext'
 import { useDataMode } from '@/lib/dataMode'
 import { arrangePromoted, FEED_INJECT_EVERY_EVENT } from '@/lib/promotions'
+import { isPastEvent } from '@/lib/eventDate'
 import TopNav from '@/components/TopNav'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
@@ -30,7 +31,7 @@ const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ]
 
-function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[] }) {
+function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices, isPast }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[]; isPast?: boolean }) {
   const bi = useBi()
   const { isLowData } = useDataMode()
   const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
@@ -56,7 +57,7 @@ function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promot
   }, [promotionId])
 
   return (
-    <div ref={cardRef} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-brand-light">
+    <div ref={cardRef} className={`bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-brand-light ${isPast ? 'opacity-60 grayscale' : ''}`}>
       <div className="relative h-36 bg-gradient-to-br from-brand-badge to-brand">
         {event.cover_photo && !isLowData ? (
           <Image
@@ -72,6 +73,11 @@ function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promot
         <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
           {categoryDisplay}
         </span>
+        {isPast && (
+          <span className="absolute bottom-2 left-2 bg-ink-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+            ⏳ {bi('Passé', 'Past')}
+          </span>
+        )}
         {(() => {
           // Three branches: (1) no tiers → single price as before;
           // (2) tiers exist → range/all-free/mixed; (3) free fallback.
@@ -348,6 +354,17 @@ export default function EventsPage() {
     return cityMatch && catMatch
   })
 
+  // Upcoming first (soonest first), past events pushed into their own
+  // grayed-out section at the bottom (most recent first). The Supabase query
+  // already sorts by date ascending, which put *past* events at the very top
+  // of the list — hence the explicit split here.
+  const upcomingEvents = filtered
+    .filter(e => !isPastEvent(e.date))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  const pastEvents = filtered
+    .filter(e => isPastEvent(e.date))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+
   // Active event promotions for this city — pin top_list at the front
   // and inject feed_card every 4th position, capped at MAX_PROMOS_PER_PAGE.
   const [eventPromos, setEventPromos] = useState<Array<{ id: string; target_id: string; placement: 'top_list' | 'feed_card' | 'banner' }>>([])
@@ -369,10 +386,12 @@ export default function EventsPage() {
 
   // Plain record (not `new Map(...)`) because the `Map` identifier in
   // this file is already taken by the dynamic Mapbox component import.
+  // Only upcoming events are promotable — a paid "top of list" slot must
+  // never resurrect an event that already happened.
   const eventById: Record<string, typeof events[number]> = {}
-  for (const e of events) eventById[e.id] = e
+  for (const e of upcomingEvents) eventById[e.id] = e
   const arrangedEvents = arrangePromoted(
-    filtered,
+    upcomingEvents,
     eventPromos,
     (id) => eventById[id] ?? null,
     (e) => e.id,
@@ -383,7 +402,7 @@ export default function EventsPage() {
 
   // Only events with coords can be placed on the map. Events without
   // lat/lng are shown in the list but skipped on the map view.
-  const mapMarkers = filtered
+  const mapMarkers = upcomingEvents
     .filter(e => typeof e.lat === 'number' && typeof e.lng === 'number')
     .map(e => ({ id: e.id, name: e.title, lat: e.lat as number, lng: e.lng as number }))
 
@@ -484,6 +503,32 @@ export default function EventsPage() {
                 tierPrices={tierPrices[entry.item.id]}
               />
             ))}
+          </div>
+        )}
+
+        {/* Past events — grayed out, at the bottom, never bookable. */}
+        {!loading && pastEvents.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-sm font-bold text-ink-tertiary mb-3 flex items-center gap-2">
+              ⏳ {bi('Événements passés', 'Past events')}
+              <span className="text-xs font-semibold bg-surface-muted text-ink-tertiary px-2 py-0.5 rounded-full">
+                {pastEvents.length}
+              </span>
+            </h2>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {pastEvents.map(e => (
+                <EventCard
+                  key={`past-${e.id}`}
+                  event={e}
+                  viewLabel={t('evt.viewDetail')}
+                  freeLabel={t('evt.free')}
+                  categoryDisplay={categoryLabel(e.category, locale)}
+                  likes={likesSummary[e.id]}
+                  tierPrices={tierPrices[e.id]}
+                  isPast
+                />
+              ))}
+            </div>
           </div>
         )}
 
