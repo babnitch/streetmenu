@@ -26,8 +26,17 @@ export const dynamic = 'force-dynamic'
 // are responsible for flipping payment_status to 'paid' and firing the
 // notifyPaidReservation fan-out.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  // Same login gate as /reserve — paying for a ticket is a booking, so it
+  // needs an account. Viewing the event stays public.
   const session = getSessionFromRequest(req)
-  const customerId = session?.role === 'customer' ? session.id : null
+  if (!session || session.role !== 'customer') {
+    console.log('[events/pay] rejected — no customer session (role=%s)', session?.role ?? 'anonymous')
+    return NextResponse.json({
+      error:          'Connectez-vous pour réserver / Log in to reserve',
+      login_required: true,
+    }, { status: 401 })
+  }
+  const customerId = session.id
 
   const body = await req.json().catch(() => ({}))
   const quantityRaw = Number(body.quantity)
@@ -35,8 +44,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ? Math.floor(quantityRaw)
     : 1
   const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
-  const guestName   = typeof body.customer_name  === 'string' ? body.customer_name.trim()  : ''
-  const guestPhone  = typeof body.customer_phone === 'string' ? body.customer_phone.trim() : ''
   // Optional tier_id — when present, price + capacity come from the tier
   // row rather than events.ticket_price. Multi-tier paid checkout is
   // intentionally out of scope for this iteration; the UI buys one tier
@@ -116,23 +123,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 409 })
   }
 
-  // Identity: session > guest body. Same shape as /reserve.
-  let custName  = ''
-  let custPhone = ''
-  let storedLang: Lang | null = null
-  if (customerId) {
-    const { data: c } = await supabaseAdmin
-      .from('customers').select('name, phone, preferred_language').eq('id', customerId).maybeSingle()
-    custName  = c?.name  ?? ''
-    custPhone = c?.phone ?? ''
-    storedLang = c ? normalizeLang(c.preferred_language) : null
-  } else {
-    custName  = guestName
-    custPhone = guestPhone
-  }
+  // Identity always comes from the session's account row. Same shape as
+  // /reserve — no guest name/phone from the body.
+  const { data: c } = await supabaseAdmin
+    .from('customers').select('name, phone, preferred_language').eq('id', customerId).maybeSingle()
+  const custName  = c?.name  ?? ''
+  const custPhone = c?.phone ?? ''
+  let storedLang: Lang | null = c ? normalizeLang(c.preferred_language) : null
   if (!custName || !custPhone) {
     return NextResponse.json({
-      error: 'Nom et téléphone requis / Name and phone required',
+      error: 'Profil incomplet — ajoutez un nom et un téléphone / Incomplete profile — add a name and phone',
     }, { status: 400 })
   }
 
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     organizerPhone = o?.phone ?? null
   }
   if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
-  const selfById    = Boolean(customerId && isEventOrganizer(event, customerId))
+  const selfById    = isEventOrganizer(event, customerId)
   const selfByPhone = samePhone(custPhone, organizerPhone)
   if (selfById || selfByPhone) {
     console.log('[events/pay] rejected self-booking on event=%s (byId=%s byPhone=%s)', event.id, selfById, selfByPhone)
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // right by then or the customer gets the wrong language.
   const requestLocale: Lang | null =
     body.locale === 'en' ? 'en' : body.locale === 'fr' ? 'fr' : null
-  if (customerId && requestLocale && requestLocale !== storedLang) {
+  if (requestLocale && requestLocale !== storedLang) {
     await supabaseAdmin
       .from('customers').update({ preferred_language: requestLocale }).eq('id', customerId)
     console.log('[events/pay] synced customer=%s preferred_language → %s', customerId, requestLocale)
@@ -334,8 +334,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     action:          'event_payment_initiated',
     targetType:      'event_reservation',
     targetId:        reservation.id,
-    performedBy:     customerId ?? null,
-    performedByType: customerId ? 'customer' : 'guest',
+    performedBy:     customerId,
+    performedByType: 'customer',
     metadata: {
       event_id:      event.id,
       deposit_id:    depositResult.depositId,

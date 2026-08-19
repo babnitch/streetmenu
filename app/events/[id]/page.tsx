@@ -38,6 +38,11 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
   const [me, setMe] = useState<SessionUser | null>(null)
+  // Tracks whether /api/auth/me has answered yet, so the Reserve button can
+  // wait instead of flashing the login prompt at a customer who *is* signed in.
+  const [meLoaded, setMeLoaded] = useState(false)
+  // Shown when a signed-out visitor taps Reserve / Reserve and pay.
+  const [loginPrompt, setLoginPrompt] = useState(false)
 
   // Tier picker. Empty when the event has no tiers (backward-compat
   // single-price path stays untouched). Per-tier quantity is tracked in
@@ -59,8 +64,6 @@ export default function EventDetailPage() {
   // Reservation modal state
   const [showModal, setShowModal] = useState(false)
   const [quantity, setQuantity] = useState(1)
-  const [guestName, setGuestName] = useState('')
-  const [guestPhone, setGuestPhone] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [reserveError, setReserveError] = useState('')
   const [reservationId, setReservationId] = useState<string | null>(null)
@@ -111,6 +114,7 @@ export default function EventDetailPage() {
       .then(r => r.json())
       .then(data => { if (data?.user?.role === 'customer') setMe(data.user) })
       .catch(() => null)
+      .finally(() => setMeLoaded(true))
   }, [])
 
   if (loading) {
@@ -232,7 +236,19 @@ export default function EventDetailPage() {
   )
   const shareUrl = `https://wa.me/?text=${shareMsg}`
 
+  // Login gate target — /account honours ?return= for same-site paths and
+  // bounces back here once the session cookie is set.
+  const loginHref = `/account?return=${encodeURIComponent(`/events/${event.id}`)}`
+
   function openReserve(pay: boolean) {
+    // Booking requires an account (the API returns 401 otherwise). Anyone can
+    // read the page; tapping Reserve while signed out opens the login prompt,
+    // which routes through /account?return=<this event> and lands the customer
+    // back here with a session.
+    if (!me) {
+      setLoginPrompt(true)
+      return
+    }
     setPayNow(pay)
     setQuantity(1)
     setReserveError('')
@@ -242,8 +258,6 @@ export default function EventDetailPage() {
     setPromoInput('')
     setPromoError('')
     setAppliedPromo(null)
-    setGuestName('')
-    setGuestPhone('')
     setMomoPhone('')
     setPayPhase('idle')
     setActiveDepositId(null)
@@ -302,10 +316,6 @@ export default function EventDetailPage() {
       }
       if (hasTiers && tierItem) body.tier_id = tierItem.tier_id
       if (appliedPromo) body.voucher_code = appliedPromo.code
-      if (!me) {
-        body.customer_name  = guestName.trim()
-        body.customer_phone = guestPhone.trim()
-      }
       const res = await fetch(`/api/events/${event!.id}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -313,6 +323,13 @@ export default function EventDetailPage() {
       })
       const data = await res.json()
       if (!res.ok) {
+        // Session expired between opening the modal and submitting — send
+        // them through the login gate instead of showing a payment error.
+        if (res.status === 401 || data?.login_required) {
+          setShowModal(false)
+          setLoginPrompt(true)
+          return
+        }
         setReserveError(data.error ?? bi('Erreur de paiement', 'Payment error'))
         setPayPhase('failed')
         return
@@ -337,10 +354,6 @@ export default function EventDetailPage() {
         ? { items: selectedTierItems.map(i => ({ tier_id: i.tier_id, quantity: i.quantity })), locale }
         : { quantity, locale }
       if (appliedPromo) body.voucher_code = appliedPromo.code
-      if (!me) {
-        body.customer_name  = guestName.trim()
-        body.customer_phone = guestPhone.trim()
-      }
       const res = await fetch(`/api/events/${event!.id}/reserve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -348,6 +361,11 @@ export default function EventDetailPage() {
       })
       const data = await res.json()
       if (!res.ok) {
+        if (res.status === 401 || data?.login_required) {
+          setShowModal(false)
+          setLoginPrompt(true)
+          return
+        }
         setReserveError(data.error ?? bi('Erreur de réservation', 'Reservation error'))
         return
       }
@@ -524,10 +542,14 @@ export default function EventDetailPage() {
         {onlineReservable && (
           <button
             onClick={() => openReserve(false)}
-            disabled={hasTiers && tierTotalQty === 0}
+            disabled={!meLoaded || (me != null && hasTiers && tierTotalQty === 0)}
             className="block w-full bg-brand hover:bg-brand-dark disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
-            {hasTiers ? (
+            {/* Signed-out visitors get an explicit label — the tap opens the
+                login prompt rather than the booking form. */}
+            {!me ? (
+              <>🔐 {bi('Connectez-vous pour réserver', 'Log in to reserve')}</>
+            ) : hasTiers ? (
               tierTotalQty === 0
                 ? bi('Sélectionnez un tarif', 'Pick a tier')
                 : tierTotalPrice === 0
@@ -552,10 +574,12 @@ export default function EventDetailPage() {
         {onlinePayReservable && (
           <button
             onClick={() => openReserve(true)}
-            disabled={hasTiers && tierTotalQty === 0}
+            disabled={!meLoaded || (me != null && hasTiers && tierTotalQty === 0)}
             className="block w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
-            💰 {bi('Réserver et payer', 'Reserve and pay')}
+            {me
+              ? <>💰 {bi('Réserver et payer', 'Reserve and pay')}</>
+              : <>🔐 {bi('Connectez-vous pour payer', 'Log in to pay')}</>}
             <span className="block text-xs font-normal opacity-90 mt-0.5">
               {hasTiers
                 ? (tierTotalPrice > 0 ? `${tierTotalPrice.toLocaleString()} FCFA` : bi('Sélectionnez un tarif', 'Pick a tier'))
@@ -595,6 +619,43 @@ export default function EventDetailPage() {
           label={bi('Signaler cet événement', 'Report this event')}
         />
       </div>
+
+      {/* Login gate — shown when a signed-out visitor taps Reserve. The page
+          itself is public; only the booking action needs an account. */}
+      {loginPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setLoginPrompt(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 text-center"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="text-5xl mb-3">🔐</div>
+            <h3 className="font-bold text-ink-primary text-lg mb-1">
+              {bi('Connectez-vous pour réserver', 'Log in to reserve')}
+            </h3>
+            <p className="text-sm text-ink-secondary mb-4">
+              {bi(
+                'Votre réservation et son code sont rattachés à votre compte.',
+                'Your reservation and its code are tied to your account.',
+              )}
+            </p>
+            <Link
+              href={loginHref}
+              className="block w-full bg-brand hover:bg-brand-dark text-white py-2.5 rounded-full text-sm font-semibold transition-colors"
+            >
+              {bi('Se connecter', 'Log in')}
+            </Link>
+            <button
+              onClick={() => setLoginPrompt(false)}
+              className="block w-full text-ink-secondary text-xs py-2 mt-2 hover:text-ink-primary"
+            >
+              {bi('Plus tard', 'Later')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Reserve modal */}
       {showModal && (
@@ -708,28 +769,8 @@ export default function EventDetailPage() {
                   ))}
                 </select>
 
-                {!me && (
-                  <>
-                    <label className="block text-xs text-ink-secondary mb-1">{bi('Nom', 'Name')}</label>
-                    <input
-                      type="text"
-                      value={guestName}
-                      onChange={e => setGuestName(e.target.value)}
-                      className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface mb-3"
-                      disabled={submitting}
-                    />
-                    <label className="block text-xs text-ink-secondary mb-1">{bi('Téléphone', 'Phone')}</label>
-                    <div className="mb-3">
-                      <PhoneInput
-                        value={guestPhone}
-                        onChange={(full) => setGuestPhone(full)}
-                        defaultCountry={event?.city ? getCountryFromCity(event.city).iso : undefined}
-                        disabled={submitting}
-                      />
-                    </div>
-                  </>
-                )}
-
+                {/* The modal only opens for a signed-in customer, so the
+                    booking is always made under this account. */}
                 {me && (
                   <div className="bg-surface-muted rounded-xl px-3 py-2 mb-3 text-xs text-ink-secondary">
                     {me.name} · <span className="font-mono">{me.phone}</span>
@@ -857,7 +898,7 @@ export default function EventDetailPage() {
                     onClick={payNow ? submitPay : submitReserve}
                     disabled={
                       submitting
-                      || (!me && (!guestName.trim() || !guestPhone.trim()))
+                      || !me
                       || (payNow && (!trimmedMomo || !momoValid))
                     }
                     className={`flex-1 px-3 py-2 rounded-full text-sm font-semibold text-white transition-colors disabled:opacity-50 ${

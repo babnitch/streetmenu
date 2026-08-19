@@ -30,12 +30,22 @@ export const dynamic = 'force-dynamic'
 // Free + pay-at-door only. payment_enabled=true events route through
 // /pay (PawaPay) — that handler mirrors this validation.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  // Booking requires a logged-in customer. The event page itself stays public
+  // — only this action is gated, so the client shows a login prompt and comes
+  // back via /account?return=/events/<id>. Guest bookings used to be accepted
+  // from a name + phone in the body; that path is gone, so a reservation is
+  // always attached to a real account (and to its reservation history).
   const session = getSessionFromRequest(req)
-  const customerId = session?.role === 'customer' ? session.id : null
+  if (!session || session.role !== 'customer') {
+    console.log('[events/reserve] rejected — no customer session (role=%s)', session?.role ?? 'anonymous')
+    return NextResponse.json({
+      error:          'Connectez-vous pour réserver / Log in to reserve',
+      login_required: true,
+    }, { status: 401 })
+  }
+  const customerId = session.id
 
   const body = await req.json().catch(() => ({}))
-  const guestName  = typeof body.customer_name  === 'string' ? body.customer_name.trim()  : ''
-  const guestPhone = typeof body.customer_phone === 'string' ? body.customer_phone.trim() : ''
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
@@ -72,25 +82,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // ── Resolve customer identity ────────────────────────────────────────────
-  // storedLang is the account's preferred_language — read straight off the row
-  // we already fetch, so the confirmation below never depends on a phone-shape
-  // match. Guests fall back to a phone lookup (then to the site locale).
-  let custName  = ''
-  let custPhone = ''
-  let storedLang: Lang | null = null
-  if (customerId) {
-    const { data: c } = await supabaseAdmin
-      .from('customers').select('name, phone, preferred_language').eq('id', customerId).maybeSingle()
-    custName  = c?.name  ?? ''
-    custPhone = c?.phone ?? ''
-    storedLang = c ? normalizeLang(c.preferred_language) : null
-  } else {
-    custName  = guestName
-    custPhone = guestPhone
-  }
+  // Always from the session's account row — never from the request body.
+  // storedLang is the account's preferred_language, read off the same row so
+  // the confirmation below never depends on a phone-shape match.
+  const { data: c } = await supabaseAdmin
+    .from('customers').select('name, phone, preferred_language').eq('id', customerId).maybeSingle()
+  const custName  = c?.name  ?? ''
+  const custPhone = c?.phone ?? ''
+  const storedLang: Lang | null = c ? normalizeLang(c.preferred_language) : null
   if (!custName || !custPhone) {
     return NextResponse.json({
-      error: 'Nom et téléphone requis / Name and phone required',
+      error: 'Profil incomplet — ajoutez un nom et un téléphone / Incomplete profile — add a name and phone',
     }, { status: 400 })
   }
 
@@ -107,9 +109,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // An organizer must not book their own event — it inflates tickets_sold,
   // eats capacity and produces a reservation they'd have to approve for
-  // themselves. Matched by account id first, then by phone so the guest
-  // path (organizer not logged in) is covered too.
-  const selfById    = Boolean(customerId && isEventOrganizer(event, customerId))
+  // themselves. Matched by account id first, then by phone, which still
+  // catches events that carry no account link at all (only events.whatsapp).
+  const selfById    = isEventOrganizer(event, customerId)
   const selfByPhone = samePhone(custPhone, organizerPhone)
   if (selfById || selfByPhone) {
     console.log('[events/reserve] rejected self-booking on event=%s (byId=%s byPhone=%s)', event.id, selfById, selfByPhone)
@@ -323,8 +325,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     action:          'event_reservation_created',
     targetType:      'event_reservation',
     targetId:        inserted[0].id,
-    performedBy:     customerId ?? null,
-    performedByType: customerId ? 'customer' : 'guest',
+    performedBy:     customerId,
+    performedByType: 'customer',
     metadata: {
       event_id:    event.id,
       event_title: event.title,
@@ -369,7 +371,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const custLang: Lang = bodyLocale ?? storedLang ?? await getLangByPhone(custPhone)
   console.log('[reserve] customer lang=%s (locale=%s stored=%s phone=%s)',
     custLang, bodyLocale ?? '-', storedLang ?? '-', custPhone)
-  if (customerId && bodyLocale && bodyLocale !== storedLang) {
+  if (bodyLocale && bodyLocale !== storedLang) {
     await supabaseAdmin
       .from('customers').update({ preferred_language: bodyLocale }).eq('id', customerId)
     console.log('[reserve] synced customer=%s preferred_language → %s', customerId, bodyLocale)
