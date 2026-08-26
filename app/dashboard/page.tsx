@@ -995,8 +995,8 @@ export default function DashboardPage() {
               <div className="text-4xl mb-3">🔒</div>
               <p className="text-sm text-ink-secondary">
                 {bi(
-                  'Réservé au propriétaire du restaurant.',
-                  'Restricted to the restaurant owner.',
+                  'Réservé au restaurateur.',
+                  'Restricted to the Restaurant Owner.',
                 )}
               </p>
             </div>

@@ -23,6 +23,7 @@ import OtpInput from '@/components/OtpInput'
 import { useDataMode } from '@/lib/dataMode'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
+import { CLIENT_LABEL, roleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
@@ -1274,7 +1275,7 @@ export default function AccountPage() {
                         {/* Status + role badges */}
                         <div className="flex items-center gap-2 flex-wrap">
                           <StatusBadge status={profile.deleted_at ? 'deleted' : profile.status} />
-                          <ProfileRoleBadges restaurants={myRestaurants} />
+                          <ProfileRoleBadges restaurants={myRestaurants} trust={organizerTrust} />
                         </div>
 
                         {/* Name */}
@@ -1563,7 +1564,7 @@ export default function AccountPage() {
                               <div>
                                 <h2 className="font-bold text-ink-primary text-lg">{activeRest.name}</h2>
                                 <p className="text-sm text-ink-secondary">{activeRest.city}{activeRest.neighborhood ? ` · ${activeRest.neighborhood}` : ''}</p>
-                                <p className="text-xs text-ink-tertiary mt-0.5">{activeRest.cuisine_type} · Rôle: {activeRest.teamRole}</p>
+                                <p className="text-xs text-ink-tertiary mt-0.5">{activeRest.cuisine_type} · {bi('Rôle', 'Role')}: {bi(...roleLabel(activeRest.teamRole))}</p>
                               </div>
                               <StatusBadge status={activeRest.deleted_at ? 'deleted' : activeRest.status} />
                             </div>
@@ -1687,7 +1688,7 @@ export default function AccountPage() {
                             <div className="flex items-center gap-2">
                               {m.role === 'owner' ? (
                                 <span className="text-xs font-medium px-2 py-1 rounded-full bg-brand-light text-brand-darker">
-                                  {bi('Propriétaire', 'Owner')}
+                                  {bi(...roleLabel('owner'))}
                                 </span>
                               ) : (
                                 <select
@@ -1948,27 +1949,42 @@ function TabBtn({
   )
 }
 
-function ProfileRoleBadges({ restaurants }: { restaurants: VendorRestaurant[] }) {
+// Roles on the profile card. Restaurant roles REPLACE the plain "Client"
+// badge (a restaurateur is not also labelled a client), while the publisher
+// badge is additive — it stacks on whatever the primary role is:
+//   Client · 📢 Éditeur          — customer who publishes events
+//   Restaurateur · ✅ Éditeur vérifié
+//   Client                       — plain customer
+function ProfileRoleBadges({
+  restaurants,
+  trust,
+}: {
+  restaurants: VendorRestaurant[]
+  trust: PublisherTrust | null
+}) {
   const bi = useBi()
-  const labels: Record<string, string> = {
-    owner:   bi('Vendeur Propriétaire', 'Vendor Owner'),
-    manager: bi('Vendeur Manager',      'Vendor Manager'),
-    staff:   bi('Vendeur Staff',        'Vendor Staff'),
-  }
   const uniqueRoles = Array.from(new Set(restaurants.map(r => r.teamRole)))
-  const badges: React.ReactNode[] = [
-    <span key="client" className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker">
-      {bi('Client', 'Customer')}
-    </span>,
-  ]
-  for (const role of uniqueRoles) {
-    badges.push(
-      <span key={role} className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker">
-        {labels[role] ?? role}
-      </span>
-    )
+  const publisher   = publisherLabel(trust)
+
+  const badges: React.ReactNode[] = []
+  if (uniqueRoles.length === 0) {
+    badges.push(<RoleBadge key="client" label={bi(...CLIENT_LABEL)} />)
+  } else {
+    for (const role of uniqueRoles) {
+      badges.push(<RoleBadge key={role} label={bi(...roleLabel(role))} />)
+    }
   }
+  if (publisher) badges.push(<RoleBadge key="publisher" label={bi(...publisher)} />)
+
   return <>{badges}</>
+}
+
+function RoleBadge({ label }: { label: string }) {
+  return (
+    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-light text-brand-darker">
+      {label}
+    </span>
+  )
 }
 
 function StatusBadge({ status }: { status: string }) {

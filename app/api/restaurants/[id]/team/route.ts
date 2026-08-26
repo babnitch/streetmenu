@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .eq('restaurant_id', params.id).eq('customer_id', session.id).eq('status', 'active').maybeSingle()
 
   if (!ownerEntry || ownerEntry.role !== 'owner') {
-    return NextResponse.json({ error: 'Seul le propriétaire peut gérer l\'équipe / Only owner can manage team' }, { status: 403 })
+    return NextResponse.json({ error: 'Seul le restaurateur peut gérer l\'équipe / Only the Restaurant Owner can manage the team' }, { status: 403 })
   }
 
   const { phone, role } = await req.json()

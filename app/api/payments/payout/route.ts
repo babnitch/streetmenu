@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const country = countryFromCity(restaurant.city)
   const mno = detectMNO(targetPhone, country ?? undefined)
-  if (!mno) return NextResponse.json({ error: 'Numéro vendeur non supporté / Unsupported vendor number' }, { status: 400 })
+  if (!mno) return NextResponse.json({ error: 'Numéro du restaurateur non supporté / Unsupported restaurant owner number' }, { status: 400 })
 
   let result
   try {

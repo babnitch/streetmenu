@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .eq('restaurant_id', params.id).eq('customer_id', session.id).eq('status', 'active').maybeSingle()
 
   if (!ownerEntry || ownerEntry.role !== 'owner') {
-    return NextResponse.json({ error: 'Seul le propriétaire peut inviter / Only owner can invite' }, { status: 403 })
+    return NextResponse.json({ error: 'Seul le restaurateur peut inviter / Only the Restaurant Owner can invite' }, { status: 403 })
   }
 
   const body = await req.json().catch(() => ({}))

@@ -86,8 +86,8 @@ const t = {
     'join.pill3':         '📲 WhatsApp',
     'join.pill4':         '⚡ Sous 24h',
     'join.nameLbl':       'Nom du restaurant *',
-    'join.ownerLbl':      'Nom du propriétaire *',
-    'join.ownerSub':      'Owner name',
+    'join.ownerLbl':      'Nom du restaurateur *',
+    'join.ownerSub':      'Restaurant owner name',
     'join.whatsappLbl':   'Numéro WhatsApp *',
     'join.cityLbl':       'Ville *',
     'join.citySub':       'City',
@@ -163,7 +163,7 @@ const t = {
     'admin.pendingTab':     'En attente',
     'admin.noPending':      'Aucune demande en attente',
     'admin.noPendingSub':   'No pending applications',
-    'admin.ownerLbl':       'Propriétaire',
+    'admin.ownerLbl':       'Restaurateur',
     'admin.cuisineLbl':     'Cuisine',
     'admin.approveBtn':     '✓ Approuver',
     'admin.rejectBtn':      '✕ Rejeter',
@@ -317,7 +317,7 @@ const t = {
     'account.adminNavTeam': 'Équipe plateforme',
 
     // --- DUAL LOGIN ---
-    'account.tabCustomer':    'Client / Vendeur',
+    'account.tabCustomer':    'Client / Restaurateur',
     'account.tabTeam':        'Équipe / Team',
     'account.emailLbl':       'Adresse e-mail',
     'account.emailPh':        'admin@exemple.com',
@@ -345,8 +345,8 @@ const t = {
     'account.addMember':      'Ajouter un membre',
     'account.memberPhone':    'Numéro WhatsApp du membre',
     'account.memberRole':     'Rôle',
-    'account.roleManager':    'Gérant',
-    'account.roleStaff':      'Personnel',
+    'account.roleManager':    'Manager',
+    'account.roleStaff':      'Staff',
     'account.removeMember':   'Retirer',
 
     // --- ADMIN ACCOUNTS ---
@@ -532,8 +532,8 @@ const t = {
     'join.pill3':         '📲 WhatsApp',
     'join.pill4':         '⚡ Within 24h',
     'join.nameLbl':       'Restaurant name *',
-    'join.ownerLbl':      'Owner name *',
-    'join.ownerSub':      'Nom du propriétaire',
+    'join.ownerLbl':      'Restaurant owner name *',
+    'join.ownerSub':      'Nom du restaurateur',
     'join.whatsappLbl':   'WhatsApp number *',
     'join.cityLbl':       'City *',
     'join.citySub':       'Ville',
@@ -609,7 +609,7 @@ const t = {
     'admin.pendingTab':     'Pending',
     'admin.noPending':      'No pending applications',
     'admin.noPendingSub':   'Aucune demande en attente',
-    'admin.ownerLbl':       'Owner',
+    'admin.ownerLbl':       'Restaurant Owner',
     'admin.cuisineLbl':     'Cuisine',
     'admin.approveBtn':     '✓ Approve',
     'admin.rejectBtn':      '✕ Reject',
@@ -763,7 +763,7 @@ const t = {
     'account.adminNavTeam': 'Platform Team',
 
     // --- DUAL LOGIN ---
-    'account.tabCustomer':    'Customer / Vendor',
+    'account.tabCustomer':    'Client / Restaurant Owner',
     'account.tabTeam':        'Team / Équipe',
     'account.emailLbl':       'Email address',
     'account.emailPh':        'admin@example.com',

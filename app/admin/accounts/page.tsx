@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
 import MessageLogPanel from '@/components/MessageLogPanel'
+import { CLIENT_LABEL, roleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface ReusedFrom {
@@ -30,6 +31,9 @@ interface EnrichedCustomer {
   restaurant_count: number
   roles: string[]   // team roles: 'owner' | 'manager' | 'staff'; empty = customer only
   reusedFrom: ReusedFrom | null
+  // Event-publisher standing — orthogonal to the team roles above.
+  events_submitted_count: number | null
+  event_auto_approve:     boolean | null
 }
 
 interface RestaurantRow {
@@ -470,7 +474,7 @@ export default function AdminAccountsPage() {
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <p className="font-semibold text-ink-primary text-sm">{a.name || '—'}</p>
                       <AccountStatusBadge a={a} />
-                      <RoleBadges roles={a.roles} />
+                      <RoleBadges roles={a.roles} trust={a} />
                       {a.reusedFrom && (
                         <button
                           onClick={e => { e.stopPropagation(); setReuseModal(a) }}
@@ -855,19 +859,19 @@ function ModalButtons({ confirmLabel, confirmCls, onConfirm, onCancel }: {
   )
 }
 
-function RoleBadges({ roles }: { roles: string[] }) {
+// Same rule as the /account profile card: a restaurant role replaces the
+// plain "Client" badge, and the publisher badge stacks on top of either.
+function RoleBadges({ roles, trust }: { roles: string[]; trust: PublisherTrust }) {
   const bi = useBi()
-  if (!roles.length) return <Badge label={bi('Client', 'Customer')} cls="bg-brand-light text-brand-darker" />
-  const map: Record<string, string> = {
-    owner:   bi('Vendeur Owner',   'Vendor Owner'),
-    manager: bi('Vendeur Manager', 'Vendor Manager'),
-    staff:   bi('Vendeur Staff',   'Vendor Staff'),
-  }
+  const publisher = publisherLabel(trust)
   return (
     <>
-      {roles.map(r => (
-        <Badge key={r} label={map[r] ?? r} cls="bg-brand-light text-brand-darker" />
-      ))}
+      {roles.length === 0
+        ? <Badge label={bi(...CLIENT_LABEL)} cls="bg-brand-light text-brand-darker" />
+        : roles.map(r => (
+            <Badge key={r} label={bi(...roleLabel(r))} cls="bg-brand-light text-brand-darker" />
+          ))}
+      {publisher && <Badge label={bi(...publisher)} cls="bg-emerald-50 text-emerald-700" />}
     </>
   )
 }

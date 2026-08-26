@@ -1391,7 +1391,7 @@ async function handleVendor(
                 `"temps 20 35" → min 20 min, max 35 min\n\n` +
                 `💡 Most restaurants set ${PREP_TIME_DEFAULT_MIN}-${PREP_TIME_DEFAULT_MAX} min`,
                 lang)
-            : pickLang(`Seuls le propriétaire et le manager peuvent le modifier.`, `Only the owner and manager can change it.`, lang)))
+            : pickLang(`Seuls le restaurateur et le manager peuvent le modifier.`, `Only the Restaurant Owner and Manager can change it.`, lang)))
         return ok()
       }
       // Set path
@@ -1443,8 +1443,8 @@ async function handleVendor(
   if (cmd === 'equipe' || cmd === 'team') {
     if (!isOwner) {
       await sendWhatsApp(from, pickLang(
-        'Vous n\'avez pas la permission. Contactez le propriétaire.',
-        'You don\'t have permission. Contact the owner.', lang))
+        'Vous n\'avez pas la permission. Contactez le restaurateur.',
+        'You don\'t have permission. Contact the Restaurant Owner.', lang))
       return ok()
     }
     const { data: members } = await supabaseAdmin
@@ -1513,9 +1513,9 @@ async function handleVendor(
       }, { onConflict: 'restaurant_id,customer_id' })
 
       await sendWhatsApp(newMember.phone,
-        `✅ *${ownerCustomer?.name ?? 'Le propriétaire'}* vous a ajouté comme *${memberRole}* chez *${restaurant.name}*!\n` +
+        `✅ *${ownerCustomer?.name ?? 'Le restaurateur'}* vous a ajouté comme *${memberRole}* chez *${restaurant.name}*!\n` +
         `Connectez-vous pour voir votre restaurant.\n\n` +
-        `*${ownerCustomer?.name ?? 'The owner'}* added you as *${memberRole}* at *${restaurant.name}*.\n` +
+        `*${ownerCustomer?.name ?? 'The Restaurant Owner'}* added you as *${memberRole}* at *${restaurant.name}*.\n` +
         `Log in to see your restaurant.`)
 
       await sendWhatsApp(from, pickLang(
@@ -1755,8 +1755,8 @@ async function handleVendor(
   // ── PENDING ORDERS ───────────────────────────────────────────────────────
   if ((cmd === 'commandes' || cmd === 'orders') && !canViewOrders) {
     await sendWhatsApp(from, pickLang(
-      'Vous n\'avez pas la permission. Contactez le propriétaire.',
-      'You don\'t have permission. Contact the owner.', lang))
+      'Vous n\'avez pas la permission. Contactez le restaurateur.',
+      'You don\'t have permission. Contact the Restaurant Owner.', lang))
     return ok()
   }
   if (cmd === 'commandes' || cmd === 'orders') {
@@ -1833,8 +1833,8 @@ async function handleVendor(
   const priceMatch = body.match(/^(?:prix|price)\s+(.+?)\s+(\d[\d\s]*)$/i)
   if (priceMatch && !canEditMenu) {
     await sendWhatsApp(from, pickLang(
-      'Vous n\'avez pas la permission. Contactez le propriétaire.',
-      'You don\'t have permission. Contact the owner.', lang))
+      'Vous n\'avez pas la permission. Contactez le restaurateur.',
+      'You don\'t have permission. Contact the Restaurant Owner.', lang))
     return ok()
   }
   if (priceMatch) {
@@ -2083,8 +2083,8 @@ async function handleVendor(
   if (msgCustomersMatch) {
     if (!(isOwner || isManager)) {
       await sendWhatsApp(from, pickLang(
-        '❌ Seuls le propriétaire ou un manager peuvent envoyer un message aux clients.',
-        '❌ Only the owner or a manager can message customers.', lang))
+        '❌ Seuls le restaurateur ou un manager peuvent envoyer un message aux clients.',
+        '❌ Only the Restaurant Owner or a Manager can message customers.', lang))
       return ok()
     }
     const text = msgCustomersMatch[1].trim()

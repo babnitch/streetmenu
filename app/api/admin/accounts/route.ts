@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const [customersRes, teamRes, restRes, countRes, auditRes] = await Promise.all([
     supabaseAdmin
       .from('customers')
-      .select('id, name, phone, city, status, suspended_at, suspended_by, suspension_reason, deleted_at, created_at')
+      .select('id, name, phone, city, status, suspended_at, suspended_by, suspension_reason, deleted_at, created_at, events_submitted_count, event_auto_approve')
       .order('created_at', { ascending: false })
       .range(0, 9999),
     supabaseAdmin

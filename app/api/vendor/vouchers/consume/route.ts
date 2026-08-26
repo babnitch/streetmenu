@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     .from('restaurant_team').select('restaurant_id')
     .eq('customer_id', session.id).eq('status', 'active').limit(1)
   if (!teamRows || teamRows.length === 0) {
-    return NextResponse.json({ error: 'Réservé aux vendeurs / Vendor-only' }, { status: 403 })
+    return NextResponse.json({ error: 'Réservé aux restaurateurs / Restaurant team only' }, { status: 403 })
   }
 
   const body = await req.json().catch(() => ({}))
