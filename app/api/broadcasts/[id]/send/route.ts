@@ -52,12 +52,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   // Audience — dedup across categories. Track each recipient's language so the
   // broadcast wrapper (header + unsubscribe footer) is localized per recipient.
-  const recipients: { phone: string; lang: Lang }[] = []
+  const recipients: { phone: string; lang: Lang; customerId: string }[] = []
   const seenCustomerIds = new Set<string>()
   const addSub = (s: { customer_id: string; customers: { phone: string; preferred_language?: string | null } | null }) => {
     if (!s.customers?.phone || seenCustomerIds.has(s.customer_id)) return
     seenCustomerIds.add(s.customer_id)
-    recipients.push({ phone: s.customers.phone, lang: normalizeLang(s.customers.preferred_language) })
+    recipients.push({ phone: s.customers.phone, lang: normalizeLang(s.customers.preferred_language), customerId: s.customer_id })
   }
   const categories = (broadcast.target_categories as string[] | null) ?? null
   if (!categories) {
@@ -84,7 +84,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
 
   const { ok, failed } = await fanoutBatched(
-    recipients.map(r => ({ phone: r.phone, message: messageByLang[r.lang] })))
+    recipients.map(r => ({ phone: r.phone, message: messageByLang[r.lang], customerId: r.customerId })),
+    { context: 'broadcast', relatedId: broadcast.id })
 
   const finalStatus = ok > 0 || recipients.length === 0 ? 'sent' : 'failed'
 

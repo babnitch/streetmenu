@@ -28,7 +28,7 @@ export async function POST(
 
   const { data: r } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, event_id, customer_phone, customer_name, quantity, reservation_status, reservation_code')
+    .select('id, event_id, customer_id, customer_phone, customer_name, quantity, reservation_status, reservation_code')
     .eq('id', params.resId)
     .eq('event_id', params.id)
     .maybeSingle()
@@ -67,7 +67,7 @@ export async function POST(
       `📅 ${dateStr}`,
       event.venue ? `📍 ${event.venue}` : '',
       pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, lang),
-    ].filter(Boolean).join('\n')).catch(() => null)
+    ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id, customerId: r.customer_id ?? null }).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

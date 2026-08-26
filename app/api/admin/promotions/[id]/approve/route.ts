@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `✅ *Promotion approved!*\n\n` +
       `Your promotion is now live. Good luck!`,
       lang,
-    )).catch(() => null)
+    ), { context: 'account_notice', relatedId: params.id }).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

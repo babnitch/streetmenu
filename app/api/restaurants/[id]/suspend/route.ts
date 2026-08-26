@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         `⏸️ *${restaurant.name}* is suspended.\n` +
         `Send "reactiver" to reactivate.`,
         lang,
-      ))
+      ), { context: 'account_notice', relatedId: restaurant.id })
     } else {
       await sendWhatsApp(restaurant.whatsapp, pickLang(
         `⛔ *${restaurant.name}* a été suspendu par l'administration.\n` +
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         `⛔ *${restaurant.name}* has been suspended by admin.\n` +
         `Contact support for more information.`,
         lang,
-      ))
+      ), { context: 'account_notice', relatedId: restaurant.id })
     }
   }
 

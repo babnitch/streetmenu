@@ -173,7 +173,9 @@ export async function POST(req: NextRequest) {
           `✅ *Event submitted!*\n\n🎉 ${event.title}\n\nIt will be visible after admin approval.`,
           lang,
         )
-    await sendWhatsApp(submitter.phone, msg).catch(() => null)
+    await sendWhatsApp(submitter.phone, msg, {
+      context: 'event_update', relatedId: event.id, customerId: submitter.id ?? null,
+    }).catch(() => null)
   }
 
   // Fan-out to subscribers when the event went live immediately (verified

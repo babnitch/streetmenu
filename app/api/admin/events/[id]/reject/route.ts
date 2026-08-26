@@ -56,7 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `❌ *Event not approved*\n\n🎉 ${event.title}${reason ? `\n📝 Reason: ${reason}` : ''}\n\n` +
       `Contact support for more details.`,
       lang,
-    )).catch(() => null)
+    ), { context: 'event_update', relatedId: event.id }).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

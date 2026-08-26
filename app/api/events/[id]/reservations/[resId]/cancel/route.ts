@@ -112,7 +112,7 @@ export async function POST(
         `📱 ${r.customer_phone}`,
         pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
         reason ? `📝 ${reason}` : '',
-      ].filter(Boolean).join('\n')).catch(() => null)
+      ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }).catch(() => null)
     }
   } else {
     // Organizer / admin cancelling. Tell the customer.
@@ -135,7 +135,7 @@ export async function POST(
         pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, custLang),
         reason ? `📝 ${reason}` : '',
         refundLine,
-      ].filter(Boolean).join('\n')).catch(() => null)
+      ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id, customerId: r.customer_id ?? null }).catch(() => null)
     }
   }
 

@@ -58,7 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       (reason ? `Reason: ${reason}\n\n` : '') +
       `Contact support for details.`,
       lang,
-    )).catch(() => null)
+    ), { context: 'account_notice', relatedId: params.id }).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

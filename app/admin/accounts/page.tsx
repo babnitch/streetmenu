@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
+import MessageLogPanel from '@/components/MessageLogPanel'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface ReusedFrom {
@@ -593,6 +594,15 @@ export default function AdminAccountsPage() {
                         ))}
                       </div>
                     )}
+
+                    {/* Message history — mounted only while expanded, so
+                        collapsing a row stops its polling/fetching. */}
+                    <div className="pt-3 border-t border-divider mt-2">
+                      <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide pb-2">
+                        📨 Messages
+                      </p>
+                      <MessageLogPanel customerId={a.id} />
+                    </div>
                   </div>
                 )}
               </div>

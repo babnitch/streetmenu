@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Load the order to know the restaurant and prior status
   const { data: order, error: orderErr } = await supabaseAdmin
     .from('orders')
-    .select('id, status, restaurant_id, customer_name, customer_phone, items, total_price, created_at, order_type, payment_status')
+    .select('id, status, restaurant_id, customer_id, customer_name, customer_phone, items, total_price, created_at, order_type, payment_status')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -171,12 +171,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     try {
       const { getLangByPhone } = await import('@/lib/whatsapp')
       const lang = await getLangByPhone(order.customer_phone)
+      // Attribute the log row to the customer when the order has an account
+      // behind it (guest checkout leaves customer_id null — the log then
+      // matches on phone number alone).
+      const log = { customerId: order.customer_id ?? null }
       switch (targetStatus) {
-        case 'confirmed': await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurantName, lang); break
-        case 'preparing': await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurantName, lang); break
-        case 'ready':     await notifyCustomerOrderReady    (order.customer_phone, payload, restaurantName, lang); break
-        case 'delivered': await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurantName, lang); break
-        case 'cancelled': await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurantName, lang); break
+        case 'confirmed': await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurantName, lang, log); break
+        case 'preparing': await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurantName, lang, log); break
+        case 'ready':     await notifyCustomerOrderReady    (order.customer_phone, payload, restaurantName, lang, log); break
+        case 'delivered': await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurantName, lang, log); break
+        case 'cancelled': await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurantName, lang, log); break
       }
       customerNotified = true
     } catch (e) {

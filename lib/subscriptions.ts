@@ -4,7 +4,7 @@
 // (`active subscribers in city X matching category Y`).
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp, normalizeLang, pickLang, type Lang } from '@/lib/whatsapp'
+import { sendWhatsApp, normalizeLang, pickLang, type Lang, type SendOptions } from '@/lib/whatsapp'
 import { categoryLabelBilingual } from '@/lib/categoryLabels'
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -148,17 +148,28 @@ export async function hasRecentBroadcast(customerId: string): Promise<boolean> {
 // ── Fan-out (rate-limited Promise.allSettled batches) ───────────────────────
 
 interface FanoutInput {
-  phone:   string
-  message: string
+  phone:      string
+  message:    string
+  /** Recipient's customer id when the caller resolved one — logged per row. */
+  customerId?: string | null
 }
 
-export async function fanoutBatched(items: FanoutInput[]): Promise<{ ok: number; failed: number }> {
+// `opts` sets the message-log context for the whole wave (broadcast,
+// subscription_alert, direct_message, event_update…). Per-item customerId
+// wins over the wave-level one so a fan-out attributes each row correctly.
+export async function fanoutBatched(
+  items: FanoutInput[],
+  opts: SendOptions = {},
+): Promise<{ ok: number; failed: number }> {
   let ok = 0
   let failed = 0
   for (let i = 0; i < items.length; i += BATCH_SIZE) {
     const slice = items.slice(i, i + BATCH_SIZE)
     const results = await Promise.allSettled(
-      slice.map(item => sendWhatsApp(item.phone, item.message)),
+      slice.map(item => sendWhatsApp(item.phone, item.message, {
+        ...opts,
+        customerId: item.customerId ?? opts.customerId ?? null,
+      })),
     )
     for (const r of results) {
       if (r.status === 'fulfilled' && r.value.ok) ok++
@@ -240,10 +251,16 @@ export async function notifyEventSubscribers(event: EventForNotify): Promise<{
     .filter(s => s.customers?.phone)
     .map(s => {
       const lang = normalizeLang(s.customers!.preferred_language)
-      return { phone: s.customers!.phone, message: formatEventLine(event, lang) }
+      return {
+        phone:      s.customers!.phone,
+        message:    formatEventLine(event, lang),
+        customerId: s.customer_id ?? null,
+      }
     })
 
-  const { ok, failed } = await fanoutBatched(items)
+  const { ok, failed } = await fanoutBatched(items, {
+    context: 'subscription_alert', relatedId: event.id,
+  })
   return { recipient_count: items.length, ok, failed }
 }
 

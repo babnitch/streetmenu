@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp, pickLang, normalizeLang, getLangByPhone, type Lang } from '@/lib/whatsapp'
+import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import { sendRestaurantMessage } from '@/lib/directMessaging'
@@ -20,6 +20,13 @@ const EMPTY_TWIML   = '<?xml version="1.0" encoding="UTF-8"?><Response></Respons
 const TWIML_HEADERS = { 'Content-Type': 'text/xml' }
 function ok(): NextResponse {
   return new NextResponse(EMPTY_TWIML, { status: 200, headers: TWIML_HEADERS })
+}
+
+// Replies in this webhook are all part of the bot conversation, so they log
+// as 'bot_reply' by default. Call sites that are really a notification
+// (team invitation, order ping) pass their own context.
+function sendWhatsApp(to: string, message: string, opts: SendOptions = {}): Promise<SendResult> {
+  return sendWhatsAppBase(to, message, { context: 'bot_reply', ...opts })
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -178,7 +185,8 @@ async function handleInvitationReply(
       if (ownerPhone) {
         await sendWhatsApp(ownerPhone,
           `❌ ${phone} a décliné l'invitation (${inv.restaurants?.name ?? 'restaurant'}).\n` +
-          `${phone} declined the invitation.`)
+          `${phone} declined the invitation.`,
+          { context: 'team_invitation', relatedId: inv.restaurant_id })
       }
     }
 
@@ -251,7 +259,8 @@ async function acceptInvitationsForCustomer(
     if (ownerPhone) {
       await sendWhatsApp(ownerPhone,
         `✅ ${customerPhone} a accepté l'invitation (${inv.restaurants?.name ?? 'restaurant'})!\n` +
-        `${customerPhone} accepted the invitation!`)
+        `${customerPhone} accepted the invitation!`,
+        { context: 'team_invitation', relatedId: inv.restaurant_id })
     }
 
     // Welcome the invitee.
@@ -259,7 +268,8 @@ async function acceptInvitationsForCustomer(
       `✅ Vous êtes maintenant *${inv.role}* chez *${inv.restaurants?.name ?? 'restaurant'}*, ${customerName}!\n` +
       `Envoyez *aide* pour les commandes.\n\n` +
       `You are now *${inv.role}* at *${inv.restaurants?.name ?? 'restaurant'}*!\n` +
-      `Send *help* for commands.`)
+      `Send *help* for commands.`,
+      { context: 'team_invitation', relatedId: inv.restaurant_id, customerId })
   }
 }
 

@@ -93,7 +93,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       `👋 Vous avez été retiré de *${restaurant?.name}*.`,
       `👋 You have been removed from *${restaurant?.name}*.`,
       lang,
-    ))
+    ), { context: 'team_invitation', relatedId: params.id })
   }
 
   return NextResponse.json({ ok: true })

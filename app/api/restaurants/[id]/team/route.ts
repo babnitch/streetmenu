@@ -86,7 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     `👥 Vous avez été ajouté comme *${role}* chez *${restaurant?.name}* par ${session.name}.`,
     `👥 You've been added as *${role}* at *${restaurant?.name}* by ${session.name}.`,
     lang,
-  ))
+  ), { context: 'team_invitation', relatedId: params.id, customerId: newMember.id })
 
   return NextResponse.json({ ok: true, member: newMember })
 }

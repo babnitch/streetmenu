@@ -98,7 +98,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     } else {
       const results = await Promise.allSettled(recipients.map(async p => {
         const lang = await getLangByPhone(p)
-        return sendWhatsApp(p, buildWelcomeMessage(before.name, lang))
+        return sendWhatsApp(p, buildWelcomeMessage(before.name, lang), {
+          context: 'account_notice', relatedId: params.id,
+        })
       }))
       results.forEach((r, i) => {
         const to = recipients[i]

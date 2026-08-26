@@ -142,7 +142,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
       ``,
       pickLang(`Merci!`, `Thank you!`, lang),
-    ].join('\n'))
+    ].join('\n'), { context: 'payment_confirmation', relatedId: order.id })
     console.log(`[mark-paid] customer notification: order=${order.id} ok=${r.ok} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}`)
   }
 

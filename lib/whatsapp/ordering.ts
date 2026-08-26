@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import {
-  sendWhatsApp,
+  sendWhatsApp as sendWhatsAppBase,
   notifyCustomerOrderConfirmed,
   notifyCustomerOrderPreparing,
   notifyCustomerOrderReady,
@@ -15,6 +15,8 @@ import {
   getLangByPhone,
   normalizeLang,
   type Lang,
+  type SendOptions,
+  type SendResult,
 } from '@/lib/whatsapp'
 import { validateVoucher, consumeVoucherForOrder, consumeVoucherForReservation, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
@@ -27,6 +29,14 @@ import {
 import { samePhone } from '@/lib/phone'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN } from '@/lib/eventDate'
+
+// Every send from this module is a reply in the WhatsApp bot conversation,
+// so it lands in the message log as 'bot_reply' unless the call site says
+// otherwise (order notifications and reservation confirmations override it).
+// Wrapping here beats threading an options object through ~150 call sites.
+function sendWhatsApp(to: string, message: string, opts: SendOptions = {}): Promise<SendResult> {
+  return sendWhatsAppBase(to, message, { context: 'bot_reply', ...opts })
+}
 
 // Reads the restaurant's estimated prep range and formats a single-language
 // WhatsApp line like "🕐 Temps estimé: 20-35 min", or '' when the vendor
@@ -413,7 +423,7 @@ export async function notifyVendorsOfNewOrder(
   const results = await Promise.allSettled(recipients.map(async p => {
     const lang = await getLangByPhone(p)
     const msg = msgByLang[lang] ?? (msgByLang[lang] = await buildMsg(lang))
-    return sendWhatsApp(p, msg)
+    return sendWhatsApp(p, msg, { context: 'order_notification', relatedId: orderId })
   }))
   results.forEach((r, i) => {
     const to = recipients[i]
@@ -977,7 +987,7 @@ export async function handleOrderCommand(
         `👤 ${r.customer_name}`,
         `📱 ${r.customer_phone}`,
         `🎟 ${r.quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
-      ].join('\n')).catch(() => null)
+      ].join('\n'), { context: 'event_reservation', relatedId: ev.id }).catch(() => null)
     }
     return ok()
   }
@@ -2309,7 +2319,7 @@ async function pingOrganizer(
     `📱 ${customer.phone}`,
     `🎟 ${quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
     total > 0 ? `💰 ${total.toLocaleString()} FCFA` : '',
-  ].filter(Boolean).join('\n')).catch(() => null)
+  ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }).catch(() => null)
 }
 
 // ── Public: continue an in-progress ordering session ─────────────────────────

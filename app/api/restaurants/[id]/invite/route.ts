@@ -86,7 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `✅ *${session.name}* added you as *${role}* at *${restaurant.name}*!\n` +
       `Log in to see your restaurant.`,
       addedLang,
-    ))
+    ), { context: 'team_invitation', relatedId: restaurant.id, customerId: existingCustomer.id })
 
     return NextResponse.json({
       ok: true,
@@ -166,7 +166,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     `Send *accept* to join — you'll be registered automatically.\n` +
     `Send *decline* to decline.`,
     inviteLang,
-  ))
+  ), { context: 'team_invitation', relatedId: restaurant.id })
 
   return NextResponse.json({
     ok: true,

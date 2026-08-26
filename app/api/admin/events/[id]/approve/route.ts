@@ -74,7 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             `🎉 *Verified publisher!*\n\n` +
             `Your next events will publish immediately.`,
             orgLang,
-          )).catch(() => null)
+          ), { context: 'account_notice', customerId: organizer.id ?? null }).catch(() => null)
         }
       }
 
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           `✅ *Événement approuvé!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka.`,
           `✅ *Event approved!*\n\n🎉 ${event.title}\n\nLive on Tchop & Ndjoka.`,
           orgLang,
-        )).catch(() => null)
+        ), { context: 'event_update', relatedId: event.id, customerId: organizer.id ?? null }).catch(() => null)
       }
     }
   }

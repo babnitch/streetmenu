@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
             `Your payment didn't go through. Send "pay" to retry or contact the restaurant.`,
             lang,
           ),
-        ].join('\n')).catch(() => null)
+        ].join('\n'), { context: 'payment_confirmation', relatedId: order.id }).catch(() => null)
       }
     }
 
@@ -344,7 +344,7 @@ export async function POST(req: NextRequest) {
           `Your reservation payment didn't go through. Retry or contact the organizer.`,
           lang,
         ),
-      ].join('\n')).catch(() => null)
+      ].join('\n'), { context: 'payment_confirmation', relatedId: reservation.id }).catch(() => null)
     }
   }
 

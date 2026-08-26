@@ -412,7 +412,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     codeLineFor(custLang),
     discountLineFor(custLang),
     priceLine,
-  ].filter(Boolean).join('\n'))
+  ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id, customerId: customerId ?? null })
     .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
     .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
 
@@ -441,7 +441,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       codeLineFor(orgLang),
       discountLineFor(orgLang),
       finalTotal > 0 ? `💰 ${finalTotal.toLocaleString()} FCFA` : '',
-    ].filter(Boolean).join('\n')).catch(e => console.warn('[events/reserve] organizer ping failed:', (e as Error).message))
+    ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id })
+      .catch(e => console.warn('[events/reserve] organizer ping failed:', (e as Error).message))
   }
 
   return NextResponse.json({

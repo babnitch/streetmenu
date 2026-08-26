@@ -55,7 +55,7 @@ export async function notifyPaidOrder(
         `Your order is confirmed and the restaurant is preparing your meal.`,
         lang,
       ),
-    ].join('\n'))
+    ].join('\n'), { context: 'payment_confirmation', relatedId: order.id })
     console.log(`[payment] customer notification result: ok=${r.ok} httpStatus=${r.status} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}${r.error ? ` error=${r.error.slice(0, 200)}` : ''}`)
   } else {
     console.warn(`[payment] notifyPaidOrder: order ${order.id} has no customer_phone — skipping customer ping`)
@@ -85,7 +85,7 @@ export async function notifyPaidOrder(
       pickLang(`La commande est payée — préparez-la!`, `Order is paid — prepare it!`, lang),
       pickLang(`Répondez "ok ${id4}" pour confirmer`, `Reply "ok ${id4}" to confirm`, lang),
     ].join('\n')
-    return sendWhatsApp(p, msg)
+    return sendWhatsApp(p, msg, { context: 'payment_confirmation', relatedId: order.id })
   }))
   results.forEach((r, i) => {
     const to = recipients[i]
@@ -157,7 +157,7 @@ export async function notifyPaidReservation(
       `💰 ${total.toLocaleString()} FCFA · ${mno}`,
       ``,
       pickLang(`À bientôt!`, `See you soon!`, lang),
-    ].filter(Boolean).join('\n'))
+    ].filter(Boolean).join('\n'), { context: 'payment_confirmation', relatedId: r.id })
     console.log(`[payment] reservation customer result: ok=${sent.ok} sid=${sent.sid ?? '-'} twilioStatus=${sent.twilioStatus ?? '-'}${sent.error ? ` error=${sent.error.slice(0, 200)}` : ''}`)
   } else {
     console.warn(`[payment] notifyPaidReservation: reservation ${r.id} has no customer_phone`)
@@ -193,6 +193,6 @@ export async function notifyPaidReservation(
     pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
     `💳 ${mno}`,
     `💰 ${total.toLocaleString()} FCFA`,
-  ].join('\n'))
+  ].join('\n'), { context: 'payment_confirmation', relatedId: r.id })
   console.log(`[payment] reservation organizer result: ok=${sentOrg.ok} sid=${sentOrg.sid ?? '-'} twilioStatus=${sentOrg.twilioStatus ?? '-'}${sentOrg.error ? ` error=${sentOrg.error.slice(0, 200)}` : ''}`)
 }

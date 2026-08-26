@@ -44,7 +44,9 @@ function fmtDate(dateStr: string, lang: Lang): string {
 
 // ── Audience fetchers ────────────────────────────────────────────────────────
 
-interface Recipient { phone: string; name: string; lang: Lang }
+// customerId is best-effort: guest orders / reservations have none, and the
+// message log simply falls back to matching on phone number for those.
+interface Recipient { phone: string; name: string; lang: Lang; customerId: string | null }
 
 // Distinct attendees of an event (one entry per phone), with each recipient's
 // preferred language resolved from the joined customer row where available.
@@ -56,11 +58,11 @@ export async function getEventAttendees(eventId: string): Promise<Recipient[]> {
     .in('reservation_status', ACTIVE_RESERVATION_STATUSES)
   const seen = new Set<string>()
   const out: Recipient[] = []
-  for (const r of (data ?? []) as Array<{ customer_name: string; customer_phone: string; customers?: { preferred_language?: string | null } | null }>) {
+  for (const r of (data ?? []) as Array<{ customer_name: string; customer_phone: string; customer_id?: string | null; customers?: { preferred_language?: string | null } | null }>) {
     const phone = (r.customer_phone ?? '').trim()
     if (!phone || seen.has(phone)) continue
     seen.add(phone)
-    out.push({ phone, name: r.customer_name, lang: normalizeLang(r.customers?.preferred_language) })
+    out.push({ phone, name: r.customer_name, lang: normalizeLang(r.customers?.preferred_language), customerId: r.customer_id ?? null })
   }
   return out
 }
@@ -82,11 +84,11 @@ export async function getRestaurantCustomers(restaurantId: string, target: Resta
   const { data } = await q
   const seen = new Set<string>()
   const out: Recipient[] = []
-  for (const o of (data ?? []) as Array<{ customer_name: string; customer_phone: string; customers?: { preferred_language?: string | null } | null }>) {
+  for (const o of (data ?? []) as Array<{ customer_name: string; customer_phone: string; customer_id?: string | null; customers?: { preferred_language?: string | null } | null }>) {
     const phone = (o.customer_phone ?? '').trim()
     if (!phone || seen.has(phone)) continue
     seen.add(phone)
-    out.push({ phone, name: o.customer_name, lang: normalizeLang(o.customers?.preferred_language) })
+    out.push({ phone, name: o.customer_name, lang: normalizeLang(o.customers?.preferred_language), customerId: o.customer_id ?? null })
   }
   return out
 }
@@ -149,8 +151,8 @@ export async function notifyEventUpdate(
   const attendees = hasSignificantChange(changes) ? await getEventAttendees(event.id) : []
   let notified = 0
   if (attendees.length > 0) {
-    const items = attendees.map(a => ({ phone: a.phone, message: formatUpdateMessage(event, changes, a.lang) }))
-    const { ok } = await fanoutBatched(items)
+    const items = attendees.map(a => ({ phone: a.phone, message: formatUpdateMessage(event, changes, a.lang), customerId: a.customerId }))
+    const { ok } = await fanoutBatched(items, { context: 'event_update', relatedId: event.id })
     notified = ok
   }
   await writeAudit({
@@ -221,8 +223,8 @@ export async function sendEventMessage(
   const attendees = await getEventAttendees(event.id)
   let sent = 0
   if (attendees.length > 0) {
-    const items = attendees.map(a => ({ phone: a.phone, message: formatEventMessage(event, trimmed, a.lang) }))
-    const { ok } = await fanoutBatched(items)
+    const items = attendees.map(a => ({ phone: a.phone, message: formatEventMessage(event, trimmed, a.lang), customerId: a.customerId }))
+    const { ok } = await fanoutBatched(items, { context: 'direct_message', relatedId: event.id })
     sent = ok
   }
 
@@ -273,8 +275,8 @@ export async function sendRestaurantMessage(
   const customers = await getRestaurantCustomers(restaurant.id, target)
   let sent = 0
   if (customers.length > 0) {
-    const items = customers.map(c => ({ phone: c.phone, message: formatRestaurantMessage(restaurant, trimmed, c.lang) }))
-    const { ok } = await fanoutBatched(items)
+    const items = customers.map(c => ({ phone: c.phone, message: formatRestaurantMessage(restaurant, trimmed, c.lang), customerId: c.customerId }))
+    const { ok } = await fanoutBatched(items, { context: 'direct_message', relatedId: restaurant.id })
     sent = ok
   }
 

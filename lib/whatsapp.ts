@@ -1,5 +1,10 @@
 // Twilio WhatsApp notification service — server-only
 
+import { logMessage, statusCallbackUrl, type SendOptions } from '@/lib/messageLog'
+
+// Re-exported so callers can type their options without a second import.
+export type { SendOptions } from '@/lib/messageLog'
+
 const ACCOUNT_SID   = process.env.TWILIO_ACCOUNT_SID!
 const API_KEY_SID   = process.env.TWILIO_API_KEY_SID!
 const API_KEY_SECRET = process.env.TWILIO_API_KEY_SECRET!
@@ -82,10 +87,22 @@ export interface SendResult {
 // Low-level single-shot send via Twilio. Does not split; callers that may
 // hand in a body longer than 1600 chars should go through sendWhatsApp (or
 // the explicit sendLongWhatsApp alias) which chunks first.
-async function sendWhatsAppRaw(to: string, message: string): Promise<SendResult> {
+//
+// Every outcome — accepted, rejected by Twilio, or a network throw — writes
+// a message_log row. The row is inserted AFTER the send so a logging
+// outage can't delay or block the message; awaited so serverless doesn't
+// freeze the function before the insert lands.
+async function sendWhatsAppRaw(to: string, message: string, opts: SendOptions = {}): Promise<SendResult> {
   const destination = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
   const url = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`
   const body = new URLSearchParams({ From: FROM, To: destination, Body: message })
+
+  // Ask Twilio to report delivery progress back to us. Omitted in dev
+  // (no public URL) — rows then simply stay 'queued'.
+  const callback = statusCallbackUrl()
+  if (callback) body.set('StatusCallback', callback)
+
+  const logBase = { channel: 'whatsapp' as const, from: FROM, to: destination, body: message, ...opts }
 
   try {
     const res = await fetch(url, {
@@ -99,19 +116,31 @@ async function sendWhatsAppRaw(to: string, message: string): Promise<SendResult>
     const text = await res.text()
     if (!res.ok) {
       console.error(`[whatsapp] send FAILED to=${destination} status=${res.status} body=${text.slice(0, 400)}`)
+      // Twilio's error envelope is JSON: { code, message, more_info, status }
+      let code: string | null = null
+      let detail = text.slice(0, 400)
+      try {
+        const parsed = JSON.parse(text) as { code?: number; message?: string }
+        if (parsed.code !== undefined) code = String(parsed.code)
+        if (parsed.message) detail = parsed.message
+      } catch { /* not JSON — keep the raw prefix */ }
+      await logMessage({ ...logBase, status: 'failed', errorCode: code, errorMessage: detail })
       return { ok: false, status: res.status, error: text.slice(0, 400) }
     }
     try {
       const parsed = JSON.parse(text) as { sid?: string; status?: string }
       console.log(`[whatsapp] send ok to=${destination} sid=${parsed.sid ?? '-'} twilioStatus=${parsed.status ?? '-'}`)
+      await logMessage({ ...logBase, status: 'queued', twilioSid: parsed.sid ?? null })
       return { ok: true, status: res.status, sid: parsed.sid, twilioStatus: parsed.status }
     } catch {
       console.log(`[whatsapp] send ok to=${destination} (no JSON body)`)
+      await logMessage({ ...logBase, status: 'queued' })
       return { ok: true, status: res.status }
     }
   } catch (e) {
     const msg = (e as Error).message
     console.error(`[whatsapp] send THREW to=${destination}: ${msg}`)
+    await logMessage({ ...logBase, status: 'failed', errorMessage: msg })
     return { ok: false, status: 0, error: msg }
   }
 }
@@ -158,14 +187,19 @@ export function splitWhatsAppMessage(message: string, max = MAX_WHATSAPP_LENGTH)
 // callback or the Twilio console. At this layer we can detect protocol
 // errors (401, 4xx on bad To/From, 429 rate limits, network failures)
 // but not post-accept silent drops.
-export async function sendWhatsApp(to: string, message: string): Promise<SendResult> {
+//
+// `opts` carries the message-log context — what triggered this send, and
+// which order/event/customer it belongs to. A split body produces one
+// message_log row per chunk (they're separate Twilio messages with separate
+// delivery receipts), all sharing the same context.
+export async function sendWhatsApp(to: string, message: string, opts: SendOptions = {}): Promise<SendResult> {
   if (message.length <= MAX_WHATSAPP_LENGTH) {
-    return sendWhatsAppRaw(to, message)
+    return sendWhatsAppRaw(to, message, opts)
   }
   const parts = splitWhatsAppMessage(message)
   let last: SendResult = { ok: true, status: 0 }
   for (const part of parts) {
-    last = await sendWhatsAppRaw(to, part)
+    last = await sendWhatsAppRaw(to, part, opts)
   }
   return last
 }
@@ -173,8 +207,8 @@ export async function sendWhatsApp(to: string, message: string): Promise<SendRes
 // Explicit alias for callers that want to signal "this body might be long."
 // Behaviour is identical to sendWhatsApp — both auto-split — but the name
 // documents intent at the call site.
-export async function sendLongWhatsApp(to: string, message: string): Promise<SendResult> {
-  return sendWhatsApp(to, message)
+export async function sendLongWhatsApp(to: string, message: string, opts: SendOptions = {}): Promise<SendResult> {
+  return sendWhatsApp(to, message, opts)
 }
 
 // ── Notification templates ────────────────────────────────────────────────────
@@ -208,6 +242,7 @@ export async function notifyCustomerOrderPlaced(
   trackingUrl: string,
   prepLine = '',
   lang: Lang = DEFAULT_LANG,
+  opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
   const items = Array.isArray(order.items) ? order.items : []
@@ -237,7 +272,9 @@ export async function notifyCustomerOrderPlaced(
     trackingUrl,
   ].join('\n')
 
-  await sendWhatsApp(customerPhone, msg)
+  await sendWhatsApp(customerPhone, msg, {
+    context: 'order_notification', relatedId: order.id, ...opts,
+  })
 }
 
 export async function notifyCustomerOrderConfirmed(
@@ -245,6 +282,7 @@ export async function notifyCustomerOrderConfirmed(
   order: OrderPayload,
   restaurantName: string,
   lang: Lang = DEFAULT_LANG,
+  opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = pickLang(
@@ -252,7 +290,9 @@ export async function notifyCustomerOrderConfirmed(
     `✅ Your order #${id4} has been confirmed! Waiting to be prepared. — ${restaurantName}`,
     lang,
   )
-  await sendWhatsApp(customerPhone, msg)
+  await sendWhatsApp(customerPhone, msg, {
+    context: 'order_status_update', relatedId: order.id, ...opts,
+  })
 }
 
 export async function notifyCustomerOrderPreparing(
@@ -260,6 +300,7 @@ export async function notifyCustomerOrderPreparing(
   order: OrderPayload,
   restaurantName: string,
   lang: Lang = DEFAULT_LANG,
+  opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = pickLang(
@@ -267,7 +308,9 @@ export async function notifyCustomerOrderPreparing(
     `🍳 Your order #${id4} is being prepared! — ${restaurantName}`,
     lang,
   )
-  await sendWhatsApp(customerPhone, msg)
+  await sendWhatsApp(customerPhone, msg, {
+    context: 'order_status_update', relatedId: order.id, ...opts,
+  })
 }
 
 export async function notifyCustomerOrderReady(
@@ -275,6 +318,7 @@ export async function notifyCustomerOrderReady(
   order: OrderPayload,
   restaurantName: string,
   lang: Lang = DEFAULT_LANG,
+  opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = pickLang(
@@ -282,7 +326,9 @@ export async function notifyCustomerOrderReady(
     `🎉 Your order #${id4} is ready! Come pick it up at ${restaurantName}.`,
     lang,
   )
-  await sendWhatsApp(customerPhone, msg)
+  await sendWhatsApp(customerPhone, msg, {
+    context: 'order_status_update', relatedId: order.id, ...opts,
+  })
 }
 
 export async function notifyCustomerOrderDelivered(
@@ -290,6 +336,7 @@ export async function notifyCustomerOrderDelivered(
   order: OrderPayload,
   restaurantName: string,
   lang: Lang = DEFAULT_LANG,
+  opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = pickLang(
@@ -297,7 +344,9 @@ export async function notifyCustomerOrderDelivered(
     `✅ Order #${id4} picked up. Thank you and enjoy! — ${restaurantName}`,
     lang,
   )
-  await sendWhatsApp(customerPhone, msg)
+  await sendWhatsApp(customerPhone, msg, {
+    context: 'order_status_update', relatedId: order.id, ...opts,
+  })
 }
 
 export async function notifyCustomerOrderCancelled(
@@ -305,6 +354,7 @@ export async function notifyCustomerOrderCancelled(
   order: OrderPayload,
   restaurantName: string,
   lang: Lang = DEFAULT_LANG,
+  opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
   const msg = pickLang(
@@ -312,5 +362,7 @@ export async function notifyCustomerOrderCancelled(
     `❌ Your order #${id4} has been cancelled by *${restaurantName}*.\n\nSend "commander" to place a new order.`,
     lang,
   )
-  await sendWhatsApp(customerPhone, msg)
+  await sendWhatsApp(customerPhone, msg, {
+    context: 'order_status_update', relatedId: order.id, ...opts,
+  })
 }

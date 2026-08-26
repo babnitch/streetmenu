@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { customerId:
       `⚠️ *Auto-approve revoked*\n\n` +
       `Your next events will require admin review again.${reason ? `\n📝 Reason: ${reason}` : ''}`,
       lang,
-    )).catch(() => null)
+    ), { context: 'account_notice', customerId: customer.id ?? params.customerId }).catch(() => null)
   }
 
   return NextResponse.json({ ok: true })

@@ -57,7 +57,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `✅ *${restaurant.name}* est maintenant actif!`,
       `✅ *${restaurant.name}* is now active!`,
       lang,
-    ))
+    ), { context: 'account_notice', relatedId: restaurant.id })
   }
 
   return NextResponse.json({ ok: true })

@@ -84,16 +84,16 @@ export async function POST(req: NextRequest) {
   let fallback = false
 
   if (channel === 'sms') {
-    const r = await sendSMS(phone, msg)
+    const r = await sendSMS(phone, msg, { context: 'verification_code' })
     if (!r.ok) {
       console.error('[send-code] SMS send failed:', r.error)
       return NextResponse.json({ error: 'Failed to send SMS code' }, { status: 502 })
     }
   } else {
-    const r = await sendWhatsApp(phone, msg)
+    const r = await sendWhatsApp(phone, msg, { context: 'verification_code' })
     if (!r.ok) {
       console.warn('[send-code] WhatsApp send failed, falling back to SMS:', r.error)
-      const s = await sendSMS(phone, msg)
+      const s = await sendSMS(phone, msg, { context: 'verification_code' })
       if (!s.ok) {
         console.error('[send-code] SMS fallback also failed:', s.error)
         return NextResponse.json({ error: 'Failed to send code' }, { status: 502 })
