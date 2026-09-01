@@ -62,6 +62,14 @@ function safeReturnUrl(): string | null {
 }
 type DashView    = 'customer' | 'vendor' | 'admin'
 type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' | 'team'
+// The mobile profile is a menu list that drills into one section at a time.
+// It reuses the desktop tabs, plus three panels that live *inside* the
+// desktop Profile tab but get their own row on mobile.
+type MobileSection = CustomerTab | 'broadcast' | 'promote' | 'notifications'
+const CUSTOMER_TABS: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
+function isCustomerTab(v: string): v is CustomerTab {
+  return (CUSTOMER_TABS as string[]).includes(v)
+}
 type AdminSubTab = 'restaurants' | 'orders' | 'events' | 'broadcasts' | 'promotions' | 'vouchers' | 'reports' | 'accounts' | 'messages' | 'platformteam' | 'profile'
 
 // Explicit bilingual labels — avoids the earlier bug where the label was
@@ -202,6 +210,22 @@ export default function AccountPage() {
     console.log('[account] initial customerTab from URL:', { rawQuery: q, initial })
     return initial
   })
+  // Mobile-only drill-down. `null` = showing the menu list; anything else
+  // = showing that one section with a back arrow. Desktop ignores this
+  // entirely and keeps rendering the tab bar off `customerTab`. A ?tab=
+  // deep link opens straight into its section so the URL contract is
+  // unchanged on mobile too.
+  const [mobileSection,    setMobileSection]    = useState<MobileSection | null>(() => {
+    if (typeof window === 'undefined') return null
+    const q = new URLSearchParams(window.location.search).get('tab')
+    return q && isCustomerTab(q) ? q : null
+  })
+  // Whether the paid Broadcast / Promote panels would render anything for
+  // this account. Both panels already self-check on mount and return null
+  // when ineligible — we ask the same endpoints here only so their menu
+  // rows don't lead to an empty screen.
+  const [canBroadcast,     setCanBroadcast]     = useState(false)
+  const [canPromote,       setCanPromote]       = useState(false)
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   const [eventReservations, setEventReservations] = useState<EventReservation[]>([])
@@ -328,8 +352,28 @@ export default function AccountPage() {
     if (q && (allowed as string[]).includes(q)) {
       console.log('[account] post-mount effect setting tab:', q)
       setCustomerTab(q as CustomerTab)
+      setMobileSection(q as CustomerTab)
     }
   }, [])
+
+  // Broadcast / Promote eligibility for the mobile menu rows. Customers
+  // only — admins and vendors in admin view never see the list.
+  useEffect(() => {
+    if (!user || dashView !== 'customer') { setCanBroadcast(false); setCanPromote(false); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [b, pr] = await Promise.all([
+          fetch('/api/broadcasts/eligibility',  { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/promotions/eligibility',  { cache: 'no-store' }).then(r => r.json()),
+        ])
+        if (cancelled) return
+        setCanBroadcast(!!b?.eligible && !b?.blocked)
+        setCanPromote(!!pr?.eligible)
+      } catch { /* rows stay hidden */ }
+    })()
+    return () => { cancelled = true }
+  }, [user, dashView])
 
   // ── On mount: pre-fill the phone field with the remembered number ──
   // PhoneInput re-derives the country from the +E.164 value, but we also
@@ -627,6 +671,32 @@ export default function AccountPage() {
 
   // ── Vendor: restaurant actions ──
   const activeRest = myRestaurants.find(r => r.id === activeRestId)
+
+  // ── Mobile profile helpers ────────────────────────────────────────────
+  // Same gate the desktop "Mes événements" tab uses: a submitted-but-not-
+  // yet-returned event must not make the entry point vanish.
+  const hasOrganizerEvents =
+    myEvents.length > 0 || (organizerTrust?.events_submitted_count ?? 0) > 0
+
+  // Drilling into a tab section keeps `customerTab` in sync so the desktop
+  // tab bar and the mobile list never disagree if the viewport changes.
+  const openMobileSection = (tab: CustomerTab) => {
+    setCustomerTab(tab)
+    setMobileSection(tab)
+  }
+
+  const MOBILE_SECTION_TITLES: Record<MobileSection, string> = {
+    orders:        t('account.ordersTab'),
+    vouchers:      bi('Bons de réduction', 'Vouchers'),
+    events:        bi('Mes événements', 'My events'),
+    profile:       t('account.profileTab'),
+    restaurant:    t('account.restaurantTab'),
+    team:          t('account.teamTab'),
+    notifications: bi('Notifications', 'Notifications'),
+    broadcast:     bi('Diffuser', 'Broadcast'),
+    promote:       bi('Promouvoir', 'Promote'),
+  }
+  const mobileSectionTitle = mobileSection ? MOBILE_SECTION_TITLES[mobileSection] : ''
 
   async function handleRestaurantAction(action: 'suspend' | 'reactivate' | 'delete' | 'undo-delete') {
     if (!activeRestId) return
@@ -1044,8 +1114,10 @@ export default function AccountPage() {
                 (see ModeToggle further down) so it stops competing with
                 the main content for attention. */}
 
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
+            {/* Header — the customer view replaces this with a big-name
+                profile header on mobile (below), so it's md+ only there.
+                Admin keeps it at every width. */}
+            <div className={`${dashView === 'customer' ? 'hidden md:flex' : 'flex'} items-center justify-between mb-6`}>
               <div>
                 <p className="text-xs text-ink-tertiary">{t('account.hello')}</p>
                 <p className="font-bold text-ink-primary text-lg">
@@ -1134,7 +1206,7 @@ export default function AccountPage() {
                     deep-links), Profile last, then optional Restaurant /
                     Team for vendors. Mobile shows 3 per row (basis-1/3
                     in TabBtn); sm+ collapses to a single row. */}
-                <div className="flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
+                <div className="hidden md:flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
                   <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
                   <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
                   {/* Show the organizer tab when the user has any events OR has
@@ -1152,6 +1224,179 @@ export default function AccountPage() {
                     <TabBtn icon="👥" label={t('account.teamTab')} active={customerTab === 'team'} onClick={() => setCustomerTab('team')} />
                   )}
                 </div>
+
+                {/* ══════════════════════════════════════════════════════════
+                    MOBILE PROFILE (< md)
+                    A menu list at the root, drilling into one section at a
+                    time. Every destination is an existing surface — the
+                    same tab panels the desktop tab bar shows, plus the
+                    three panels that live inside the desktop Profile tab
+                    (Notifications, Diffuser, Promouvoir) promoted to their
+                    own rows here. Nothing new is introduced.
+                   ══════════════════════════════════════════════════════════ */}
+                {mobileSection === null && (
+                  <div className="md:hidden">
+                    {/* Name + avatar */}
+                    <div className="flex items-start justify-between gap-4 mb-6">
+                      <div className="min-w-0 flex-1">
+                        <h1 className="text-[28px] leading-tight font-bold text-ink-primary break-words">
+                          {user.name}
+                        </h1>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          <ProfileRoleBadges restaurants={myRestaurants} trust={organizerTrust} />
+                        </div>
+                      </div>
+                      {/* No avatar column exists on customers yet, so this is
+                          always the placeholder circle. */}
+                      <div
+                        aria-hidden="true"
+                        className="w-14 h-14 flex-shrink-0 rounded-full bg-surface-muted flex items-center justify-center text-2xl"
+                      >
+                        👤
+                      </div>
+                    </div>
+
+                    {/* Quick access — Orders / Vouchers / Events */}
+                    <div className="grid grid-cols-3 gap-3 mb-6">
+                      <QuickCard
+                        icon="📦"
+                        label={t('account.ordersTab')}
+                        onClick={() => openMobileSection('orders')}
+                      />
+                      <QuickCard
+                        icon="🎫"
+                        label={t('account.vouchersTab')}
+                        onClick={() => openMobileSection('vouchers')}
+                      />
+                      {hasOrganizerEvents ? (
+                        <QuickCard
+                          icon="🎉"
+                          label={bi('Événements', 'Events')}
+                          onClick={() => openMobileSection('events')}
+                        />
+                      ) : (
+                        <QuickCard icon="🎉" label={bi('Événements', 'Events')} href="/events" />
+                      )}
+                    </div>
+
+                    {/* Menu list */}
+                    <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-divider">
+                      <MenuRow
+                        icon="👤"
+                        label={t('account.profileTab')}
+                        desc={bi('Modifier vos informations', 'Edit your info')}
+                        onClick={() => openMobileSection('profile')}
+                      />
+                      <MenuRow
+                        icon="📦"
+                        label={t('account.ordersTab')}
+                        desc={bi('Suivre vos commandes', 'Track your orders')}
+                        onClick={() => openMobileSection('orders')}
+                      />
+                      <MenuRow
+                        icon="🎫"
+                        label={bi('Bons de réduction', 'Vouchers')}
+                        desc={bi('Voir vos codes promo', 'View promo codes')}
+                        onClick={() => openMobileSection('vouchers')}
+                      />
+                      {hasOrganizerEvents && (
+                        <MenuRow
+                          icon="🎉"
+                          label={bi('Mes événements', 'My events')}
+                          desc={bi('Gérer vos événements', 'Manage your events')}
+                          onClick={() => openMobileSection('events')}
+                        />
+                      )}
+                      {canBroadcast && (
+                        <MenuRow
+                          icon="📢"
+                          label={bi('Diffuser', 'Broadcast')}
+                          desc={bi('Envoyer un message à une ville', 'Message a whole city')}
+                          onClick={() => setMobileSection('broadcast')}
+                        />
+                      )}
+                      {canPromote && (
+                        <MenuRow
+                          icon="📣"
+                          label={bi('Promouvoir', 'Promote')}
+                          desc={bi('Mettre en avant vos annonces', 'Feature your listings')}
+                          onClick={() => setMobileSection('promote')}
+                        />
+                      )}
+                      <MenuRow
+                        icon="🔔"
+                        label={bi('Notifications', 'Notifications')}
+                        desc={bi('Gérer vos alertes', 'Manage alerts')}
+                        onClick={() => setMobileSection('notifications')}
+                      />
+                      <MenuLowDataRow />
+                      <MenuLanguageRow />
+
+                      {/* Vendor rows — same gates as the desktop tab bar. */}
+                      {myRestaurants.length > 0 && (
+                        <MenuRow
+                          icon="🏪"
+                          label={t('account.restaurantTab')}
+                          desc={bi('Gérer votre restaurant', 'Manage restaurant')}
+                          onClick={() => openMobileSection('restaurant')}
+                        />
+                      )}
+                      {myRestaurants.length > 0 && activeRest?.teamRole === 'owner' && (
+                        <MenuRow
+                          icon="👥"
+                          label={t('account.teamTab')}
+                          desc={bi('Gérer les membres', 'Manage members')}
+                          onClick={() => openMobileSection('team')}
+                        />
+                      )}
+                      {/* Hours + payment settings live on the dashboard's
+                          Settings tab, which honours ?tab= — so this row
+                          links there rather than duplicating the UI. */}
+                      {activeRest && !activeRest.deleted_at && activeRest.status !== 'pending' && (
+                        <MenuRow
+                          icon="⚙️"
+                          label={bi('Paramètres', 'Settings')}
+                          desc={bi('Horaires, paiements', 'Hours, payments')}
+                          href="/dashboard?tab=settings"
+                        />
+                      )}
+                    </div>
+
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full mt-4 bg-white rounded-2xl shadow-sm px-4 py-4 text-sm font-semibold text-danger text-left transition-colors hover:bg-brand-light"
+                    >
+                      🚪 {t('account.signOut')}
+                    </button>
+                  </div>
+                )}
+
+                {/* Back bar for a drilled-in mobile section. */}
+                {mobileSection !== null && (
+                  <div className="md:hidden flex items-center gap-1 mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setMobileSection(null)}
+                      aria-label={bi('Retour', 'Back')}
+                      className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-xl text-ink-secondary hover:bg-surface-muted transition-colors"
+                    >
+                      ←
+                    </button>
+                    <h1 className="text-xl font-bold text-ink-primary truncate">
+                      {mobileSectionTitle}
+                    </h1>
+                  </div>
+                )}
+
+                {/* Mobile-only sections lifted out of the desktop Profile
+                    tab. The desktop copies stay where they were. */}
+                {mobileSection === 'notifications' && <div className="md:hidden"><NotificationsPanel /></div>}
+                {mobileSection === 'broadcast'     && <div className="md:hidden"><BroadcastPanel /></div>}
+                {mobileSection === 'promote'       && <div className="md:hidden"><PromotePanel /></div>}
+
+                {/* The shared tab panels below render for desktop always,
+                    and on mobile only once the user has drilled into one. */}
+                <div className={mobileSection !== null && isCustomerTab(mobileSection) ? '' : 'hidden md:block'}>
 
                 {/* Vouchers */}
                 {customerTab === 'vouchers' && (
@@ -1357,8 +1602,10 @@ export default function AccountPage() {
                           </p>
                         </div>
 
-                        {/* Language toggle — lives here now instead of in TopNav. */}
-                        <div>
+                        {/* Language toggle — lives here now instead of in TopNav.
+                            Mobile has its own row in the profile menu list, so
+                            this copy is desktop-only to avoid two switches. */}
+                        <div className="hidden md:block">
                           <label className="block text-xs text-ink-tertiary mb-2">{bi('Langue', 'Language')}</label>
                           <LanguageToggle />
                         </div>
@@ -1375,20 +1622,22 @@ export default function AccountPage() {
                             image-heavy pages by replacing photos with
                             colored gradients. Lives in localStorage; no
                             DB write yet (profile sync is in the backlog). */}
-                        <LowDataToggle />
+                        <div className="hidden md:block">
+                          <LowDataToggle />
+                        </div>
 
-                        {/* Event notifications */}
-                        <div className="pt-2">
+                        {/* Event notifications, paid broadcasts and paid
+                            promotions — desktop-only here; on mobile each
+                            has its own row in the profile menu list. */}
+                        <div className="hidden md:block pt-2">
                           <NotificationsPanel />
                         </div>
 
-                        {/* Paid broadcasts (only renders for eligible accounts) */}
-                        <div className="pt-2">
+                        <div className="hidden md:block pt-2">
                           <BroadcastPanel />
                         </div>
 
-                        {/* Paid promotions (only renders for eligible accounts) */}
-                        <div className="pt-2">
+                        <div className="hidden md:block pt-2">
                           <PromotePanel />
                         </div>
 
@@ -1770,6 +2019,8 @@ export default function AccountPage() {
                     </div>
                   </div>
                 )}
+
+                </div>{/* end shared tab panels */}
               </>
             )}
 
@@ -1920,6 +2171,105 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
       {error && <p className="text-xs text-danger mt-2">{error}</p>}
       {success && <p className="text-xs text-brand-darker mt-2">{success}</p>}
     </form>
+  )
+}
+
+// ── Mobile profile menu primitives ──────────────────────────────────────────
+
+// One of the three quick-access tiles above the menu list. Renders as a
+// Link when `href` is given, a button otherwise.
+function QuickCard({
+  icon, label, onClick, href,
+}: {
+  icon: string
+  label: string
+  onClick?: () => void
+  href?: string
+}) {
+  const inner = (
+    <>
+      <span aria-hidden="true" className="text-2xl leading-none">{icon}</span>
+      <span className="text-xs font-semibold text-ink-primary text-center leading-tight truncate w-full">
+        {label}
+      </span>
+    </>
+  )
+  const cls = 'bg-white rounded-xl shadow-sm px-2 py-4 flex flex-col items-center gap-2 min-w-0 transition-colors hover:bg-surface-muted'
+  if (href) return <Link href={href} className={cls}>{inner}</Link>
+  return <button type="button" onClick={onClick} className={cls}>{inner}</button>
+}
+
+// icon · label (+ description) · chevron. Link when `href` is given.
+function MenuRow({
+  icon, label, desc, onClick, href,
+}: {
+  icon: string
+  label: string
+  desc?: string
+  onClick?: () => void
+  href?: string
+}) {
+  const inner = (
+    <>
+      <span aria-hidden="true" className="text-xl leading-none w-7 text-center flex-shrink-0">{icon}</span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-semibold text-ink-primary truncate">{label}</span>
+        {desc && <span className="block text-xs text-ink-tertiary truncate">{desc}</span>}
+      </span>
+      <span aria-hidden="true" className="text-ink-tertiary text-lg leading-none flex-shrink-0">›</span>
+    </>
+  )
+  const cls = 'w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-muted'
+  if (href) return <Link href={href} className={cls}>{inner}</Link>
+  return <button type="button" onClick={onClick} className={cls}>{inner}</button>
+}
+
+// Low-data mode, toggled in place. Same DataModeContext the desktop
+// LowDataToggle card writes to — just a row-shaped presentation.
+function MenuLowDataRow() {
+  const bi = useBi()
+  const { isLowData, toggle } = useDataMode()
+  return (
+    <div className="w-full flex items-center gap-3 px-4 py-3.5">
+      <span aria-hidden="true" className="text-xl leading-none w-7 text-center flex-shrink-0">📶</span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-semibold text-ink-primary truncate">
+          {bi('Mode économique', 'Low data mode')}
+        </span>
+        <span className="block text-xs text-ink-tertiary truncate">
+          {bi('Économise ~90% de données', 'Saves ~90% of data')}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-pressed={isLowData}
+        className={`flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+          isLowData ? 'bg-emerald-600 text-white' : 'bg-surface-muted text-ink-secondary'
+        }`}
+      >
+        {isLowData ? bi('Activé', 'On') : bi('Désactivé', 'Off')}
+      </button>
+    </div>
+  )
+}
+
+// Language, toggled in place with the shared FR/EN switch.
+function MenuLanguageRow() {
+  const bi = useBi()
+  return (
+    <div className="w-full flex items-center gap-3 px-4 py-3.5">
+      <span aria-hidden="true" className="text-xl leading-none w-7 text-center flex-shrink-0">🌐</span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-semibold text-ink-primary truncate">
+          {bi('Langue', 'Language')}
+        </span>
+        <span className="block text-xs text-ink-tertiary truncate">FR / EN</span>
+      </span>
+      <div className="flex-shrink-0">
+        <LanguageToggle />
+      </div>
+    </div>
   )
 }
 
