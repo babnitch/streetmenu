@@ -10,7 +10,7 @@ import SearchOverlay from './SearchOverlay'
 // Mobile-only fixed bottom tab bar — one Uber Eats-style tab set for
 // everyone:
 //
-//   🏠 Accueil · 🎉 Événements · 🔍 Recherche · 🛒 Panier · 👤 Compte
+//   🏠 Restaurants · 🎉 Événements · 🔍 Recherche · 🛒 Panier · 👤 Compte
 //
 // Restaurant owners no longer get their own tab variant here. Their
 // management surfaces (orders, menu, vouchers, team, settings) are
@@ -68,7 +68,9 @@ export default function BottomNav() {
   if (!authProbed) return null
 
   const tabs: TabSpec[] = [
-    { href: '/',        icon: '🏠', label: bi('Accueil', 'Home'),
+    // Same label in both locales — "Restaurants" reads the same in FR and
+    // EN, so it goes through bi() unchanged rather than being special-cased.
+    { href: '/',        icon: '🏠', label: bi('Restaurants', 'Restaurants'),
       match: p => p === '/' || p.startsWith('/restaurant') },
     { href: '/events',  icon: '🎉', label: bi('Événements', 'Events'),
       match: p => p.startsWith('/events') },
