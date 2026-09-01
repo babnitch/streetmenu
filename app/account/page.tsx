@@ -65,7 +65,10 @@ type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' |
 // The mobile profile is a menu list that drills into one section at a time.
 // It reuses the desktop tabs, plus three panels that live *inside* the
 // desktop Profile tab but get their own row on mobile.
-type MobileSection = CustomerTab | 'broadcast' | 'promote' | 'notifications'
+// `bookings` is mobile-only: the event reservations the user made as a
+// customer. Desktop shows them at the top of the Orders tab; mobile gives
+// them their own quick-access tile so Orders stays purely food orders.
+type MobileSection = CustomerTab | 'broadcast' | 'promote' | 'notifications' | 'bookings'
 const CUSTOMER_TABS: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
 function isCustomerTab(v: string): v is CustomerTab {
   return (CUSTOMER_TABS as string[]).includes(v)
@@ -695,6 +698,7 @@ export default function AccountPage() {
     notifications: bi('Notifications', 'Notifications'),
     broadcast:     bi('Diffuser', 'Broadcast'),
     promote:       bi('Promouvoir', 'Promote'),
+    bookings:      bi('Mes réservations', 'My bookings'),
   }
   const mobileSectionTitle = mobileSection ? MOBILE_SECTION_TITLES[mobileSection] : ''
 
@@ -1256,7 +1260,10 @@ export default function AccountPage() {
                       </div>
                     </div>
 
-                    {/* Quick access — Orders / Vouchers / Events */}
+                    {/* Quick access — Orders / Event bookings / Vouchers.
+                        The middle tile is the events the user BOOKED as a
+                        customer, not the ones they publish; publishing lives
+                        in the "Mes événements" menu row below. */}
                     <div className="grid grid-cols-3 gap-3 mb-6">
                       <QuickCard
                         icon="📦"
@@ -1264,22 +1271,21 @@ export default function AccountPage() {
                         onClick={() => openMobileSection('orders')}
                       />
                       <QuickCard
+                        icon="🎟"
+                        label={bi('Événements', 'Events')}
+                        onClick={() => setMobileSection('bookings')}
+                      />
+                      <QuickCard
                         icon="🎫"
                         label={t('account.vouchersTab')}
                         onClick={() => openMobileSection('vouchers')}
                       />
-                      {hasOrganizerEvents ? (
-                        <QuickCard
-                          icon="🎉"
-                          label={bi('Événements', 'Events')}
-                          onClick={() => openMobileSection('events')}
-                        />
-                      ) : (
-                        <QuickCard icon="🎉" label={bi('Événements', 'Events')} href="/events" />
-                      )}
                     </div>
 
-                    {/* Menu list */}
+                    {/* Menu list. Orders, bookings and vouchers deliberately
+                        stay out of it — they're the three tiles above. Team
+                        and restaurant settings stay out too: they live on
+                        /dashboard, which the "Mon restaurant" row opens. */}
                     <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-divider">
                       <MenuRow
                         icon="👤"
@@ -1287,87 +1293,57 @@ export default function AccountPage() {
                         desc={bi('Modifier vos informations', 'Edit your info')}
                         onClick={() => openMobileSection('profile')}
                       />
-                      <MenuRow
-                        icon="📦"
-                        label={t('account.ordersTab')}
-                        desc={bi('Suivre vos commandes', 'Track your orders')}
-                        onClick={() => openMobileSection('orders')}
-                      />
-                      <MenuRow
-                        icon="🎫"
-                        label={bi('Bons de réduction', 'Vouchers')}
-                        desc={bi('Voir vos codes promo', 'View promo codes')}
-                        onClick={() => openMobileSection('vouchers')}
-                      />
                       {hasOrganizerEvents && (
                         <MenuRow
-                          icon="🎉"
+                          icon="📢"
                           label={bi('Mes événements', 'My events')}
-                          desc={bi('Gérer vos événements', 'Manage your events')}
+                          desc={bi('Gérer vos événements publiés', 'Manage your published events')}
                           onClick={() => openMobileSection('events')}
                         />
                       )}
-                      {canBroadcast && (
+                      {myRestaurants.length > 0 && (
                         <MenuRow
-                          icon="📢"
-                          label={bi('Diffuser', 'Broadcast')}
-                          desc={bi('Envoyer un message à une ville', 'Message a whole city')}
-                          onClick={() => setMobileSection('broadcast')}
+                          icon="🏪"
+                          label={bi('Mon restaurant', 'My restaurant')}
+                          desc={bi('Gérer votre restaurant', 'Manage your restaurant')}
+                          href="/dashboard"
                         />
                       )}
                       {canPromote && (
                         <MenuRow
                           icon="📣"
                           label={bi('Promouvoir', 'Promote')}
-                          desc={bi('Mettre en avant vos annonces', 'Feature your listings')}
+                          desc={bi('Promouvoir votre restaurant ou événement', 'Promote your restaurant or event')}
                           onClick={() => setMobileSection('promote')}
+                        />
+                      )}
+                      {canBroadcast && (
+                        <MenuRow
+                          icon="📢"
+                          label={bi('Diffuser', 'Broadcast')}
+                          desc={bi('Envoyer un message aux abonnés', 'Send a message to subscribers')}
+                          onClick={() => setMobileSection('broadcast')}
                         />
                       )}
                       <MenuRow
                         icon="🔔"
                         label={bi('Notifications', 'Notifications')}
-                        desc={bi('Gérer vos alertes', 'Manage alerts')}
+                        desc={bi('Gérer vos alertes événements', 'Manage event alerts')}
                         onClick={() => setMobileSection('notifications')}
                       />
                       <MenuLowDataRow />
                       <MenuLanguageRow />
-
-                      {/* Vendor rows — same gates as the desktop tab bar. */}
-                      {myRestaurants.length > 0 && (
-                        <MenuRow
-                          icon="🏪"
-                          label={t('account.restaurantTab')}
-                          desc={bi('Gérer votre restaurant', 'Manage restaurant')}
-                          onClick={() => openMobileSection('restaurant')}
-                        />
-                      )}
-                      {myRestaurants.length > 0 && activeRest?.teamRole === 'owner' && (
-                        <MenuRow
-                          icon="👥"
-                          label={t('account.teamTab')}
-                          desc={bi('Gérer les membres', 'Manage members')}
-                          onClick={() => openMobileSection('team')}
-                        />
-                      )}
-                      {/* Hours + payment settings live on the dashboard's
-                          Settings tab, which honours ?tab= — so this row
-                          links there rather than duplicating the UI. */}
-                      {activeRest && !activeRest.deleted_at && activeRest.status !== 'pending' && (
-                        <MenuRow
-                          icon="⚙️"
-                          label={bi('Paramètres', 'Settings')}
-                          desc={bi('Horaires, paiements', 'Hours, payments')}
-                          href="/dashboard?tab=settings"
-                        />
-                      )}
+                      <button
+                        type="button"
+                        onClick={handleSignOut}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-brand-light"
+                      >
+                        <span aria-hidden="true" className="text-xl leading-none w-7 text-center flex-shrink-0">🚪</span>
+                        <span className="flex-1 min-w-0 text-sm font-semibold text-danger truncate">
+                          {t('account.signOut')}
+                        </span>
+                      </button>
                     </div>
-
-                    <button
-                      onClick={handleSignOut}
-                      className="w-full mt-4 bg-white rounded-2xl shadow-sm px-4 py-4 text-sm font-semibold text-danger text-left transition-colors hover:bg-brand-light"
-                    >
-                      🚪 {t('account.signOut')}
-                    </button>
                   </div>
                 )}
 
@@ -1393,6 +1369,37 @@ export default function AccountPage() {
                 {mobileSection === 'notifications' && <div className="md:hidden"><NotificationsPanel /></div>}
                 {mobileSection === 'broadcast'     && <div className="md:hidden"><BroadcastPanel /></div>}
                 {mobileSection === 'promote'       && <div className="md:hidden"><PromotePanel /></div>}
+
+                {/* Event bookings — the reservations the user made as a
+                    customer. Desktop shows these at the top of the Orders
+                    tab; here they're their own destination. */}
+                {mobileSection === 'bookings' && (
+                  <div className="md:hidden">
+                    {loadingData ? (
+                      <div className="text-center py-12"><div className="text-3xl animate-pulse text-ink-tertiary">…</div></div>
+                    ) : eventReservations.length === 0 ? (
+                      <div className="text-center py-12">
+                        <div className="text-4xl mb-3">🎟</div>
+                        <p className="text-ink-tertiary text-sm">
+                          {bi('Aucune réservation', 'No bookings yet')}
+                        </p>
+                        <Link href="/events" className="mt-4 inline-block text-brand text-sm font-semibold underline">
+                          {bi('Découvrir les événements', 'Browse events')}
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {eventReservations.map(r => (
+                          <EventReservationCard
+                            key={r.id}
+                            reservation={r}
+                            onCancelled={() => user && loadCustomerData(user.id)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* The shared tab panels below render for desktop always,
                     and on mobile only once the user has drilled into one. */}
@@ -1426,8 +1433,12 @@ export default function AccountPage() {
                     {loadingData && <div className="text-center py-12"><div className="text-3xl animate-pulse text-ink-tertiary">…</div></div>}
                     {!loadingData && (
                       <div className="space-y-6">
+                        {/* Reservations ride along in the desktop Orders
+                            tab as before. On mobile they're reached from
+                            the 🎟 quick-access tile instead, so this section
+                            keeps to food orders. */}
                         {eventReservations.length > 0 && (
-                          <section>
+                          <section className="hidden md:block">
                             <h3 className="text-sm font-bold text-ink-primary mb-2">
                               🎟 {bi('Mes réservations', 'My reservations')}
                             </h3>
@@ -1445,23 +1456,30 @@ export default function AccountPage() {
 
                         <section>
                           {eventReservations.length > 0 && (
-                            <h3 className="text-sm font-bold text-ink-primary mb-2">
+                            <h3 className="hidden md:block text-sm font-bold text-ink-primary mb-2">
                               📦 {bi('Mes commandes', 'My orders')}
                             </h3>
                           )}
-                          {orders.length === 0 && eventReservations.length === 0 ? (
-                            <div className="text-center py-12">
-                              <div className="text-4xl mb-3">📋</div>
-                              <p className="text-ink-tertiary text-sm">{t('account.noOrders')}</p>
-                              <Link href="/" className="mt-4 inline-block text-brand text-sm font-semibold underline">
-                                Explorer les restaurants
-                              </Link>
-                            </div>
-                          ) : orders.length === 0 ? null : (
+                          {orders.length > 0 ? (
                             <div className="space-y-3">
                               {orders.map(order => (
                                 <OrderCard key={order.id} order={order} orderAtLabel={t('account.orderAt')} />
                               ))}
+                            </div>
+                          ) : (
+                            // With no orders: desktop keeps its old behaviour
+                            // (the empty state only appears when there are no
+                            // reservations either, since those fill the tab).
+                            // Mobile always shows it — this view is food
+                            // orders only, so an empty list must say so.
+                            <div className={eventReservations.length > 0 ? 'md:hidden' : ''}>
+                              <div className="text-center py-12">
+                                <div className="text-4xl mb-3">📋</div>
+                                <p className="text-ink-tertiary text-sm">{t('account.noOrders')}</p>
+                                <Link href="/" className="mt-4 inline-block text-brand text-sm font-semibold underline">
+                                  {bi('Explorer les restaurants', 'Browse restaurants')}
+                                </Link>
+                              </div>
                             </div>
                           )}
                         </section>
@@ -2240,15 +2258,24 @@ function MenuLowDataRow() {
           {bi('Économise ~90% de données', 'Saves ~90% of data')}
         </span>
       </span>
+      {/* Real switch rather than a labelled pill — this row toggles in
+          place, so it should look like a control, not a link. */}
       <button
         type="button"
+        role="switch"
+        aria-checked={isLowData}
+        aria-label={bi('Mode économique', 'Low data mode')}
         onClick={toggle}
-        aria-pressed={isLowData}
-        className={`flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
-          isLowData ? 'bg-emerald-600 text-white' : 'bg-surface-muted text-ink-secondary'
+        className={`flex-shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${
+          isLowData ? 'bg-emerald-600' : 'bg-divider'
         }`}
       >
-        {isLowData ? bi('Activé', 'On') : bi('Désactivé', 'Off')}
+        <span
+          aria-hidden="true"
+          className={`block w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
+            isLowData ? 'translate-x-5' : 'translate-x-0'
+          }`}
+        />
       </button>
     </div>
   )
