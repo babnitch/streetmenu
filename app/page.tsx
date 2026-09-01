@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -10,12 +10,14 @@ import { supabase } from '@/lib/supabase'
 import { Restaurant } from '@/types'
 import RestaurantSidebar from '@/components/RestaurantSidebar'
 import TopNav from '@/components/TopNav'
+import RestaurantCard, { RestaurantCardSkeleton, type RatingSummary } from '@/components/RestaurantCard'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
 import { useDataMode } from '@/lib/dataMode'
 import { arrangePromoted, FEED_INJECT_EVERY_RESTAURANT } from '@/lib/promotions'
+import { CUISINE_CATEGORIES, matchesCuisineCategory } from '@/lib/cuisineCategories'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
@@ -27,140 +29,24 @@ const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> =
   'Lomé':    { center: [1.2123, 6.1375],     zoom: 13 },
 }
 
-// ─── Restaurant card ─────────────────────────────────────────────────────────
-interface RatingSummary { average: number; count: number }
+// "Under 30 min" pill threshold — a restaurant qualifies when the top of
+// its advertised range is at or below this.
+const QUICK_PREP_MAX = 30
+// "Top rated" pill threshold.
+const TOP_RATED_MIN = 4
 
-function RestaurantCard({
-  restaurant, rating, openOverride, promotionId,
-}: {
-  restaurant: Restaurant
-  rating?: RatingSummary
-  // Server-computed open status from /api/restaurants/open-status. Wins
-  // over the legacy restaurants.is_open column (which can drift while
-  // the schedule cron isn't a thing). Undefined while the bulk endpoint
-  // hasn't responded yet — we fall back to is_open during that gap.
-  openOverride?: boolean
-  // When set, this card is a paid promotion. We render a subtle
-  // Sponsorisé / Sponsored label and fire impression + click tracking.
-  promotionId?: string
-}) {
-  const bi = useBi()
-  const { isLowData } = useDataMode()
-  const [imgError, setImgError] = useState(false)
-  const cardRef = useRef<HTMLAnchorElement>(null)
+type SortKey = 'default' | 'rating' | 'prep' | 'distance'
 
-  // Impression tracking — fires once when the card enters the viewport.
-  // Client-side dedupe (1h per promotion) lives in promoTracking.
-  useEffect(() => {
-    if (!promotionId) return
-    if (typeof IntersectionObserver === 'undefined') return
-    const el = cardRef.current
-    if (!el) return
-    const io = new IntersectionObserver(entries => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          import('@/lib/promoTracking').then(m => m.fireImpression(promotionId))
-          io.disconnect()
-          break
-        }
-      }
-    }, { threshold: 0.5 })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [promotionId])
-  const isOpen = openOverride ?? restaurant.is_open
-  const neighborhood = restaurant.neighborhood || restaurant.address
-  const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
-  const cuisine = restaurant.cuisine_type || restaurant.description
-  const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
-  const initial = (restaurant.name?.[0] ?? '?').toUpperCase()
-  const heroImage = restaurant.image_url || restaurant.logo_url
-  // Low-data mode: skip the image regardless of whether one exists, so
-  // the user's bandwidth budget stays predictable. The gradient + initial
-  // fallback already shipped as the empty-image state — we reuse it.
-  const showImage = !isLowData && heroImage && !imgError
-
-  return (
-    <Link
-      ref={cardRef}
-      href={`/restaurant/${restaurant.id}`}
-      onClick={() => {
-        if (promotionId) {
-          import('@/lib/promoTracking').then(m => m.fireClick(promotionId))
-        }
-      }}
-      className="group block bg-surface border border-divider rounded-xl overflow-hidden hover:shadow-card transition-shadow"
-    >
-      <div className="relative aspect-[16/9] overflow-hidden bg-surface-muted">
-        {showImage ? (
-          <Image
-            src={heroImage!}
-            alt={restaurant.name}
-            fill
-            onError={() => setImgError(true)}
-            className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-          />
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-brand-light via-brand-badge to-brand flex items-center justify-center">
-            <span className="text-white text-5xl font-black tracking-tight drop-shadow-sm">
-              {initial}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="p-3 flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="font-bold text-brand-dark text-base leading-tight line-clamp-1">
-            {restaurant.name}
-          </p>
-          {location && (
-            <p className="text-sm text-brand-dark mt-0.5 line-clamp-1">
-              {location}
-            </p>
-          )}
-          {prepLabel && (
-            <p className="text-xs text-ink-secondary mt-1">
-              🕐 {prepLabel}
-            </p>
-          )}
-          {cuisine && (
-            <span className="inline-block mt-2 bg-brand-light text-brand-darker text-xs font-semibold px-2 py-0.5 rounded-full border border-brand-badge/60">
-              {cuisine}
-            </span>
-          )}
-          {promotionId && (
-            <p className="text-[10px] text-ink-tertiary mt-1.5 leading-none">
-              {bi('Sponsorisé', 'Sponsored')}
-            </p>
-          )}
-          {rating && rating.count > 0 && (
-            <p className="mt-1.5 text-xs text-amber-700 font-semibold">
-              ⭐ {rating.average.toFixed(1)} <span className="text-ink-tertiary font-normal">({rating.count})</span>
-            </p>
-          )}
-        </div>
-        <span className={`flex-shrink-0 text-xs font-semibold whitespace-nowrap ${
-          isOpen ? 'text-green-600' : 'text-red-600'
-        }`}>
-          {isOpen ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
-        </span>
-      </div>
-    </Link>
-  )
-}
-
-function CardSkeleton() {
-  return (
-    <div className="bg-surface border border-divider rounded-xl overflow-hidden">
-      <div className="aspect-[16/9] skeleton rounded-none" />
-      <div className="p-3 space-y-2">
-        <div className="skeleton h-4 w-3/4" />
-        <div className="skeleton h-3 w-1/2" />
-      </div>
-    </div>
-  )
+// Great-circle distance in km. Only used to order the feed, so the
+// spherical approximation is plenty.
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371
+  const dLat = (b.lat - a.lat) * Math.PI / 180
+  const dLng = (b.lng - a.lng) * Math.PI / 180
+  const la1 = a.lat * Math.PI / 180
+  const la2 = b.lat * Math.PI / 180
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
 export default function HomePage() {
@@ -168,19 +54,29 @@ export default function HomePage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
   const [openStatus, setOpenStatus] = useState<Record<string, { open: boolean }>>({})
-  // "Open now" toggle. Persisted via the same URL pattern as the search
-  // query so a deep link like /?open=1 reproduces the filter.
-  const [openOnly, setOpenOnly] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Restaurant | null>(null)
   const [bannerDismissed, setBannerDismissed] = useState(true)
   const [query, setQuery] = useState('')
   const [pendingOrders, setPendingOrders] = useState(0)
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
   const { user, loading: authLoading } = useAuth()
   const { city } = useCity()
-  const searchRef = useRef<HTMLInputElement>(null)
+
+  // ── Mobile filter state ────────────────────────────────────────────────
+  // All of it is rendered inside md:hidden blocks, so a desktop viewer
+  // never changes these and the desktop feed keeps its original ordering.
+  const [cuisine, setCuisine]     = useState<string | null>(null)
+  const [openOnly, setOpenOnly]   = useState(false)
+  const [promoOnly, setPromoOnly] = useState(false)
+  const [topRated, setTopRated]   = useState(false)
+  const [quickPrep, setQuickPrep] = useState(false)
+  const [sort, setSort]           = useState<SortKey>('default')
+  // Set once the browser hands us a position; only requested when the
+  // user actually picks the distance sort.
+  const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null)
+  const [geoDenied, setGeoDenied] = useState(false)
 
   // `/` is the public landing page for everyone — logged out, customers,
   // and vendors alike. Vendors reach their dashboard via the explicit
@@ -221,6 +117,49 @@ export default function HomePage() {
     return () => { cancelled = true }
   }, [city])
 
+  // Restaurants that currently have a live voucher — backs the 💰 Promo
+  // pill. Empty set on failure, which just makes the pill match nothing.
+  const [promoRestaurantIds, setPromoRestaurantIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/restaurants/promos?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
+        const d = await res.json()
+        if (!cancelled && Array.isArray(d?.restaurantIds)) {
+          setPromoRestaurantIds(new Set<string>(d.restaurantIds))
+        }
+      } catch { /* pill matches nothing */ }
+    })()
+    return () => { cancelled = true }
+  }, [city])
+
+  // "Order again" — restaurant ids the signed-in customer has ordered from,
+  // most recent first. Guests and vendors get an empty list (the endpoint
+  // returns [] for non-customers), so the row simply doesn't render.
+  const [reorderIds, setReorderIds] = useState<string[]>([])
+  useEffect(() => {
+    if (authLoading || !user) { setReorderIds([]); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/customer/orders', { cache: 'no-store' })
+        const d = await res.json()
+        if (cancelled || !Array.isArray(d?.orders)) return
+        const seen = new Set<string>()
+        const ids: string[] = []
+        for (const o of d.orders as Array<{ restaurant_id?: string }>) {
+          if (o.restaurant_id && !seen.has(o.restaurant_id)) {
+            seen.add(o.restaurant_id)
+            ids.push(o.restaurant_id)
+          }
+        }
+        setReorderIds(ids)
+      } catch { /* no row */ }
+    })()
+    return () => { cancelled = true }
+  }, [user, authLoading])
+
   // TopNav desktop search submits to /?q=...#search. Seed the local query
   // from the URL on mount + whenever history changes. Client-only reads
   // keep this out of Next's static-prerender path (no Suspense boundary
@@ -233,7 +172,8 @@ export default function HomePage() {
     return () => window.removeEventListener('popstate', read)
   }, [])
 
-  // Map toggle now lives in TopNav; it dispatches this event on click.
+  // Map toggle now lives in TopNav (desktop only); it dispatches this
+  // event on click.
   useEffect(() => {
     const onToggle = () => setShowMap(prev => !prev)
     window.addEventListener('nt-toggle-map', onToggle)
@@ -243,20 +183,6 @@ export default function HomePage() {
   useEffect(() => {
     const dismissed = localStorage.getItem('banner_dismissed')
     if (!dismissed) setBannerDismissed(false)
-  }, [])
-
-  // #search hash (from BottomNav search tab) focuses the search input.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const handle = () => {
-      if (window.location.hash === '#search' && searchRef.current) {
-        searchRef.current.focus()
-        searchRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-    }
-    handle()
-    window.addEventListener('hashchange', handle)
-    return () => window.removeEventListener('hashchange', handle)
   }, [])
 
   useEffect(() => {
@@ -289,31 +215,90 @@ export default function HomePage() {
     fetchRestaurants()
   }, [])
 
+  // Distance sort needs a position. We only ask when the user picks it,
+  // so the permission prompt is always explained by an action they just
+  // took. A denial falls back to the default order.
+  const chooseSort = useCallback((next: SortKey) => {
+    setSort(next)
+    if (next !== 'distance' || userPos || typeof navigator === 'undefined' || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      pos => { setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGeoDenied(false) },
+      () => setGeoDenied(true),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60_000 },
+    )
+  }, [userPos])
+
   const handleMapSelect = useCallback((m: { id: string }) => {
     setMapSelected(restaurants.find(r => r.id === m.id) ?? null)
   }, [restaurants])
 
   const cityData = CITY_CENTERS[city] ?? CITY_CENTERS['Yaoundé']
-  const filtered = restaurants
-    .filter(r => r.city === city)
-    .filter(r => {
-      if (!query.trim()) return true
-      const q = query.trim().toLowerCase()
-      return (
-        r.name.toLowerCase().includes(q) ||
-        (r.cuisine_type?.toLowerCase().includes(q) ?? false) ||
-        (r.neighborhood?.toLowerCase().includes(q) ?? false)
-      )
-    })
-    .filter(r => {
-      if (!openOnly) return true
-      // Prefer computed status; only fall through to is_open while the
-      // bulk endpoint is still loading.
-      return openStatus[r.id]?.open ?? r.is_open
-    })
-  // Computed open-count for the toggle label. Uses the same fallback
-  // chain as the filter.
-  const openCount = filtered.filter(r => openStatus[r.id]?.open ?? r.is_open).length
+
+  const isOpenNow = useCallback(
+    // Prefer computed status; only fall through to is_open while the
+    // bulk endpoint is still loading.
+    (r: Restaurant) => openStatus[r.id]?.open ?? r.is_open,
+    [openStatus],
+  )
+
+  const filtered = useMemo(() => {
+    const list = restaurants
+      .filter(r => r.city === city)
+      .filter(r => {
+        if (!query.trim()) return true
+        const q = query.trim().toLowerCase()
+        return (
+          r.name.toLowerCase().includes(q) ||
+          (r.cuisine_type?.toLowerCase().includes(q) ?? false) ||
+          (r.neighborhood?.toLowerCase().includes(q) ?? false)
+        )
+      })
+      .filter(r => (cuisine ? matchesCuisineCategory(r, cuisine) : true))
+      .filter(r => (openOnly ? isOpenNow(r) : true))
+      .filter(r => (promoOnly ? promoRestaurantIds.has(r.id) : true))
+      .filter(r => {
+        if (!topRated) return true
+        const s = ratingSummary[r.id]
+        return !!s && s.count > 0 && s.average >= TOP_RATED_MIN
+      })
+      .filter(r => {
+        if (!quickPrep) return true
+        return r.prep_time_max != null && r.prep_time_max <= QUICK_PREP_MAX
+      })
+
+    if (sort === 'rating') {
+      return [...list].sort((a, b) =>
+        (ratingSummary[b.id]?.average ?? 0) - (ratingSummary[a.id]?.average ?? 0))
+    }
+    if (sort === 'prep') {
+      // Restaurants with no advertised range sink to the bottom rather
+      // than pretending to be instant.
+      const key = (r: Restaurant) => r.prep_time_max ?? Number.POSITIVE_INFINITY
+      return [...list].sort((a, b) => key(a) - key(b))
+    }
+    if (sort === 'distance' && userPos) {
+      const key = (r: Restaurant) =>
+        (Number.isFinite(r.lat) && Number.isFinite(r.lng))
+          ? distanceKm(userPos, r)
+          : Number.POSITIVE_INFINITY
+      return [...list].sort((a, b) => key(a) - key(b))
+    }
+    return list
+  }, [restaurants, city, query, cuisine, openOnly, promoOnly, topRated, quickPrep,
+      sort, userPos, ratingSummary, promoRestaurantIds, isOpenNow])
+
+  // Computed open-count for the header line.
+  const openCount = filtered.filter(isOpenNow).length
+
+  const anyFilterOn = !!cuisine || openOnly || promoOnly || topRated || quickPrep || sort !== 'default' || !!query.trim()
+  const clearFilters = () => {
+    setCuisine(null); setOpenOnly(false); setPromoOnly(false)
+    setTopRated(false); setQuickPrep(false); setSort('default')
+    setQuery('')
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }
 
   // Merge active promotions into the filtered list. arrangePromoted
   // pins top_list promos at the front and injects feed_card promos
@@ -329,6 +314,14 @@ export default function HomePage() {
     (r) => r.id,
     FEED_INJECT_EVERY_RESTAURANT,
   )
+
+  // "Order again" cards — resolved against the loaded feed and scoped to
+  // the selected city so the row stays consistent with everything else
+  // on the page.
+  const reorderRestaurants = reorderIds
+    .map(id => restaurantById[id])
+    .filter((r): r is Restaurant => !!r && r.city === city)
+    .slice(0, 10)
 
   return (
     <div className="min-h-screen bg-surface">
@@ -370,44 +363,122 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Search bar — mobile only. Desktop uses the inline TopNav search. */}
-      <div id="search" className="bg-surface md:hidden">
-        <div className="max-w-6xl mx-auto px-4 pt-4 pb-2">
-          <label className="relative block">
-            <span className="absolute inset-y-0 left-3 flex items-center text-ink-tertiary pointer-events-none">🔍</span>
-            <input
-              ref={searchRef}
-              type="search"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder={bi('Rechercher un restaurant...', 'Search restaurants...')}
-              className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-4 py-3 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
-            />
-          </label>
-          <div className="mt-2 flex items-center gap-2">
+      {/* ══ MOBILE ONLY: cuisine icon rail ═════════════════════════════════
+          Horizontal scroll, no wrap. Tapping toggles a single-select
+          filter; tapping the active one clears it. */}
+      <div className="md:hidden border-b border-divider">
+        <div
+          className="flex gap-4 overflow-x-auto px-4 py-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="group"
+          aria-label={bi('Types de cuisine', 'Cuisine types')}
+        >
+          {CUISINE_CATEGORIES.map(cat => {
+            const active = cuisine === cat.id
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setCuisine(active ? null : cat.id)}
+                className="flex flex-col items-center gap-1.5 flex-shrink-0 w-[60px]"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl transition-colors ${
+                    active
+                      ? 'bg-brand text-white ring-2 ring-brand ring-offset-2 ring-offset-surface'
+                      : 'bg-surface-muted'
+                  }`}
+                >
+                  {cat.icon}
+                </span>
+                <span className={`text-[11px] leading-tight text-center truncate w-full ${
+                  active ? 'text-brand font-semibold' : 'text-ink-secondary'
+                }`}>
+                  {locale === 'en' ? cat.en : cat.fr}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ══ MOBILE ONLY: filter pills + sort ══════════════════════════════ */}
+      <div className="md:hidden border-b border-divider">
+        <div className="flex gap-2 overflow-x-auto px-4 py-2.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <SortPill value={sort} onChange={chooseSort} />
+          <FilterPill active={openOnly}  onClick={() => setOpenOnly(v => !v)}>
+            🟢 {bi('Ouvert', 'Open now')}
+          </FilterPill>
+          <FilterPill active={promoOnly} onClick={() => setPromoOnly(v => !v)}>
+            💰 {bi('Promo', 'Deals')}
+          </FilterPill>
+          <FilterPill active={topRated}  onClick={() => setTopRated(v => !v)}>
+            ⭐ {bi('Mieux notés', 'Top rated')}
+          </FilterPill>
+          <FilterPill active={quickPrep} onClick={() => setQuickPrep(v => !v)}>
+            🕐 {bi('Moins de 30 min', 'Under 30 min')}
+          </FilterPill>
+        </div>
+
+        {/* Active free-text query — mobile has no visible search field
+            (it lives in the BottomNav overlay), so a deep link or a
+            desktop-seeded ?q= needs somewhere to show itself. */}
+        {query.trim() && (
+          <div className="px-4 pb-2.5">
             <button
-              onClick={() => setOpenOnly(prev => !prev)}
-              className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
-                openOnly
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'bg-surface-muted text-ink-secondary border border-divider hover:bg-divider'
-              }`}
+              onClick={() => {
+                setQuery('')
+                if (typeof window !== 'undefined' && window.location.search) {
+                  window.history.replaceState(null, '', window.location.pathname)
+                }
+              }}
+              className="inline-flex items-center gap-1.5 bg-ink-primary text-white text-xs font-semibold px-3 py-1.5 rounded-full"
             >
-              🟢 {bi('Ouverts maintenant', 'Open now')}
+              🔍 {query.trim()} <span aria-hidden="true">✕</span>
             </button>
           </div>
-        </div>
+        )}
+
+        {sort === 'distance' && geoDenied && (
+          <p className="px-4 pb-2.5 text-xs text-ink-tertiary">
+            {bi('Position indisponible — tri par défaut.', 'Location unavailable — showing the default order.')}
+          </p>
+        )}
       </div>
 
       {/* Main grid */}
       <main className="max-w-6xl mx-auto px-4 pt-4 pb-28">
 
+        {/* ══ MOBILE ONLY: Order again ══════════════════════════════════ */}
+        {!loading && reorderRestaurants.length > 0 && !anyFilterOn && (
+          <section className="md:hidden mb-6">
+            <h2 className="text-lg font-bold text-ink-primary mb-3">
+              {bi('Commander à nouveau', 'Order again')}
+            </h2>
+            <div className="flex gap-3 overflow-x-auto -mx-4 px-4 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {reorderRestaurants.map(r => (
+                <ReorderCard key={r.id} restaurant={r} />
+              ))}
+            </div>
+          </section>
+        )}
+
         {!loading && filtered.length > 0 && (
           <>
-            <h1 className="text-2xl sm:text-3xl font-bold text-ink-primary mb-1">
+            <h1 className="hidden md:block text-2xl sm:text-3xl font-bold text-ink-primary mb-1">
               {t('list.mapIn')} {city}
             </h1>
-            <p className="text-sm text-ink-secondary mb-6">
+            <p className="hidden md:block text-sm text-ink-secondary mb-6">
+              <span className="font-semibold text-ink-primary">{filtered.length}</span>
+              {' '}{t('list.count')}
+              {openCount > 0 && (
+                <> · <span className="text-brand-darker font-semibold">{openCount}</span> {t('list.openCount')}</>
+              )}
+            </p>
+            {/* Compact mobile equivalent — no oversized page title; the
+                header already says which city you're in. */}
+            <p className="md:hidden text-xs text-ink-secondary mb-3">
               <span className="font-semibold text-ink-primary">{filtered.length}</span>
               {' '}{t('list.count')}
               {openCount > 0 && (
@@ -418,13 +489,13 @@ export default function HomePage() {
         )}
 
         {loading && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-            {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-2 md:gap-6 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => <RestaurantCardSkeleton key={i} />)}
           </div>
         )}
 
         {!loading && filtered.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-2 md:gap-6 lg:grid-cols-3">
             {arranged.map((entry, idx) => (
               <RestaurantCard
                 key={`${entry.item.id}-${entry.promotionId ?? 'reg'}-${idx}`}
@@ -440,18 +511,25 @@ export default function HomePage() {
         {!loading && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center px-4">
             <div className="w-20 h-20 bg-surface-muted rounded-full flex items-center justify-center text-4xl mb-5">
-              {query ? '🔍' : '🏪'}
+              {anyFilterOn ? '🔍' : '🏪'}
             </div>
             <h2 className="text-xl font-bold text-ink-primary mb-2">
-              {query ? bi('Aucun résultat', 'No matches') : t('list.emptyTitle')}
+              {anyFilterOn ? bi('Aucun résultat', 'No matches') : t('list.emptyTitle')}
             </h2>
             <p className="text-ink-secondary text-sm mb-1 max-w-xs">
-              {query
-                ? bi('Essayez un autre terme', 'Try another term')
+              {anyFilterOn
+                ? bi('Essayez d\'élargir vos filtres', 'Try widening your filters')
                 : t('list.emptySub')}
             </p>
             <p className="text-ink-tertiary text-xs mb-6">{city}</p>
-            {!query && (
+            {anyFilterOn ? (
+              <button
+                onClick={clearFilters}
+                className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold text-sm transition-colors"
+              >
+                {bi('Réinitialiser les filtres', 'Reset filters')}
+              </button>
+            ) : (
               <Link
                 href="/join"
                 className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold text-sm transition-colors"
@@ -464,11 +542,8 @@ export default function HomePage() {
 
       </main>
 
-      {/* Map toggle moved into TopNav (next to the city dropdown). The
-          overlay below still opens when showMap flips — triggered by the
-          nt-toggle-map custom event dispatched from the TopNav button. */}
-
-      {/* Map overlay */}
+      {/* Map overlay — desktop only now. The TopNav map button that opens
+          it is hidden below md, so `showMap` never flips on mobile. */}
       {showMap && (
         <div className="fixed inset-0 z-50 flex flex-col bg-surface">
           <div className="h-14 flex-shrink-0 bg-surface border-b border-divider flex items-center justify-between px-4">
@@ -522,5 +597,104 @@ export default function HomePage() {
       )}
 
     </div>
+  )
+}
+
+// ─── Mobile filter pill ──────────────────────────────────────────────────────
+function FilterPill({
+  active, onClick, children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex-shrink-0 text-xs font-semibold px-3.5 py-2 rounded-full border whitespace-nowrap transition-colors ${
+        active
+          ? 'bg-ink-primary text-white border-ink-primary'
+          : 'bg-surface text-ink-secondary border-divider'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ─── Mobile sort pill ────────────────────────────────────────────────────────
+// A native <select> dressed as a pill: it gets the platform picker sheet
+// for free, which is exactly the interaction a native app would use.
+function SortPill({ value, onChange }: { value: SortKey; onChange: (v: SortKey) => void }) {
+  const bi = useBi()
+  const active = value !== 'default'
+  const label =
+    value === 'rating'   ? bi('Note', 'Rating')
+    : value === 'prep'   ? bi('Rapidité', 'Prep time')
+    : value === 'distance' ? bi('Distance', 'Distance')
+    : bi('Trier', 'Sort')
+
+  return (
+    <div className={`relative flex-shrink-0 rounded-full border transition-colors ${
+      active ? 'bg-ink-primary border-ink-primary' : 'bg-surface border-divider'
+    }`}>
+      {/* The span sizes the pill and is the only thing drawn; the select
+          sits on top at zero opacity so the tap opens the platform's own
+          picker sheet — the interaction a native app would use. */}
+      <span
+        aria-hidden="true"
+        className={`block text-xs font-semibold px-3.5 py-2 whitespace-nowrap ${
+          active ? 'text-white' : 'text-ink-secondary'
+        }`}
+      >
+        ⇅ {label} ▾
+      </span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value as SortKey)}
+        aria-label={bi('Trier par', 'Sort by')}
+        className="absolute inset-0 w-full h-full opacity-0 appearance-none cursor-pointer"
+      >
+        <option value="default">{bi('Par défaut', 'Default')}</option>
+        <option value="rating">{bi('Mieux notés', 'Rating')}</option>
+        <option value="prep">{bi('Préparation la plus rapide', 'Fastest prep time')}</option>
+        <option value="distance">{bi('Le plus proche', 'Nearest')}</option>
+      </select>
+    </div>
+  )
+}
+
+// ─── "Order again" mini card ─────────────────────────────────────────────────
+function ReorderCard({ restaurant }: { restaurant: Restaurant }) {
+  const { isLowData } = useDataMode()
+  const [imgError, setImgError] = useState(false)
+  const heroImage = restaurant.image_url || restaurant.logo_url
+  const showImage = !isLowData && heroImage && !imgError
+  const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
+  const initial = (restaurant.name?.[0] ?? '?').toUpperCase()
+
+  return (
+    <Link href={`/restaurant/${restaurant.id}`} className="flex-shrink-0 w-32">
+      <div className="relative w-32 h-20 rounded-xl overflow-hidden bg-surface-muted">
+        {showImage ? (
+          <Image
+            src={heroImage!}
+            alt={restaurant.name}
+            fill
+            sizes="128px"
+            onError={() => setImgError(true)}
+            className="object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-brand-light via-brand-badge to-brand flex items-center justify-center">
+            <span className="text-white text-2xl font-black drop-shadow-sm">{initial}</span>
+          </div>
+        )}
+      </div>
+      <p className="mt-1.5 text-xs font-bold text-ink-primary truncate">{restaurant.name}</p>
+      {prepLabel && <p className="text-[11px] text-ink-secondary truncate">🕐 {prepLabel}</p>}
+    </Link>
   )
 }

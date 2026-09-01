@@ -553,10 +553,40 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Inline tab bar removed — tab switching lives in the TopNav
-              (desktop) and BottomNav (mobile). Rendering it here as well
-              was triplicate navigation and still forced the user's eye
-              to move twice per tab change. */}
+          {/* Mobile tab strip (< md). The BottomNav no longer carries
+              restaurant tabs — it's the same five customer tabs for
+              everyone now, and vendors arrive here via Account → Mon
+              restaurant. So the dashboard owns its own tab switching on
+              mobile; at md+ the TopNav still drives it and this strip
+              stays hidden to avoid duplicate navigation. Tabs are
+              role-gated the same way the TopNav gates them. */}
+          <div className="md:hidden -mx-4 px-4 mb-4 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex gap-2 w-max">
+              {([
+                { key: 'orders'   as DashboardTab, icon: '📦', label: bi('Commandes', 'Orders'),  show: true },
+                { key: 'menu'     as DashboardTab, icon: '🍽️', label: bi('Menu', 'Menu'),        show: effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin' },
+                { key: 'vouchers' as DashboardTab, icon: '🎫', label: bi('Bons', 'Vouchers'),     show: effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin' },
+                { key: 'validate' as DashboardTab, icon: '✅', label: bi('Valider', 'Validate'),  show: true },
+                { key: 'settings' as DashboardTab, icon: '⚙️', label: bi('Paramètres', 'Settings'), show: true },
+              ]).filter(x => x.show).map(x => {
+                const active = tab === x.key
+                return (
+                  <button
+                    key={x.key}
+                    type="button"
+                    onClick={() => setTab(x.key)}
+                    className={`flex-shrink-0 text-xs font-semibold px-3.5 py-2 rounded-full border whitespace-nowrap transition-colors ${
+                      active
+                        ? 'bg-ink-primary text-white border-ink-primary'
+                        : 'bg-white text-ink-secondary border-divider'
+                    }`}
+                  >
+                    {x.icon} {x.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           {/* Orders Tab */}
           {tab === 'orders' && (
