@@ -1,23 +1,28 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import { useCart } from '@/lib/cartContext'
+import { useMode, type DashboardTab } from '@/lib/modeContext'
 import SearchOverlay from './SearchOverlay'
 
-// Mobile-only fixed bottom tab bar — one Uber Eats-style tab set for
-// everyone:
+// Mobile-only fixed bottom tab bar. Two tab sets, chosen by the active
+// mode (a vendor flips between them from /account):
 //
-//   🏠 Restaurants · 🎉 Événements · 🔍 Recherche · 🛒 Panier · 👤 Compte
+//   Client      🏠 Restaurants · 🎉 Événements     · 🔍 Recherche · 🛒 Panier · 👤 Compte
+//   Restaurant  📦 Commandes   · 🍽️ Menu           · 🎉 Mes événements · 🔍 Recherche · 👤 Compte
 //
-// Restaurant owners no longer get their own tab variant here. Their
-// management surfaces (orders, menu, vouchers, team, settings) are
-// reached through Account → Mon restaurant → Tableau de bord, and
-// /dashboard carries its own mobile tab strip for switching between
-// them. That keeps the bar identical for every user — which is what
-// makes it read as a native app rather than a role-dependent menu.
+// Restaurant mode drops the cart (a vendor manages orders here, they
+// don't place them) and repoints the first two tabs at the dashboard.
+// Its Events tab opens the organizer's own event dashboard rather than
+// the public browse page. Vouchers, team and restaurant settings stay
+// off the bar — they live on /dashboard's own tab strip and /account.
+//
+// Dashboard tabs are switched through ModeContext, never a ?tab= query:
+// Next.js treats /dashboard?tab=a and /dashboard?tab=b as the same route
+// and skips the re-render, which used to swallow taps.
 //
 // Hidden at md+ (≥768px); the TopNav takes over there.
 
@@ -32,10 +37,15 @@ interface TabSpec {
 
 export default function BottomNav() {
   const pathname = usePathname() ?? ''
+  const router = useRouter()
   const bi = useBi()
   const { totalItems } = useCart()
+  const {
+    mode, hasRestaurantRole, dashboardTab, setDashboardTab, loading: modeLoading,
+  } = useMode()
 
   const [isAdmin, setIsAdmin] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
   // Gates the first render so the bar doesn't flash in on an admin
   // session before we know to hide it.
   const [authProbed, setAuthProbed] = useState(false)
@@ -61,28 +71,100 @@ export default function BottomNav() {
   // it hanging over the destination page.
   useEffect(() => { setSearchOpen(false) }, [pathname])
 
+  // Vendor pending-order count for the restaurant-mode Orders badge.
+  // Only polled when the session actually holds a team role, so pure
+  // customers never hit the endpoint. Mirrors the TopNav cadence.
+  useEffect(() => {
+    if (!hasRestaurantRole) { setPendingCount(0); return }
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) setPendingCount(Number(d?.count ?? 0))
+      } catch { /* transient network; keep prior count */ }
+    }
+    refresh()
+    const t = setInterval(refresh, 30_000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [hasRestaurantRole])
+
   // Hide on /admin (admins navigate via /account admin tabs, the BottomNav
   // isn't useful there). /dashboard keeps the bar so vendors can hop back
   // out to Home / Events / Account without losing their place.
   if (pathname.startsWith('/admin') || isAdmin) return null
-  if (!authProbed) return null
+  // Wait for the mode probe too, so a vendor's bar appears once with the
+  // right tab set instead of flashing through the client variant.
+  if (!authProbed || modeLoading) return null
 
-  const tabs: TabSpec[] = [
+  // Only honour "restaurant" for sessions that actually hold a team role —
+  // guards against a stale localStorage flag showing vendor tabs to a
+  // logged-out visitor.
+  const effectiveMode: 'client' | 'restaurant' =
+    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
+
+  // True when /account is showing the organizer's events — that's how the
+  // restaurant-mode Events tab highlights. Read off the URL because the
+  // account page owns that state.
+  const onAccountEvents =
+    typeof window !== 'undefined' && window.location.search.includes('tab=events')
+
+  // Flip the dashboard tab through context and route there if needed.
+  // Navigating while already on /dashboard would be a same-route no-op.
+  const goToDashTab = (next: DashboardTab) => {
+    setDashboardTab(next)
+    if (!pathname.startsWith('/dashboard')) router.push('/dashboard')
+  }
+
+  // The organizer's event dashboard is the account page's events section.
+  // Push the URL so a cold load lands there, and fire the event the
+  // account page listens for so an in-place switch works too — its ?tab=
+  // reader runs on mount only.
+  const goToMyEvents = () => {
+    router.push('/account?tab=events')
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nt-account-tab', { detail: 'events' }))
+    }
+  }
+
+  const searchTab: TabSpec = {
+    href: '#search', icon: '🔍', label: bi('Recherche', 'Search'),
+    match: () => searchOpen,
+    onClick: () => setSearchOpen(true),
+  }
+
+  const clientTabs: TabSpec[] = [
     // Same label in both locales — "Restaurants" reads the same in FR and
     // EN, so it goes through bi() unchanged rather than being special-cased.
     { href: '/',        icon: '🏠', label: bi('Restaurants', 'Restaurants'),
       match: p => p === '/' || p.startsWith('/restaurant') },
     { href: '/events',  icon: '🎉', label: bi('Événements', 'Events'),
       match: p => p.startsWith('/events') },
-    { href: '#search',  icon: '🔍', label: bi('Recherche', 'Search'),
-      match: () => searchOpen,
-      onClick: () => setSearchOpen(true) },
+    searchTab,
     { href: '/order',   icon: '🛒', label: bi('Panier', 'Cart'),
       match: p => p === '/order',
       badge: totalItems },
     { href: '/account', icon: '👤', label: bi('Compte', 'Account'),
       match: p => p === '/account' },
   ]
+
+  const restaurantTabs: TabSpec[] = [
+    { href: '/dashboard', icon: '📦', label: bi('Commandes', 'Orders'),
+      match: p => p.startsWith('/dashboard') && dashboardTab !== 'menu',
+      onClick: () => goToDashTab('orders'),
+      badge: pendingCount },
+    { href: '/dashboard', icon: '🍽️', label: bi('Menu', 'Menu'),
+      match: p => p.startsWith('/dashboard') && dashboardTab === 'menu',
+      onClick: () => goToDashTab('menu') },
+    { href: '/account?tab=events', icon: '🎉', label: bi('Mes événements', 'My events'),
+      match: p => p === '/account' && onAccountEvents,
+      onClick: goToMyEvents },
+    searchTab,
+    { href: '/account', icon: '👤', label: bi('Compte', 'Account'),
+      match: p => p === '/account' && !onAccountEvents },
+  ]
+
+  const tabs: TabSpec[] = effectiveMode === 'restaurant' ? restaurantTabs : clientTabs
 
   return (
     <>

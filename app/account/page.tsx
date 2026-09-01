@@ -21,6 +21,7 @@ import EventVouchersPanel from '@/components/EventVouchersPanel'
 import PhoneInput from '@/components/PhoneInput'
 import OtpInput from '@/components/OtpInput'
 import { useDataMode } from '@/lib/dataMode'
+import { useMode } from '@/lib/modeContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CLIENT_LABEL, roleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
@@ -158,6 +159,7 @@ interface TeamMember {
 export default function AccountPage() {
   const bi = useBi()
   const { t, locale } = useLanguage()
+  const { mode, setMode, hasRestaurantRole } = useMode()
 
   // Login form state
   const [loginTab,    setLoginTab]    = useState<LoginTab>('customer')
@@ -229,6 +231,10 @@ export default function AccountPage() {
   // rows don't lead to an empty screen.
   const [canBroadcast,     setCanBroadcast]     = useState(false)
   const [canPromote,       setCanPromote]       = useState(false)
+  // Pending orders across the vendor's restaurants — badges the mobile
+  // Commandes tile in restaurant mode. Same endpoint and cadence as the
+  // BottomNav badge, so the two never disagree.
+  const [pendingOrders,    setPendingOrders]    = useState(0)
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   const [eventReservations, setEventReservations] = useState<EventReservation[]>([])
@@ -377,6 +383,37 @@ export default function AccountPage() {
     })()
     return () => { cancelled = true }
   }, [user, dashView])
+
+  // Pending-order poll — vendors only.
+  useEffect(() => {
+    if (!hasRestaurantRole) { setPendingOrders(0); return }
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const r = await fetch('/api/vendor/pending-count', { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) setPendingOrders(Number(d?.count ?? 0))
+      } catch { /* keep prior count */ }
+    }
+    refresh()
+    const t = setInterval(refresh, 30_000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [hasRestaurantRole])
+
+  // The restaurant-mode BottomNav Events tab fires this when it wants the
+  // organizer dashboard while we're already mounted — the ?tab= reader
+  // above only runs once, so a same-route push wouldn't reach us.
+  useEffect(() => {
+    const onTab = (e: Event) => {
+      const next = (e as CustomEvent).detail
+      if (typeof next === 'string' && isCustomerTab(next)) {
+        setCustomerTab(next)
+        setMobileSection(next)
+      }
+    }
+    window.addEventListener('nt-account-tab', onTab)
+    return () => window.removeEventListener('nt-account-tab', onTab)
+  }, [])
 
   // ── On mount: pre-fill the phone field with the remembered number ──
   // PhoneInput re-derives the country from the +E.164 value, but we also
@@ -676,6 +713,12 @@ export default function AccountPage() {
   const activeRest = myRestaurants.find(r => r.id === activeRestId)
 
   // ── Mobile profile helpers ────────────────────────────────────────────
+  // Restaurant mode is only honoured for sessions that actually hold a team
+  // role; everyone else is permanently in client mode and never sees the
+  // switcher. Mirrors the gate in TopNav/BottomNav/ModeToggle.
+  const effectiveMode: 'client' | 'restaurant' =
+    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
+
   // Same gate the desktop "Mes événements" tab uses: a submitted-but-not-
   // yet-returned event must not make the entry point vanish.
   const hasOrganizerEvents =
@@ -1260,32 +1303,48 @@ export default function AccountPage() {
                       </div>
                     </div>
 
-                    {/* Quick access — Orders / Event bookings / Vouchers.
-                        The middle tile is the events the user BOOKED as a
-                        customer, not the ones they publish; publishing lives
-                        in the "Mes événements" menu row below. */}
-                    <div className="grid grid-cols-3 gap-3 mb-6">
-                      <QuickCard
-                        icon="📦"
-                        label={t('account.ordersTab')}
-                        onClick={() => openMobileSection('orders')}
-                      />
-                      <QuickCard
-                        icon="🎟"
-                        label={bi('Événements', 'Events')}
-                        onClick={() => setMobileSection('bookings')}
-                      />
-                      <QuickCard
-                        icon="🎫"
-                        label={t('account.vouchersTab')}
-                        onClick={() => openMobileSection('vouchers')}
-                      />
-                    </div>
+                    {/* Quick access. Client mode is the customer's own
+                        stuff; restaurant mode swaps in the three dashboard
+                        surfaces a vendor opens most. */}
+                    {effectiveMode === 'client' ? (
+                      <div className="grid grid-cols-3 gap-3 mb-6">
+                        <QuickCard
+                          icon="📦"
+                          label={t('account.ordersTab')}
+                          onClick={() => openMobileSection('orders')}
+                        />
+                        {/* Events the user BOOKED as a customer — not the
+                            ones they publish; publishing is a menu row. */}
+                        <QuickCard
+                          icon="🎟"
+                          label={bi('Événements', 'Events')}
+                          onClick={() => setMobileSection('bookings')}
+                        />
+                        <QuickCard
+                          icon="🎫"
+                          label={t('account.vouchersTab')}
+                          onClick={() => openMobileSection('vouchers')}
+                        />
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-3 mb-6">
+                        {/* /account → /dashboard is a real route change, so
+                            ?tab= is read on mount and lands correctly. */}
+                        <QuickCard
+                          icon="📦"
+                          label={t('account.ordersTab')}
+                          href="/dashboard?tab=orders"
+                          badge={pendingOrders}
+                        />
+                        <QuickCard icon="🍽️" label={bi('Menu', 'Menu')}          href="/dashboard?tab=menu" />
+                        <QuickCard icon="⚙️" label={bi('Paramètres', 'Settings')} href="/dashboard?tab=settings" />
+                      </div>
+                    )}
 
-                    {/* Menu list. Orders, bookings and vouchers deliberately
-                        stay out of it — they're the three tiles above. Team
-                        and restaurant settings stay out too: they live on
-                        /dashboard, which the "Mon restaurant" row opens. */}
+                    {/* Menu list. Orders, bookings and vouchers stay out of
+                        it in client mode — they're the tiles above. In
+                        restaurant mode the tiles cover orders/menu/settings
+                        and the list adds the vendor surfaces. */}
                     <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-divider">
                       <MenuRow
                         icon="👤"
@@ -1301,7 +1360,9 @@ export default function AccountPage() {
                           onClick={() => openMobileSection('events')}
                         />
                       )}
-                      {myRestaurants.length > 0 && (
+
+                      {/* ── Restaurant-mode rows ───────────────────────── */}
+                      {effectiveMode === 'restaurant' && (
                         <MenuRow
                           icon="🏪"
                           label={bi('Mon restaurant', 'My restaurant')}
@@ -1309,7 +1370,25 @@ export default function AccountPage() {
                           href="/dashboard"
                         />
                       )}
-                      {canPromote && (
+                      {/* Team management lives here on /account — the
+                          dashboard's Team tab is only a pointer back to it —
+                          so this opens the section in place rather than
+                          bouncing the user through /dashboard. Owner-only,
+                          matching the panel's own gate. */}
+                      {effectiveMode === 'restaurant' && activeRest?.teamRole === 'owner' && (
+                        <MenuRow
+                          icon="👥"
+                          label={t('account.teamTab')}
+                          desc={bi('Gérer les membres', 'Manage members')}
+                          onClick={() => openMobileSection('team')}
+                        />
+                      )}
+
+                      {/* Promote / Broadcast are vendor tools in restaurant
+                          mode. A publisher with no restaurant never sees
+                          that mode, so they keep them in client mode —
+                          otherwise they'd lose the only way in. */}
+                      {canPromote && (effectiveMode === 'restaurant' || !hasRestaurantRole) && (
                         <MenuRow
                           icon="📣"
                           label={bi('Promouvoir', 'Promote')}
@@ -1317,7 +1396,7 @@ export default function AccountPage() {
                           onClick={() => setMobileSection('promote')}
                         />
                       )}
-                      {canBroadcast && (
+                      {canBroadcast && (effectiveMode === 'restaurant' || !hasRestaurantRole) && (
                         <MenuRow
                           icon="📢"
                           label={bi('Diffuser', 'Broadcast')}
@@ -1325,6 +1404,8 @@ export default function AccountPage() {
                           onClick={() => setMobileSection('broadcast')}
                         />
                       )}
+
+                      {/* ── Always available to every logged-in user ───── */}
                       <MenuRow
                         icon="🔔"
                         label={bi('Notifications', 'Notifications')}
@@ -1333,6 +1414,23 @@ export default function AccountPage() {
                       />
                       <MenuLowDataRow />
                       <MenuLanguageRow />
+
+                      {/* Mode switcher — vendors only. Flips in place: the
+                          tiles and the rows above re-render for the new
+                          mode without a navigation. */}
+                      {hasRestaurantRole && (
+                        <MenuRow
+                          icon={effectiveMode === 'restaurant' ? '👤' : '🏪'}
+                          label={effectiveMode === 'restaurant'
+                            ? bi('Passer en mode client', 'Switch to client mode')
+                            : bi('Passer en mode restaurant', 'Switch to restaurant mode')}
+                          desc={effectiveMode === 'restaurant'
+                            ? bi('Commander et parcourir les restaurants', 'Order food and browse restaurants')
+                            : bi('Gérer commandes, menu et paramètres', 'Manage orders, menu and settings')}
+                          onClick={() => setMode(effectiveMode === 'restaurant' ? 'client' : 'restaurant')}
+                        />
+                      )}
+
                       <button
                         type="button"
                         onClick={handleSignOut}
@@ -2197,19 +2295,34 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
 // One of the three quick-access tiles above the menu list. Renders as a
 // Link when `href` is given, a button otherwise.
 function QuickCard({
-  icon, label, onClick, href,
+  icon, label, onClick, href, badge,
 }: {
   icon: string
   label: string
   onClick?: () => void
   href?: string
+  /** Orange count over the icon's top-right. Hidden at 0. */
+  badge?: number
 }) {
+  const hasBadge = badge != null && badge > 0
   const inner = (
     <>
-      <span aria-hidden="true" className="text-2xl leading-none">{icon}</span>
+      <span aria-hidden="true" className="relative inline-block text-2xl leading-none">
+        {icon}
+        {hasBadge && (
+          <span
+            className={`absolute -top-1 -right-2 rounded-full bg-brand text-white font-bold flex items-center justify-center leading-none ring-2 ring-white ${
+              (badge as number) > 9 ? 'h-5 min-w-5 text-[10px] px-1' : 'h-4 w-4 text-[10px]'
+            }`}
+          >
+            {(badge as number) > 99 ? '99+' : badge}
+          </span>
+        )}
+      </span>
       <span className="text-xs font-semibold text-ink-primary text-center leading-tight truncate w-full">
         {label}
       </span>
+      {hasBadge && <span className="sr-only">{badge}</span>}
     </>
   )
   const cls = 'bg-white rounded-xl shadow-sm px-2 py-4 flex flex-col items-center gap-2 min-w-0 transition-colors hover:bg-surface-muted'
@@ -2707,10 +2820,13 @@ function MyEventsPanel({
       <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
         <div className="text-4xl mb-3">🎉</div>
         <p className="text-sm text-ink-tertiary">
-          {bi('Vous n\'avez pas encore soumis d\'événement.', 'You haven\'t submitted an event yet.')}
+          {bi('Vous n\'avez pas encore publié d\'événement.', 'You haven\'t published any events yet.')}
         </p>
-        <Link href="/events/submit" className="mt-3 inline-block text-brand text-sm font-semibold underline">
-          {bi('Soumettre un événement', 'Submit an event')}
+        <Link
+          href="/events/submit"
+          className="mt-4 inline-block bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-5 py-2.5 rounded-full transition-colors"
+        >
+          📢 {bi('Publier', 'Publish')}
         </Link>
       </div>
     )
@@ -3187,6 +3303,13 @@ function MyEventsPanel({
           )
         )}
       </div>
+      <Link
+        href="/events/submit"
+        className="block w-full text-center bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-5 py-3 rounded-full transition-colors"
+      >
+        📢 {bi('Publier un événement', 'Publish new event')}
+      </Link>
+
       {events.map(e => {
         const dateStr = new Date(e.date).toLocaleDateString('fr-FR', {
           day: '2-digit', month: 'short', year: 'numeric',
@@ -3228,6 +3351,99 @@ function MyEventsPanel({
           </button>
         )
       })}
+
+      <OrganizerSubscribersCard events={events} />
+    </div>
+  )
+}
+
+// "Who can I reach?" summary under the organizer's event list. Counts the
+// subscribers matching the cities and categories the organizer actually
+// publishes in, using the same /api/broadcasts/preview endpoint the paid
+// broadcast composer uses — so this number and the one shown at send time
+// come from one source. Read-only: it never commits anything.
+function OrganizerSubscribersCard({ events }: { events: MyEventsPanelEvent[] }) {
+  const bi = useBi()
+  const { locale } = useLanguage()
+  const [rows, setRows] = useState<Array<{ city: string; recipients: number }>>([])
+  const [loading, setLoading] = useState(true)
+
+  // Distinct cities the organizer publishes in, and the categories they use.
+  // Both are derived from their own events, so the count reflects the
+  // audience for the kind of events they actually run.
+  const cities = Array.from(new Set(events.map(e => e.city).filter(Boolean))) as string[]
+  const categories = Array.from(new Set(events.map(e => e.category).filter(Boolean))) as string[]
+  const cityKey = cities.join('|')
+  const catKey  = categories.join('|')
+
+  useEffect(() => {
+    const cityList = cityKey ? cityKey.split('|') : []
+    const catList  = catKey ? catKey.split('|') : []
+    if (cityList.length === 0) { setRows([]); setLoading(false); return }
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        // One request per city — organizers publish in one or two, and the
+        // cap keeps a pathological account from fanning out.
+        const results = await Promise.all(
+          cityList.slice(0, 4).map(async city => {
+            const res = await fetch('/api/broadcasts/preview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ target_city: city, target_categories: catList.length ? catList : null }),
+            })
+            const d = await res.json()
+            return { city, recipients: Number(d?.recipients ?? 0) }
+          }),
+        )
+        if (!cancelled) setRows(results)
+      } catch { if (!cancelled) setRows([]) }
+      finally { if (!cancelled) setLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [cityKey, catKey])
+
+  if (!loading && rows.length === 0) return null
+
+  const total = rows.reduce((n, r) => n + r.recipients, 0)
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4">
+      <h3 className="text-sm font-bold text-ink-primary">
+        🔔 {bi('Abonnements', 'Subscriptions')}
+      </h3>
+      <p className="text-xs text-ink-tertiary mt-0.5">
+        {bi(
+          'Abonnés aux catégories de vos événements',
+          'Subscribers to your event categories',
+        )}
+      </p>
+      {loading ? (
+        <p className="text-sm text-ink-tertiary mt-3">…</p>
+      ) : (
+        <>
+          <p className="text-2xl font-bold text-ink-primary mt-3">
+            {total.toLocaleString()}
+            <span className="text-sm font-semibold text-ink-secondary ml-1.5">
+              {bi('abonné(s)', 'subscriber(s)')}
+            </span>
+          </p>
+          <div className="mt-2 space-y-1">
+            {rows.map(r => (
+              <p key={r.city} className="text-xs text-ink-secondary flex justify-between gap-3">
+                <span className="truncate">📍 {r.city}</span>
+                <span className="font-semibold text-ink-primary">{r.recipients.toLocaleString()}</span>
+              </p>
+            ))}
+          </div>
+          {categories.length > 0 && (
+            <p className="text-[11px] text-ink-tertiary mt-2 truncate">
+              {categories.map(c => categoryLabel(c, locale)).join(' · ')}
+            </p>
+          )}
+        </>
+      )}
     </div>
   )
 }
