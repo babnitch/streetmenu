@@ -159,7 +159,7 @@ interface TeamMember {
 export default function AccountPage() {
   const bi = useBi()
   const { t, locale } = useLanguage()
-  const { mode, setMode, hasRestaurantRole } = useMode()
+  const { mode, setMode, resetMode, hasRestaurantRole } = useMode()
 
   // Login form state
   const [loginTab,    setLoginTab]    = useState<LoginTab>('customer')
@@ -697,6 +697,12 @@ export default function AccountPage() {
     // Logout clears the session cookie only. The remembered phone number
     // is left in localStorage so the login field stays pre-filled.
     await fetch('/api/auth/logout', { method: 'POST' })
+    // Drop the persisted mode and re-probe now that the cookie is gone.
+    // Without this, hasRestaurantRole stays true until the window next
+    // regains focus, so a signed-out visitor could keep the restaurant-mode
+    // nav — and the stored mode would carry over to the next user on this
+    // device.
+    resetMode()
     setUser(null)
     setEmail(''); setPassword(''); setName(''); setCity(''); setOtp('')
     setMyRestaurants([]); setCustomerVouchers([]); setOrders([])
