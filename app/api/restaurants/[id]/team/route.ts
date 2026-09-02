@@ -11,13 +11,24 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const session = getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
 
-  const { data: team } = await supabaseAdmin
+  // The FK must be named: restaurant_team has TWO foreign keys into
+  // customers (customer_id and added_by), so a bare `customers(...)` embed
+  // is ambiguous and PostgREST rejects it with PGRST201. Unqualified, this
+  // query returned null and the route answered 200 with an empty team.
+  const { data: team, error } = await supabaseAdmin
     .from('restaurant_team')
-    .select('id, role, added_at, status, customers(id, name, phone)')
+    .select(`id, role, added_at, status, customers!restaurant_team_customer_id_fkey(id, name, phone)`)
     .eq('restaurant_id', params.id)
     .eq('status', 'active')
     .order('added_at')
 
+  if (error) {
+    console.error('[restaurants/[id]/team GET] team query failed:', error.code, error.message)
+    return NextResponse.json({ error: 'Impossible de charger l\'équipe / Could not load the team' }, { status: 500 })
+  }
+
+  // `!fk` is a disambiguation hint, not an alias — the embed still comes
+  // back under `customers`, so the client's TeamMember shape is unchanged.
   return NextResponse.json({ team: team ?? [] })
 }
 

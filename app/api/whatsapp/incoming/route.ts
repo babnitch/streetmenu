@@ -176,11 +176,16 @@ async function handleInvitationReply(
 
     // Notify inviting owners so they see the decline.
     for (const inv of pending) {
-      const { data: owner } = await supabaseAdmin
+      // FK named explicitly (two FKs into customers). A failure only costs
+      // the owner notification — the decline itself is already committed.
+      const { data: owner, error: ownerErr } = await supabaseAdmin
         .from('restaurant_team')
-        .select('customers(phone)')
+        .select('customers!restaurant_team_customer_id_fkey(phone)')
         .eq('restaurant_id', inv.restaurant_id).eq('role', 'owner').eq('status', 'active')
         .maybeSingle()
+      if (ownerErr) {
+        console.error('[whatsapp/incoming] decline: owner lookup failed:', ownerErr.code, ownerErr.message)
+      }
       const ownerPhone = (owner?.customers as unknown as { phone?: string } | null)?.phone
       if (ownerPhone) {
         await sendWhatsApp(ownerPhone,
@@ -250,11 +255,17 @@ async function acceptInvitationsForCustomer(
     })
 
     // Notify owner of the restaurant that accepted.
-    const { data: owner } = await supabaseAdmin
+    // FK named explicitly (two FKs into customers). The team row and the
+    // 'accepted' flip are already written above; a failure here must not
+    // undo the acceptance, so we log and skip the notification.
+    const { data: owner, error: ownerErr } = await supabaseAdmin
       .from('restaurant_team')
-      .select('customers(phone)')
+      .select('customers!restaurant_team_customer_id_fkey(phone)')
       .eq('restaurant_id', inv.restaurant_id).eq('role', 'owner').eq('status', 'active')
       .maybeSingle()
+    if (ownerErr) {
+      console.error('[whatsapp/incoming] accept: owner lookup failed:', ownerErr.code, ownerErr.message)
+    }
     const ownerPhone = (owner?.customers as unknown as { phone?: string } | null)?.phone
     if (ownerPhone) {
       await sendWhatsApp(ownerPhone,
@@ -1447,11 +1458,21 @@ async function handleVendor(
         'You don\'t have permission. Contact the Restaurant Owner.', lang))
       return ok()
     }
-    const { data: members } = await supabaseAdmin
+    // FK named explicitly (two FKs into customers). On failure, tell the
+    // owner something went wrong rather than claiming the team is empty.
+    const { data: members, error: membersErr } = await supabaseAdmin
       .from('restaurant_team')
-      .select('role, customers(name, phone)')
+      .select('role, customers!restaurant_team_customer_id_fkey(name, phone)')
       .eq('restaurant_id', restaurant.id)
       .eq('status', 'active')
+
+    if (membersErr) {
+      console.error('[whatsapp/incoming] team roster query failed:', membersErr.code, membersErr.message)
+      await sendWhatsApp(from, pickLang(
+        '❌ Impossible de charger l\'équipe pour le moment. Réessayez.',
+        '❌ Could not load the team right now. Please retry.', lang))
+      return ok()
+    }
 
     if (!members || members.length === 0) {
       await sendWhatsApp(from, pickLang(

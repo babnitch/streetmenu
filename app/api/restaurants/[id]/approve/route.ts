@@ -34,12 +34,19 @@ async function ownerRecipients(restaurantId: string, directWhatsapp: string | nu
   const phones = new Set<string>()
   if (directWhatsapp) phones.add(directWhatsapp)
 
-  const { data: team } = await supabaseAdmin
+  // Name the FK — restaurant_team has two into customers (customer_id,
+  // added_by) and a bare embed fails with PGRST201. A failure here must not
+  // block the approval: we keep whatever phones the caller already seeded.
+  const { data: team, error } = await supabaseAdmin
     .from('restaurant_team')
-    .select('customers(phone)')
+    .select('customers!restaurant_team_customer_id_fkey(phone)')
     .eq('restaurant_id', restaurantId)
     .eq('role', 'owner')
     .eq('status', 'active')
+
+  if (error) {
+    console.error('[restaurants/[id]/approve] owner-phone lookup failed:', error.code, error.message)
+  }
 
   for (const m of team ?? []) {
     const c = m.customers as unknown as { phone: string } | null

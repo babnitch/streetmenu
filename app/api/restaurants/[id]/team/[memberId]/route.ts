@@ -61,11 +61,18 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Non autorisé / Not authorized' }, { status: 403 })
   }
 
-  // Get member info before removing
-  const { data: entry } = await supabaseAdmin
+  // Get member info before removing. The FK is named explicitly because
+  // restaurant_team has two of them into customers (customer_id, added_by)
+  // and a bare embed fails with PGRST201.
+  const { data: entry, error: entryErr } = await supabaseAdmin
     .from('restaurant_team')
-    .select('customer_id, customers(name, phone)')
+    .select(`customer_id, customers!restaurant_team_customer_id_fkey(name, phone)`)
     .eq('id', params.memberId).eq('restaurant_id', params.id).maybeSingle()
+
+  if (entryErr) {
+    console.error('[restaurants/[id]/team/[memberId] DELETE] member lookup failed:', entryErr.code, entryErr.message)
+    return NextResponse.json({ error: 'Impossible de charger le membre / Could not load the member' }, { status: 500 })
+  }
 
   await supabaseAdmin.from('restaurant_team')
     .update({ status: 'removed' })

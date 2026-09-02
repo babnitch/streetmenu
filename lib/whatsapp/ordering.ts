@@ -354,12 +354,21 @@ export async function vendorRecipients(restaurantId: string): Promise<string[]> 
     .from('restaurants').select('whatsapp').eq('id', restaurantId).maybeSingle()
   if (rest?.whatsapp) phones.add(rest.whatsapp)
 
-  const { data: team } = await supabaseAdmin
+  // Name the FK — restaurant_team has two into customers (customer_id,
+  // added_by), and the bare embed was failing with PGRST201, silently
+  // dropping every owner/manager phone from the fan-out. The
+  // restaurants.whatsapp seeding above is untouched; on failure we still
+  // return whatever that produced rather than losing the notification.
+  const { data: team, error } = await supabaseAdmin
     .from('restaurant_team')
-    .select('role, customers(phone)')
+    .select('role, customers!restaurant_team_customer_id_fkey(phone)')
     .eq('restaurant_id', restaurantId)
     .eq('status', 'active')
     .in('role', ['owner', 'manager'])
+
+  if (error) {
+    console.error('[ordering] vendorRecipients: team phone lookup failed:', error.code, error.message)
+  }
 
   for (const m of team ?? []) {
     const c = m.customers as unknown as { phone: string } | null
