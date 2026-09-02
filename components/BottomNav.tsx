@@ -3,22 +3,21 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { useBi } from '@/lib/languageContext'
+import { useLanguage } from '@/lib/languageContext'
 import { useCart } from '@/lib/cartContext'
-import { useMode, type DashboardTab } from '@/lib/modeContext'
+import { useMode } from '@/lib/modeContext'
+import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
 import SearchOverlay from './SearchOverlay'
 
-// Mobile-only fixed bottom tab bar. Two tab sets, chosen by the active
-// mode (a vendor flips between them from /account):
+// Mobile-only fixed bottom tab bar. The tab set is NOT defined here — it
+// comes from lib/navConfig.ts, the single source both this bar and the
+// desktop TopNav render from, so the two can no longer drift:
 //
-//   Client      🏠 Restaurants · 🎉 Événements     · 🔍 Recherche · 🛒 Panier · 👤 Compte
-//   Restaurant  📦 Commandes   · 🍽️ Menu           · 🎉 Mes événements · 🔍 Recherche · 👤 Compte
+//   client      🏠 Restaurants · 🎉 Événements · 🔍 Recherche · 🛒 Panier · 👤 Compte
+//   restaurant  📦 Commandes   · 🍽️ Menu       · 🔍 Recherche · 👤 Compte
 //
-// Restaurant mode drops the cart (a vendor manages orders here, they
-// don't place them) and repoints the first two tabs at the dashboard.
-// Its Events tab opens the organizer's own event dashboard rather than
-// the public browse page. Vouchers, team and restaurant settings stay
-// off the bar — they live on /dashboard's own tab strip and /account.
+// Menu carries minRole 'manager', so staff no longer see it here — the
+// desktop nav and the dashboard's own strip already gated it that way.
 //
 // Dashboard tabs are switched through ModeContext, never a ?tab= query:
 // Next.js treats /dashboard?tab=a and /dashboard?tab=b as the same route
@@ -26,22 +25,14 @@ import SearchOverlay from './SearchOverlay'
 //
 // Hidden at md+ (≥768px); the TopNav takes over there.
 
-interface TabSpec {
-  href:   string
-  icon:   string
-  label:  string
-  match:  (path: string) => boolean
-  onClick?: () => void      // Search opens an overlay instead of navigating
-  badge?: number            // orange pill on the icon's top-right when > 0
-}
-
 export default function BottomNav() {
   const pathname = usePathname() ?? ''
   const router = useRouter()
-  const bi = useBi()
+  const { locale } = useLanguage()
   const { totalItems } = useCart()
   const {
-    mode, hasRestaurantRole, dashboardTab, setDashboardTab, loading: modeLoading,
+    effectiveMode, hasRestaurantRole, topRole,
+    dashboardTab, setDashboardTab, loading: modeLoading,
   } = useMode()
 
   const [isAdmin, setIsAdmin] = useState(false)
@@ -91,80 +82,25 @@ export default function BottomNav() {
 
   // Hide on /admin (admins navigate via /account admin tabs, the BottomNav
   // isn't useful there). /dashboard keeps the bar so vendors can hop back
-  // out to Home / Events / Account without losing their place.
+  // out to the other tabs without losing their place.
   if (pathname.startsWith('/admin') || isAdmin) return null
   // Wait for the mode probe too, so a vendor's bar appears once with the
   // right tab set instead of flashing through the client variant.
   if (!authProbed || modeLoading) return null
 
-  // Only honour "restaurant" for sessions that actually hold a team role —
-  // guards against a stale localStorage flag showing vendor tabs to a
-  // logged-out visitor.
-  const effectiveMode: 'client' | 'restaurant' =
-    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
-
-  // True when /account is showing the organizer's events — that's how the
-  // restaurant-mode Events tab highlights. Read off the URL because the
-  // account page owns that state.
-  const onAccountEvents =
-    typeof window !== 'undefined' && window.location.search.includes('tab=events')
+  const tabs = navFor(effectiveMode, topRole)
 
   // Flip the dashboard tab through context and route there if needed.
   // Navigating while already on /dashboard would be a same-route no-op.
-  const goToDashTab = (next: DashboardTab) => {
+  const goToDashTab = (next: NonNullable<NavDestination['dashboardTab']>) => {
     setDashboardTab(next)
     if (!pathname.startsWith('/dashboard')) router.push('/dashboard')
   }
 
-  // The organizer's event dashboard is the account page's events section.
-  // Push the URL so a cold load lands there, and fire the event the
-  // account page listens for so an in-place switch works too — its ?tab=
-  // reader runs on mount only.
-  const goToMyEvents = () => {
-    router.push('/account?tab=events')
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nt-account-tab', { detail: 'events' }))
-    }
-  }
-
-  const searchTab: TabSpec = {
-    href: '#search', icon: '🔍', label: bi('Recherche', 'Search'),
-    match: () => searchOpen,
-    onClick: () => setSearchOpen(true),
-  }
-
-  const clientTabs: TabSpec[] = [
-    // Same label in both locales — "Restaurants" reads the same in FR and
-    // EN, so it goes through bi() unchanged rather than being special-cased.
-    { href: '/',        icon: '🏠', label: bi('Restaurants', 'Restaurants'),
-      match: p => p === '/' || p.startsWith('/restaurant') },
-    { href: '/events',  icon: '🎉', label: bi('Événements', 'Events'),
-      match: p => p.startsWith('/events') },
-    searchTab,
-    { href: '/order',   icon: '🛒', label: bi('Panier', 'Cart'),
-      match: p => p === '/order',
-      badge: totalItems },
-    { href: '/account', icon: '👤', label: bi('Compte', 'Account'),
-      match: p => p === '/account' },
-  ]
-
-  const restaurantTabs: TabSpec[] = [
-    { href: '/dashboard', icon: '📦', label: bi('Commandes', 'Orders'),
-      match: p => p.startsWith('/dashboard') && dashboardTab !== 'menu',
-      onClick: () => goToDashTab('orders'),
-      badge: pendingCount },
-    { href: '/dashboard', icon: '🍽️', label: bi('Menu', 'Menu'),
-      match: p => p.startsWith('/dashboard') && dashboardTab === 'menu',
-      onClick: () => goToDashTab('menu') },
-    { href: '/account?tab=events', icon: '🎉', label: bi('Mes événements', 'My events'),
-      match: p => p === '/account' && onAccountEvents,
-      onClick: goToMyEvents },
-    searchTab,
-    { href: '/account', icon: '👤', label: bi('Compte', 'Account'),
-      match: p => p === '/account' && !onAccountEvents },
-  ]
-
-  const tabs: TabSpec[] = effectiveMode === 'restaurant' ? restaurantTabs : clientTabs
+  const badgeFor = (d: NavDestination): number =>
+    d.badgeKey === 'pendingOrders' ? pendingCount
+      : d.badgeKey === 'cartCount' ? totalItems
+        : 0
 
   return (
     <>
@@ -175,22 +111,35 @@ export default function BottomNav() {
         aria-label="Bottom navigation"
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-divider"
       >
-        <div className="grid grid-cols-5">
-          {tabs.map((tab, i) => {
-            const active = tab.match(pathname)
+        {/* Column count follows the destination list — client has 5,
+            restaurant 4 (and 3 for staff, who don't get Menu). */}
+        <div
+          className="grid"
+          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+        >
+          {tabs.map(d => {
+            const label = navLabel(d, locale)
+            // Destinations with an actionKey have renderer-owned active
+            // state — the overlay's open flag isn't route state, so
+            // navConfig's pure `match` can't see it.
+            const active = d.actionKey === 'openSearch'
+              ? searchOpen
+              : d.match(pathname, dashboardTab)
+
             // Active tab: brand orange for both icon (full-opacity) and label.
             // Inactive: grayscale icon + tertiary label. The label layer sits
             // below the icon at 10px so it never wraps.
             const iconCls  = active ? 'opacity-100 scale-105'     : 'opacity-60 grayscale'
             const labelCls = active ? 'text-brand font-semibold'  : 'text-ink-tertiary'
             const sharedClass = 'flex flex-col items-center justify-center min-h-[60px] min-w-[44px] px-1 pt-1.5 pb-1 gap-0.5'
-            const hasBadge   = tab.badge != null && tab.badge > 0
-            const badgeTwoDigit = hasBadge && (tab.badge as number) > 9
+
+            const badge = badgeFor(d)
+            const hasBadge = badge > 0
             // Badge floats over the icon's top-right corner (not the tab's),
             // so it hugs the emoji instead of sitting in whitespace. 16px
             // for single digit, 20px for two digits — sizing up prevents
             // a cramped "10" / "99+" clip.
-            const badgeSize  = badgeTwoDigit
+            const badgeSize = badge > 9
               ? 'h-5 min-w-5 text-[10px] px-1'
               : 'h-4 w-4     text-[10px]'
 
@@ -200,13 +149,13 @@ export default function BottomNav() {
                   aria-hidden="true"
                   className={`relative inline-block text-2xl leading-none transition-transform ${iconCls}`}
                 >
-                  {tab.icon}
+                  {d.icon}
                   {hasBadge && (
                     <span
-                      aria-label={`${tab.badge} ${tab.label}`}
+                      aria-label={`${badge} ${label}`}
                       className={`absolute -top-1 -right-1 ${badgeSize} rounded-full bg-brand text-white font-bold flex items-center justify-center leading-none ring-2 ring-surface`}
                     >
-                      {(tab.badge as number) > 99 ? '99+' : tab.badge}
+                      {badge > 99 ? '99+' : badge}
                     </span>
                   )}
                 </span>
@@ -214,22 +163,30 @@ export default function BottomNav() {
                   aria-hidden="true"
                   className={`text-[10px] leading-none tracking-tight transition-colors ${labelCls}`}
                 >
-                  {tab.label}
+                  {label}
                 </span>
               </>
             )
 
-            // Search is a button (it opens the overlay rather than doing a
-            // route change); the rest are Links so prefetching kicks in.
-            if (tab.onClick) {
+            // Search opens an overlay and dashboard tabs flip context state,
+            // so both are buttons. Plain routes stay Links for prefetching.
+            if (d.actionKey === 'openSearch') {
               return (
-                <button key={i} onClick={tab.onClick} className={sharedClass} aria-label={tab.label} title={tab.label}>
+                <button key={d.key} onClick={() => setSearchOpen(true)} className={sharedClass} aria-label={label} title={label}>
+                  {body}
+                </button>
+              )
+            }
+            if (d.dashboardTab) {
+              const tab = d.dashboardTab
+              return (
+                <button key={d.key} onClick={() => goToDashTab(tab)} className={sharedClass} aria-label={label} title={label}>
                   {body}
                 </button>
               )
             }
             return (
-              <Link key={i} href={tab.href} className={sharedClass} aria-label={tab.label} title={tab.label}>
+              <Link key={d.key} href={d.href ?? '/'} className={sharedClass} aria-label={label} title={label}>
                 {body}
               </Link>
             )

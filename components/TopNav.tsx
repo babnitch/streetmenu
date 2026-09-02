@@ -4,11 +4,12 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useCart } from '@/lib/cartContext'
-import { useBi } from '@/lib/languageContext'
+import { useBi, useLanguage } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
+import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
 
 interface TopNavProps {
   // Retained for compatibility with pages that pass a Join CTA. New layout
@@ -18,13 +19,6 @@ interface TopNavProps {
 }
 
 interface SessionUser { id: string; name: string; role: string }
-
-// Strips "Babette Nitcheu" → "Babette" so the name pill stays compact.
-function firstName(full: string): string {
-  const t = full.trim()
-  if (!t) return ''
-  return t.split(/\s+/)[0]
-}
 
 type VendorState =
   | { kind: 'none' }                      // logged-out, customer with no restaurants, or admin
@@ -36,6 +30,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const router = useRouter()
   const { totalItems } = useCart()
   const bi = useBi()
+  const { locale } = useLanguage()
 
   const [me, setMe] = useState<SessionUser | null>(null)
   const [vendor, setVendor] = useState<VendorState>({ kind: 'none' })
@@ -46,7 +41,9 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // actually owns/manages an approved restaurant.
   const [pendingCount, setPendingCount] = useState(0)
 
-  const { mode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab } = useMode()
+  const {
+    effectiveMode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab,
+  } = useMode()
   const { isLowData, toggle: toggleLowData } = useDataMode()
 
   useEffect(() => {
@@ -99,30 +96,32 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     return () => { cancelled = true; clearInterval(t) }
   }, [hasRestaurantRole])
 
-  const accountLabel = me ? firstName(me.name) || me.name : bi('Connexion', 'Login')
-  const isRestaurants = pathname === '/'
-  const isDashboard   = pathname.startsWith('/dashboard')
-  const isEvents      = pathname === '/events' || pathname.startsWith('/events/')
+  const isDashboard = pathname.startsWith('/dashboard')
   // Map icon only makes sense on the two map-bearing client-mode surfaces.
   // In restaurant mode the TopNav shows operations links instead.
-  const showMapBtn    = (mode === 'client' || !hasRestaurantRole)
-                      && (pathname === '/' || pathname === '/events')
-  // Restaurant mode is only honored for users who actually have a team role
-  // — the provider's `hasRestaurantRole` gate + this fallback keep the
-  // restaurant UI out of the way for pure customers.
-  const effectiveMode: 'client' | 'restaurant' =
-    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
+  const showMapBtn  = effectiveMode === 'client'
+                    && (pathname === '/' || pathname === '/events')
   const isOwner   = topRole === 'owner'
   const isManager = topRole === 'manager'
-  // Dashboard tab helpers — source of truth is ModeContext, not
-  // window.location, because encoding the tab in ?tab= caused
-  // Next.js to treat /dashboard?tab=a and /dashboard?tab=b as the
-  // same route and skip re-render, leading to missed clicks.
-  const isDashOrders   = isDashboard && dashboardTab === 'orders'
-  const isDashMenu     = isDashboard && dashboardTab === 'menu'
+
+  // Nav row. Same source as the mobile BottomNav — see lib/navConfig.ts.
+  // This bar renders the ROUTE destinations only: Search stays the inline
+  // form below (the overlay is mobile-only), so `openSearch` entries are
+  // filtered out here.
+  const destinations: NavDestination[] =
+    navFor(effectiveMode, topRole).filter(d => !d.actionKey)
+
+  // ── Legacy extras — TEMPORARY ───────────────────────────────────────────
+  // Vouchers and Settings are not in navConfig yet, so they're appended
+  // after the shared set instead of being modelled. They exist only on this
+  // bar; the BottomNav reaches them through /dashboard's own tab strip.
+  // Remove this block (and the suppression below) when they migrate.
   const isDashVouchers = isDashboard && (dashboardTab === 'vouchers' || dashboardTab === 'validate')
-  const isDashTeam     = isDashboard && dashboardTab === 'team'
   const isDashSettings = isDashboard && dashboardTab === 'settings'
+  // navConfig's Orders match is "on /dashboard and not the Menu tab", which
+  // would also light up while an extra is selected. Suppress it so exactly
+  // one pill reads as active. Goes away with the extras.
+  const legacyExtraActive = isDashVouchers || isDashSettings
 
   // Tapping a dashboard-tab link flips context state and (if needed)
   // routes to /dashboard. Navigating while already on /dashboard is a
@@ -227,72 +226,50 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             public browse surface; restaurant-mode shows operations tabs
             gated by the user's highest team role. */}
         <nav className="hidden md:flex items-center gap-1 flex-shrink-0 whitespace-nowrap">
-          {/* Restaurants + Events are always visible — vendors need to be
-              able to jump back to the public side without flipping modes
-              first. In restaurant mode they sit alongside the dashboard
-              tabs (Orders/Menu/Vouchers/Settings). Customers reach their
-              order history through /account → Orders, not from here, so
-              the nav stays focused on discovery + restaurant ops. */}
-          <TopNavLink href="/" active={isRestaurants}>
-            🏠 {bi('Restaurants', 'Restaurants')}
-          </TopNavLink>
-          <TopNavLink href="/events" active={isEvents}>
-            🎉 {bi('Événements', 'Events')}
-          </TopNavLink>
-          {effectiveMode === 'restaurant' && (
-            <>
-              {/* Orders catches the "no known tab" case so a freshly
-                  loaded /dashboard still highlights it. Pending-count
-                  badge mirrors the BottomNav badge on mobile. */}
-              <TopNavButton
-                onClick={() => goToDashTab('orders')}
-                active={isDashOrders || (isDashboard && !isDashMenu && !isDashVouchers && !isDashTeam)}
-                badge={pendingCount}
-              >
-                📦 {bi('Commandes', 'Orders')}
-              </TopNavButton>
-              {(isOwner || isManager) && (
-                <TopNavButton onClick={() => goToDashTab('menu')} active={isDashMenu}>
-                  🍽️ {bi('Menu', 'Menu')}
+          {destinations.map(d => {
+            const label = navLabel(d, locale)
+            const badge = d.badgeKey === 'pendingOrders' ? pendingCount
+              : d.badgeKey === 'cartCount' ? totalItems
+                : undefined
+            const active = d.key === 'orders'
+              ? d.match(pathname, dashboardTab) && !legacyExtraActive
+              : d.match(pathname, dashboardTab)
+
+            // Dashboard destinations flip context state rather than routing
+            // to a ?tab= URL, which Next.js treats as the same route.
+            if (d.dashboardTab) {
+              const tab = d.dashboardTab
+              return (
+                <TopNavButton key={d.key} onClick={() => goToDashTab(tab)} active={active} badge={badge}>
+                  {d.icon} {label}
                 </TopNavButton>
-              )}
-              {(isOwner || isManager) && (
-                <TopNavButton onClick={() => goToDashTab('vouchers')} active={isDashVouchers}>
-                  🎫 {bi('Bons', 'Vouchers')}
-                </TopNavButton>
-              )}
-              {isOwner && (
-                <TopNavButton onClick={() => goToDashTab('settings')} active={isDashSettings}>
-                  ⚙️ {bi('Paramètres', 'Settings')}
-                </TopNavButton>
-              )}
-              {/* Team management lives inside /account (Team tab) —
-                  removed from the header nav to avoid a second entry
-                  point for the same UI. */}
-            </>
+              )
+            }
+            return (
+              <TopNavLink key={d.key} href={d.href ?? '/'} active={active} badge={badge}>
+                {d.icon} {label}
+              </TopNavLink>
+            )
+          })}
+
+          {/* Legacy extras — TEMPORARY, see the note above. */}
+          {effectiveMode === 'restaurant' && (isOwner || isManager) && (
+            <TopNavButton onClick={() => goToDashTab('vouchers')} active={isDashVouchers}>
+              🎫 {bi('Bons', 'Vouchers')}
+            </TopNavButton>
+          )}
+          {effectiveMode === 'restaurant' && isOwner && (
+            <TopNavButton onClick={() => goToDashTab('settings')} active={isDashSettings}>
+              ⚙️ {bi('Paramètres', 'Settings')}
+            </TopNavButton>
           )}
         </nav>
 
-        {/* Right cluster */}
+        {/* Right cluster. The cart and account pills that used to live here
+            are gone — both are navConfig destinations now and render in the
+            nav row above, so keeping them here was a duplicate entry point
+            for the same route. */}
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-          {totalItems > 0 && (
-            <Link
-              href="/order"
-              className="bg-brand hover:bg-brand-dark text-white rounded-full px-3 py-1.5 text-sm font-semibold flex items-center gap-1.5 transition-colors"
-            >
-              🛒 {totalItems}
-            </Link>
-          )}
-          {/* Account pill — desktop only. Mobile has Account in BottomNav
-              so showing it here too created a duplicate entry point. */}
-          <Link
-            href="/account"
-            className="hidden md:flex text-ink-secondary hover:text-ink-primary text-sm font-semibold transition-colors items-center gap-1 max-w-[10rem] px-2"
-            title={me?.name ?? bi('Connexion', 'Login')}
-          >
-            <span aria-hidden="true">👤</span>
-            <span className="truncate">{accountLabel}</span>
-          </Link>
           {/* Secondary Join CTA on desktop only when the page passed one
               AND the visitor isn't already a vendor. */}
           {cta && vendor.kind === 'none' && me === null && (
@@ -340,25 +317,44 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   )
 }
 
+// Count pill over a nav item's top-right corner. Shared by the link and
+// button variants so the cart count and the pending-order count look the
+// same, and match the BottomNav badge.
+function TopNavBadge({ badge, label }: { badge: number; label: string }) {
+  const sizeCls = badge > 9 ? 'h-5 min-w-5 text-[10px] px-1' : 'h-4 w-4 text-[10px]'
+  return (
+    <span
+      aria-label={label}
+      className={`absolute -top-1 -right-1 ${sizeCls} rounded-full bg-danger text-white font-bold flex items-center justify-center leading-none ring-2 ring-surface`}
+    >
+      {badge > 99 ? '99+' : badge}
+    </span>
+  )
+}
+
 function TopNavLink({
   href,
   active,
+  badge,
   children,
 }: {
   href: string
   active: boolean
+  badge?: number
   children: React.ReactNode
 }) {
+  const hasBadge = badge != null && badge > 0
   return (
     <Link
       href={href}
-      className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+      className={`relative px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
         active
           ? 'bg-brand-light text-brand-darker'
           : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-muted'
       }`}
     >
       {children}
+      {hasBadge && <TopNavBadge badge={badge as number} label={`${badge}`} />}
     </Link>
   )
 }
@@ -380,10 +376,6 @@ function TopNavButton({
   children: React.ReactNode
 }) {
   const hasBadge = badge != null && badge > 0
-  const twoDigit = hasBadge && (badge as number) > 9
-  const badgeSize = twoDigit
-    ? 'h-5 min-w-5 text-[10px] px-1'
-    : 'h-4 w-4 text-[10px]'
   return (
     <button
       type="button"
@@ -395,14 +387,7 @@ function TopNavButton({
       }`}
     >
       {children}
-      {hasBadge && (
-        <span
-          aria-label={`${badge} pending`}
-          className={`absolute -top-1 -right-1 ${badgeSize} rounded-full bg-danger text-white font-bold flex items-center justify-center leading-none ring-2 ring-surface`}
-        >
-          {(badge as number) > 99 ? '99+' : badge}
-        </span>
-      )}
+      {hasBadge && <TopNavBadge badge={badge as number} label={`${badge} pending`} />}
     </button>
   )
 }
