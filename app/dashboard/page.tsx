@@ -123,6 +123,13 @@ export default function DashboardPage() {
   const [loadingAuth, setLoadingAuth] = useState(true)
   const [effectiveRole, setEffectiveRole] = useState<VendorRole | null>(null)
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
+  // `restaurants` starts as [], which is indistinguishable from "loaded and
+  // genuinely empty" — that ambiguity is what made the "Aucun restaurant"
+  // empty state flash for the whole fetch, and made a failed fetch look
+  // like "you own no restaurants". These two flags separate the states:
+  // loading → error → empty → dashboard.
+  const [loadingRestaurants,     setLoadingRestaurants]     = useState(true)
+  const [restaurantsFetchFailed, setRestaurantsFetchFailed] = useState(false)
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
@@ -250,46 +257,69 @@ export default function DashboardPage() {
   // of restaurant_team. The server also merges restaurants.customer_id
   // (implicit owner) into the result, so owners without explicit team
   // rows still see their restaurant here.
+  // Unmount guard. A ref rather than a per-effect closure because the loader
+  // below is also called by the Retry button, so both callers share one flag.
+  const restaurantsCancelledRef = useRef(false)
+
+  const loadRestaurants = useCallback(async (user: SessionUser) => {
+    setRestaurantsFetchFailed(false)
+    setLoadingRestaurants(true)
+    try {
+      const isAdmin = ['super_admin', 'admin', 'moderator'].includes(user.role)
+      if (isAdmin) {
+        // Admins see every non-deleted restaurant.
+        const { data, error } = await supabase.from('restaurants').select('*')
+          .is('deleted_at', null).neq('status', 'deleted')
+          .order('created_at', { ascending: false })
+        if (error) throw new Error(error.message)
+        if (restaurantsCancelledRef.current) return
+        const list = (data ?? []) as Restaurant[]
+        setRestaurants(list)
+        setSelectedRestaurant(prev => prev ?? list[0] ?? null)
+        return
+      }
+
+      const res = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
+      // A non-2xx used to fall through as an empty list, which the empty
+      // state then reported as "you own no restaurants".
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      if (restaurantsCancelledRef.current) return
+
+      const list = (data?.restaurants ?? []) as Restaurant[]
+      const rolesMap = (data?.rolesByRestaurantId ?? {}) as Record<string, VendorRole>
+      console.log('[dashboard] me=', user.id.slice(0, 8), 'restaurants=', list.length, 'roles=', rolesMap)
+      // One-line open/closed snapshot so a vendor reporting "we're open but
+      // it shows closed" can verify the actual DB value in devtools.
+      // Includes id + is_active + status so we can compare against the
+      // public /restaurant/[id] page, which reads the same fields.
+      for (const r of list) {
+        console.log('[dashboard] loaded',
+          'id=', r.id,
+          'name=', r.name,
+          'is_open=', r.is_open,
+          'is_active=', r.is_active,
+          'status=', r.status)
+      }
+      setRestaurants(list)
+      setRolesByRestaurantId(rolesMap)
+      setSelectedRestaurant(prev => prev ?? list[0] ?? null)
+    } catch (e) {
+      console.error('[dashboard] vendor/restaurants fetch failed:', (e as Error).message)
+      if (!restaurantsCancelledRef.current) setRestaurantsFetchFailed(true)
+    } finally {
+      // Always settles — a rejected request must not leave the page pinned
+      // on the spinner.
+      if (!restaurantsCancelledRef.current) setLoadingRestaurants(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!me) return
-    const isAdmin = ['super_admin', 'admin', 'moderator'].includes(me.role)
-    if (isAdmin) {
-      // Admins see every non-deleted restaurant.
-      supabase.from('restaurants').select('*')
-        .is('deleted_at', null).neq('status', 'deleted')
-        .order('created_at', { ascending: false })
-        .then(({ data }) => {
-          if (data) {
-            setRestaurants(data)
-            setSelectedRestaurant(prev => prev ?? data[0] ?? null)
-          }
-        })
-      return
-    }
-    fetch('/api/vendor/restaurants', { cache: 'no-store' })
-      .then(r => r.json())
-      .then(data => {
-        const list = (data?.restaurants ?? []) as Restaurant[]
-        const rolesMap = (data?.rolesByRestaurantId ?? {}) as Record<string, VendorRole>
-        console.log('[dashboard] me=', me.id.slice(0, 8), 'restaurants=', list.length, 'roles=', rolesMap)
-        // One-line open/closed snapshot so a vendor reporting "we're open but
-        // it shows closed" can verify the actual DB value in devtools.
-        // Includes id + is_active + status so we can compare against the
-        // public /restaurant/[id] page, which reads the same fields.
-        for (const r of list) {
-          console.log('[dashboard] loaded',
-            'id=', r.id,
-            'name=', r.name,
-            'is_open=', r.is_open,
-            'is_active=', r.is_active,
-            'status=', r.status)
-        }
-        setRestaurants(list)
-        setRolesByRestaurantId(rolesMap)
-        setSelectedRestaurant(prev => prev ?? list[0] ?? null)
-      })
-      .catch(e => console.error('[dashboard] vendor/restaurants fetch failed:', (e as Error).message))
-  }, [me])
+    restaurantsCancelledRef.current = false
+    loadRestaurants(me)
+    return () => { restaurantsCancelledRef.current = true }
+  }, [me, loadRestaurants])
 
   // Resolve this session's role for the currently-selected restaurant.
   // For customers, use the server-provided map; for admins, short-circuit.
@@ -436,10 +466,39 @@ export default function DashboardPage() {
     setMenuItems(prev => prev.filter(m => m.id !== id))
   }
 
-  if (loadingAuth || !me) {
+  // Wait for BOTH round trips. `loadingAuth` only ever covered /api/auth/me;
+  // the restaurant fetch starts afterwards, and during it `restaurants` is
+  // still the initial [] — which is what used to fall straight through to
+  // the empty state below.
+  if (loadingAuth || !me || loadingRestaurants) {
     return (
       <div className="min-h-screen bg-surface-muted flex items-center justify-center px-4">
         <div className="text-3xl animate-pulse text-ink-tertiary">…</div>
+      </div>
+    )
+  }
+
+  // The fetch settled but failed — say so instead of claiming the vendor
+  // owns nothing. Retry re-runs the same loader.
+  if (restaurantsFetchFailed) {
+    return (
+      <div className="min-h-screen bg-surface-muted flex items-center justify-center px-4">
+        <div className="text-center">
+          <div className="text-5xl mb-4">⚠️</div>
+          <h2 className="text-xl font-bold text-ink-primary mb-2">
+            {bi('Impossible de charger vos restaurants', 'Couldn\'t load your restaurants')}
+          </h2>
+          <p className="text-ink-secondary mb-4">
+            {bi('Vérifiez votre connexion et réessayez.', 'Check your connection and try again.')}
+          </p>
+          <button
+            type="button"
+            onClick={() => loadRestaurants(me)}
+            className="inline-block bg-brand hover:bg-brand-dark text-white px-5 py-2 rounded-xl font-semibold text-sm transition-colors"
+          >
+            {bi('Réessayer', 'Retry')}
+          </button>
+        </div>
       </div>
     )
   }
