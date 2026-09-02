@@ -174,6 +174,9 @@ export default function DashboardPage() {
   const [newOrderFlash, setNewOrderFlash] = useState(false)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [updateError, setUpdateError] = useState<string>('')
+  // Menu-tab errors. `updateError` renders inside the Orders tab only, so
+  // menu failures had nowhere to surface.
+  const [menuError, setMenuError] = useState<string>('')
   const lastSeenPendingRef = useRef<string | null | undefined>(undefined)
 
   // Manual "mark as paid" modal — covers cash, MTN MoMo, Orange Money.
@@ -455,16 +458,64 @@ export default function DashboardPage() {
     }
   }
 
+  // Both of these used to write with the browser's anon key and then update
+  // local state unconditionally — a refused write still looked applied. They
+  // now go through the server route and only touch state on a 2xx; on failure
+  // we refetch so the list re-syncs instead of showing a half-truth.
   async function toggleItemAvailability(item: MenuItem) {
-    await supabase.from('menu_items').update({ is_available: !item.is_available }).eq('id', item.id)
-    setMenuItems(prev => prev.map(m => m.id === item.id ? { ...m, is_available: !m.is_available } : m))
+    if (!selectedRestaurant) return
+    setMenuError('')
+    try {
+      const res = await fetch(`/api/restaurants/${selectedRestaurant.id}/menu/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ is_available: !item.is_available }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setMenuError(typeof data?.error === 'string' ? data.error : bi('Erreur', 'Error'))
+        await fetchMenu(selectedRestaurant.id)
+        return
+      }
+      const updated = data?.item as MenuItem | undefined
+      setMenuItems(prev => prev.map(m => m.id === item.id
+        ? (updated ?? { ...m, is_available: !m.is_available })
+        : m))
+    } catch (e) {
+      setMenuError((e as Error).message)
+      await fetchMenu(selectedRestaurant.id)
+    }
   }
 
   async function deleteItem(id: string) {
+    if (!selectedRestaurant) return
     if (!confirm(t('dash.deleteConfirm'))) return
-    await supabase.from('menu_items').delete().eq('id', id)
-    setMenuItems(prev => prev.filter(m => m.id !== id))
+    setMenuError('')
+    try {
+      const res = await fetch(`/api/restaurants/${selectedRestaurant.id}/menu/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setMenuError(typeof data?.error === 'string' ? data.error : bi('Erreur', 'Error'))
+        await fetchMenu(selectedRestaurant.id)
+        return
+      }
+      setMenuItems(prev => prev.filter(m => m.id !== id))
+    } catch (e) {
+      setMenuError((e as Error).message)
+      await fetchMenu(selectedRestaurant.id)
+    }
   }
+
+  // Who may change the menu. The API is the real gate (owner|manager|admin,
+  // see lib/vendorAccess.ts); this just stops rendering controls that would
+  // come back 403. Staff keep a read-only view, matching navConfig's
+  // minRole 'manager' on the Menu tab.
+  const canEditMenu =
+    effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin'
 
   // Wait for BOTH round trips. `loadingAuth` only ever covered /api/auth/me;
   // the restaurant fetch starts afterwards, and during it `restaurants` is
@@ -952,14 +1003,22 @@ export default function DashboardPage() {
           {/* Menu Tab */}
           {tab === 'menu' && (
             <div>
-              <button
-                onClick={() => { setEditingItem(null); setShowItemForm(true) }}
-                className="w-full bg-brand text-white py-3 rounded-2xl font-semibold mb-4 hover:bg-brand-dark transition-colors"
-              >
-                {t('dash.addItem')}
-              </button>
+              {menuError && (
+                <div className="bg-brand-light border border-divider rounded-xl px-3 py-2 mb-3 text-sm text-danger">
+                  {menuError}
+                </div>
+              )}
 
-              {showItemForm && (
+              {canEditMenu && (
+                <button
+                  onClick={() => { setEditingItem(null); setShowItemForm(true) }}
+                  className="w-full bg-brand text-white py-3 rounded-2xl font-semibold mb-4 hover:bg-brand-dark transition-colors"
+                >
+                  {t('dash.addItem')}
+                </button>
+              )}
+
+              {canEditMenu && showItemForm && (
                 <MenuItemForm
                   restaurantId={selectedRestaurant.id}
                   item={editingItem}
@@ -999,29 +1058,43 @@ export default function DashboardPage() {
                       <p className="text-xs text-ink-tertiary">{item.category}</p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <button
-                        onClick={() => toggleItemAvailability(item)}
-                        className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          item.is_available ? 'bg-brand-light text-brand-darker' : 'bg-surface-muted text-ink-secondary'
-                        }`}
-                      >
-                        {item.is_available ? t('dash.available') : t('dash.hidden')}
-                      </button>
-                      <div className="flex gap-1">
+                      {/* Same pill either way — a button for editors, a
+                          static badge for staff. */}
+                      {canEditMenu ? (
                         <button
-                          onClick={() => { setEditingItem(item); setShowItemForm(true) }}
-                          className="text-xs text-brand-darker hover:text-brand-darker"
+                          onClick={() => toggleItemAvailability(item)}
+                          className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            item.is_available ? 'bg-brand-light text-brand-darker' : 'bg-surface-muted text-ink-secondary'
+                          }`}
                         >
-                          {t('dash.edit')}
+                          {item.is_available ? t('dash.available') : t('dash.hidden')}
                         </button>
-                        <span className="text-ink-tertiary">·</span>
-                        <button
-                          onClick={() => deleteItem(item.id)}
-                          className="text-xs text-danger hover:text-danger"
+                      ) : (
+                        <span
+                          className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            item.is_available ? 'bg-brand-light text-brand-darker' : 'bg-surface-muted text-ink-secondary'
+                          }`}
                         >
-                          {t('dash.delete')}
-                        </button>
-                      </div>
+                          {item.is_available ? t('dash.available') : t('dash.hidden')}
+                        </span>
+                      )}
+                      {canEditMenu && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => { setEditingItem(item); setShowItemForm(true) }}
+                            className="text-xs text-brand-darker hover:text-brand-darker"
+                          >
+                            {t('dash.edit')}
+                          </button>
+                          <span className="text-ink-tertiary">·</span>
+                          <button
+                            onClick={() => deleteItem(item.id)}
+                            className="text-xs text-danger hover:text-danger"
+                          >
+                            {t('dash.delete')}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2316,6 +2389,7 @@ function MenuItemForm({
   const [isAvailable, setIsAvailable] = useState(item?.is_available ?? true)
   const [isSpecial, setIsSpecial] = useState(item?.is_daily_special ?? false)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -2333,10 +2407,13 @@ function MenuItemForm({
     setUploading(false)
   }
 
+  // Server route, not the browser client. restaurant_id is no longer sent —
+  // the route takes it from the URL. The form stays open and shows the error
+  // on failure; onSave() (which closes it and refetches) runs only on a 2xx.
   async function handleSave() {
     setSaving(true)
+    setError('')
     const payload = {
-      restaurant_id: restaurantId,
       name: name.trim(),
       description: description.trim(),
       price: parseFloat(price),
@@ -2346,13 +2423,27 @@ function MenuItemForm({
       is_daily_special: isSpecial,
     }
 
-    if (item) {
-      await supabase.from('menu_items').update(payload).eq('id', item.id)
-    } else {
-      await supabase.from('menu_items').insert(payload)
+    try {
+      const url = item
+        ? `/api/restaurants/${restaurantId}/menu/${item.id}`
+        : `/api/restaurants/${restaurantId}/menu`
+      const res = await fetch(url, {
+        method: item ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(typeof data?.error === 'string' ? data.error : bi('Erreur', 'Error'))
+        return
+      }
+      onSave()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    onSave()
   }
 
   return (
@@ -2422,6 +2513,8 @@ function MenuItemForm({
             {t('dash.itemSpecial')}
           </label>
         </div>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
 
         <button
           onClick={handleSave}
