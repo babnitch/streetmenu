@@ -52,6 +52,42 @@ const EMPTY_FORM: RestaurantForm = {
 }
 
 type Tab = 'all' | 'pending' | 'suspended' | 'deleted'
+
+// Small POST wrapper for the admin write routes. Every restaurant mutation
+// on this page now goes through app/api/** with the service-role client;
+// the browser never touches the `restaurants` table directly.
+//
+// Authorization is the sm_session admin JWT set by /api/auth/admin-login
+// (the /account → Équipe login). The standalone /admin shell's
+// localStorage `adminToken` is NOT accepted by those routes, so these calls
+// return 401 there until the operator has a real admin session.
+interface PostResult { ok: boolean; error: string; data: Record<string, unknown> | null }
+
+async function postJSON(url: string, body?: unknown): Promise<PostResult> {
+  try {
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body ?? {}),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: typeof data?.error === 'string'
+          ? data.error
+          : res.status === 401
+            ? 'Session admin requise / Admin session required'
+            : '',
+        data: null,
+      }
+    }
+    return { ok: true, error: '', data }
+  } catch (e) {
+    console.error('[admin/restaurants] request failed:', url, e)
+    return { ok: false, error: '', data: null }
+  }
+}
 type ModalType = 'suspend' | 'delete' | 'reject' | null
 
 const INPUT = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand'
@@ -109,17 +145,20 @@ export default function AdminRestaurantsPage() {
   }
 
   // ── Pending: approve ──
+  // Server route (super_admin | admin, verified from the sm_session JWT).
+  // It performs the same status/is_active flip AND sends the owner welcome
+  // WhatsApp + audit entry, which the old direct write skipped. It returns
+  // { ok, welcomedOwners } rather than the row, so we patch the two columns
+  // it is documented to set.
   async function approveRestaurant(r: RestaurantRow) {
     setActionLoading(r.id + '-approve')
-    const { data, error } = await supabase
-      .from('restaurants')
-      .update({ is_active: true, status: 'active' })
-      .eq('id', r.id).select().single()
-    if (!error && data) {
-      setRestaurants(prev => prev.map(x => x.id === r.id ? data as RestaurantRow : x))
+    const ok = await postJSON(`/api/restaurants/${r.id}/approve`)
+    if (ok.ok) {
+      setRestaurants(prev => prev.map(x =>
+        x.id === r.id ? { ...x, is_active: true, status: 'active' } : x))
       showToast(`✅ ${r.name} approuvé / approved`)
     } else {
-      showToast(bi('Erreur', 'Error'), false)
+      showToast(ok.error || bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -131,12 +170,12 @@ export default function AdminRestaurantsPage() {
   async function confirmReject(r: RestaurantRow) {
     setModal(null)
     setActionLoading(r.id + '-reject')
-    const { error } = await supabase.from('restaurants').delete().eq('id', r.id)
-    if (!error) {
+    const res = await postJSON(`/api/admin/restaurants/${r.id}/reject`)
+    if (res.ok) {
       setRestaurants(prev => prev.filter(x => x.id !== r.id))
       showToast(`🗑️ ${r.name} rejeté / rejected`)
     } else {
-      showToast(bi('Erreur', 'Error'), false)
+      showToast(res.error || bi('Erreur', 'Error'), false)
     }
     setActionLoading(null)
   }
@@ -254,21 +293,23 @@ export default function AdminRestaurantsPage() {
       return
     }
     setSaving(true)
-    const { data, error } = await supabase.from('restaurants').insert({
+    // is_open / is_active / status are set by the server, not sent from here.
+    const res = await postJSON('/api/admin/restaurants', {
       name: form.name.trim(), description: form.description.trim(),
       address: form.address.trim(), city: form.city.trim(),
       lat: parseFloat(form.lat), lng: parseFloat(form.lng),
       phone: form.phone.trim(), whatsapp: form.whatsapp.trim(),
-      logo_url: form.logo_url, is_open: false, is_active: true, status: 'active',
-    }).select().single()
+      logo_url: form.logo_url,
+    })
+    const data = res.ok ? (res.data?.restaurant ?? null) : null
     setSaving(false)
-    if (!error && data) {
+    if (data) {
       setRestaurants(prev => [data as RestaurantRow, ...prev])
       setForm(EMPTY_FORM)
       setShowForm(false)
       showToast('✅ Restaurant ajouté / added')
     } else {
-      showToast(error?.message ?? bi('Erreur', 'Error'), false)
+      showToast(res.error || bi('Erreur', 'Error'), false)
     }
   }
 

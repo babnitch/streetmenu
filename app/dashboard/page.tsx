@@ -354,23 +354,34 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(channel) }
   }, [selectedRestaurant, fetchOrders, fetchMenu])
 
+  // Open/closed switch. Goes through /api/restaurants/[id]/open, which
+  // verifies the sm_session user is an owner/manager/staff member of this
+  // restaurant (or an admin) and can only write `is_open` — the browser no
+  // longer touches the restaurants table. Local state is updated ONLY on a
+  // 2xx, so a rejected write never leaves the UI showing the wrong state.
   async function toggleOpen() {
     if (!selectedRestaurant) return
     const next = !selectedRestaurant.is_open
-    const { data, error } = await supabase
-      .from('restaurants')
-      .update({ is_open: next })
-      .eq('id', selectedRestaurant.id)
-      .select()
-      .single()
-    console.log('[dashboard] toggleOpen', selectedRestaurant.name, 'from=', selectedRestaurant.is_open, 'to=', next, 'returned=', data?.is_open, 'error=', error)
-    if (error) {
-      setUpdateError(error.message)
-      return
-    }
-    if (data) {
-      setSelectedRestaurant(data)
-      setRestaurants(prev => prev.map(r => r.id === data.id ? data : r))
+    setUpdateError('')
+    try {
+      const res = await fetch(`/api/restaurants/${selectedRestaurant.id}/open`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ is_open: next }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      console.log('[dashboard] toggleOpen', selectedRestaurant.name, 'from=', selectedRestaurant.is_open, 'to=', next, 'status=', res.status, 'returned=', payload?.restaurant?.is_open)
+      if (!res.ok) {
+        setUpdateError(typeof payload?.error === 'string' ? payload.error : bi('Erreur', 'Error'))
+        return
+      }
+      const updated = payload?.restaurant as Restaurant | undefined
+      if (updated) {
+        setSelectedRestaurant(updated)
+        setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+      }
+    } catch (e) {
+      setUpdateError((e as Error).message)
     }
   }
 

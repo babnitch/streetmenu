@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
 import PhoneInput from '@/components/PhoneInput'
@@ -97,31 +96,41 @@ export default function JoinPage() {
       setUploading(false)
     }
 
-    const cityData = CITIES.find(c => c.label === city)
-
-    const { error: insertError } = await supabase.from('restaurants').insert({
-      name: name.trim(),
-      owner_name: owner_name.trim(),
-      whatsapp: whatsapp.trim(),
-      city,
-      neighborhood: neighborhood.trim(),
-      address: neighborhood.trim(),
-      cuisine_type,
-      description: cuisine_type,
-      lat: cityData?.lat ?? 0,
-      lng: cityData?.lng ?? 0,
-      logo_url,
-      is_open: false,
-      is_active: false,
-    })
+    // Signup goes through the server so the moderation columns
+    // (is_active / status) are set there and can't be supplied by the
+    // browser. lat/lng are derived server-side from `city` too — the
+    // CITIES table above is only used to render the picker now.
+    let ok = false
+    let serverError = ''
+    try {
+      const res = await fetch('/api/restaurants/signup', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          owner_name: owner_name.trim(),
+          whatsapp: whatsapp.trim(),
+          city,
+          neighborhood: neighborhood.trim(),
+          cuisine_type,
+          logo_url,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      ok = res.ok
+      if (!ok) serverError = typeof data?.error === 'string' ? data.error : ''
+    } catch (e) {
+      console.error('[join] signup request failed:', e)
+    }
 
     setSubmitting(false)
 
-    if (insertError) {
-      setError(t('join.errorServer'))
-      console.error(insertError)
-    } else {
+    if (ok) {
       setSuccess(true)
+    } else {
+      // Surface the server's message (validation / rate limit) when it
+      // gave one; fall back to the generic copy otherwise.
+      setError(serverError || t('join.errorServer'))
     }
   }
 
