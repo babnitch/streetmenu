@@ -55,6 +55,9 @@ export default function HomePage() {
   const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
   const [openStatus, setOpenStatus] = useState<Record<string, { open: boolean }>>({})
   const [loading, setLoading] = useState(true)
+  // Feed query failed outright — distinct from "loaded, but empty",
+  // which is a legitimate result and gets the normal empty state.
+  const [loadError, setLoadError] = useState(false)
   const [showMap, setShowMap] = useState(false)
   const [mapSelected, setMapSelected] = useState<Restaurant | null>(null)
   const [bannerDismissed, setBannerDismissed] = useState(true)
@@ -181,26 +184,47 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    const dismissed = localStorage.getItem('banner_dismissed')
-    if (!dismissed) setBannerDismissed(false)
+    // Touching localStorage at all throws a SecurityError when site data
+    // is blocked by browser setting or policy. Unguarded, that throw
+    // escapes a passive effect and takes the whole tree down.
+    try {
+      const dismissed = localStorage.getItem('banner_dismissed')
+      if (!dismissed) setBannerDismissed(false)
+    } catch { /* storage unavailable — show the banner */ }
   }, [])
 
   useEffect(() => {
     async function fetchRestaurants() {
-      const { data } = await supabase
-        .from('restaurants')
-        .select('*')
-        .eq('is_active', true)
-        .in('status', ['active', 'approved'])
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-      if (data) setRestaurants(data)
-      setLoading(false)
+      // Every exit path from here MUST reach setLoading(false). When it
+      // didn't, a rejected query left the skeleton grid up forever with
+      // no message — the feed looked like it was still loading when it
+      // had already failed.
+      let data: Restaurant[] = []
+      try {
+        const res = await supabase
+          .from('restaurants')
+          .select('*')
+          .eq('is_active', true)
+          .in('status', ['active', 'approved'])
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false })
+        if (res.error) throw new Error(res.error.message)
+        data = res.data ?? []
+        setRestaurants(data)
+        setLoadError(false)
+      } catch (e) {
+        console.error('[home] restaurant feed failed:', (e as Error)?.message ?? e)
+        setRestaurants([])
+        setLoadError(true)
+        return
+      } finally {
+        setLoading(false)
+      }
 
       // Rating + open-status summaries are follow-ups so the cards paint
       // first. Both failures are silent — cards just fall back to the
       // legacy state (is_open column, no rating line).
-      if (data && data.length > 0) {
+      if (data.length > 0) {
         const ids = data.map(r => r.id).join(',')
         try {
           const [ratingRes, statusRes] = await Promise.all([
@@ -353,7 +377,12 @@ export default function HomePage() {
               🎉 {t('banner.text')} — {t('banner.cta')}
             </Link>
             <button
-              onClick={() => { setBannerDismissed(true); localStorage.setItem('banner_dismissed', '1') }}
+              onClick={() => {
+                setBannerDismissed(true)
+                // Dismissal still holds for this session if the write
+                // fails; it just won't survive a reload.
+                try { localStorage.setItem('banner_dismissed', '1') } catch {}
+              }}
               className="text-brand-darker/60 hover:text-brand-darker text-lg leading-none"
               aria-label={bi('Fermer', 'Close')}
             >
@@ -508,7 +537,30 @@ export default function HomePage() {
           </div>
         )}
 
-        {!loading && filtered.length === 0 && (
+        {!loading && loadError && (
+          <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+            <div className="w-20 h-20 bg-surface-muted rounded-full flex items-center justify-center text-4xl mb-5">
+              📡
+            </div>
+            <h2 className="text-xl font-bold text-ink-primary mb-2">
+              {bi('Chargement impossible', 'Couldn’t load')}
+            </h2>
+            <p className="text-ink-secondary text-sm mb-6 max-w-xs">
+              {bi(
+                'Les restaurants n’ont pas pu être chargés. Vérifiez votre connexion.',
+                'We couldn’t load the restaurants. Check your connection.',
+              )}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold text-sm transition-colors"
+            >
+              {bi('Réessayer', 'Try again')}
+            </button>
+          </div>
+        )}
+
+        {!loading && !loadError && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center px-4">
             <div className="w-20 h-20 bg-surface-muted rounded-full flex items-center justify-center text-4xl mb-5">
               {anyFilterOn ? '🔍' : '🏪'}

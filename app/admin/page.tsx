@@ -15,7 +15,8 @@ export default function AdminLoginPage() {
   const { t } = useLanguage()
 
   useEffect(() => {
-    const token = localStorage.getItem('adminToken')
+    let token: string | null = null
+    try { token = localStorage.getItem('adminToken') } catch {}
     if (token) router.replace('/admin/restaurants')
   }, [router])
 
@@ -34,7 +35,14 @@ export default function AdminLoginPage() {
     setLoading(false)
 
     if (res.ok && data.token) {
-      localStorage.setItem('adminToken', data.token)
+      // A failed write means the session won't survive a reload, but the
+      // login itself still stands — surface it rather than dying here.
+      try {
+        localStorage.setItem('adminToken', data.token)
+      } catch {
+        setError('Stockage indisponible / Storage unavailable')
+        return
+      }
       router.replace('/admin/restaurants')
     } else {
       setError(data.error ?? 'Login failed')

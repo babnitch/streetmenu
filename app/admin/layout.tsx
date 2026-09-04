@@ -21,7 +21,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       setChecking(false)
       return
     }
-    const token = localStorage.getItem('adminToken')
+    // Storage access can throw outright when site data is blocked. Treat
+    // that as "no token" — the visitor is bounced to the login page
+    // rather than the layout crashing on the way in.
+    let token: string | null = null
+    try { token = localStorage.getItem('adminToken') } catch {}
     if (!token) {
       router.replace('/admin')
     } else {
@@ -31,7 +35,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [isLoginPage, router])
 
   function logout() {
-    localStorage.removeItem('adminToken')
+    try { localStorage.removeItem('adminToken') } catch {}
     router.replace('/admin')
   }
 
