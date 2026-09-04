@@ -1,15 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { denyUnlessOwnerOrManager } from '@/lib/vendorAccess'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
 // GET: list team members
+//
+// Authorization: owner|manager of THIS restaurant, or admin — the shared
+// gate in lib/vendorAccess.ts, same as the menu routes. It used to check
+// only that SOMEONE was logged in, so any account could pass any
+// restaurant id and read that team's names and phone numbers.
+//
+// Viewing is deliberately one tier looser than managing: POST here and
+// PATCH/DELETE in [memberId] are owner-only, because adding and removing
+// people is the owner's call, while a manager needs to see who is on the
+// roster they work with. Staff and non-members get 403, matching the
+// siblings — a logged-in stranger is refused, not told the restaurant
+// doesn't exist.
+//
+// The helper additionally admits the legacy implicit owner (a restaurant
+// with customer_id set but no team row — see /api/vendor/restaurants),
+// which the owner-only writers here do not. That gap is intentional:
+// refusing the real owner sight of their own roster would be a new bug.
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getSessionFromRequest(req)
-  if (!session) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
+  const denied = await denyUnlessOwnerOrManager(req, params.id)
+  if (denied) return denied
 
   // The FK must be named: restaurant_team has TWO foreign keys into
   // customers (customer_id and added_by), so a bare `customers(...)` embed
