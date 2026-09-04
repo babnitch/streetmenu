@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import dynamicLoad from 'next/dynamic'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import TopNav from '@/components/TopNav'
@@ -21,7 +22,7 @@ import EventVouchersPanel from '@/components/EventVouchersPanel'
 import PhoneInput from '@/components/PhoneInput'
 import OtpInput from '@/components/OtpInput'
 import { useDataMode } from '@/lib/dataMode'
-import { useMode } from '@/lib/modeContext'
+import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CLIENT_LABEL, roleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
@@ -159,7 +160,8 @@ interface TeamMember {
 export default function AccountPage() {
   const bi = useBi()
   const { t, locale } = useLanguage()
-  const { mode, setMode, resetMode, hasRestaurantRole } = useMode()
+  const { mode, resetMode, hasRestaurantRole, setDashboardTab } = useMode()
+  const router = useRouter()
 
   // Login form state
   const [loginTab,    setLoginTab]    = useState<LoginTab>('customer')
@@ -399,21 +401,6 @@ export default function AccountPage() {
     const t = setInterval(refresh, 30_000)
     return () => { cancelled = true; clearInterval(t) }
   }, [hasRestaurantRole])
-
-  // The restaurant-mode BottomNav Events tab fires this when it wants the
-  // organizer dashboard while we're already mounted — the ?tab= reader
-  // above only runs once, so a same-route push wouldn't reach us.
-  useEffect(() => {
-    const onTab = (e: Event) => {
-      const next = (e as CustomEvent).detail
-      if (typeof next === 'string' && isCustomerTab(next)) {
-        setCustomerTab(next)
-        setMobileSection(next)
-      }
-    }
-    window.addEventListener('nt-account-tab', onTab)
-    return () => window.removeEventListener('nt-account-tab', onTab)
-  }, [])
 
   // ── On mount: pre-fill the phone field with the remembered number ──
   // PhoneInput re-derives the country from the +E.164 value, but we also
@@ -725,10 +712,30 @@ export default function AccountPage() {
   const effectiveMode: 'client' | 'restaurant' =
     hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
 
-  // Same gate the desktop "Mes événements" tab uses: a submitted-but-not-
-  // yet-returned event must not make the entry point vanish.
-  const hasOrganizerEvents =
-    myEvents.length > 0 || (organizerTrust?.events_submitted_count ?? 0) > 0
+  // Role driving the restaurant-mode tiles. Mirrors the dashboard's
+  // `effectiveRole` (app/dashboard/page.tsx:124) including its 'admin'
+  // rung, so a tile is never offered for a surface the dashboard would
+  // then refuse to render.
+  //
+  // Scoped to the ACTIVE restaurant. activeRestId defaults to
+  // restaurants[0] (loadMyRestaurants) and the mobile menu has no picker,
+  // so someone who is owner at one place and staff at another sees tiles
+  // for whichever sorted first. Accepted for now; a picker is future work.
+  const tileRole: 'owner' | 'manager' | 'staff' | 'admin' | null =
+    user && ['super_admin', 'admin', 'moderator'].includes(user.role)
+      ? 'admin'
+      : activeRest?.teamRole ?? null
+  const tileCanManage = tileRole === 'owner' || tileRole === 'manager' || tileRole === 'admin'
+
+  // Flip the dashboard tab through context, THEN route. A bare
+  // /dashboard?tab=X relies on the destination reading the query on mount,
+  // which silently does nothing when we're already on /dashboard — Next
+  // treats ?tab=a and ?tab=b as the same route. Same pattern as
+  // BottomNav's goToDashTab and lib/navConfig's contract.
+  const goToDashTab = (next: DashboardTab) => {
+    setDashboardTab(next)
+    router.push('/dashboard')
+  }
 
   // Drilling into a tab section keeps `customerTab` in sync so the desktop
   // tab bar and the mobile list never disagree if the viewport changes.
@@ -1262,13 +1269,12 @@ export default function AccountPage() {
                 <div className="hidden md:flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
                   <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
                   <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
-                  {/* Show the organizer tab when the user has any events OR has
-                     ever submitted one — a submitted-but-not-yet-returned event
-                     (pending approval, transient fetch hiccup) must not make the
-                     tab vanish, else the organizer loses their only way in. */}
-                  {(myEvents.length > 0 || (organizerTrust?.events_submitted_count ?? 0) > 0) && (
-                    <TabBtn icon="🎉" label={bi('Mes événements', 'My events')} active={customerTab === 'events'} onClick={() => setCustomerTab('events')} />
-                  )}
+                  {/* Organizing is open to every logged-in user, so this is
+                     unconditional — it used to appear only once you had an
+                     event, which hid the feature from exactly the people who
+                     hadn't found it yet. The panel carries its own empty
+                     state with a create CTA. */}
+                  <TabBtn icon="🎉" label={bi('Mes événements', 'My events')} active={customerTab === 'events'} onClick={() => setCustomerTab('events')} />
                   <TabBtn icon="👤" label={t('account.profileTab')}  active={customerTab === 'profile'}  onClick={() => setCustomerTab('profile')} />
                   {myRestaurants.length > 0 && (
                     <TabBtn icon="🏪" label={t('account.restaurantTab')} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
@@ -1333,17 +1339,46 @@ export default function AccountPage() {
                         />
                       </div>
                     ) : (
+                      // Role-gated to match the dashboard exactly — see
+                      // tileRole above. Every tile routes through
+                      // goToDashTab (context + push), never a bare ?tab=.
                       <div className="grid grid-cols-3 gap-3 mb-6">
-                        {/* /account → /dashboard is a real route change, so
-                            ?tab= is read on mount and lands correctly. */}
                         <QuickCard
                           icon="📦"
                           label={t('account.ordersTab')}
-                          href="/dashboard?tab=orders"
+                          onClick={() => goToDashTab('orders')}
                           badge={pendingOrders}
                         />
-                        <QuickCard icon="🍽️" label={bi('Menu', 'Menu')}          href="/dashboard?tab=menu" />
-                        <QuickCard icon="⚙️" label={bi('Paramètres', 'Settings')} href="/dashboard?tab=settings" />
+                        {/* Menu + Vouchers: owner/manager/admin, matching
+                            dashboard:688-689. Staff get a read-only menu
+                            there, so no tile. */}
+                        {tileCanManage && (
+                          <QuickCard icon="🍽️" label={bi('Menu', 'Menu')}
+                            onClick={() => goToDashTab('menu')} />
+                        )}
+                        {tileCanManage && (
+                          <QuickCard icon="🎫" label={bi('Bons', 'Vouchers')}
+                            onClick={() => goToDashTab('vouchers')} />
+                        )}
+                        {/* Validate is every role's job on the floor —
+                            dashboard:690 shows it unconditionally. */}
+                        <QuickCard icon="✅" label={bi('Valider', 'Validate')}
+                          onClick={() => goToDashTab('validate')} />
+                        {/* Settings: owner gets the full panel
+                            (dashboard:1135), manager a reduced one
+                            (:1154), everyone else a lock (:1166) — so the
+                            tile stops at manager. */}
+                        {(tileRole === 'owner' || tileRole === 'manager' || tileRole === 'admin') && (
+                          <QuickCard icon="⚙️" label={bi('Paramètres', 'Settings')}
+                            onClick={() => goToDashTab('settings')} />
+                        )}
+                        {/* Team lives HERE, not on the dashboard — its tab
+                            there is only a pointer back. Owner-only,
+                            matching the panel's own gate. */}
+                        {tileRole === 'owner' && (
+                          <QuickCard icon="👥" label={t('account.teamTab')}
+                            onClick={() => openMobileSection('team')} />
+                        )}
                       </div>
                     )}
 
@@ -1358,14 +1393,15 @@ export default function AccountPage() {
                         desc={bi('Modifier vos informations', 'Edit your info')}
                         onClick={() => openMobileSection('profile')}
                       />
-                      {hasOrganizerEvents && (
-                        <MenuRow
-                          icon="📢"
-                          label={bi('Mes événements', 'My events')}
-                          desc={bi('Gérer vos événements publiés', 'Manage your published events')}
-                          onClick={() => openMobileSection('events')}
-                        />
-                      )}
+                      {/* Unconditional — see the desktop tab above. Not
+                          mode-gated either: organizing is an Account
+                          feature reachable from client OR restaurant mode. */}
+                      <MenuRow
+                        icon="📢"
+                        label={bi('Mes événements', 'My events')}
+                        desc={bi('Créer et gérer vos événements', 'Create and manage your events')}
+                        onClick={() => openMobileSection('events')}
+                      />
 
                       {/* ── Restaurant-mode rows ───────────────────────── */}
                       {effectiveMode === 'restaurant' && (
@@ -1421,21 +1457,12 @@ export default function AccountPage() {
                       <MenuLowDataRow />
                       <MenuLanguageRow />
 
-                      {/* Mode switcher — vendors only. Flips in place: the
-                          tiles and the rows above re-render for the new
-                          mode without a navigation. */}
-                      {hasRestaurantRole && (
-                        <MenuRow
-                          icon={effectiveMode === 'restaurant' ? '👤' : '🏪'}
-                          label={effectiveMode === 'restaurant'
-                            ? bi('Passer en mode client', 'Switch to client mode')
-                            : bi('Passer en mode restaurant', 'Switch to restaurant mode')}
-                          desc={effectiveMode === 'restaurant'
-                            ? bi('Commander et parcourir les restaurants', 'Order food and browse restaurants')
-                            : bi('Gérer commandes, menu et paramètres', 'Manage orders, menu and settings')}
-                          onClick={() => setMode(effectiveMode === 'restaurant' ? 'client' : 'restaurant')}
-                        />
-                      )}
+                      {/* Mode switcher — vendors only. The ONE switcher:
+                          components/ModeToggle.tsx, same component the
+                          desktop profile tab renders as a banner. It
+                          navigates to the mode's home rather than flipping
+                          in place, and returns null without a team role. */}
+                      <ModeToggle variant="row" />
 
                       <button
                         type="button"
@@ -1732,13 +1759,16 @@ export default function AccountPage() {
                           <LanguageToggle />
                         </div>
 
-                        {/* Mode toggle — the single entry point for the
-                            Client ⇄ Restaurant switch, now that the header
-                            banner has been retired. Uses the "banner"
-                            variant so the switch + its explanatory copy
-                            stay findable inside the profile tab. Returns
-                            null for users with no team role. */}
-                        <ModeToggle variant="banner" />
+                        {/* Mode toggle — same component as the mobile menu
+                            row, banner-styled for the desktop profile tab.
+                            hidden md:block like its neighbours: without it
+                            a mobile user drilling into Profile saw this
+                            AND the row in the menu list, two switchers with
+                            different behaviour. Returns null for users with
+                            no team role. */}
+                        <div className="hidden md:block">
+                          <ModeToggle variant="banner" />
+                        </div>
 
                         {/* Low-data mode — saves ~90% of bandwidth on
                             image-heavy pages by replacing photos with
@@ -2821,18 +2851,27 @@ function MyEventsPanel({
     } finally { setSendingMsg(false) }
   }
 
+  // Empty state. This section is now reachable by EVERY logged-in user, not
+  // just people who have already organized something, so it has to read as
+  // an invitation rather than as a report of an empty list.
   if (events.length === 0) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
+      <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
         <div className="text-4xl mb-3">🎉</div>
-        <p className="text-sm text-ink-tertiary">
-          {bi('Vous n\'avez pas encore publié d\'événement.', 'You haven\'t published any events yet.')}
+        <h3 className="font-bold text-ink-primary mb-1">
+          {bi('Organisez votre premier événement', 'Host your first event')}
+        </h3>
+        <p className="text-sm text-ink-secondary max-w-xs mx-auto">
+          {bi(
+            'Publiez un événement, vendez des billets et suivez vos inscrits — le tout depuis votre compte.',
+            'Publish an event, sell tickets and track attendees — all from your account.',
+          )}
         </p>
         <Link
           href="/events/submit"
-          className="mt-4 inline-block bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-5 py-2.5 rounded-full transition-colors"
+          className="mt-5 inline-block bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-5 py-2.5 rounded-full transition-colors"
         >
-          📢 {bi('Publier', 'Publish')}
+          📢 {bi('Créer un événement', 'Create an event')}
         </Link>
       </div>
     )
