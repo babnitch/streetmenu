@@ -14,14 +14,15 @@
 // directions, because a refactor that unified the two gates would be a
 // regression whichever way it moved.
 //
-// NOT COVERED HERE, DELIBERATELY: owner self-removal. The DELETE route has no
-// owner-protection guard, so an owner can remove their own team row, get 200,
-// and then be permanently locked out of team management (the write routes
-// authorize only via an active role='owner' team row and do not admit the
-// implicit owner). That is being fixed as its own change; it is left untested
-// rather than pinned, so nothing here records the current behaviour as
-// correct. Normal member removal — a manager or staff row — is covered below
-// and is unaffected.
+// LAST-OWNER PROTECTION is covered at the end of this file. A restaurant must
+// always keep at least one ACTIVE owner: without that rule an owner could
+// remove or demote their own team row, get a 200, and be permanently locked
+// out, because every write route here authorizes solely via an active
+// role='owner' team row, none admits the implicit owner from
+// restaurants.customer_id, and they answer 401 to an admin session. SIX
+// user-facing paths could each reach that state, so all six are asserted —
+// plus two positive cases proving the guard blocks only the last owner and
+// never an ordinary add.
 //
 // Also worth knowing while reading this file: the write routes return 401,
 // not a bypass, for an ADMIN session (`session.role !== 'customer'`), unlike
@@ -403,6 +404,123 @@ async function main(): Promise<void> {
 
       const rows = await pendingInvites(restB.id, phone)
       assertEq(rows[0]?.status, 'pending', "B's invitation is still pending")
+    })
+
+    // ══ LAST-OWNER PROTECTION (all six doors) ══════════════════════════════
+
+    await step('the last active owner cannot be removed or demoted — all six doors', async () => {
+      const soleOwner = await makeCustomer({ suiteNo: 33, name: 'Sole Owner' })
+      const solo = await makeRestaurant({ ownerId: soleOwner.id, label: 'sole_owner', whatsapp: soleOwner.phone })
+      const soloCookie = customerCookie(soleOwner)
+
+      const ownRow = await teamRow(solo.id, soleOwner.id)
+      assert(!!ownRow, 'the sole owner has an active owner row to defend')
+      const rowId = ownRow!.id
+
+      const stillOwner = async (label: string) => {
+        const r = await teamRow(solo.id, soleOwner.id)
+        assertEq(r?.role, 'owner', `${label}: still role='owner'`)
+        assertEq(r?.status, 'active', `${label}: still status='active'`)
+      }
+
+      // 1. DELETE /team/[memberId] — self-removal
+      assertEq((await deleteMember(solo.id, rowId, soloCookie)).status, 409, 'door 1 DELETE /team/[id] → 409')
+      await stillOwner('door 1')
+
+      // 2. PATCH /team/[memberId] — self-demote
+      assertEq((await patchMember(solo.id, rowId, { role: 'staff' }, soloCookie)).status, 409,
+        'door 2 PATCH role=staff → 409')
+      await stillOwner('door 2')
+
+      // 3. POST /team — the upsert rewrites the role of the existing row
+      assertEq((await postTeam(solo.id, { phone: soleOwner.phone, role: 'staff' }, soloCookie)).status, 409,
+        'door 3 POST /team own phone → 409')
+      await stillOwner('door 3')
+
+      // 4. POST /invite, known-customer branch — same upsert
+      assertEq((await postInvite(solo.id, { phone: soleOwner.phone, role: 'manager' }, soloCookie)).status, 409,
+        'door 4 POST /invite own phone → 409')
+      await stillOwner('door 4')
+
+      // 5. WhatsApp "retirer <self>" — the webhook always answers 200, so the
+      //    refusal shows up as the row surviving, not as a status code.
+      const wa5 = await api('/api/whatsapp/incoming', {
+        form: { From: `whatsapp:${soleOwner.phone}`, Body: `retirer ${soleOwner.phone}` },
+      })
+      assertEq(wa5.status, 200, 'door 5 webhook accepted the message')
+      await stillOwner('door 5 WhatsApp retirer')
+
+      // 6. WhatsApp "ajouter <self> staff" — the upsert path
+      const wa6 = await api('/api/whatsapp/incoming', {
+        form: { From: `whatsapp:${soleOwner.phone}`, Body: `ajouter ${soleOwner.phone} staff` },
+      })
+      assertEq(wa6.status, 200, 'door 6 webhook accepted the message')
+      await stillOwner('door 6 WhatsApp ajouter')
+
+      // The refusal must be legible, not a silent no-op.
+      const refused = await deleteMember(solo.id, rowId, soloCookie)
+      assert((refused.body as { error?: string }).error?.includes('propriétaire'),
+        'the refusal carries the bilingual last-owner message (FR)')
+      assert((refused.body as { error?: string }).error?.toLowerCase().includes('at least one owner'),
+        'and the EN half')
+    })
+
+    await step('the guard blocks the LAST owner only, not any owner', async () => {
+      // Precision check: with two active owners, removing one is allowed.
+      const o1 = await makeCustomer({ suiteNo: 33, name: 'Co-owner One' })
+      const o2 = await makeCustomer({ suiteNo: 33, name: 'Co-owner Two' })
+      const shared = await makeRestaurant({ ownerId: o1.id, label: 'co_owned', whatsapp: o1.phone })
+      const secondRowId = await addTeamMember(shared.id, o2.id, 'owner')
+      const c1 = customerCookie(o1)
+
+      const { data: owners } = await sb.from('restaurant_team').select('id')
+        .eq('restaurant_id', shared.id).eq('role', 'owner').eq('status', 'active')
+      assertEq((owners ?? []).length, 2, 'the restaurant really has two active owners')
+
+      assertEq((await deleteMember(shared.id, secondRowId, c1)).status, 200,
+        'removing one of two owners → 200, not blocked')
+      assertEq((await teamRow(shared.id, o2.id))?.status, 'removed', 'that owner row is removed')
+      const remaining = await teamRow(shared.id, o1.id)
+      assertEq(remaining?.role, 'owner', 'the other owner remains an owner')
+      assertEq(remaining?.status, 'active', 'and is still active')
+
+      // And now that they are the last one, they are protected.
+      assertEq((await deleteMember(shared.id, remaining!.id, c1)).status, 409,
+        'the survivor is now the last owner and is protected')
+      assertEq((await teamRow(shared.id, o1.id))?.status, 'active', 'so they survive too')
+    })
+
+    await step('the guard never fires on an ordinary add or a non-owner target', async () => {
+      const solo2 = await makeCustomer({ suiteNo: 33, name: 'Add Owner' })
+      const rest2 = await makeRestaurant({ ownerId: solo2.id, label: 'adds_ok', whatsapp: solo2.phone })
+      const cookie2 = customerCookie(solo2)
+      const helper = await makeCustomer({ suiteNo: 33, name: 'Ordinary Member' })
+
+      // Adding an ordinary member on a restaurant with exactly one owner must
+      // not be mistaken for a demotion of that owner.
+      const added = await postTeam(rest2.id, { phone: helper.phone, role: 'staff' }, cookie2)
+      assertEq(added.status, 200, 'adding a staff member → 200')
+      const hRow = await teamRow(rest2.id, helper.id)
+      if (hRow) track('restaurant_team', hRow.id)
+      assertEq(hRow?.role, 'staff', 'the member landed as staff')
+      assertEq((await teamRow(rest2.id, solo2.id))?.role, 'owner', 'the owner is untouched')
+
+      // Changing a NON-owner's role is unaffected by the guard.
+      assertEq((await patchMember(rest2.id, hRow!.id, { role: 'manager' }, cookie2)).status, 200,
+        "promoting a non-owner staff → manager → 200")
+      assertEq((await teamRow(rest2.id, helper.id))?.role, 'manager', 'the promotion applied')
+
+      // Removing a NON-owner is unaffected too — the no-regression case.
+      assertEq((await deleteMember(rest2.id, hRow!.id, cookie2)).status, 200,
+        'removing a non-owner member → 200')
+      assertEq((await teamRow(rest2.id, helper.id))?.status, 'removed', 'that member is removed')
+      assertEq((await teamRow(rest2.id, solo2.id))?.status, 'active', 'and the owner is still active')
+
+      // An invite to a brand-new number is untouched by the guard as well.
+      const invitePhone = testPhone(33, 9010)
+      const inv = await postInvite(rest2.id, { phone: invitePhone, role: 'staff' }, cookie2)
+      assertEq(inv.status, 200, 'inviting an unknown number still works')
+      if (inv.body.invitation?.id) track('team_invitations', inv.body.invitation.id)
     })
 
     // ══ AUDIT ══════════════════════════════════════════════════════════════

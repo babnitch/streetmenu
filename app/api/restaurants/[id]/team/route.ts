@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { denyUnlessOwnerOrManager } from '@/lib/vendorAccess'
+import { denyUnlessOwnerOrManager, wouldStripLastOwner, LAST_OWNER_ERROR } from '@/lib/vendorAccess'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 
@@ -78,6 +78,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (!newMember) {
     return NextResponse.json({ error: 'Ce numéro n\'est pas inscrit / This number is not registered' }, { status: 404 })
+  }
+
+  // The upsert below rewrites the role of an existing row, so pointing this
+  // at the last owner with role 'manager'/'staff' is a self-demote.
+  if (await wouldStripLastOwner(params.id, newMember.id, role)) {
+    return NextResponse.json({ error: LAST_OWNER_ERROR }, { status: 409 })
   }
 
   const { data: restaurant } = await supabaseAdmin

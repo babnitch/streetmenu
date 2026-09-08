@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { wouldStripLastOwner, LAST_OWNER_ERROR } from '@/lib/vendorAccess'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 
@@ -28,6 +29,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const { data: before } = await supabaseAdmin
     .from('restaurant_team').select('customer_id, role')
     .eq('id', params.memberId).maybeSingle()
+
+  // Demoting the last active owner locks everyone out of team management.
+  if (before && await wouldStripLastOwner(params.id, before.customer_id, role)) {
+    return NextResponse.json({ error: LAST_OWNER_ERROR }, { status: 409 })
+  }
 
   await supabaseAdmin.from('restaurant_team')
     .update({ role })
@@ -72,6 +78,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (entryErr) {
     console.error('[restaurants/[id]/team/[memberId] DELETE] member lookup failed:', entryErr.code, entryErr.message)
     return NextResponse.json({ error: 'Impossible de charger le membre / Could not load the member' }, { status: 500 })
+  }
+
+  // Removing the last active owner is the same lockout as demoting them.
+  if (entry && await wouldStripLastOwner(params.id, entry.customer_id)) {
+    return NextResponse.json({ error: LAST_OWNER_ERROR }, { status: 409 })
   }
 
   await supabaseAdmin.from('restaurant_team')

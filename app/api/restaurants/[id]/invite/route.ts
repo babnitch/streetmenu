@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { normalizePhone } from '@/lib/phone'
+import { wouldStripLastOwner, LAST_OWNER_ERROR } from '@/lib/vendorAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +54,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .eq('phone', phone).maybeSingle()
 
   if (existingCustomer && existingCustomer.status === 'active') {
+    // Same upsert as POST /team — inviting yourself at a lower role would
+    // demote the last owner.
+    if (await wouldStripLastOwner(restaurant.id, existingCustomer.id, role)) {
+      return NextResponse.json({ error: LAST_OWNER_ERROR }, { status: 409 })
+    }
+
     const { error: insertErr } = await supabaseAdmin.from('restaurant_team').upsert({
       restaurant_id: restaurant.id,
       customer_id:   existingCustomer.id,

@@ -1528,6 +1528,16 @@ async function handleVendor(
       .eq('phone', memberPhone).maybeSingle()
 
     if (newMember && newMember.status === 'active') {
+      // The upsert rewrites an existing row's role, so "ajouter <self> staff"
+      // would demote the last owner and lock the team out.
+      const { wouldStripLastOwner } = await import('@/lib/vendorAccess')
+      if (await wouldStripLastOwner(restaurant.id, newMember.id, memberRole)) {
+        await sendWhatsApp(from, pickLang(
+          '❌ Un restaurant doit garder au moins un propriétaire.',
+          '❌ A restaurant must keep at least one owner.', lang))
+        return ok()
+      }
+
       await supabaseAdmin.from('restaurant_team').upsert({
         restaurant_id: restaurant.id, customer_id: newMember.id, role: memberRole,
         added_by: ownerCustomer?.id ?? null, status: 'active',
@@ -1702,6 +1712,16 @@ async function handleVendor(
 
     if (!memberCustomer) {
       await sendWhatsApp(from, pickLang(`❌ Numéro introuvable.`, `❌ Number not found.`, lang))
+      return ok()
+    }
+
+    // Removing the last active owner locks the team out — same rule as the
+    // dashboard's DELETE /team/[memberId].
+    const { wouldStripLastOwner: stripsOwner } = await import('@/lib/vendorAccess')
+    if (await stripsOwner(restaurant.id, memberCustomer.id)) {
+      await sendWhatsApp(from, pickLang(
+        '❌ Un restaurant doit garder au moins un propriétaire.',
+        '❌ A restaurant must keep at least one owner.', lang))
       return ok()
     }
 
