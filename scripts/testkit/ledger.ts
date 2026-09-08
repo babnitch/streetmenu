@@ -138,6 +138,13 @@ export async function teardown(opts: { verbose?: boolean } = {}): Promise<Teardo
     byTable.set(r.table, list)
   }
 
+  // Children the suite never created directly — a voucher claim made through
+  // the API, order_items written by the ordering webhook, the trigger's own
+  // team row. Nothing tracked them, but they hold FKs onto rows that ARE
+  // tracked, so the ordered pass below would fail on the constraint. Clear
+  // them from the tracked parents first.
+  await deleteCascades(byTable, report)
+
   for (const table of DELETE_ORDER) {
     const ids = byTable.get(table)
     if (!ids || ids.length === 0) continue
@@ -167,6 +174,57 @@ export async function teardown(opts: { verbose?: boolean } = {}): Promise<Teardo
   }
   dirty = false
   return report
+}
+
+// Child rows reachable from a tracked parent id. Ordered deepest-first: a
+// two-level case (order_items under orders under a restaurant) resolves the
+// intermediate ids as it goes.
+async function deleteCascades(
+  byTable: Map<string, string[]>,
+  report: TeardownReport,
+): Promise<void> {
+  const ids = (table: string): string[] => Array.from(new Set(byTable.get(table) ?? []))
+
+  const restaurants = ids('restaurants')
+  const customers   = ids('customers')
+  const vouchers    = ids('vouchers')
+  const events      = ids('events')
+  const orders      = ids('orders')
+
+  const del = async (table: string, column: string, values: string[]) => {
+    if (values.length === 0) return
+    const { error, count } = await sb.from(table).delete({ count: 'exact' }).in(column, values)
+    if (error) report.errors.push(`${table} by ${column}: ${error.message}`)
+    else if (count) report.deleted[table] = (report.deleted[table] ?? 0) + count
+  }
+
+  // Orders reachable from a tracked restaurant or customer, plus the ones we
+  // tracked directly — their order_items must go first.
+  const orderIds = new Set(orders)
+  for (const [col, parents] of [['restaurant_id', restaurants], ['customer_id', customers]] as const) {
+    if (parents.length === 0) continue
+    const { data } = await sb.from('orders').select('id').in(col, parents)
+    for (const r of (data ?? []) as Array<{ id: string }>) orderIds.add(r.id)
+  }
+  await del('order_items', 'order_id', Array.from(orderIds))
+  await del('orders', 'id', Array.from(orderIds))
+
+  // Voucher claims block both the voucher and the customer.
+  await del('customer_vouchers', 'voucher_id', vouchers)
+  await del('customer_vouchers', 'customer_id', customers)
+
+  // Event children.
+  await del('event_reservations', 'event_id', events)
+  await del('event_reservations', 'customer_id', customers)
+  await del('event_ticket_tiers', 'event_id', events)
+
+  // Restaurant children, including the trigger-created owner team row.
+  await del('menu_items', 'restaurant_id', restaurants)
+  await del('restaurant_hours', 'restaurant_id', restaurants)
+  await del('team_invitations', 'restaurant_id', restaurants)
+  await del('restaurant_team', 'restaurant_id', restaurants)
+  await del('restaurant_team', 'customer_id', customers)
+  await del('restaurant_ratings', 'restaurant_id', restaurants)
 }
 
 // Rows keyed by phone rather than by an id we captured. audit_log is keyed by

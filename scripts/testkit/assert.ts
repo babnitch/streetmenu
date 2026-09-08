@@ -65,6 +65,19 @@ export function assertIncludes(haystack: string | null | undefined, needle: stri
   return record(ok, name, ok ? undefined : `${fmt(haystack)} does not contain ${fmt(needle)}`)
 }
 
+// Prints a note that counts as NEITHER a pass nor a failure. For steps whose
+// outcome depends on the environment rather than the code — a migration that
+// may not be applied yet (TEST-PLAN.md §4 hazard 6), or an assertion that
+// would require live Twilio delivery (§3 rules that out). Using assert() for
+// these would make the suite red on a correct build; dropping them would lose
+// the signal entirely, so they are reported and not scored.
+let warnCount = 0
+export function warns(): number { return warnCount }
+export function warn(name: string, detail?: string): void {
+  warnCount++
+  console.log(`  ⚠ ${name}${detail ? ` — ${detail}` : ''}`)
+}
+
 export function assertThrows(fn: () => unknown, name: string): boolean {
   try {
     fn()
@@ -123,13 +136,14 @@ export async function step(name: string, fn: () => void | Promise<void>): Promis
 export function finish(suiteName: string): void {
   const p = passed()
   const f = failed()
-  console.log(`\n${f === 0 ? '✓' : '✗'} ${suiteName}: ${p} passed, ${f} failed`)
+  const w = warns()
+  console.log(`\n${f === 0 ? '✓' : '✗'} ${suiteName}: ${p} passed, ${f} failed${w > 0 ? `, ${w} warned` : ''}`)
   if (f > 0) {
     console.log('\nFailures:')
     for (const r of results.filter(x => !x.ok)) {
       console.log(`  ✗ ${r.step ? `[${r.step}] ` : ''}${r.name}${r.detail ? ` — ${r.detail}` : ''}`)
     }
   }
-  console.log(`${RESULT_MARKER}${JSON.stringify({ suite: suiteName, passed: p, failed: f })}`)
+  console.log(`${RESULT_MARKER}${JSON.stringify({ suite: suiteName, passed: p, failed: f, warned: w })}`)
   process.exitCode = f === 0 ? 0 : 1
 }

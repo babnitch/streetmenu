@@ -78,13 +78,18 @@ export interface TestRestaurant { id: string; name: string; whatsapp: string }
 export async function makeRestaurant(opts: MakeRestaurantOpts = {}): Promise<TestRestaurant> {
   const name = testName(opts.label ?? `rest${nextSeq()}`)
   const whatsapp = opts.whatsapp ?? testPhone(0, nextSeq())
+  // restaurants.customer_id is NOT NULL, so a restaurant always has an owner.
+  // When the caller doesn't supply one, mint a throwaway customer rather than
+  // passing null (which fails the constraint) — every real restaurant has a
+  // customer_id, so this keeps the fixture faithful as well as valid.
+  const ownerId = opts.ownerId ?? (await makeCustomer({ name: `t_owner_${nextSeq()}` })).id
   const row = await insertOne('restaurants', {
     name,
     city:         opts.city ?? 'Yaoundé',
     neighborhood: 'Bastos',
     cuisine_type: 'Camerounaise',
     whatsapp,
-    customer_id:  opts.ownerId ?? null,
+    customer_id:  ownerId,
     is_active:    opts.isActive ?? true,
     status:       opts.status ?? 'active',
     lat: 0, lng: 0,
@@ -93,11 +98,9 @@ export async function makeRestaurant(opts: MakeRestaurantOpts = {}): Promise<Tes
   // The DB trigger auto-creates the owner's restaurant_team row when
   // customer_id is set. Track it so teardown removes it before the
   // restaurant (TEST-PLAN.md §4 hazard 5).
-  if (opts.ownerId) {
-    const { data } = await sb.from('restaurant_team')
-      .select('id').eq('restaurant_id', row.id as string).eq('customer_id', opts.ownerId).maybeSingle()
-    if (data?.id) track('restaurant_team', data.id as string)
-  }
+  const { data: teamRow } = await sb.from('restaurant_team')
+    .select('id').eq('restaurant_id', row.id as string).eq('customer_id', ownerId).maybeSingle()
+  if (teamRow?.id) track('restaurant_team', teamRow.id as string)
   return { id: row.id as string, name, whatsapp }
 }
 
@@ -169,6 +172,10 @@ export interface TestEvent { id: string; title: string }
 export async function makeEvent(opts: MakeEventOpts = {}): Promise<TestEvent> {
   const title = testName(opts.label ?? `event${nextSeq()}`)
   const price = opts.ticketPrice ?? 0
+  // Same shape as makeRestaurant's customer_id: every real event is submitted
+  // by someone (app/api/events/submit sets organizer_id: submitter.id
+  // unconditionally), so mint a throwaway organizer rather than passing null.
+  const organizerId = opts.organizerId ?? (await makeCustomer({ name: `t_organizer_${nextSeq()}` })).id
   const row = await insertOne('events', {
     title,
     description:  null,
@@ -188,7 +195,7 @@ export async function makeEvent(opts: MakeEventOpts = {}): Promise<TestEvent> {
     cover_photo:  null,
     whatsapp:     opts.whatsapp ?? testPhone(0, nextSeq()),
     organizer_name: 't_organizer',
-    organizer_id: opts.organizerId ?? null,
+    organizer_id: organizerId,
     is_active:    opts.isActive ?? false,
     auto_approved: false,
     event_status: 'upcoming',
@@ -255,7 +262,10 @@ export async function makeOrder(
     customer_name:  customer.name,
     customer_phone: customer.phone,
     items:          opts.items ?? [{ name: 'Ndolé', quantity: 1, price: 2500 }],
-    total:          opts.total ?? 2500,
+    // The column is total_price. `total` does not exist on orders — the
+    // original scripts all use total_price; step 1 shipped this wrong and
+    // unexercised.
+    total_price:    opts.total ?? 2500,
     status:         opts.status ?? 'pending',
     ...(opts.extra ?? {}),
   })

@@ -106,9 +106,12 @@ export function testName(label: string, runId: string = RUN_ID): string {
   return `__t_${runId}_${label}__`
 }
 
-// Voucher codes (uppercase — sanitizeCode() would uppercase them anyway).
+// Voucher codes. The WHOLE code must be uppercase, run id included: every
+// voucher lookup normalises input with .toUpperCase() before matching
+// (app/api/customer/vouchers/claim/route.ts:19), so a code containing the
+// lowercase hex run id could never be found again.
 export function testCode(label: string, runId: string = RUN_ID): string {
-  return `__T_${runId}_${label.toUpperCase()}__`
+  return `__T_${runId.toUpperCase()}_${label.toUpperCase()}__`
 }
 
 // Matches any run's names, not just this one — what the sweeper needs.
