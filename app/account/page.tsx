@@ -25,7 +25,7 @@ import { useDataMode } from '@/lib/dataMode'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
-import { CLIENT_LABEL, roleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
+import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
@@ -90,9 +90,78 @@ const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
   vouchers: 'Bons / Vouchers',
   reports: 'Signalements / Reports',
   accounts: 'Comptes / Accounts',
-  messages: '📨 Messages / 📨 Messages',
+  messages: 'Messages / Messages',
   platformteam: 'Équipe plateforme / Platform Team',
   profile: 'Mon profil / My Profile',
+}
+
+// Icons live beside the labels rather than inside them: the same tab now
+// renders as a tile (icon above label), a menu row (icon left of label) and
+// a desktop tab, so the glyph has to be addressable on its own.
+const ADMIN_TAB_ICONS: Record<AdminSubTab, string> = {
+  restaurants:  '🏪',
+  orders:       '📦',
+  events:       '🎉',
+  broadcasts:   '📢',
+  promotions:   '📣',
+  vouchers:     '🎫',
+  reports:      '🚩',
+  accounts:     '👥',
+  messages:     '📨',
+  platformteam: '🛡',
+  profile:      '👤',
+}
+
+// Sub-labels for the menu rows — same bilingual "fr / en" shape the rest of
+// this file uses, read through pickBi.
+const ADMIN_TAB_DESCS: Record<AdminSubTab, string> = {
+  restaurants:  'Approuver et gérer / Approve and manage',
+  orders:       'Toutes les commandes / All orders',
+  events:       'Modérer les événements / Moderate events',
+  broadcasts:   'Diffusions envoyées / Sent broadcasts',
+  promotions:   'Promotions payantes / Paid promotions',
+  vouchers:     'Bons de réduction / Discount vouchers',
+  reports:      'Signalements à traiter / Reports to handle',
+  accounts:     'Clients et vendeurs / Customers and vendors',
+  messages:     'WhatsApp et SMS envoyés / WhatsApp and SMS sent',
+  platformteam: 'Membres de la plateforme / Platform members',
+  profile:      'Modifier vos informations / Edit your info',
+}
+
+// The admin content set, in the shape the shared shell expects: a few
+// quick-access tiles, then everything else as menu rows. Client and
+// restaurant modes populate the identical grid + list from their own arrays.
+// Desktop concatenates the two into one tab row, so this is also the
+// canonical ordering.
+const ADMIN_TILES: AdminSubTab[] = ['accounts', 'restaurants', 'events']
+const ADMIN_ROWS:  AdminSubTab[] = ['orders', 'reports', 'broadcasts', 'promotions', 'vouchers', 'messages', 'platformteam', 'profile']
+const ADMIN_TABS:  AdminSubTab[] = [...ADMIN_TILES, ...ADMIN_ROWS]
+
+function isAdminTab(v: string): v is AdminSubTab {
+  return (ADMIN_TABS as string[]).includes(v)
+}
+
+// Which admin surfaces a role may reach. Module-level and pure so the
+// ?tab= adoption can run inside the /api/auth/me handler, before `user`
+// state exists. The component's adminCan() delegates here — this is the
+// only copy of the rules.
+function adminCanFor(role: string | null | undefined, tab: AdminSubTab): boolean {
+  if (!role) return false
+  // Everyone in the admin dashboard can see their own profile
+  if (tab === 'profile') return true
+  if (role === 'super_admin') return true
+  if (role === 'admin') return tab !== 'platformteam'
+  // Message bodies include verification codes, so the log stays with
+  // admin / super_admin — moderators don't get it.
+  if (role === 'moderator') return ['restaurants', 'orders', 'events', 'broadcasts', 'promotions', 'reports'].includes(tab)
+  return false
+}
+
+// Landing tab when no (or no permitted) ?tab= is present. Derived from the
+// visible list rather than hardcoded, so a role that can't see the first
+// tile doesn't land on a blank panel.
+function firstVisibleAdminTab(role: string | null | undefined): AdminSubTab {
+  return ADMIN_TABS.find(tab => adminCanFor(role, tab)) ?? 'profile'
 }
 
 // ── "Remember my number" persistence ────────────────────────────────────────
@@ -213,9 +282,7 @@ export default function AccountPage() {
     if (typeof window === 'undefined') return 'orders'
     const q = new URLSearchParams(window.location.search).get('tab')
     const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
-    const initial = q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'orders'
-    console.log('[account] initial customerTab from URL:', { rawQuery: q, initial })
-    return initial
+    return q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'orders'
   })
   // Mobile-only drill-down. `null` = showing the menu list; anything else
   // = showing that one section with a back arrow. Desktop ignores this
@@ -237,7 +304,13 @@ export default function AccountPage() {
   // Commandes tile in restaurant mode. Same endpoint and cadence as the
   // BottomNav badge, so the two never disagree.
   const [pendingOrders,    setPendingOrders]    = useState(0)
+  // Desktop selection — always set, exactly like `customerTab`.
   const [adminSubTab,      setAdminSubTab]      = useState<AdminSubTab>('restaurants')
+  // Mobile drill-down — `null` = showing the tile + menu-list root, anything
+  // else = that one panel with a back arrow. The admin twin of
+  // `mobileSection`; kept separate because the two tab sets collide on
+  // orders/events/vouchers/profile with different meanings.
+  const [adminSection,     setAdminSection]     = useState<AdminSubTab | null>(null)
   const [customerVouchers, setCustomerVouchers] = useState<CustomerVoucher[]>([])
   const [eventReservations, setEventReservations] = useState<EventReservation[]>([])
   // Events the user organizes. Populated from /api/events/my; empty array
@@ -361,11 +434,31 @@ export default function AccountPage() {
     const q = new URLSearchParams(window.location.search).get('tab')
     const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
     if (q && (allowed as string[]).includes(q)) {
-      console.log('[account] post-mount effect setting tab:', q)
       setCustomerTab(q as CustomerTab)
       setMobileSection(q as CustomerTab)
     }
   }, [])
+
+  // Back / Forward between admin tabs. The selection is pushed onto the
+  // history stack (see selectAdminTab / openAdminSection), so popstate just
+  // re-reads the URL and re-applies it — re-validating through adminCanFor,
+  // because a hand-edited URL is untrusted input like any other. No entry,
+  // or one this role can't open, returns to the menu root.
+  useEffect(() => {
+    if (dashView !== 'admin') return
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search).get('tab')
+      if (q && isAdminTab(q) && adminCanFor(user?.role, q)) {
+        setAdminSubTab(q)
+        setAdminSection(q)
+      } else {
+        setAdminSection(null)
+        setAdminSubTab(firstVisibleAdminTab(user?.role))
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [dashView, user])
 
   // Broadcast / Promote eligibility for the mobile menu rows. Customers
   // only — admins and vendors in admin view never see the list.
@@ -432,6 +525,25 @@ export default function AccountPage() {
           setStep('dashboard')
           if (['super_admin', 'admin', 'moderator'].includes(u.role)) {
             setDashView('admin')
+            // Honour ?tab= the way the customer view does, but only for a
+            // tab this role may actually open — otherwise fall back to the
+            // first visible one rather than a blank panel.
+            const q = new URLSearchParams(window.location.search).get('tab')
+            if (q && isAdminTab(q) && adminCanFor(u.role, q)) {
+              setAdminSubTab(q)
+              setAdminSection(q)
+              // Someone arriving on a bookmarked ?tab= has no menu-root
+              // entry behind them, so Back would leave the site. Seed one:
+              // rewrite this entry as the tab-less root, then push the deep
+              // link on top of it. Back now always lands on the menu.
+              const deep = new URL(window.location.href)
+              const root = new URL(window.location.href)
+              root.searchParams.delete('tab')
+              window.history.replaceState({}, '', root)
+              window.history.pushState({}, '', deep)
+            } else {
+              setAdminSubTab(firstVisibleAdminTab(u.role))
+            }
           } else {
             setDashView('customer')
             loadCustomerData(u.id)
@@ -744,6 +856,46 @@ export default function AccountPage() {
     setMobileSection(tab)
   }
 
+  // ── Admin navigation ────────────────────────────────────────────────
+  // Every admin selection writes ?tab= onto the history stack, which is
+  // what makes the panels bookmarkable AND makes browser Back step through
+  // them instead of leaving /account. pushState is used directly rather
+  // than router.push: Next treats ?tab=a and ?tab=b as the same route, so
+  // a push would re-render nothing.
+  const pushAdminTab = (tab: AdminSubTab) => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('tab') === tab) return
+    url.searchParams.set('tab', tab)
+    window.history.pushState({}, '', url)
+  }
+
+  // Desktop tab click — panel only, the mobile root is not involved.
+  const selectAdminTab = (tab: AdminSubTab) => {
+    setAdminSubTab(tab)
+    pushAdminTab(tab)
+  }
+
+  // Mobile tile / row tap — drills in, and keeps the desktop tab in sync so
+  // the two never disagree if the viewport changes. Mirrors openMobileSection.
+  const openAdminSection = (tab: AdminSubTab) => {
+    setAdminSubTab(tab)
+    setAdminSection(tab)
+    pushAdminTab(tab)
+  }
+
+  // Back arrow — pop the history entry so the URL and the view stay in
+  // step; the popstate handler above does the actual state reset. There is
+  // always an entry to pop: either this session pushed one on drill-in, or
+  // the mount handler seeded one behind a deep link.
+  const closeAdminSection = () => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab')) {
+      window.history.back()
+      return
+    }
+    setAdminSection(null)
+  }
+
   const MOBILE_SECTION_TITLES: Record<MobileSection, string> = {
     orders:        t('account.ordersTab'),
     vouchers:      bi('Bons de réduction', 'Vouchers'),
@@ -926,17 +1078,9 @@ export default function AccountPage() {
   }
 
   // ── Admin permission checks ──
-  function adminCan(tab: AdminSubTab): boolean {
-    if (!user) return false
-    // Everyone in the admin dashboard can see their own profile
-    if (tab === 'profile') return true
-    if (user.role === 'super_admin') return true
-    if (user.role === 'admin') return tab !== 'platformteam'
-    // Message bodies include verification codes, so the log stays with
-    // admin / super_admin — moderators don't get it.
-    if (user.role === 'moderator') return ['restaurants', 'orders', 'events', 'broadcasts', 'promotions', 'reports'].includes(tab)
-    return false
-  }
+  // Rules live in adminCanFor at module scope (unchanged); this is the
+  // component-side binding to the current session.
+  const adminCan = (tab: AdminSubTab): boolean => adminCanFor(user?.role, tab)
 
   // ── Loading splash ──
   if (step === 'loading') {
@@ -947,13 +1091,18 @@ export default function AccountPage() {
     )
   }
 
-  // Admin dashboard keeps the narrow-centered 2xl column to match the
-  // rest of the chrome; form surfaces (sign-in, sign-up, profile edit)
-  // stay at max-w-md because single-column forms become unusable past
-  // ~600px and 2xl is already wider than ideal for that case.
+  // Admin panels (tables, account lists) need the 2xl column, but the
+  // admin *menu* — tiles and rows — should sit on the same narrow rhythm
+  // as client and restaurant mode. So the menu root is md-narrow and only
+  // widens at md+, where the desktop tab bar always has a panel open;
+  // a drilled-in panel takes 2xl outright.
+  // Form surfaces (sign-in, sign-up, profile edit) stay at max-w-md
+  // because single-column forms become unusable past ~600px.
   const containerClass =
     step === 'dashboard' && dashView === 'admin'
-      ? 'max-w-2xl mx-auto px-4 py-8'
+      ? (adminSection !== null
+          ? 'max-w-2xl mx-auto px-4 py-8'
+          : 'max-w-md md:max-w-2xl mx-auto px-4 py-8')
       : 'max-w-md mx-auto px-4 py-8'
 
   return (
@@ -1174,10 +1323,9 @@ export default function AccountPage() {
                 (see ModeToggle further down) so it stops competing with
                 the main content for attention. */}
 
-            {/* Header — the customer view replaces this with a big-name
-                profile header on mobile (below), so it's md+ only there.
-                Admin keeps it at every width. */}
-            <div className={`${dashView === 'customer' ? 'hidden md:flex' : 'flex'} items-center justify-between mb-6`}>
+            {/* Header — every view replaces this with a big-name profile
+                header on mobile (below), so it's md+ only. */}
+            <div className="hidden md:flex items-center justify-between mb-6">
               <div>
                 <p className="text-xs text-ink-tertiary">{t('account.hello')}</p>
                 <p className="font-bold text-ink-primary text-lg">
@@ -1193,40 +1341,102 @@ export default function AccountPage() {
 
             {/* ══════════════════════════════════════════════════════════
                 ADMIN DASHBOARD
+                Same shell as client / restaurant below — profile header,
+                tile grid, menu-list card, mobile drill-down, desktop tab
+                row. Only the items differ, and each one is filtered by
+                adminCan, so a moderator simply gets fewer of them.
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'admin' && (() => {
-              const allAdminTabs: AdminSubTab[] = ['restaurants', 'orders', 'events', 'broadcasts', 'promotions', 'vouchers', 'reports', 'accounts', 'messages', 'platformteam', 'profile']
-              const visibleTabs = allAdminTabs.filter(adminCan)
-              if (typeof window !== 'undefined') {
-                console.log('[admin-tabs] user.role =', user.role, '| visible =', visibleTabs, '| profile visible?', visibleTabs.includes('profile'))
-              }
+              const visibleTiles = ADMIN_TILES.filter(adminCan)
+              const visibleRows  = ADMIN_ROWS.filter(adminCan)
+              const visibleTabs  = [...visibleTiles, ...visibleRows]
               return (
-              <div>
-                <div className="flex flex-wrap gap-2 mb-5">
-                  {visibleTabs
-                    .map(sub => (
-                      <button key={sub}
-                        onClick={() => setAdminSubTab(sub)}
-                        className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors ${
-                          adminSubTab === sub ? 'bg-ink-primary text-white' : 'bg-white text-ink-secondary shadow-sm hover:text-ink-primary'
-                        }`}
-                      >
-                        {pickBi(ADMIN_TAB_LABELS[sub], locale)}
-                      </button>
-                    ))}
+              <>
+                {/* ── MOBILE ROOT (< md) ── */}
+                {adminSection === null && (
+                  <div className="md:hidden">
+                    <ProfileHeaderCard
+                      name={user.name}
+                      badges={<RoleBadge label={bi(...adminRoleLabel(user.role))} />}
+                    />
+
+                    {/* Quick access — the three surfaces an admin opens most. */}
+                    {visibleTiles.length > 0 && (
+                      <div className="grid grid-cols-3 gap-3 mb-6">
+                        {visibleTiles.map(tab => (
+                          <QuickCard
+                            key={tab}
+                            icon={ADMIN_TAB_ICONS[tab]}
+                            label={pickBi(ADMIN_TAB_LABELS[tab], locale)}
+                            onClick={() => openAdminSection(tab)}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <MenuList>
+                      {visibleRows.map(tab => (
+                        <MenuRow
+                          key={tab}
+                          icon={ADMIN_TAB_ICONS[tab]}
+                          label={pickBi(ADMIN_TAB_LABELS[tab], locale)}
+                          desc={pickBi(ADMIN_TAB_DESCS[tab], locale)}
+                          onClick={() => openAdminSection(tab)}
+                        />
+                      ))}
+
+                      {/* Same tail every account gets. No ModeToggle — an
+                          admin never holds a team role, so it renders null
+                          anyway — and no NotificationsPanel, which is the
+                          customer's own event-subscription prefs. */}
+                      <MenuLowDataRow />
+                      <MenuLanguageRow />
+                      <SignOutRow label={t('account.signOut')} onClick={handleSignOut} />
+                    </MenuList>
+                  </div>
+                )}
+
+                {/* Back bar for a drilled-in admin panel. */}
+                {adminSection !== null && (
+                  <SectionBackBar
+                    title={pickBi(ADMIN_TAB_LABELS[adminSection], locale)}
+                    onBack={closeAdminSection}
+                  />
+                )}
+
+                {/* ── DESKTOP TAB BAR (md+) ──
+                    Same component and container as the customer tab bar;
+                    only the basis differs, so 11 tabs wrap 4-per-row
+                    instead of being squeezed into one unreadable line. */}
+                <div className="hidden md:flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
+                  {visibleTabs.map(tab => (
+                    <TabBtn
+                      key={tab}
+                      icon={ADMIN_TAB_ICONS[tab]}
+                      label={pickBi(ADMIN_TAB_LABELS[tab], locale)}
+                      active={adminSubTab === tab}
+                      onClick={() => selectAdminTab(tab)}
+                      basisClass="basis-[calc(25%-0.25rem)]"
+                    />
+                  ))}
                 </div>
-                {adminSubTab === 'restaurants'  && <AdminRestaurants />}
-                {adminSubTab === 'orders'       && <AdminOrders />}
-                {adminSubTab === 'events'       && <AdminEvents />}
-                {adminSubTab === 'broadcasts'   && <AdminBroadcasts />}
-                {adminSubTab === 'promotions'   && <AdminPromotions />}
-                {adminSubTab === 'vouchers'     && <AdminVouchers />}
-                {adminSubTab === 'reports'      && <AdminReports />}
-                {adminSubTab === 'accounts'     && <AdminAccounts />}
-                {adminSubTab === 'messages'     && <AdminMessages />}
-                {adminSubTab === 'platformteam' && <AdminPlatformTeam />}
-                {adminSubTab === 'profile'      && <AdminProfilePanel />}
-              </div>
+
+                {/* The panels — desktop always, mobile only once drilled in.
+                    Same wrapper trick as the customer tab panels below. */}
+                <div className={adminSection !== null ? '' : 'hidden md:block'}>
+                  {adminSubTab === 'restaurants'  && <AdminRestaurants />}
+                  {adminSubTab === 'orders'       && <AdminOrders />}
+                  {adminSubTab === 'events'       && <AdminEvents />}
+                  {adminSubTab === 'broadcasts'   && <AdminBroadcasts />}
+                  {adminSubTab === 'promotions'   && <AdminPromotions />}
+                  {adminSubTab === 'vouchers'     && <AdminVouchers />}
+                  {adminSubTab === 'reports'      && <AdminReports />}
+                  {adminSubTab === 'accounts'     && <AdminAccounts />}
+                  {adminSubTab === 'messages'     && <AdminMessages />}
+                  {adminSubTab === 'platformteam' && <AdminPlatformTeam />}
+                  {adminSubTab === 'profile'      && <AdminProfilePanel />}
+                </div>
+              </>
               )
             })()}
 
@@ -1295,25 +1505,11 @@ export default function AccountPage() {
                    ══════════════════════════════════════════════════════════ */}
                 {mobileSection === null && (
                   <div className="md:hidden">
-                    {/* Name + avatar */}
-                    <div className="flex items-start justify-between gap-4 mb-6">
-                      <div className="min-w-0 flex-1">
-                        <h1 className="text-[28px] leading-tight font-bold text-ink-primary break-words">
-                          {user.name}
-                        </h1>
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          <ProfileRoleBadges restaurants={myRestaurants} trust={organizerTrust} />
-                        </div>
-                      </div>
-                      {/* No avatar column exists on customers yet, so this is
-                          always the placeholder circle. */}
-                      <div
-                        aria-hidden="true"
-                        className="w-14 h-14 flex-shrink-0 rounded-full bg-surface-muted flex items-center justify-center text-2xl"
-                      >
-                        👤
-                      </div>
-                    </div>
+                    {/* Name + avatar — shared with the admin view above. */}
+                    <ProfileHeaderCard
+                      name={user.name}
+                      badges={<ProfileRoleBadges restaurants={myRestaurants} trust={organizerTrust} />}
+                    />
 
                     {/* Quick access. Client mode is the customer's own
                         stuff; restaurant mode swaps in the three dashboard
@@ -1386,7 +1582,7 @@ export default function AccountPage() {
                         it in client mode — they're the tiles above. In
                         restaurant mode the tiles cover orders/menu/settings
                         and the list adds the vendor surfaces. */}
-                    <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-divider">
+                    <MenuList>
                       <MenuRow
                         icon="👤"
                         label={t('account.profileTab')}
@@ -1464,35 +1660,17 @@ export default function AccountPage() {
                           in place, and returns null without a team role. */}
                       <ModeToggle variant="row" />
 
-                      <button
-                        type="button"
-                        onClick={handleSignOut}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-brand-light"
-                      >
-                        <span aria-hidden="true" className="text-xl leading-none w-7 text-center flex-shrink-0">🚪</span>
-                        <span className="flex-1 min-w-0 text-sm font-semibold text-danger truncate">
-                          {t('account.signOut')}
-                        </span>
-                      </button>
-                    </div>
+                      <SignOutRow label={t('account.signOut')} onClick={handleSignOut} />
+                    </MenuList>
                   </div>
                 )}
 
                 {/* Back bar for a drilled-in mobile section. */}
                 {mobileSection !== null && (
-                  <div className="md:hidden flex items-center gap-1 mb-4">
-                    <button
-                      type="button"
-                      onClick={() => setMobileSection(null)}
-                      aria-label={bi('Retour', 'Back')}
-                      className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-xl text-ink-secondary hover:bg-surface-muted transition-colors"
-                    >
-                      ←
-                    </button>
-                    <h1 className="text-xl font-bold text-ink-primary truncate">
-                      {mobileSectionTitle}
-                    </h1>
-                  </div>
+                  <SectionBackBar
+                    title={mobileSectionTitle}
+                    onBack={() => setMobileSection(null)}
+                  />
                 )}
 
                 {/* Mobile-only sections lifted out of the desktop Profile
@@ -2330,6 +2508,76 @@ function VoucherClaimForm({ onClaimed }: { onClaimed: () => void }) {
 
 // One of the three quick-access tiles above the menu list. Renders as a
 // Link when `href` is given, a button otherwise.
+// Big-name header + role badges + avatar placeholder. The root of every
+// mobile account view — client, restaurant and admin — with `badges` as the
+// only thing that varies (ProfileRoleBadges for customers, the staff role
+// for admins).
+function ProfileHeaderCard({ name, badges }: { name: string; badges: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="min-w-0 flex-1">
+        <h1 className="text-[28px] leading-tight font-bold text-ink-primary break-words">
+          {name}
+        </h1>
+        <div className="flex flex-wrap gap-1.5 mt-2">{badges}</div>
+      </div>
+      {/* No avatar column exists on accounts yet, so this is always the
+          placeholder circle. */}
+      <div
+        aria-hidden="true"
+        className="w-14 h-14 flex-shrink-0 rounded-full bg-surface-muted flex items-center justify-center text-2xl"
+      >
+        👤
+      </div>
+    </div>
+  )
+}
+
+// The white card that holds the MenuRow stack. Extracted so the customer
+// and admin lists can't drift apart on radius/shadow/divider.
+function MenuList({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-divider">
+      {children}
+    </div>
+  )
+}
+
+// `← Title` bar shown once a mobile view has drilled into one section.
+function SectionBackBar({ title, onBack }: { title: string; onBack: () => void }) {
+  const bi = useBi()
+  return (
+    <div className="md:hidden flex items-center gap-1 mb-4">
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label={bi('Retour', 'Back')}
+        className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-xl text-ink-secondary hover:bg-surface-muted transition-colors"
+      >
+        ←
+      </button>
+      <h1 className="text-xl font-bold text-ink-primary truncate">{title}</h1>
+    </div>
+  )
+}
+
+// Last row of every menu list. Not a MenuRow: no chevron, danger-coloured,
+// and it acts rather than navigates.
+function SignOutRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-brand-light"
+    >
+      <span aria-hidden="true" className="text-xl leading-none w-7 text-center flex-shrink-0">🚪</span>
+      <span className="flex-1 min-w-0 text-sm font-semibold text-danger truncate">
+        {label}
+      </span>
+    </button>
+  )
+}
+
 function QuickCard({
   icon, label, onClick, href, badge,
 }: {
@@ -2450,22 +2698,25 @@ function MenuLanguageRow() {
 }
 
 function TabBtn({
-  icon, label, active, onClick,
+  icon, label, active, onClick, basisClass = 'basis-[calc(33.333%-0.25rem)] sm:basis-0 flex-1',
 }: {
   icon: string
   label: string
   active: boolean
   onClick: () => void
+  /** Width of one tab. Defaults to the customer row: ≈1/3 on mobile so 3
+   *  fit per row and the 4th/5th wrap, then basis-0 + flex-1 on sm+ so up
+   *  to 5 share a single row evenly. The admin row overrides it — 11 tabs
+   *  in one line would truncate every label to nothing. */
+  basisClass?: string
 }) {
-  // basis ≈ 1/3 on mobile so 3 tabs fit per row and the 4th/5th wrap.
-  // basis-0 + flex-1 on sm+ so 5 tabs share a single row evenly.
   // min-w-0 lets labels truncate if they ever get long.
   return (
     <button
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`basis-[calc(33.333%-0.25rem)] sm:basis-0 flex-1 min-w-0 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
+      className={`${basisClass} min-w-0 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
         active ? 'bg-brand text-white' : 'text-ink-secondary hover:text-ink-primary'
       }`}
     >

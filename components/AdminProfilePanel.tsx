@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
+import { adminRoleLabel } from '@/lib/roleLabels'
 
 export interface AdminProfile {
   id: string
@@ -10,12 +11,6 @@ export interface AdminProfile {
   role: 'super_admin' | 'admin' | 'moderator'
   status: 'active' | 'suspended'
   created_at: string
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  super_admin: 'Super Admin',
-  admin:       'Admin',
-  moderator: 'Modérateur / Moderator',
 }
 
 function useToast() {
@@ -244,12 +239,13 @@ export default function AdminProfilePanel() {
 }
 
 function RoleBadge({ role }: { role: AdminProfile['role'] }) {
+  const bi = useBi()
   const cls = role === 'super_admin'
     ? 'bg-brand-light text-brand-darker'
     : role === 'admin'
       ? 'bg-brand-light text-brand-darker'
       : 'bg-sky-100 text-sky-700'
-  return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cls}`}>{ROLE_LABELS[role] ?? role}</span>
+  return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cls}`}>{bi(...adminRoleLabel(role))}</span>
 }
 
 function StatusBadge({ status }: { status: AdminProfile['status'] }) {

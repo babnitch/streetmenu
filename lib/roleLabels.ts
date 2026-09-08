@@ -29,6 +29,23 @@ export function roleLabel(role: string): BiLabel {
   return ROLE_LABELS[role as TeamRole] ?? [role, role]
 }
 
+// ── Platform staff ──────────────────────────────────────────────────────────
+// The roles that land in the admin view of /account. Kept here rather than
+// beside the one component that first needed them, so the account profile
+// header and the admin profile panel can never drift apart.
+export type StaffRole = 'super_admin' | 'admin' | 'moderator'
+
+export const ADMIN_ROLE_LABELS: Record<StaffRole, BiLabel> = {
+  super_admin: ['Super Admin', 'Super Admin'],
+  admin:       ['Admin', 'Admin'],
+  moderator:   ['Modérateur', 'Moderator'],
+}
+
+// Falls back to the raw role string for anything not in the map.
+export function adminRoleLabel(role: string): BiLabel {
+  return ADMIN_ROLE_LABELS[role as StaffRole] ?? [role, role]
+}
+
 // ── Event publisher ─────────────────────────────────────────────────────────
 // An orthogonal role: anyone — plain customer or restaurateur — becomes a
 // publisher by submitting an event, and a *verified* publisher once an admin
