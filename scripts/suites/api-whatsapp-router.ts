@@ -1,6 +1,10 @@
 // TEST-PLAN.md §1d #45, #50, #51 — the customer, identity and session half of
 // the WhatsApp router. (#46-#49, vendor management, land as a second commit.)
 //
+// Plus one #49 step that ships early, with the fix it proves: the
+// invite_accept flow, which could never work until
+// supabase-signup-session-types.sql widened signup_sessions.user_type.
+//
 // MECHANISM. The webhook is a plain form-POST and answers 200 to anything it
 // accepts, so a status code proves almost nothing here: an accepted command, a
 // refused one and a rate-limited one all look identical from outside. Every
@@ -337,6 +341,83 @@ async function main(): Promise<void> {
       await send(unknownPhone, 'annuler')
       assertEq(await sessionsFor(unknownPhone), 0, "'annuler' abandons the signup cleanly")
     })
+    await step('#49 accepter from an UNKNOWN number opens an invite_accept signup', async () => {
+      // The flow that could never work before supabase-signup-session-types.sql:
+      // signup_sessions_user_type_check rejected 'invite_accept', the upsert
+      // swallowed the error, and the invitee was promised a registration that
+      // was never stored. Their next message started a plain signup and the
+      // invitation was orphaned. This is the proof it works now.
+      const owner = await makeCustomer({ suiteNo: 49, name: 'Invite Unknown Owner' })
+      const rest  = await makeRestaurant({ ownerId: owner.id, label: 'wa_invite_new', whatsapp: owner.phone })
+      const newcomerPhone = '+999499500'
+
+      // No customer exists for this number — that is what selects the
+      // two-step branch rather than the instant one.
+      const { data: pre } = await sb.from('customers').select('id').eq('phone', newcomerPhone).maybeSingle()
+      assertEq(pre, null, 'the invitee is not a customer yet')
+
+      // Self-contained on purpose: this step ships with the bug fix, ahead of
+      // the rest of the #46-#49 coverage, so it borrows no shared helper.
+      const readInvites = async () => {
+        const { data } = await sb.from('team_invitations')
+          .select('id, phone, role, status').eq('restaurant_id', rest.id)
+        return (data ?? []) as Array<{ id: string; phone: string; role: string; status: string }>
+      }
+
+      await send(owner.phone, `inviter ${newcomerPhone} manager`)
+      const invites = await readInvites()
+      for (const i of invites) track('team_invitations', i.id)
+      assertEq(invites.length, 1, 'the owner created a pending invitation')
+      const invitationId = invites[0].id
+
+      // ── The previously-dead step ──
+      await send(newcomerPhone, 'accepter')
+
+      const { data: sess } = await sb.from('signup_sessions')
+        .select('user_type, step, data').eq('phone', newcomerPhone).maybeSingle()
+      assert(!!sess, 'a signup session was written — this is the write that used to fail silently')
+      assertEq((sess as { user_type?: string } | null)?.user_type, 'invite_accept',
+        "user_type='invite_accept' — the value the CHECK constraint used to reject")
+      assertEq((sess as { step?: number } | null)?.step, 1, 'at step 1, asking for a name')
+
+      const carried = (sess as { data?: { invitation_ids?: string[] } } | null)?.data?.invitation_ids
+      assert(Array.isArray(carried), 'the session carries invitation_ids')
+      assertEq(carried?.length, 1, 'exactly one invitation id')
+      assertEq(carried?.[0], invitationId, 'and it is THIS invitation — the ids survive the round trip')
+
+      // ── Complete the signup: name, then city ──
+      await send(newcomerPhone, 'Nouvelle Recrue')
+      const { data: step2 } = await sb.from('signup_sessions')
+        .select('step, data').eq('phone', newcomerPhone).maybeSingle()
+      assertEq((step2 as { step?: number } | null)?.step, 2, 'the name advances it to step 2')
+      assertEq((step2 as { data?: { name?: string } } | null)?.data?.name, 'Nouvelle Recrue',
+        'with the name stashed')
+      assertEq((step2 as { data?: { invitation_ids?: string[] } } | null)?.data?.invitation_ids?.[0],
+        invitationId, 'and the invitation id still carried across the step')
+
+      await send(newcomerPhone, '1')   // Yaoundé
+
+      // The customer is created by the app, so the ledger has not seen it.
+      const { data: created } = await sb.from('customers')
+        .select('id, name, city').eq('phone', newcomerPhone).maybeSingle()
+      assert(!!created, 'the invitee is now a registered customer')
+      const newcomerId = (created as { id: string } | null)?.id ?? ''
+      if (newcomerId) track('customers', newcomerId)
+      assertEq((created as { name?: string } | null)?.name, 'Nouvelle Recrue', 'with the name they gave')
+
+      // …and the invitation actually converted into team membership.
+      const { data: teamData } = await sb.from('restaurant_team')
+        .select('id, role, status').eq('restaurant_id', rest.id).eq('customer_id', newcomerId).maybeSingle()
+      const row = teamData as { id: string; role: string; status: string } | null
+      assert(!!row, 'a restaurant_team row was created — the invitation converted')
+      if (row) track('restaurant_team', row.id)
+      assertEq(row?.role, 'manager', 'with the invited role')
+      assertEq(row?.status, 'active', 'and active')
+
+      assertEq((await readInvites())[0]?.status, 'accepted', "the invitation is marked 'accepted'")
+      assertEq(await sessionsFor(newcomerPhone), 0, 'and the signup session was consumed')
+    })
+
   } finally {
     const r = await teardown()
     for (const e of r.errors) console.warn(`  ⚠ teardown: ${e}`)

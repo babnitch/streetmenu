@@ -20,7 +20,9 @@
 // non-head select. Only #19's status-value checks and #20/#21 write anything,
 // and those go through the fixtures so the ledger owns the cleanup.
 
-import { sb } from '../testkit/env'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+import { sb, testPhone } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { makeCustomer, makeRestaurant, type TestCustomer } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
@@ -145,6 +147,72 @@ async function main(): Promise<void> {
         const r = await orderStatusAccepted(rest.id, buyer, status)
         assert(r.ok, `orders.status accepts '${status}' (supabase-orders-cancelled-status.sql)`, r.detail)
       }
+    })
+
+    // ── signup_sessions.user_type: schema vs code ──────────────────────────
+    // This guard exists because a SILENT failure killed two production flows.
+    // The router wrote 'menu_category' and 'invite_accept'; the CHECK
+    // constraint had never been widened for either; and none of the five
+    // upserts checked its error. The 2-part menu add-item flow and the
+    // invite-accept registration therefore did nothing at all, for months,
+    // while still sending the user a friendly prompt.
+    //
+    // It FAILS HARD and is never a warn(). A warn is for a known-benign
+    // environment gap; a red here means the schema and the code disagree and
+    // some flow is dead. That is precisely the signal that was missing.
+    // If this suite is red on an environment that has not yet run
+    // supabase-signup-session-types.sql, the red is correct.
+    await step('signup_sessions.user_type accepts every value the router writes', async () => {
+      const holder = await makeCustomer({ suiteNo: 19, name: 'Session Type Probe' })
+
+      // Attempt one row per value, cleaning between so the PK never collides.
+      const tryType = async (userType: string): Promise<string | null> => {
+        await sb.from('signup_sessions').delete().eq('phone', holder.phone)
+        const { error } = await sb.from('signup_sessions').insert({
+          phone:      holder.phone,
+          user_type:  userType,
+          step:       1,
+          data:       {},
+          expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+        } as never)
+        return error ? `${error.code}: ${error.message}` : null
+      }
+
+      // (a) The probe must be able to DETECT rejection, or it proves nothing —
+      // same reasoning as the tableExists self-check above.
+      const bogus = await tryType('__t_not_a_real_session_type__')
+      assert(!!bogus, 'the probe rejects a nonsense user_type (so it can detect a rejection at all)')
+      assert((bogus ?? '').startsWith('23514'),
+        `and rejects it via the CHECK constraint, not some other error (got ${bogus})`)
+
+      // (b) Every value the constraint is supposed to allow.
+      const EXPECTED = [
+        'customer', 'vendor', 'photo_update', 'restaurant_select',
+        'ordering', 'menu_category', 'invite_accept',
+      ]
+      for (const t of EXPECTED) {
+        const err = await tryType(t)
+        assert(err === null, `signup_sessions.user_type accepts '${t}'`, err ?? undefined)
+      }
+
+      // (c) The part that catches the NEXT divergence: read what the router
+      // actually writes and assert each literal is allowed. Adding an eighth
+      // session type without a migration fails here, by name, instead of
+      // dying silently in production.
+      const routerSrc = readFileSync(
+        resolve(process.cwd(), 'app/api/whatsapp/incoming/route.ts'), 'utf8')
+      const written = Array.from(new Set(
+        Array.from(routerSrc.matchAll(/user_type:\s*'([a-z_]+)'/g)).map(m => m[1]),
+      )).sort()
+      assert(written.length > 0, `found the router's user_type literals (${written.join(', ')})`)
+      for (const t of written) {
+        assert(EXPECTED.includes(t),
+          `the router writes user_type '${t}' and the constraint allows it`,
+          `'${t}' is written by app/api/whatsapp/incoming/route.ts but is NOT in the allowed set — ` +
+          'widen signup_sessions_user_type_check with a migration, or the flow using it is silently dead')
+      }
+
+      await sb.from('signup_sessions').delete().eq('phone', holder.phone)
     })
 
     // ── #18 generateReservationCodes ───────────────────────────────────────

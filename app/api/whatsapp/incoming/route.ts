@@ -131,14 +131,22 @@ async function loadPendingInvitationsForPhone(phone: string): Promise<PendingInv
 // Kick off the WhatsApp registration flow for an invitee who doesn't yet
 // have a customer record. Invitation IDs ride along in the session's data
 // blob and are consumed once the customer row is created.
-async function startInviteAcceptSignup(phone: string, invitationIds: string[]): Promise<void> {
-  await supabaseAdmin.from('signup_sessions').upsert({
+// Returns false when the session could not be stored, so the caller does not
+// promise a registration that cannot happen. This write failing silently is
+// what orphaned invitations from numbers that were not yet customers.
+async function startInviteAcceptSignup(phone: string, invitationIds: string[]): Promise<boolean> {
+  const { error } = await supabaseAdmin.from('signup_sessions').upsert({
     phone,
     user_type: 'invite_accept',
     step: 1,
     data: { invitation_ids: invitationIds },
     expires_at: sessionExpiry(),
   })
+  if (error) {
+    console.error('[whatsapp] invite_accept session upsert failed:', error.code, error.message)
+    return false
+  }
+  return true
 }
 
 // Called from the top-level router when body is accept/decline. Returns
@@ -207,7 +215,13 @@ async function handleInvitationReply(
     .eq('phone', phone).maybeSingle()
 
   if (!customer || customer.status !== 'active') {
-    await startInviteAcceptSignup(phone, pending.map(p => p.id))
+    const started = await startInviteAcceptSignup(phone, pending.map(p => p.id))
+    if (!started) {
+      await sendWhatsApp(from,
+        `❌ Une erreur est survenue. Réessayez dans un instant.\n` +
+        `❌ Something went wrong. Please try again shortly.`)
+      return ok()
+    }
     await sendWhatsApp(from,
       `🎉 Super! Finalisons votre inscription.\nQuel est votre prénom?\n\n` +
       `Let's finish your registration.\nWhat's your first name?`)
@@ -1982,14 +1996,23 @@ async function handleVendor(
 
       const category = threePart ? matchCategory(match[3]) : null
       if (threePart && !category) {
-        await sendWhatsApp(from,
-          pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
-          categoryPrompt(lang))
-        await supabaseAdmin.from('signup_sessions').upsert({
+        // Write the pending item BEFORE prompting: a category prompt that
+        // refers to a session which was never stored is how this flow died
+        // silently for months (signup_sessions_user_type_check rejected
+        // 'menu_category' and nothing checked the error).
+        const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
           phone, user_type: 'menu_category', step: 1,
           data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: photoUrl },
           expires_at: sessionExpiry(5),
         })
+        if (sessErr) {
+          console.error('[whatsapp] menu_category session upsert failed:', sessErr.code, sessErr.message)
+          await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
+          return ok()
+        }
+        await sendWhatsApp(from,
+          pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
+          categoryPrompt(lang))
         return ok()
       }
 
@@ -2013,11 +2036,16 @@ async function handleVendor(
       }
 
       // 2-part flow: photo uploaded, dish pending, ask for category.
-      await supabaseAdmin.from('signup_sessions').upsert({
+      const { error: sessErr2 } = await supabaseAdmin.from('signup_sessions').upsert({
         phone, user_type: 'menu_category', step: 1,
         data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: photoUrl },
         expires_at: sessionExpiry(5),
       })
+      if (sessErr2) {
+        console.error('[whatsapp] menu_category session upsert failed:', sessErr2.code, sessErr2.message)
+        await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
+        return ok()
+      }
       await sendWhatsApp(from,
         `✅ *${dishName}* (${price.toLocaleString()} FCFA)${photoUrl ? ' 📸' : ''}\n\n` +
         categoryPrompt(lang))
@@ -2072,14 +2100,20 @@ async function handleVendor(
     const category = textThreePart ? matchCategory(match[3]) : null
 
     if (textThreePart && !category) {
-      await sendWhatsApp(from,
-        pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
-        categoryPrompt(lang))
-      await supabaseAdmin.from('signup_sessions').upsert({
+      // Store before prompting — see the note on the photo path above.
+      const { error: sessErr3 } = await supabaseAdmin.from('signup_sessions').upsert({
         phone, user_type: 'menu_category', step: 1,
         data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: null },
         expires_at: sessionExpiry(5),
       })
+      if (sessErr3) {
+        console.error('[whatsapp] menu_category session upsert failed:', sessErr3.code, sessErr3.message)
+        await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
+        return ok()
+      }
+      await sendWhatsApp(from,
+        pickLang(`❓ Catégorie "${match[3].trim()}" non reconnue.`, `❓ Unknown category "${match[3].trim()}".`, lang) + `\n\n` +
+        categoryPrompt(lang))
       return ok()
     }
 
@@ -2106,11 +2140,16 @@ async function handleVendor(
     }
 
     // 2-part flow: stash pending item + prompt for category.
-    await supabaseAdmin.from('signup_sessions').upsert({
+    const { error: sessErr4 } = await supabaseAdmin.from('signup_sessions').upsert({
       phone, user_type: 'menu_category', step: 1,
       data: { restaurant_id: restaurant.id, name: dishName, price: String(price), photo_url: null },
       expires_at: sessionExpiry(5),
     })
+    if (sessErr4) {
+      console.error('[whatsapp] menu_category session upsert failed:', sessErr4.code, sessErr4.message)
+      await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
+      return ok()
+    }
     await sendWhatsApp(from,
       `✅ *${dishName}* (${price.toLocaleString()} FCFA)\n\n` + categoryPrompt(lang))
     return ok()
