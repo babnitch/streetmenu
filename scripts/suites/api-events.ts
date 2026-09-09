@@ -1,5 +1,5 @@
-// TEST-PLAN.md §1c #34 (event lifecycle) and #35 (ticket tiers).
-// (#36 vouchers lands as a separate commit.)
+// TEST-PLAN.md §1c #34 (event lifecycle), #35 (ticket tiers) and
+// #36 (event vouchers). The complete events area.
 //
 // 🔴 SAFETY. Publishing an event fans WhatsApp out to REAL subscribers whose
 // subscription matches the event's city + category, and nothing can un-send
@@ -21,7 +21,7 @@
 // Interlock 3 is deliberately redundant with 1 and 2. If a future change to
 // the fixtures quietly reintroduces a real city, this is what stops the send.
 
-import { sb, testName } from '../testkit/env'
+import { sb, testName, testCode } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, customerCookie, adminCookie } from '../testkit/session'
 import { makeCustomer, makeEvent, futureDateISO, pastDateISO, type TestCustomer } from '../testkit/fixtures'
@@ -624,6 +624,255 @@ async function main(): Promise<void> {
       for (const a of ['tier_created', 'tier_updated', 'tier_deactivated']) {
         assert(actions.has(a), `${a} audit row written`)
       }
+    })
+
+    // ══ #36 EVENT VOUCHERS ═════════════════════════════════════════════════
+
+    interface VoucherRowT { id: string; code: string; event_id: string | null; discount_type: string; discount_value: number }
+    interface VoucherApiBody { ok?: boolean; voucher?: VoucherRowT; vouchers?: VoucherRowT[]; error?: string }
+    interface ValidateBody {
+      ok?: boolean; reason?: string; message?: string
+      voucher?: { id: string; code: string; discount_type: string; discount_value: number }
+      discount?: number; finalTotal?: number
+    }
+
+    const createVoucher = (eventId: string, body: Record<string, unknown>, cookie: string | null) =>
+      api<VoucherApiBody>(`/api/events/${eventId}/vouchers`, { method: 'POST', body, ...(cookie ? { cookie } : {}) })
+    const listVouchers = (eventId: string, cookie: string | null) =>
+      api<VoucherApiBody>(`/api/events/${eventId}/vouchers`, { ...(cookie ? { cookie } : {}) })
+    const validateVoucherApi = (eventId: string, body: Record<string, unknown>, cookie: string | null) =>
+      api<ValidateBody>(`/api/events/${eventId}/vouchers/validate`, { method: 'POST', body, ...(cookie ? { cookie } : {}) })
+
+    // Codes must be namespaced or the sweeper cannot see them: the route
+    // auto-generates 'EVT-XXXX' when none is supplied, which no pattern
+    // matches. Always pass an explicit testCode() and track the id.
+    const trackVoucher = (b: VoucherApiBody): { id: string; code: string } => {
+      const v = b.voucher
+      if (v?.id) track('vouchers', v.id)
+      return { id: v?.id ?? '', code: v?.code ?? '' }
+    }
+
+    await step('#36 validate accepts a valid event-scoped code', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'vch_ok', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, ticketPrice: 5000,
+      })
+      const created = await createVoucher(ev.id, {
+        code: testCode('evt10'), discount_type: 'percent', discount_value: 10,
+      }, orgCookie)
+      assertEq(created.status, 200, `create → HTTP 200 (body ${created.raw.slice(0, 160)})`)
+      const v = trackVoucher(created.body)
+      assertEq(created.body.voucher?.event_id, ev.id, 'the voucher is pinned to this event')
+
+      const r = await validateVoucherApi(ev.id, { code: v.code, orderTotal: 5000 }, bookerCookie)
+      assertEq(r.status, 200, 'validate → HTTP 200')
+      assertEq(r.body.ok, true, 'ok=true')
+      assertEq(r.body.discount, 500, '10% of 5000 = 500')
+      assertEq(r.body.finalTotal, 4500, 'finalTotal = 4500')
+      assertEq(r.body.voucher?.code, v.code, 'the code is echoed back')
+      assertEq(r.body.voucher?.discount_type, 'percent', 'with its canonical type')
+
+      // The endpoint is a non-mutating preview, guests included.
+      const guest = await validateVoucherApi(ev.id, { code: v.code, orderTotal: 5000 }, null)
+      assertEq(guest.status, 200, 'a guest can preview a code too')
+      assertEq(guest.body.ok, true, 'and it validates')
+      const { data: after } = await sb.from('vouchers').select('current_uses').eq('id', v.id).maybeSingle()
+      assertEq((after as { current_uses?: number } | null)?.current_uses, 0,
+        'validate does NOT consume — current_uses is still 0')
+    })
+
+    await step('#36 validate rejects invalid, expired and other-event codes', async () => {
+      const evA = await makeEvent({
+        organizerId: organizer.id, label: 'vch_a', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, ticketPrice: 5000,
+      })
+      const evB = await makeEvent({
+        organizerId: organizer.id, label: 'vch_b', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, ticketPrice: 5000,
+      })
+
+      // Rejections come back as HTTP 200 with ok:false + a reason — NOT as a
+      // 4xx. Pinning that shape, because a client switching on status alone
+      // would treat every rejection as success.
+      const unknown = await validateVoucherApi(evA.id, { code: testCode('nosuch'), orderTotal: 5000 }, bookerCookie)
+      assertEq(unknown.status, 200, 'an unknown code still answers HTTP 200')
+      assertEq(unknown.body.ok, false, 'ok=false')
+      assertEq(unknown.body.reason, 'not_found', "reason='not_found'")
+      assert(!!unknown.body.message, 'and carries a human message')
+
+      const expired = trackVoucher((await createVoucher(evA.id, {
+        code: testCode('expired'), discount_type: 'percent', discount_value: 20,
+        expires_at: '2000-01-01T00:00:00Z',
+      }, orgCookie)).body)
+      const expRes = await validateVoucherApi(evA.id, { code: expired.code, orderTotal: 5000 }, bookerCookie)
+      assertEq(expRes.status, 200, 'an expired code answers HTTP 200')
+      assertEq(expRes.body.ok, false, 'ok=false')
+      assertEq(expRes.body.reason, 'expired', "reason='expired'")
+
+      const foreign = trackVoucher((await createVoucher(evB.id, {
+        code: testCode('otherevt'), discount_type: 'percent', discount_value: 15,
+      }, orgCookie)).body)
+      const wrong = await validateVoucherApi(evA.id, { code: foreign.code, orderTotal: 5000 }, bookerCookie)
+      assertEq(wrong.status, 200, "another event's code answers HTTP 200")
+      assertEq(wrong.body.ok, false, 'ok=false')
+      assertEq(wrong.body.reason, 'wrong_event', "reason='wrong_event'")
+
+      // …and it does work on its own event, so the rejection is about scoping
+      // rather than the code being broken.
+      const onOwn = await validateVoucherApi(evB.id, { code: foreign.code, orderTotal: 5000 }, bookerCookie)
+      assertEq(onOwn.body.ok, true, 'the same code validates against its own event')
+
+      assertEq((await validateVoucherApi(evA.id, { orderTotal: 5000 }, bookerCookie)).status, 400,
+        'a missing code → 400')
+    })
+
+    await step('#36 the discount splits across multi-row bookings and sums EXACTLY', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'vch_split', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      // Deliberately awkward prices so a naive per-row round() would drift:
+      // 1×3333 + 1×1111 = 4444, and 15% of that is 666.6 → 667.
+      const vipId = trackTier((await createTier(ev.id, { name: 'Odd VIP', price: 3333, max_quantity: 10 }, orgCookie)).body)
+      const stdId = trackTier((await createTier(ev.id, { name: 'Odd Std', price: 1111, max_quantity: 10 }, orgCookie)).body)
+
+      const v = trackVoucher((await createVoucher(ev.id, {
+        code: testCode('split15'), discount_type: 'percent', discount_value: 15,
+      }, orgCookie)).body)
+
+      const SUBTOTAL = 3333 + 1111            // 4444
+      const EXPECTED_DISCOUNT = Math.round(SUBTOTAL * 0.15)   // 667
+
+      const preview = await validateVoucherApi(ev.id, { code: v.code, orderTotal: SUBTOTAL }, bookerCookie)
+      assertEq(preview.body.discount, EXPECTED_DISCOUNT, `preview discount = ${EXPECTED_DISCOUNT}`)
+
+      const r = await reserve(ev.id, {
+        items: [{ tier_id: vipId, quantity: 1 }, { tier_id: stdId, quantity: 1 }],
+        voucher_code: v.code,
+      }, bookerCookie)
+      assertEq(r.status, 200, `reserve → HTTP 200 (body ${r.raw.slice(0, 200)})`)
+
+      const rows = await reservationRows(ev.id)
+      for (const row of rows) track('event_reservations', row.id)
+      assertEq(rows.length, 2, 'two rows, one per tier')
+
+      // Re-read from the DB rather than trusting the response.
+      const { data: full } = await sb.from('event_reservations')
+        .select('tier_id, discount_amount, total_price, voucher_code').eq('event_id', ev.id)
+      const stored = (full ?? []) as Array<{ tier_id: string; discount_amount: number; total_price: number; voucher_code: string | null }>
+
+      const discountSum = stored.reduce((a, x) => a + Number(x.discount_amount ?? 0), 0)
+      assertEq(discountSum, EXPECTED_DISCOUNT,
+        `per-row discounts sum EXACTLY to ${EXPECTED_DISCOUNT} — zero drift from the last-row remainder`)
+
+      const totalSum = stored.reduce((a, x) => a + Number(x.total_price ?? 0), 0)
+      assertEq(totalSum, SUBTOTAL - EXPECTED_DISCOUNT,
+        'and the discounted line totals sum to subtotal − discount')
+
+      assert(stored.every(x => x.voucher_code === v.code), 'every row records which code was applied')
+      assert(stored.every(x => x.discount_amount > 0), 'and every row carries a non-zero share')
+
+      // Consumed once at booking time, not once per row.
+      const { data: vAfter } = await sb.from('vouchers').select('current_uses').eq('id', v.id).maybeSingle()
+      assertEq((vAfter as { current_uses?: number } | null)?.current_uses, 1,
+        'the voucher was consumed exactly once for the whole booking')
+    })
+
+    await step('#36 edge (a): a code on a FREE event', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'vch_free', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, ticketPrice: 0,
+      })
+      const v = trackVoucher((await createVoucher(ev.id, {
+        code: testCode('freeevt'), discount_type: 'percent', discount_value: 50,
+      }, orgCookie)).body)
+
+      // The preview refuses outright — there is nothing to discount.
+      const r = await validateVoucherApi(ev.id, { code: v.code, orderTotal: 0 }, bookerCookie)
+      assertEq(r.status, 400, 'validate on a zero total → 400')
+      assertEq(r.body.ok, false, 'ok=false')
+      assert((r.body.message ?? '').toLowerCase().includes('gratuit'),
+        'and says the ticket is free rather than blaming the code')
+
+      // Booking still succeeds; the code is simply ignored because
+      // reserve only applies a voucher when totalPrice > 0.
+      const booked = await reserve(ev.id, { quantity: 1, voucher_code: v.code }, bookerCookie)
+      assertEq(booked.status, 200, 'reserving a free event with a code still succeeds')
+      const rows = await reservationRows(ev.id)
+      for (const row of rows) track('event_reservations', row.id)
+      const { data: stored } = await sb.from('event_reservations')
+        .select('discount_amount, voucher_code, total_price').eq('event_id', ev.id).maybeSingle()
+      const row = stored as { discount_amount: number; voucher_code: string | null; total_price: number } | null
+      assertEq(row?.total_price, 0, 'the booking is free')
+      assertEq(row?.discount_amount, 0, 'no discount was recorded')
+      assertEq(row?.voucher_code, null, 'and no code was attached — it was ignored, not applied')
+
+      const { data: vAfter } = await sb.from('vouchers').select('current_uses').eq('id', v.id).maybeSingle()
+      assertEq((vAfter as { current_uses?: number } | null)?.current_uses, 0,
+        'so the voucher was not consumed either')
+    })
+
+    await step('#36 edge (b): a discount larger than the total clamps at zero, never negative', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'vch_clamp', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, ticketPrice: 2000,
+      })
+      const v = trackVoucher((await createVoucher(ev.id, {
+        code: testCode('huge'), discount_type: 'fixed', discount_value: 999999,
+      }, orgCookie)).body)
+
+      const preview = await validateVoucherApi(ev.id, { code: v.code, orderTotal: 2000 }, bookerCookie)
+      assertEq(preview.status, 200, 'validate → HTTP 200')
+      assertEq(preview.body.ok, true, 'the code is accepted')
+      assertEq(preview.body.discount, 2000, 'the discount is CLAMPED to the order total')
+      assertEq(preview.body.finalTotal, 0, 'finalTotal is exactly 0')
+      assert((preview.body.finalTotal ?? -1) >= 0, 'and never negative')
+
+      const r = await reserve(ev.id, { quantity: 1, voucher_code: v.code }, bookerCookie)
+      assertEq(r.status, 200, 'the booking succeeds')
+      const rows = await reservationRows(ev.id)
+      for (const row of rows) track('event_reservations', row.id)
+      const { data: stored } = await sb.from('event_reservations')
+        .select('discount_amount, total_price').eq('event_id', ev.id).maybeSingle()
+      const row = stored as { discount_amount: number; total_price: number } | null
+      assertEq(row?.total_price, 0, 'the stored line total is 0')
+      assert((row?.total_price ?? -1) >= 0, 'never negative in the database either')
+      assertEq(row?.discount_amount, 2000, 'and the recorded discount is the clamped amount')
+    })
+
+    await step('#36 voucher management is organizer-only and event-scoped', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'vch_authz', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, ticketPrice: 5000,
+      })
+      const strangerCookie = customerCookie(booker2)
+
+      assertEq((await listVouchers(ev.id, strangerCookie)).status, 403, 'a stranger cannot list → 403')
+      assertEq((await listVouchers(ev.id, null)).status, 401, 'no session cannot list → 401')
+      assertEq((await createVoucher(ev.id, { code: testCode('nope'), discount_type: 'percent', discount_value: 5 },
+        strangerCookie)).status, 403, 'a stranger cannot create → 403')
+      assertEq((await createVoucher(ev.id, { code: testCode('nope2'), discount_type: 'percent', discount_value: 5 },
+        null)).status, 401, 'no session cannot create → 401')
+
+      // Validation.
+      assertEq((await createVoucher(ev.id, { code: testCode('bad1'), discount_type: 'nonsense', discount_value: 5 },
+        orgCookie)).status, 400, 'an unknown discount_type → 400')
+      assertEq((await createVoucher(ev.id, { code: testCode('bad2'), discount_type: 'percent', discount_value: 0 },
+        orgCookie)).status, 400, 'a zero discount_value → 400')
+      assertEq((await createVoucher(ev.id, { code: testCode('bad3'), discount_type: 'percent', discount_value: 150 },
+        orgCookie)).status, 400, 'a percentage above 100 → 400')
+
+      // Duplicate code.
+      const dup = testCode('dupe')
+      trackVoucher((await createVoucher(ev.id, { code: dup, discount_type: 'percent', discount_value: 5 }, orgCookie)).body)
+      assertEq((await createVoucher(ev.id, { code: dup, discount_type: 'percent', discount_value: 5 }, orgCookie)).status,
+        409, 'reusing an existing code → 409')
+
+      // The list is scoped to this event only.
+      const list = await listVouchers(ev.id, orgCookie)
+      assertEq(list.status, 200, 'the organizer can list → 200')
+      assert((list.body.vouchers ?? []).every(x => x.event_id === ev.id),
+        'every listed voucher belongs to this event')
+      assert((list.body.vouchers ?? []).some(x => x.code === dup), 'and the created code is in it')
     })
 
     // Final safety re-check: nothing in this suite changed the picture.
