@@ -218,6 +218,12 @@ async function deleteCascades(
   await del('event_reservations', 'customer_id', customers)
   await del('event_ticket_tiers', 'event_id', events)
 
+  // Subscriptions are INVISIBLE to test-sweep.ts: the table has no phone or
+  // name column, so no reserved-namespace pattern can find them. A row a
+  // suite forgot to track would accumulate silently while the sweeper kept
+  // reporting zero. Cleaning them from the tracked customer closes that.
+  await del('event_subscriptions', 'customer_id', customers)
+
   // Restaurant children, including the trigger-created owner team row.
   await del('menu_items', 'restaurant_id', restaurants)
   await del('restaurant_hours', 'restaurant_id', restaurants)
