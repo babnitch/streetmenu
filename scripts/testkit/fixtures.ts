@@ -164,25 +164,46 @@ export interface MakeEventOpts {
 
 export interface TestEvent { id: string; title: string }
 
-// NOTE for the events suite (TEST-PLAN.md §4 hazard 1): approving an event
-// fans WhatsApp out to real subscribers matching city + category, and no
-// teardown can un-send those. Default city here is deliberately one outside
-// SUBSCRIPTION_CITIES; assert countMatchingSubscribers() === 0 before any
-// approve call regardless.
+// 🔴 SAFETY (TEST-PLAN.md §4 hazard 1). Publishing an event fans WhatsApp out
+// to real subscribers matching its city + category, and nothing can un-send
+// that. This database HAS live subscribers (Yaoundé), so the hazard is real,
+// not theoretical.
+//
+// Two interlocks, both here:
+//
+//  1. The default city is RUN-NAMESPACED (__t_<RUN_ID>_city__), not merely a
+//     city that happens to have no subscribers today.
+//     lib/subscriptions.findMatchingSubscribers filters `.eq('city', city)` —
+//     an exact string match — so a per-run unique city has zero subscribers
+//     BY CONSTRUCTION. An earlier draft used 'Bafoussam', which is zero today
+//     but is a real city someone could subscribe to tomorrow.
+//  2. The auto-created organizer gets event_auto_approve: false explicitly.
+//     app/api/events/submit/route.ts fans out AT SUBMIT TIME when that flag is
+//     true — a second door that never reaches the admin approve route — so
+//     leaving it to the column default is not good enough.
+//
+// Suites must STILL assert countMatchingSubscribers({city, category}) === 0
+// immediately before any approve/publish call and abort if it is not.
 export async function makeEvent(opts: MakeEventOpts = {}): Promise<TestEvent> {
   const title = testName(opts.label ?? `event${nextSeq()}`)
   const price = opts.ticketPrice ?? 0
   // Same shape as makeRestaurant's customer_id: every real event is submitted
   // by someone (app/api/events/submit sets organizer_id: submitter.id
   // unconditionally), so mint a throwaway organizer rather than passing null.
-  const organizerId = opts.organizerId ?? (await makeCustomer({ name: `t_organizer_${nextSeq()}` })).id
+  const organizerId = opts.organizerId
+    ?? (await makeCustomer({
+      name: `t_organizer_${nextSeq()}`,
+      // Interlock 2 — see the note above. Never inherit the column default.
+      extra: { event_auto_approve: false },
+    })).id
   const row = await insertOne('events', {
     title,
     description:  null,
     date:         opts.date ?? futureDateISO(30),
     time:         null,
     venue:        null,
-    city:         opts.city ?? 'Bafoussam',
+    // Interlock 1 — see the note above. Namespaced, not merely quiet.
+    city:         opts.city ?? testName('city'),
     neighborhood: null,
     category:     opts.category ?? 'Autre',
     price,
