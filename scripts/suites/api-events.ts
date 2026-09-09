@@ -1,5 +1,5 @@
-// TEST-PLAN.md §1c #34 — the event lifecycle.
-// (#35 tiers and #36 vouchers land as separate commits.)
+// TEST-PLAN.md §1c #34 (event lifecycle) and #35 (ticket tiers).
+// (#36 vouchers lands as a separate commit.)
 //
 // 🔴 SAFETY. Publishing an event fans WhatsApp out to REAL subscribers whose
 // subscription matches the event's city + category, and nothing can un-send
@@ -383,6 +383,247 @@ async function main(): Promise<void> {
       const soldOut = await reserve(ev.id, { quantity: 1 }, customerCookie(booker2))
       assertEq(soldOut.status, 409, 'a sold-out event refuses further bookings')
       assertEq(soldOut.body.remaining, 0, 'reporting zero remaining')
+    })
+
+    // ══ #35 TICKET TIERS ═══════════════════════════════════════════════════
+
+    interface TierRow {
+      id: string; name: string; price: number; max_quantity: number
+      sold_count: number; is_active: boolean; event_id: string
+    }
+    interface TierBody { ok?: boolean; tier?: TierRow; tiers?: TierRow[]; error?: string; state?: string; remaining?: number }
+
+    const createTier = (eventId: string, body: Record<string, unknown>, cookie: string | null) =>
+      api<TierBody>(`/api/events/${eventId}/tiers`, { method: 'POST', body, ...(cookie ? { cookie } : {}) })
+    const patchTier = (eventId: string, tierId: string, body: Record<string, unknown>, cookie: string | null) =>
+      api<TierBody>(`/api/events/${eventId}/tiers/${tierId}`, { method: 'PATCH', body, ...(cookie ? { cookie } : {}) })
+    const deleteTier = (eventId: string, tierId: string, cookie: string | null) =>
+      api<TierBody>(`/api/events/${eventId}/tiers/${tierId}`, { method: 'DELETE', ...(cookie ? { cookie } : {}) })
+    const listTiers = (eventId: string, cookie: string | null) =>
+      api<TierBody>(`/api/events/${eventId}/tiers`, { ...(cookie ? { cookie } : {}) })
+
+    const tierRow = async (tierId: string): Promise<TierRow | null> => {
+      const { data } = await sb.from('event_ticket_tiers')
+        .select('id, name, price, max_quantity, sold_count, is_active, event_id')
+        .eq('id', tierId).maybeSingle()
+      return data as TierRow | null
+    }
+    // API-created tiers are invisible to the fixtures; track them so the
+    // ledger owns the rows and their audit entries.
+    const trackTier = (b: TierBody): string => {
+      const id = b.tier?.id ?? ''
+      if (id) track('event_ticket_tiers', id)
+      return id
+    }
+
+    await step('#35 the organizer can create, edit and deactivate a tier', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'tier_crud', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, ticketPrice: 1000,
+      })
+
+      const created = await createTier(ev.id, { name: 'VIP', price: 5000, max_quantity: 10 }, orgCookie)
+      assertEq(created.status, 200, `create → HTTP 200 (body ${created.raw.slice(0, 160)})`)
+      const tierId = trackTier(created.body)
+      assert(!!tierId, 'a tier id came back')
+      assertEq(created.body.tier?.event_id, ev.id, 'the tier belongs to the event from the URL')
+      assertEq(created.body.tier?.is_active, true, 'created active')
+      assertEq(created.body.tier?.sold_count, 0, 'and with nothing sold')
+
+      // Edit price, quantity and name in one call.
+      const edited = await patchTier(ev.id, tierId, { name: 'VIP Gold', price: 7500, max_quantity: 20 }, orgCookie)
+      assertEq(edited.status, 200, 'patch → HTTP 200')
+      const after = await tierRow(tierId)
+      assertEq(after?.name, 'VIP Gold', 'name updated')
+      assertEq(after?.price, 7500, 'price updated')
+      assertEq(after?.max_quantity, 20, 'max_quantity updated')
+
+      // A PATCH that names no recognised field is refused.
+      assertEq((await patchTier(ev.id, tierId, {}, orgCookie)).status, 400, 'an empty patch → 400')
+
+      // DELETE is a SOFT delete by design: the row survives so historical
+      // reservations keep a valid tier reference; it just leaves the picker.
+      const removed = await deleteTier(ev.id, tierId, orgCookie)
+      assertEq(removed.status, 200, 'delete → HTTP 200')
+      const gone = await tierRow(tierId)
+      assert(!!gone, 'the row still EXISTS — delete is a soft delete')
+      assertEq(gone?.is_active, false, 'is_active flipped to false')
+
+      // The public list hides it; the organizer still sees it.
+      const publicList = await listTiers(ev.id, null)
+      assert(!(publicList.body.tiers ?? []).some(t => t.id === tierId), 'hidden from the public tier list')
+      const orgList = await listTiers(ev.id, orgCookie)
+      assert((orgList.body.tiers ?? []).some(t => t.id === tierId), 'still visible to the organizer')
+    })
+
+    await step('#35 tier management is organizer-only', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'tier_authz', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      const seed = await createTier(ev.id, { name: 'Guarded', price: 3000, max_quantity: 5 }, orgCookie)
+      const tierId = trackTier(seed.body)
+
+      const strangerCookie = customerCookie(booker2)
+      assertEq((await createTier(ev.id, { name: 'Nope', price: 1 }, strangerCookie)).status, 403,
+        'a stranger cannot create → 403')
+      assertEq((await createTier(ev.id, { name: 'Nope', price: 1 }, null)).status, 401,
+        'no session cannot create → 401')
+      assertEq((await patchTier(ev.id, tierId, { price: 1 }, strangerCookie)).status, 403,
+        'a stranger cannot edit → 403')
+      assertEq((await patchTier(ev.id, tierId, { price: 1 }, null)).status, 401,
+        'no session cannot edit → 401')
+      assertEq((await deleteTier(ev.id, tierId, strangerCookie)).status, 403,
+        'a stranger cannot deactivate → 403')
+      assertEq((await deleteTier(ev.id, tierId, null)).status, 401,
+        'no session cannot deactivate → 401')
+
+      const survived = await tierRow(tierId)
+      assertEq(survived?.price, 3000, 'the tier price survived every refusal')
+      assertEq(survived?.is_active, true, 'and it is still active')
+
+      assertEq((await createTier(ev.id, { price: 100 }, orgCookie)).status, 400, 'a tier with no name → 400')
+    })
+
+    await step('#35 a multi-tier booking inserts one row per tier with a price snapshot', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'multi_tier', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      const vipId = trackTier((await createTier(ev.id, { name: 'VIP', price: 5000, max_quantity: 10 }, orgCookie)).body)
+      const stdId = trackTier((await createTier(ev.id, { name: 'Standard', price: 2000, max_quantity: 10 }, orgCookie)).body)
+
+      const r = await reserve(ev.id, {
+        items: [{ tier_id: vipId, quantity: 2 }, { tier_id: stdId, quantity: 3 }],
+      }, bookerCookie)
+      assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 200)})`)
+
+      const rows = await reservationRows(ev.id)
+      for (const row of rows) track('event_reservations', row.id)
+      assertEq(rows.length, 2, 'ONE ROW PER TIER — two tiers, two rows')
+
+      const { data: full } = await sb.from('event_reservations')
+        .select('tier_id, tier_name, tier_price, quantity, total_price').eq('event_id', ev.id)
+      const byTier = new Map(((full ?? []) as Array<{ tier_id: string; tier_name: string; tier_price: number; quantity: number; total_price: number }>)
+        .map(x => [x.tier_id, x]))
+
+      assertEq(byTier.get(vipId)?.quantity, 2, 'VIP row has the VIP quantity')
+      assertEq(byTier.get(vipId)?.tier_price, 5000, 'VIP row snapshots the tier price')
+      assertEq(byTier.get(vipId)?.tier_name, 'VIP', 'and the tier name')
+      assertEq(byTier.get(vipId)?.total_price, 10000, '2 × 5000')
+      assertEq(byTier.get(stdId)?.quantity, 3, 'Standard row has its own quantity')
+      assertEq(byTier.get(stdId)?.tier_price, 2000, 'Standard row snapshots its own price')
+      assertEq(byTier.get(stdId)?.total_price, 6000, '3 × 2000')
+
+      // BOTH counters move: the per-tier one and the event-wide one.
+      assertEq((await tierRow(vipId))?.sold_count, 2, 'VIP sold_count += 2')
+      assertEq((await tierRow(stdId))?.sold_count, 3, 'Standard sold_count += 3')
+      assertEq((await readEvent(ev.id))?.tickets_sold, 5, 'event tickets_sold += 5 (the total across tiers)')
+
+      // The snapshot is the point: repricing the tier must not rewrite history.
+      assertEq((await patchTier(ev.id, vipId, { price: 9999 }, orgCookie)).status, 200, 'the organizer reprices VIP')
+      assertEq((await tierRow(vipId))?.price, 9999, 'the tier now costs 9999')
+      const { data: after } = await sb.from('event_reservations')
+        .select('tier_price, total_price').eq('event_id', ev.id).eq('tier_id', vipId).maybeSingle()
+      assertEq((after as { tier_price?: number } | null)?.tier_price, 5000,
+        'the EXISTING booking still says 5000 — the snapshot held')
+      assertEq((after as { total_price?: number } | null)?.total_price, 10000,
+        'and its total is unchanged')
+    })
+
+    await step('#35 a sold-out tier is refused, whole rather than partially', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'tier_soldout', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      const smallId = trackTier((await createTier(ev.id, { name: 'Small', price: 1000, max_quantity: 3 }, orgCookie)).body)
+      const roomyId = trackTier((await createTier(ev.id, { name: 'Roomy', price: 1000, max_quantity: 50 }, orgCookie)).body)
+
+      assertEq((await reserve(ev.id, { items: [{ tier_id: smallId, quantity: 3 }] }, bookerCookie)).status, 200,
+        'filling the tier exactly succeeds')
+      for (const row of await reservationRows(ev.id)) track('event_reservations', row.id)
+      assertEq((await tierRow(smallId))?.sold_count, 3, 'the tier is now full')
+
+      const soldOut = await reserve(ev.id, { items: [{ tier_id: smallId, quantity: 1 }] }, customerCookie(booker2))
+      assertEq(soldOut.status, 409, 'the next booking on that tier → 409')
+      assertEq((soldOut.body as { state?: string }).state, 'sold_out', "reported as state='sold_out'")
+      assertEq((await tierRow(smallId))?.sold_count, 3, 'sold_count unchanged by the refusal')
+      assertEq((await reservationRows(ev.id)).length, 1, 'no extra reservation row')
+
+      // A mixed basket where ONE line overflows must fail whole — the roomy
+      // tier must not be partially booked.
+      const roomyBefore = (await tierRow(roomyId))?.sold_count ?? 0
+      const mixed = await reserve(ev.id, {
+        items: [{ tier_id: roomyId, quantity: 2 }, { tier_id: smallId, quantity: 1 }],
+      }, customerCookie(booker2))
+      assertEq(mixed.status, 409, 'a basket containing a sold-out tier → 409')
+      assertEq((await tierRow(roomyId))?.sold_count, roomyBefore,
+        'the OTHER tier in the same basket was not booked — whole or nothing')
+      assertEq((await reservationRows(ev.id)).length, 1, 'still just the original reservation')
+      assertEq((await readEvent(ev.id))?.tickets_sold, 3, 'and the event counter did not move')
+    })
+
+    await step('#35 a partially-full tier reports what is left', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'tier_partial', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      const tId = trackTier((await createTier(ev.id, { name: 'Five', price: 500, max_quantity: 5 }, orgCookie)).body)
+
+      assertEq((await reserve(ev.id, { items: [{ tier_id: tId, quantity: 4 }] }, bookerCookie)).status, 200,
+        'booking 4 of 5 succeeds')
+      for (const row of await reservationRows(ev.id)) track('event_reservations', row.id)
+
+      const over = await reserve(ev.id, { items: [{ tier_id: tId, quantity: 2 }] }, customerCookie(booker2))
+      assertEq(over.status, 409, 'asking for 2 when 1 remains → 409')
+      assertEq((over.body as { remaining?: number }).remaining, 1, 'and it reports remaining=1')
+      assertEq((await tierRow(tId))?.sold_count, 4, 'sold_count unchanged')
+    })
+
+    await step('#35 an inactive tier cannot be booked', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'tier_inactive', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      const tId = trackTier((await createTier(ev.id, { name: 'Retired', price: 500, max_quantity: 10 }, orgCookie)).body)
+      assertEq((await deleteTier(ev.id, tId, orgCookie)).status, 200, 'the organizer deactivates it')
+
+      const r = await reserve(ev.id, { items: [{ tier_id: tId, quantity: 1 }] }, bookerCookie)
+      assertEq(r.status, 409, 'booking a deactivated tier → 409')
+      assertEq((r.body as { state?: string }).state, 'inactive', "reported as state='inactive'")
+      assertEq((await reservationRows(ev.id)).length, 0, 'no reservation row was created')
+    })
+
+    await step("#35 a tier belonging to another event is unreachable", async () => {
+      const evA = await makeEvent({
+        organizerId: organizer.id, label: 'tier_x_a', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      const evB = await makeEvent({
+        organizerId: organizer.id, label: 'tier_x_b', city: TEST_CITY, category: TEST_CATEGORY, isActive: true,
+      })
+      const tierB = trackTier((await createTier(evB.id, { name: 'B only', price: 4000, max_quantity: 10 }, orgCookie)).body)
+
+      // Reserve: the lookup is scoped `.eq('event_id', …).in('id', …)`, so a
+      // foreign tier id simply is not found for event A.
+      const r = await reserve(evA.id, { items: [{ tier_id: tierB, quantity: 1 }] }, bookerCookie)
+      assertEq(r.status, 404, "booking B's tier through event A → 404")
+      assertEq((await tierRow(tierB))?.sold_count, 0, "B's tier sold nothing")
+      assertEq((await reservationRows(evA.id)).length, 0, 'and event A has no reservation')
+
+      // Management: authorize() matches the tier on BOTH ids, so the same
+      // laundering fails there too.
+      assertEq((await patchTier(evA.id, tierB, { price: 1 }, orgCookie)).status, 404,
+        "editing B's tier through event A → 404")
+      assertEq((await deleteTier(evA.id, tierB, orgCookie)).status, 404,
+        "deactivating B's tier through event A → 404")
+      const untouched = await tierRow(tierB)
+      assertEq(untouched?.price, 4000, "B's tier price is unchanged")
+      assertEq(untouched?.is_active, true, 'and it is still active')
+    })
+
+    await step('#35 tier actions write audit rows', async () => {
+      const { data } = await sb.from('audit_log').select('action')
+        .in('action', ['tier_created', 'tier_updated', 'tier_deactivated'])
+        .gte('created_at', new Date(Date.now() - 10 * 60 * 1000).toISOString())
+      const actions = new Set((data ?? []).map(a => (a as { action: string }).action))
+      for (const a of ['tier_created', 'tier_updated', 'tier_deactivated']) {
+        assert(actions.has(a), `${a} audit row written`)
+      }
     })
 
     // Final safety re-check: nothing in this suite changed the picture.
