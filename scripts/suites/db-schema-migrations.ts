@@ -89,9 +89,11 @@ async function orderStatusAccepted(
 //   open        anon reads exactly what service-role reads
 //   empty       service-role reads 0 — the table cannot be classified at all
 //
-// WHY A REGISTER RATHER THAN PLAIN ASSERTIONS. Three of these tables are
-// WRONG today (orders, customers, restaurants — the anon-read PII leak) and
-// stay wrong until Phases 1-3 land. Asserting the target state outright would
+// WHY A REGISTER RATHER THAN PLAIN ASSERTIONS. Three of these tables were
+// WRONG when this was written (orders, customers, restaurants — the anon-read
+// PII leak). customers closed in Phase 1 and is now a hard assertion; orders
+// and restaurants stay wrong until Phases 2 and 3a land. Asserting the target
+// state outright would
 // leave test:release permanently red, which destroys the gate: once red is
 // normal, nobody reads it. Warning on all of them instead has the opposite
 // failure — a warning nobody is forced to act on rots quietly, and the leak
@@ -153,10 +155,12 @@ const RLS_EXPECTATIONS: RlsExpectation[] = [
     why: 'customer_name, customer_phone, manual_payment_phone, items, totals, '
        + 'payment ids. No public read exists or should; the two browser readers '
        + '(admin Orders panel, vendor dashboard) move to authenticated routes first' },
-  { table: 'customers', current: 'open', target: 'locked', phase: 'Phase 1',
-    why: 'name, phone, momo_phone, suspension_reason. ZERO browser readers '
-       + 'already — the only migration needed is the FK join in the admin '
-       + 'Restaurants panel, which reaches customers through restaurants' },
+  { table: 'customers', current: 'locked', target: 'locked',
+    why: 'name, phone, momo_phone, suspension_reason. Locked in Phase 1 '
+       + '(supabase-customers-rls-lock.sql). The FK join that used to reach '
+       + 'this table from the browser — the admin Restaurants owner block — '
+       + 'reads GET /api/admin/restaurants instead. Anything that re-adds an '
+       + 'anon read of customers, directly or through a join, fails here' },
   { table: 'restaurants', current: 'open', target: 'restricted', phase: 'Phase 3a',
     why: 'RESTRICTED, never locked: the home feed, search, detail page, checkout '
        + 'and promo banner are legitimately anon reads. But anon must not see '
