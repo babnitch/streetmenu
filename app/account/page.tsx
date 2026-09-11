@@ -1091,18 +1091,30 @@ export default function AccountPage() {
     )
   }
 
-  // Admin panels (tables, account lists) need the 2xl column, but the
-  // admin *menu* — tiles and rows — should sit on the same narrow rhythm
-  // as client and restaurant mode. So the menu root is md-narrow and only
-  // widens at md+, where the desktop tab bar always has a panel open;
-  // a drilled-in panel takes 2xl outright.
+  // ADMIN ONLY gets the wide desktop column. The admin works on a laptop,
+  // and the dense panels (Comptes, Restaurants, Commandes, Messages) are
+  // tables of rows that were being squeezed into half the window while
+  // ~300px of white sat on either side. 5xl (1024px) uses the laptop.
+  //
+  // Customer and vendor deliberately STAY at max-w-md. An orders list or a
+  // menu list stretched across a laptop reads wrong — those are single
+  // columns of short rows, not tables — so the narrow rhythm is the design,
+  // not an oversight. Only the dashView === 'admin' arm is widened here.
+  //
+  // Mobile is untouched in both admin arms: max-w-md and max-w-2xl are both
+  // wider than a 390px viewport, so the md: prefix is the only thing that
+  // moves. The two arms now widen to the SAME 5xl at md+, which also kills
+  // a pre-existing desktop width jump — selectAdminTab leaves adminSection
+  // null, but a Back through popstate sets it, and the column used to
+  // change width on that transition alone.
+  //
   // Form surfaces (sign-in, sign-up, profile edit) stay at max-w-md
   // because single-column forms become unusable past ~600px.
   const containerClass =
     step === 'dashboard' && dashView === 'admin'
       ? (adminSection !== null
-          ? 'max-w-2xl mx-auto px-4 py-8'
-          : 'max-w-md md:max-w-2xl mx-auto px-4 py-8')
+          ? 'max-w-2xl md:max-w-5xl mx-auto px-4 py-8'
+          : 'max-w-md md:max-w-5xl mx-auto px-4 py-8')
       : 'max-w-md mx-auto px-4 py-8'
 
   return (
@@ -1407,7 +1419,22 @@ export default function AccountPage() {
                 {/* ── DESKTOP TAB BAR (md+) ──
                     Same component and container as the customer tab bar;
                     only the basis differs, so 11 tabs wrap 4-per-row
-                    instead of being squeezed into one unreadable line. */}
+                    instead of being squeezed into one unreadable line.
+
+                    4-per-row is deliberate at 5xl too. The obvious move on
+                    a wider column is more tabs per row, but 11 divides
+                    badly by anything but 4 (3+3+3+2 needs two more rows,
+                    6-per-row leaves a row of 5 hanging), and 4 across 992px
+                    gives each tab ~242px — enough that "Équipe plateforme",
+                    the longest of the 11, fits whole. It used to clip to
+                    "Équipe platefor…" at the old 2xl width, where a tab was
+                    only 154px. That is why NO label was shortened to fix
+                    the truncation: the width did it, and shortening would
+                    have cost the same information permanently.
+
+                    If this container is ever narrowed back below ~4xl,
+                    re-check every label — truncation returns silently, with
+                    only an ellipsis to show for it. */}
                 <div className="hidden md:flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
                   {visibleTabs.map(tab => (
                     <TabBtn
