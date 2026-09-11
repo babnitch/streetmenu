@@ -12,11 +12,12 @@
 // script, and test-all.ts does not discover it (it lives in scripts/ui/, not
 // scripts/suites/).
 //
-// SCOPE IS THREE PATHS AND STAYS THREE PATHS. TEST-PLAN §3 excludes browser UI
+// SCOPE IS FOUR PATHS AND STAYS FOUR PATHS. TEST-PLAN §3 excludes browser UI
 // testing because selector maintenance makes it the flakiest thing in a suite.
 // What a browser buys that the API layer cannot is narrow but real: whether the
-// page actually RENDERS, or flashes an empty state and freezes. Everything else
-// is better tested against the database. Resist adding paths here.
+// page actually RENDERS rather than flashing an empty state and freezing, and
+// whether a SERVER REDIRECT fires — neither is visible to a route-handler test.
+// Everything else is better tested against the database. Resist adding paths.
 //
 // ASSERTION STYLE. Content-presence, absence-of-page-error, and
 // not-stuck-on-a-loader — never exact copy, pixel positions or styling
@@ -42,7 +43,8 @@ import { mkdirSync } from 'fs'
 import { resolve } from 'path'
 import { sb } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
-import { customerCookie } from '../testkit/session'
+import jwt from 'jsonwebtoken'
+import { customerCookie, adminCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeMenuItem } from '../testkit/fixtures'
 import { teardown } from '../testkit/ledger'
 
@@ -212,6 +214,57 @@ async function main(): Promise<void> {
       console.log(`     screenshot: ${await shoot(page, '3-local-dashboard')}`)
       await page.context().close()
     })
+    // ══ PATH 4 — admin landing redirect, against LOCALHOST ══════════════════
+    // Guards middleware.ts. A server-side 307 is invisible to every other
+    // suite: it happens before any route handler runs, so the API layer
+    // cannot see it, and only a browser following the document chain can
+    // tell the difference between "redirected" and "rendered something that
+    // looks like /account".
+    //
+    // Runs against LOCAL because the middleware is local code — pointing this
+    // at production would fail until it is deployed.
+    await step('4. an admin hitting / is redirected to the console; a forged cookie is not', async () => {
+      // Real admin session, forged the same way every API suite forges one.
+      const adminValue = (await adminCookie()).replace(/^sm_session=/, '')
+      const { page, errors } = await openPage(browser!, [
+        { name: 'sm_session', value: adminValue, url: LOCAL },
+      ])
+      await page.goto(`${LOCAL}/`, { waitUntil: 'networkidle', timeout: 60_000 })
+
+      assertEq(new URL(page.url()).pathname, '/account',
+        'an admin asking for / ends up on /account')
+      // The no-flash proof, structural rather than copy-based: if the customer
+      // feed had painted at any point these links would exist.
+      assertEq(await page.locator('a[href^="/restaurant/"]').count(), 0,
+        'and the customer feed never rendered — zero restaurant card links')
+      assertEq(errors, [], `no uncaught page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`)
+      console.log(`     screenshot: ${await shoot(page, '4-local-admin-landing')}`)
+      await page.context().close()
+
+      // A cookie claiming super_admin but signed with the WRONG secret. This
+      // is the highest-value assertion in the file: it proves the middleware
+      // VERIFIES rather than merely decodes. If verification were ever
+      // weakened to a base64 parse, this forged token would redirect and this
+      // assertion would fail.
+      const forged = jwt.sign(
+        { id: 'forged', name: 'Not Really Admin', role: 'super_admin' },
+        'definitely-not-the-real-jwt-secret',
+        { expiresIn: '1h' },
+      )
+      const { page: p2, errors: e2 } = await openPage(browser!, [
+        { name: 'sm_session', value: forged, url: LOCAL },
+      ])
+      await p2.goto(`${LOCAL}/`, { waitUntil: 'networkidle', timeout: 60_000 })
+
+      assertEq(new URL(p2.url()).pathname, '/',
+        'a FORGED admin cookie is NOT redirected — it stays on the public home')
+      assert(await p2.locator('a[href^="/restaurant/"]').count() > 0,
+        'and gets the ordinary customer feed, exactly like a stranger')
+      assertEq(e2, [], `no uncaught page errors${e2.length ? `: ${e2.join(' | ')}` : ''}`)
+      console.log(`     screenshot: ${await shoot(p2, '4-local-forged-cookie')}`)
+      await p2.context().close()
+    })
+
   } finally {
     if (browser) await browser.close()
     // Path 3 is the only one that writes; paths 1 and 2 are pure reads.
