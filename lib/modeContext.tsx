@@ -2,6 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { runClientVersionGuard } from './clientVersion'
+import {
+  isAdminRole, isAdminTab, adminCanFor, firstVisibleAdminTab, type AdminSubTab,
+} from './adminNav'
 
 // ModeContext tracks whether a user with a restaurant_team role is currently
 // browsing as a customer ("client") or managing their restaurant ("restaurant").
@@ -43,6 +46,23 @@ interface ModeContextValue {
    *  and skips re-render. */
   dashboardTab: DashboardTab
   setDashboardTab: (t: DashboardTab) => void
+  /** The session's role, as reported by /api/auth/me. Exposed so consumers
+   *  can gate on it without repeating the fetch this provider already
+   *  makes. `null` when logged out. */
+  sessionRole: string | null
+  /** Currently-selected panel in the admin console. Here for the SAME
+   *  reason as dashboardTab above: the admin nav moved into TopNav, which
+   *  cannot reach /account's local state, and linking to /account?tab=x
+   *  does not work because Next treats ?tab=a and ?tab=b as one route and
+   *  skips the re-render.
+   *
+   *  This provider — not the account page — owns the ?tab= history entry
+   *  and the popstate listener that reads it back, so the URL stays the
+   *  single source of truth for deep links and Back no matter which
+   *  surface made the selection. */
+  adminTab: AdminSubTab
+  /** Select an admin panel AND push ?tab= onto the history stack. */
+  setAdminTab: (t: AdminSubTab) => void
 }
 
 const STORAGE_KEY = 'tn_mode'
@@ -75,6 +95,9 @@ const ModeContext = createContext<ModeContextValue>({
   loading: true,
   dashboardTab: 'orders',
   setDashboardTab: () => {},
+  sessionRole: null,
+  adminTab: 'accounts',
+  setAdminTab: () => {},
 })
 
 export function ModeProvider({ children }: { children: ReactNode }) {
@@ -83,6 +106,8 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const [topRole, setTopRole]                 = useState<TeamRole | null>(null)
   const [loading, setLoading]                 = useState(true)
   const [dashboardTab, setDashboardTab]      = useState<DashboardTab>('orders')
+  const [sessionRole, setSessionRole]        = useState<string | null>(null)
+  const [adminTab, setAdminTabState]         = useState<AdminSubTab>('accounts')
 
   // Restore the persisted mode choice on mount. Only the two known values
   // are accepted — guards against stale storage from a prior schema. The
@@ -101,6 +126,76 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   // on sign-out — so the two need to share one cancellation flag.
   const cancelledRef = useRef(false)
 
+  // ── Admin ?tab= ownership ────────────────────────────────────────────────
+  // Everything that reads or writes the ?tab= query param for the admin
+  // console lives in these three functions. It used to live in
+  // app/account/page.tsx, which was fine while that page also rendered the
+  // nav; now TopNav renders the nav and the page renders the panels, so
+  // neither can own it and the provider between them does.
+  //
+  // pushState directly, NOT router.push: Next treats /account?tab=a and
+  // /account?tab=b as the same route and skips the re-render, which is the
+  // whole reason the selection is context state rather than URL state.
+  const pushAdminTab = useCallback((tab: AdminSubTab) => {
+    if (typeof window === 'undefined') return
+    // Only /account carries ?tab=. Selecting an admin item from anywhere
+    // else is a REAL route change, and the router owns the URL there —
+    // pushing here as well would first stamp ?tab= onto the page being left
+    // (/events?tab=accounts) and leave a junk entry in the history stack.
+    if (window.location.pathname !== '/account') return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('tab') === tab) return
+    url.searchParams.set('tab', tab)
+    window.history.pushState({}, '', url)
+  }, [])
+
+  const setAdminTab = useCallback((tab: AdminSubTab) => {
+    setAdminTabState(tab)
+    pushAdminTab(tab)
+  }, [pushAdminTab])
+
+  // Mount-time adoption of a deep link. A hand-edited or bookmarked ?tab= is
+  // untrusted input, so it is re-validated against adminCanFor rather than
+  // trusted — an unreadable tab falls back to the role's first visible one
+  // instead of rendering a blank panel.
+  const seedAdminTabFromUrl = useCallback((role: string) => {
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search).get('tab')
+    if (q && isAdminTab(q) && adminCanFor(role, q)) {
+      setAdminTabState(q)
+      // Someone arriving on a bookmarked ?tab= has no tab-less entry behind
+      // them, so Back would leave the site. Seed one: rewrite this entry as
+      // the tab-less root, then push the deep link on top of it. Back now
+      // always lands on the console root. Done HERE and nowhere else — two
+      // copies of this would seed two entries and take two Backs to escape.
+      const deep = new URL(window.location.href)
+      const root = new URL(window.location.href)
+      root.searchParams.delete('tab')
+      window.history.replaceState({}, '', root)
+      window.history.pushState({}, '', deep)
+    } else {
+      setAdminTabState(firstVisibleAdminTab(role))
+    }
+  }, [])
+
+  // Back / Forward between admin tabs. Every selection pushed an entry, so
+  // popstate just re-reads the URL and re-applies it — re-validating for the
+  // same reason the seed does. No entry, or one this role may not open,
+  // returns to the role's first visible tab.
+  useEffect(() => {
+    if (!isAdminRole(sessionRole)) return
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search).get('tab')
+      setAdminTabState(
+        q && isAdminTab(q) && adminCanFor(sessionRole, q)
+          ? q
+          : firstVisibleAdminTab(sessionRole),
+      )
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [sessionRole])
+
   // Probe the session + vendor status. Admins and pure customers end up with
   // hasRestaurantRole=false; any active team membership (owner, manager, or
   // staff) flips it on. Runs on mount, whenever the tab regains focus (so a
@@ -112,11 +207,13 @@ export function ModeProvider({ children }: { children: ReactNode }) {
       const me = await meRes.json()
       if (cancelledRef.current) return
       if (!me?.user) {
-        setHasRestaurant(false); setTopRole(null)
+        setHasRestaurant(false); setTopRole(null); setSessionRole(null)
         return
       }
-      if (['super_admin', 'admin', 'moderator'].includes(me.user.role)) {
+      setSessionRole(me.user.role)
+      if (isAdminRole(me.user.role)) {
         setHasRestaurant(false); setTopRole(null)
+        seedAdminTabFromUrl(me.user.role)
         return
       }
       const vRes = await fetch('/api/vendor/restaurants', { cache: 'no-store' })
@@ -127,11 +224,11 @@ export function ModeProvider({ children }: { children: ReactNode }) {
       setHasRestaurant(list.length > 0)
       setTopRole(pickTopRole(roles))
     } catch {
-      if (!cancelledRef.current) { setHasRestaurant(false); setTopRole(null) }
+      if (!cancelledRef.current) { setHasRestaurant(false); setTopRole(null); setSessionRole(null) }
     } finally {
       if (!cancelledRef.current) setLoading(false)
     }
-  }, [])
+  }, [seedAdminTabFromUrl])
 
   useEffect(() => {
     cancelledRef.current = false
@@ -170,6 +267,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
         mode, setMode, resetMode, effectiveMode,
         hasRestaurantRole, topRole, loading,
         dashboardTab, setDashboardTab,
+        sessionRole, adminTab, setAdminTab,
       }}
     >
       {children}
