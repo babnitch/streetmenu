@@ -10,7 +10,8 @@
     "test": "tsx scripts/test-all.ts",
     "test:unit": "tsx scripts/test-all.ts --only \"unit-*\"",
     "test:release": "tsx scripts/test-all.ts --require-api",
-    "test:sweep": "tsx scripts/test-sweep.ts --all"
+    "test:sweep": "tsx scripts/test-sweep.ts --all",
+    "test:ui": "tsx scripts/ui/smoke-browser.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
