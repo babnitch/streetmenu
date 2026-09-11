@@ -3,8 +3,54 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sanitizeText } from '@/lib/sanitize'
 import { writeAudit } from '@/lib/audit'
+import { isAdminRole } from '@/lib/adminNav'
 
 export const dynamic = 'force-dynamic'
+
+// GET /api/admin/restaurants
+//
+// Every restaurant, with its owner, for the admin Restaurants panel.
+//
+// WHY THIS EXISTS (Phase 1 of the anon-read RLS fix). The panel used to run
+// this exact query in the BROWSER through the anon key:
+//
+//   supabase.from('restaurants')
+//     .select('*, owner:customers!restaurants_customer_id_fkey(id, name, phone)')
+//
+// That embedded join was the only browser read of `customers` anywhere in the
+// app — every other one already goes through supabaseAdmin. It is also the
+// reason `customers` cannot simply be locked: PostgREST applies RLS to the
+// JOINED table independently, so a deny policy makes `owner` come back null
+// rather than erroring, and the owner name/phone block would go silently
+// blank. Moving the read here first is what makes the lock safe.
+//
+// NO FILTERING. The panel's four tabs (all / pending / suspended / deleted)
+// filter client-side over one list, and the deleted tab needs soft-deleted
+// rows, so this returns everything and lets the panel slice it — same data
+// the anon query returned, same order.
+//
+// AUTHORIZATION: sm_session JWT, any admin role. Deliberately WIDER than the
+// POST below, which is super_admin|admin only: moderators may READ this panel
+// (adminCanFor(role, 'restaurants') is true for them) but may not create
+// restaurants. Narrowing GET to match POST would blank the panel for them.
+export async function GET(req: NextRequest) {
+  const session = getSessionFromRequest(req)
+  if (!session || !isAdminRole(session.role)) {
+    return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('*, owner:customers!restaurants_customer_id_fkey(id, name, phone)')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('[admin/restaurants] list failed:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ restaurants: data ?? [] })
+}
 
 // POST /api/admin/restaurants
 //

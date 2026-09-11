@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
-import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
@@ -54,8 +53,10 @@ const EMPTY_FORM: RestaurantForm = {
 type Tab = 'all' | 'pending' | 'suspended' | 'deleted'
 
 // Small POST wrapper for the admin write routes. Every restaurant mutation
-// on this page now goes through app/api/** with the service-role client;
-// the browser never touches the `restaurants` table directly.
+// on this page goes through app/api/** with the service-role client — and as
+// of Phase 1 of the RLS fix, so does the READ. The browser no longer touches
+// the `restaurants` (or `customers`) table directly from this page at all;
+// there is no anon-client import left in this file.
 //
 // Authorization is the sm_session admin JWT set by /api/auth/admin-login
 // (the /account → Équipe login). The standalone /admin shell's
@@ -134,14 +135,31 @@ export default function AdminRestaurantsPage() {
     fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
   }, [])
 
+  // Reads GET /api/admin/restaurants (supabaseAdmin behind an admin-session
+  // check) rather than querying the table from the browser.
+  //
+  // Phase 1 of the anon-read RLS fix. The old query embedded
+  // `owner:customers!...(id, name, phone)`, which was the ONLY browser read of
+  // `customers` in the app. `customers` cannot be locked while that exists:
+  // PostgREST applies RLS to the joined table on its own, so a deny policy
+  // returns owner = null instead of an error and the owner block below would
+  // go silently blank. Same query, same shape, same order — it just runs on
+  // the server now.
+  //
+  // A failed load leaves the previous list in place rather than blanking to
+  // an empty array, so a transient 500 doesn't read as "no restaurants".
   async function fetchRestaurants() {
     setLoading(true)
-    const { data } = await supabase
-      .from('restaurants')
-      .select('*, owner:customers!restaurants_customer_id_fkey(id, name, phone)')
-      .order('created_at', { ascending: false })
-    if (data) setRestaurants(data as unknown as RestaurantRow[])
-    setLoading(false)
+    try {
+      const res = await fetch('/api/admin/restaurants', { cache: 'no-store' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const body = await res.json()
+      setRestaurants((body?.restaurants ?? []) as RestaurantRow[])
+    } catch (e) {
+      console.error('[admin/restaurants] list failed:', (e as Error).message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   // ── Pending: approve ──
