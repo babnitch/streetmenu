@@ -22,8 +22,8 @@
 
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-import { sb, testPhone } from '../testkit/env'
-import { assert, assertEq, step, finish } from '../testkit/assert'
+import { sb, anonSb } from '../testkit/env'
+import { assert, assertEq, step, warn, finish } from '../testkit/assert'
 import { makeCustomer, makeRestaurant, type TestCustomer } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 import { generateReservationCodes } from '@/lib/reservationCode'
@@ -72,6 +72,135 @@ async function orderStatusAccepted(
   if (error) return { ok: false, detail: `rejected — ${error.message}` }
   track('orders', (data as unknown as { id: string }).id)
   return { ok: true, detail: 'accepted' }
+}
+
+
+// ── RLS EXPECTED-STATE REGISTER (Phase 0 of the anon-read fix) ──────────────
+//
+// WHAT THIS MEASURES. pg_policies is unreadable from here — PostgREST does
+// not expose pg_catalog and there is no DATABASE_URL to go around it. So the
+// policy is measured by its EFFECT: what the anon (browser) client can read
+// versus what the service-role client can read. That is arguably the better
+// test anyway — it checks what a stranger holding the public key can actually
+// pull, not the policy text that is meant to stop them.
+//
+//   locked      anon reads 0 while service-role reads > 0
+//   restricted  anon reads FEWER rows than service-role, but more than none
+//   open        anon reads exactly what service-role reads
+//   empty       service-role reads 0 — the table cannot be classified at all
+//
+// WHY A REGISTER RATHER THAN PLAIN ASSERTIONS. Three of these tables are
+// WRONG today (orders, customers, restaurants — the anon-read PII leak) and
+// stay wrong until Phases 1-3 land. Asserting the target state outright would
+// leave test:release permanently red, which destroys the gate: once red is
+// normal, nobody reads it. Warning on all of them instead has the opposite
+// failure — a warning nobody is forced to act on rots quietly, and the leak
+// outlives the person who found it.
+//
+// So each table declares BOTH states, and the three-way comparison below has
+// no comfortable middle:
+//
+//   measured === target                   → hard PASS. The guarantee is live
+//                                           and any regression fails the gate.
+//   measured === current ≠ target         → WARN, marked EXPECTED-RED, naming
+//                                           the phase that closes it.
+//   measured === target ≠ current         → hard FAIL. The phase LANDED and
+//                                           this entry was not promoted. One
+//                                           line to fix (set current: target),
+//                                           and the assertion becomes real.
+//   measured is neither                   → hard FAIL. Something moved that
+//                                           nobody predicted — a partial
+//                                           policy, or a regression.
+//
+// The third case is the point. A closed gap that nobody promotes turns the
+// suite red, so "red is normal" cannot set in: the only two stable states are
+// "gap still open, warned, phase named" and "gap closed, promoted, asserted".
+// Sitting between them is a failure by construction.
+//
+// TO PROMOTE an entry when its phase lands: change `current` to match
+// `target` and delete the `phase` note. Nothing else.
+
+type RlsState = 'locked' | 'restricted' | 'open' | 'empty'
+
+interface RlsExpectation {
+  table:   string
+  /** What the state IS today. Equal to `target` once the gap is closed. */
+  current: RlsState
+  /** What it MUST become. */
+  target:  RlsState
+  /** Why the target is what it is — read this before changing one. */
+  why:     string
+  /** Phase that closes the gap. Absent when there is no gap. */
+  phase?:  string
+}
+
+const RLS_EXPECTATIONS: RlsExpectation[] = [
+  // ── Already correct. These are the ones with real protective value today:
+  //    each is a hard assertion, so a migration that OPENS one fails the gate.
+  { table: 'order_items',        current: 'locked', target: 'locked',
+    why: 'order line items — belongs to one customer, no public read' },
+  { table: 'restaurant_team',    current: 'locked', target: 'locked',
+    why: 'who staffs a restaurant, with customer_id — never public' },
+  { table: 'audit_log',          current: 'locked', target: 'locked',
+    why: 'moderation trail; naming the actor is the point of it' },
+  { table: 'verification_codes', current: 'locked', target: 'locked',
+    why: 'login OTPs — an anon read here is account takeover' },
+  { table: 'customer_vouchers',  current: 'locked', target: 'locked',
+    why: 'a named customer’s vouchers and their redemption state' },
+
+  // ── The leak. EXPECTED-RED until the phase named on each lands.
+  { table: 'orders',    current: 'open', target: 'locked', phase: 'Phase 2',
+    why: 'customer_name, customer_phone, manual_payment_phone, items, totals, '
+       + 'payment ids. No public read exists or should; the two browser readers '
+       + '(admin Orders panel, vendor dashboard) move to authenticated routes first' },
+  { table: 'customers', current: 'open', target: 'locked', phase: 'Phase 1',
+    why: 'name, phone, momo_phone, suspension_reason. ZERO browser readers '
+       + 'already — the only migration needed is the FK join in the admin '
+       + 'Restaurants panel, which reaches customers through restaurants' },
+  { table: 'restaurants', current: 'open', target: 'restricted', phase: 'Phase 3a',
+    why: 'RESTRICTED, never locked: the home feed, search, detail page, checkout '
+       + 'and promo banner are legitimately anon reads. But anon must not see '
+       + 'suspended / pending / soft-deleted rows, which public_active_read excludes' },
+
+  // ── Public by design. Asserted so an over-eager lock is caught too — the
+  //    failure mode of this whole project is locking one table too many and
+  //    blanking the customer-facing app.
+  { table: 'menu_items',       current: 'open', target: 'open',
+    why: 'the public menu on every restaurant page' },
+  { table: 'restaurant_hours', current: 'open', target: 'open',
+    why: 'opening hours, rendered publicly and used by open-status' },
+]
+
+/**
+ * Measure a table's effective anon read state.
+ *
+ * An anon ERROR counts as locked: a policy denial can surface either as an
+ * empty result or as a PostgREST error depending on the table, and both mean
+ * the same thing to a visitor.
+ *
+ * head:true is safe here, unlike the schema probes above — those needed to
+ * detect a MISSING table, which head:true cannot do. Here the service-role
+ * count establishes the table exists and how many rows it holds before the
+ * anon number is interpreted at all.
+ */
+async function rlsState(table: string): Promise<{
+  state: RlsState; anon: number | null; service: number | null; detail: string
+}> {
+  const s = await sb.from(table).select('*', { count: 'exact', head: true })
+  if (s.error) {
+    return { state: 'empty', anon: null, service: null,
+             detail: `service-role could not read it — ${s.error.message}` }
+  }
+  const service = s.count ?? 0
+  const a = await anonSb.from(table).select('*', { count: 'exact', head: true })
+  const anon = a.error ? 0 : (a.count ?? 0)
+
+  if (service === 0) {
+    return { state: 'empty', anon, service,
+             detail: 'table is empty — anon and service-role both read 0, so the policy cannot be classified' }
+  }
+  const state: RlsState = anon === 0 ? 'locked' : anon >= service ? 'open' : 'restricted'
+  return { state, anon, service, detail: `anon ${anon} / service-role ${service}` }
 }
 
 async function main(): Promise<void> {
@@ -255,6 +384,101 @@ async function main(): Promise<void> {
       assertEq(rows[0]?.role, 'owner', "the auto-created row has role='owner'")
       assertEq(rows[0]?.status, 'active', "the auto-created row is active")
       assertEq(rows[0]?.customer_id, triggerOwner.id, 'it points at restaurants.customer_id')
+    })
+
+    // ── RLS effective-state register (Phase 0) ─────────────────────────────
+    // Read-only. Counts only, never row contents — this suite must not print
+    // the PII it exists to protect.
+    await step('RLS: the anon client reads only what it is meant to', async () => {
+      // Self-check first, exactly like the schema probes above. A measurement
+      // that cannot tell locked from open would report the leak as fixed.
+      // restaurant_team is locked and audit_log is locked while menu_items is
+      // public, so a working probe MUST separate them; if it says both are the
+      // same, the anon client is misconfigured (wrong key, or silently using
+      // the service role) and every verdict below is worthless.
+      const lockedProbe = await rlsState('restaurant_team')
+      const openProbe   = await rlsState('menu_items')
+      const canTell = lockedProbe.state === 'locked' && openProbe.state === 'open'
+      assert(canTell,
+        'the anon probe can distinguish a locked table from a public one',
+        `restaurant_team=${lockedProbe.state} (${lockedProbe.detail}), menu_items=${openProbe.state} (${openProbe.detail})`)
+      if (!canTell) {
+        // Refusing to grade on a broken instrument. Without this, a
+        // misconfigured anon key reads every table as locked and the whole
+        // section turns green on the day the leak is at its worst.
+        assert(false, 'RLS register SKIPPED — the probe is not trustworthy, see above')
+        return
+      }
+
+      for (const e of RLS_EXPECTATIONS) {
+        const m = await rlsState(e.table)
+        const label = `${e.table}: ${e.target}`
+
+        if (m.state === 'empty') {
+          // Cannot classify an empty table either way. Never a pass: a green
+          // tick here would claim a guarantee that was never measured.
+          warn(`${label} — UNVERIFIABLE`, m.detail)
+          continue
+        }
+
+        if (m.state === e.target && e.current === e.target) {
+          // The guarantee is live and pinned. A policy change that opens this
+          // table fails test:release.
+          assert(true, `${label} — ${m.detail}`)
+          continue
+        }
+
+        if (m.state === e.target && e.current !== e.target) {
+          // The gap closed. Promote the entry so it becomes a hard assertion
+          // instead of a warning nobody has to act on.
+          assert(false,
+            `${label} — ${e.phase ?? 'the phase'} IS COMPLETE: promote this entry`,
+            `measured ${m.state} (${m.detail}); set current: '${e.target}' for '${e.table}' in RLS_EXPECTATIONS`)
+          continue
+        }
+
+        if (m.state === e.current) {
+          // Known gap, still open, phase named. Expected red — reported, not
+          // scored, so the fast gate stays meaningful.
+          warn(`${label} — EXPECTED-RED, currently ${m.state} (${m.detail})`,
+            `closes in ${e.phase ?? 'a later phase'} — ${e.why}`)
+          continue
+        }
+
+        // Neither the known-current nor the target state. Either a partial
+        // policy change or a regression on a table that was correct.
+        assert(false,
+          `${label} — UNEXPECTED state '${m.state}'`,
+          `expected '${e.current}' (today) or '${e.target}' (target); got ${m.detail}`)
+      }
+    })
+
+    // ── RLS: the restaurants predicate, measured rather than assumed ────────
+    await step('RLS: restricting restaurants would hide the rows it should', async () => {
+      // Phase 3a applies public_active_read. This does not apply it — it
+      // measures the gap that policy would close, so the number in the report
+      // is a fact rather than a projection, and so the day it lands the
+      // change in anon_count is already predicted here.
+      const { count: anonNow } = await anonSb.from('restaurants')
+        .select('*', { count: 'exact', head: true })
+      const { count: wouldSee } = await sb.from('restaurants')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null)
+
+      assert(typeof anonNow === 'number' && typeof wouldSee === 'number',
+        'both counts read cleanly')
+      const hidden = (anonNow ?? 0) - (wouldSee ?? 0)
+
+      if (hidden > 0) {
+        warn(`restaurants: EXPECTED-RED — anon can read ${hidden} row(s) public_active_read would hide`,
+          `anon sees ${anonNow}, the predicate allows ${wouldSee} (suspended / pending / soft-deleted) — closes in Phase 3a`)
+      } else {
+        // Either the policy landed, or every row happens to be public right
+        // now. The register entry above is what distinguishes those, so this
+        // only confirms there is nothing left to hide.
+        assert(hidden === 0,
+          `restaurants: anon sees no row the public predicate excludes (${anonNow} = ${wouldSee})`)
+      }
     })
 
     // ── #21 soft-delete semantics ──────────────────────────────────────────

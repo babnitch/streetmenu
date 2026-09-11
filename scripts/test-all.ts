@@ -32,6 +32,11 @@ interface SuiteOutcome {
   status:  'passed' | 'failed' | 'skipped' | 'crashed'
   passed:  number
   failed:  number
+  /** Reported-but-not-scored checks (testkit/assert.ts warn()). Surfaced
+   *  because the RLS register in db-schema-migrations.ts uses warnings to
+   *  carry KNOWN GAPS that are meant to close — a warning nobody sees at the
+   *  gate is a warning that rots. Never affects pass/fail. */
+  warned:  number
   ms:      number
   reason?: string
 }
@@ -137,7 +142,7 @@ function runSuite(s: Suite, runId: string, verbose: boolean): Promise<SuiteOutco
 
     child.on('error', e => {
       resolveOutcome({
-        suite: s.name, group: s.group, status: 'crashed', passed: 0, failed: 0,
+        suite: s.name, group: s.group, status: 'crashed', passed: 0, failed: 0, warned: 0,
         ms: Date.now() - started, reason: e.message,
       })
     })
@@ -145,7 +150,7 @@ function runSuite(s: Suite, runId: string, verbose: boolean): Promise<SuiteOutco
     child.on('close', (code, signal) => {
       const ms = Date.now() - started
       const marker = out.split('\n').reverse().find(l => l.includes(RESULT_MARKER))
-      let counts: { passed: number; failed: number } | null = null
+      let counts: { passed: number; failed: number; warned?: number } | null = null
       if (marker) {
         try {
           counts = JSON.parse(marker.slice(marker.indexOf(RESULT_MARKER) + RESULT_MARKER.length))
@@ -157,7 +162,7 @@ function runSuite(s: Suite, runId: string, verbose: boolean): Promise<SuiteOutco
       if (!counts) {
         const tail = (errOut || out).trim().split('\n').slice(-3).join(' | ')
         resolveOutcome({
-          suite: s.name, group: s.group, status: 'crashed', passed: 0, failed: 0, ms,
+          suite: s.name, group: s.group, status: 'crashed', passed: 0, failed: 0, warned: 0, ms,
           reason: signal ? `killed by ${signal}` : `exit ${code} with no result marker — ${tail || 'no output'}`,
         })
         return
@@ -166,7 +171,7 @@ function runSuite(s: Suite, runId: string, verbose: boolean): Promise<SuiteOutco
       resolveOutcome({
         suite: s.name, group: s.group,
         status: counts.failed === 0 && code === 0 ? 'passed' : 'failed',
-        passed: counts.passed, failed: counts.failed, ms,
+        passed: counts.passed, failed: counts.failed, warned: counts.warned ?? 0, ms,
       })
     })
   })
@@ -282,12 +287,12 @@ async function main(): Promise<void> {
   let bailed = false
   for (const s of rest) {
     if (bailed) {
-      outcomes.push({ suite: s.name, group: s.group, status: 'skipped', passed: 0, failed: 0, ms: 0, reason: 'bailed' })
+      outcomes.push({ suite: s.name, group: s.group, status: 'skipped', passed: 0, failed: 0, warned: 0, ms: 0, reason: 'bailed' })
       continue
     }
     if ((s.group === 'api' || s.group === 'smoke') && !apiUp) {
       const o: SuiteOutcome = {
-        suite: s.name, group: s.group, status: 'skipped', passed: 0, failed: 0, ms: 0,
+        suite: s.name, group: s.group, status: 'skipped', passed: 0, failed: 0, warned: 0, ms: 0,
         reason: `no server at ${BASE}`,
       }
       outcomes.push(o); printLine(o)
@@ -295,7 +300,7 @@ async function main(): Promise<void> {
     }
     if (s.group === 'db' && !isSupabaseConfigured()) {
       const o: SuiteOutcome = {
-        suite: s.name, group: s.group, status: 'skipped', passed: 0, failed: 0, ms: 0,
+        suite: s.name, group: s.group, status: 'skipped', passed: 0, failed: 0, warned: 0, ms: 0,
         reason: 'Supabase not configured',
       }
       outcomes.push(o); printLine(o)
@@ -318,11 +323,19 @@ async function main(): Promise<void> {
   // 6. Summary.
   const totalPassed = outcomes.reduce((s, o) => s + o.passed, 0)
   const totalFailed = outcomes.reduce((s, o) => s + o.failed, 0)
+  const totalWarned = outcomes.reduce((s, o) => s + o.warned, 0)
   const badSuites = outcomes.filter(o => o.status === 'failed' || o.status === 'crashed')
   const skipped = outcomes.filter(o => o.status === 'skipped')
 
   console.log(`\n━━ summary ━━`)
   console.log(`   ${outcomes.length - skipped.length} suite(s) run · ${totalPassed} assertions passed · ${totalFailed} failed`)
+  if (totalWarned > 0) {
+    // Named, not just counted. These are deliberate known gaps with a phase
+    // attached; printing the suite makes the next one findable without
+    // re-running anything.
+    const who = outcomes.filter(o => o.warned > 0).map(o => `${o.suite} (${o.warned})`).join(', ')
+    console.log(`   ${totalWarned} known-gap warning(s), not scored — ${who}`)
+  }
   if (skipped.length) console.log(`   ${skipped.length} suite(s) skipped`)
   if (needsDb) console.log(`   residue: ${residue} row(s)${residue === 0 ? ' ✓' : ' ✗'}`)
   if (badSuites.length) {
@@ -343,7 +356,7 @@ async function main(): Promise<void> {
 
 function printLine(o: SuiteOutcome): void {
   const pad = o.suite.padEnd(26)
-  if (o.status === 'passed')  console.log(`  ✓ ${pad} ${String(o.passed).padStart(3)} passed  ${fmtMs(o.ms)}`)
+  if (o.status === 'passed')  console.log(`  ✓ ${pad} ${String(o.passed).padStart(3)} passed${o.warned > 0 ? `, ${o.warned} warned` : ''}  ${fmtMs(o.ms)}`)
   else if (o.status === 'failed')  console.log(`  ✗ ${pad} ${o.passed} passed, ${o.failed} failed  ${fmtMs(o.ms)}`)
   else if (o.status === 'crashed') console.log(`  ✗ ${pad} CRASHED — ${o.reason}`)
   else console.log(`  ⊘ ${pad} SKIPPED — ${o.reason}`)

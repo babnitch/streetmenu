@@ -86,6 +86,45 @@ export const sb = new Proxy({} as SupabaseClient, {
   },
 })
 
+// ── Anon (browser) client ───────────────────────────────────────────────────
+// The SAME client the browser gets from lib/supabase.ts: public URL + public
+// anon key, no session. Used by the RLS section of db-schema-migrations.ts to
+// measure what an unauthenticated visitor can actually read.
+//
+// This is the only honest way to check RLS from here. PostgREST does not
+// expose pg_catalog, so `pg_policies` is unreadable and there is no
+// DATABASE_URL in .env.local to go around it. Comparing what THIS client sees
+// against what `sb` (service role, bypasses RLS) sees is the measurable proxy
+// for a policy, and it has the advantage of testing the thing that actually
+// matters — what a stranger with the public key can read — rather than the
+// policy text that is supposed to produce it.
+//
+// Lazy for the same reason `sb` is: a unit suite that never touches it needs
+// no credentials.
+let _anon: SupabaseClient | null = null
+export function getAnon(): SupabaseClient {
+  if (!_anon) {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set (check .env.local)')
+    }
+    if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is not set (check .env.local)')
+    }
+    _anon = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } },
+    )
+  }
+  return _anon
+}
+
+export const anonSb = new Proxy({} as SupabaseClient, {
+  get(_t, prop) {
+    return (getAnon() as unknown as Record<string | symbol, unknown>)[prop]
+  },
+})
+
 // ── Reserved namespace ──────────────────────────────────────────────────────
 // See TEST-PLAN.md §4. Everything a test creates must be nameable by one of
 // these patterns, because the sweeper works from patterns alone — it never
