@@ -160,11 +160,50 @@ export async function POST(req: NextRequest) {
       // Fire-and-await the fan-out. We're already in a background webhook,
       // so blocking until WhatsApp finishes is fine and keeps audit ordering
       // deterministic.
+      //
+      // The send route now requires Authorization: Bearer <INTERNAL_API_SECRET>
+      // (it is the only bulk-WhatsApp emitter in the app and used to be
+      // world-callable). This is its one legitimate caller.
+      //
+      // RECOVERY NOTE for both failure paths below: the broadcast has ALREADY
+      // been marked paid above, so a failed send leaves it at status='paid',
+      // which is exactly the state /send requires. Nothing is lost — fix the
+      // cause and re-POST the route to fan out.
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://streetmenu.vercel.app'
-      try {
-        await fetch(`${baseUrl}/api/broadcasts/${broadcast.id}/send`, { method: 'POST' })
-      } catch (e) {
-        console.error('[payments/webhook] broadcast send failed:', (e as Error).message)
+      const internalSecret = process.env.INTERNAL_API_SECRET
+      if (!internalSecret) {
+        // Checked BEFORE the call so the log names the real cause. Calling
+        // without it would come back 503 and read like the send route is
+        // broken, when the actual fault is a missing env var here.
+        console.error(
+          `[payments/webhook] INTERNAL_API_SECRET is not set — CANNOT trigger the fan-out ` +
+          `for broadcast=${broadcast.id}. It is PAID and stuck at status=paid. Set ` +
+          `INTERNAL_API_SECRET in Vercel (Production), redeploy, then ` +
+          `POST /api/broadcasts/${broadcast.id}/send with that bearer token to recover.`,
+        )
+      } else {
+        try {
+          const sendRes = await fetch(`${baseUrl}/api/broadcasts/${broadcast.id}/send`, {
+            method:  'POST',
+            headers: { Authorization: `Bearer ${internalSecret}` },
+          })
+          // fetch does NOT throw on a non-2xx, so without this check a 401 or
+          // 503 would be swallowed by the catch below and look like success.
+          if (!sendRes.ok) {
+            const detail = await sendRes.text().catch(() => '')
+            console.error(
+              `[payments/webhook] broadcast fan-out REFUSED: broadcast=${broadcast.id} ` +
+              `status=${sendRes.status} body=${detail.slice(0, 200)} — it is PAID and stuck ` +
+              `at status=paid; re-POST /api/broadcasts/${broadcast.id}/send once fixed.`,
+            )
+          }
+        } catch (e) {
+          console.error(
+            `[payments/webhook] broadcast send failed: broadcast=${broadcast.id} — ` +
+            `${(e as Error).message} — it is PAID and stuck at status=paid; re-POST ` +
+            `/api/broadcasts/${broadcast.id}/send to recover.`,
+          )
+        }
       }
     } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
       await supabaseAdmin
