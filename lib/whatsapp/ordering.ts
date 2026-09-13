@@ -896,11 +896,12 @@ export async function handleOrderCommand(
     // Seed a reservations_browse session so "annuler reservation N" can
     // resolve the list number back to the right id without a follow-up
     // round-trip. 15-minute TTL — same as the spec.
-    await supabaseAdmin.from('signup_sessions').upsert({
+    const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
       phone, user_type: 'reservations_browse', step: 1,
       data: { reservation_ids: data.map(d => d.id) },
       expires_at: sessionExpiry(15),
     })
+    if (sessErr) return sessionSaveFailed(from, 'reservations_browse', sessErr, lang)
 
     await sendWhatsApp(from,
       `${pickLang('🎟 *Vos réservations:*', '🎟 *Your reservations:*', lang)}\n\n${lines.join('\n\n')}\n\n` +
@@ -1040,11 +1041,12 @@ export async function handleOrderCommand(
       return `${i + 1}. *${e.title}* — ${d}${e.time ? ` · ${e.time}` : ''} — ${price}`
     })
 
-    await supabaseAdmin.from('signup_sessions').upsert({
+    const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
       phone, user_type: 'event_browse', step: 1,
       data: { event_ids: scoped.map(e => e.id) },
       expires_at: sessionExpiry(15),
     })
+    if (sessErr) return sessionSaveFailed(from, 'event_browse', sessErr, lang)
 
     await sendWhatsApp(from,
       `${header}\n\n${lines.join('\n')}\n\n` +
@@ -1756,11 +1758,12 @@ export async function handleEventSession(
       // Paid pay-at-door — offer a promo code before confirming. Free events
       // have nothing to discount, so they confirm immediately.
       if (totalPrice > 0) {
-        await supabaseAdmin.from('signup_sessions').upsert({
+        const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
           phone, user_type: 'event_reserve', step: 5,
           data: { ...data, quantity: q, base_total: totalPrice, commission_rate: commissionRate },
           expires_at: sessionExpiry(15),
         })
+        if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
         await sendWhatsApp(from, pickLang(
           `🎫 Entrez un code promo, ou envoyez *oui* pour confirmer.`,
           `🎫 Enter a promo code, or send *yes* to confirm.`,
@@ -1773,11 +1776,12 @@ export async function handleEventSession(
 
     if (effMode === 'both') {
       // Let the customer choose pay-now vs reserve (step 3).
-      await supabaseAdmin.from('signup_sessions').upsert({
+      const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
         phone, user_type: 'event_reserve', step: 3,
         data: { ...data, quantity: q, total_price: totalPrice, commission_amount: commissionAmount },
         expires_at: sessionExpiry(15),
       })
+      if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
       await sendWhatsApp(from, pickLang(
         `${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\nComment souhaitez-vous payer?\n\n1. 💰 Payer maintenant (Mobile Money)\n2. 📋 Réserver (payer sur place)\n\nRépondez 1 ou 2`,
         `${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\nHow would you like to pay?\n\n1. 💰 Pay now (Mobile Money)\n2. 📋 Reserve (pay at the door)\n\nReply 1 or 2`,
@@ -1787,8 +1791,7 @@ export async function handleEventSession(
     }
 
     // payment_only — advance to step 2 and ask for the MoMo number.
-    await askEventMomoNumber(from, phone, data, q, ticketPrice, totalPrice, commissionAmount, lang)
-    return ok()
+    return askEventMomoNumber(from, phone, data, q, ticketPrice, totalPrice, commissionAmount, lang)
     // eventTitle unused at this step — silence by referencing in the log on success.
     void eventTitle
   }
@@ -1849,11 +1852,12 @@ export async function handleEventSession(
     }
     const discount = vres.discount
     const total    = Math.max(0, baseTotal - discount)
-    await supabaseAdmin.from('signup_sessions').upsert({
+    const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
       phone, user_type: 'event_reserve', step: 5,
       data: { ...data, voucher_code: vres.voucher.code, voucher_id: vres.voucher.id, discount_amount: discount },
       expires_at: sessionExpiry(15),
     })
+    if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
     await sendWhatsApp(from, pickLang(
       `🎫 ${vres.voucher.code} appliqué! Nouveau total: *${total.toLocaleString()} FCFA*.\nEnvoyez *oui* pour confirmer.`,
       `🎫 ${vres.voucher.code} applied! New total: *${total.toLocaleString()} FCFA*.\nSend *yes* to confirm.`,
@@ -2007,8 +2011,7 @@ export async function handleEventSession(
 
     // Pay now → reuse the MoMo prompt (step 2 handles the rest).
     if (choice === '1') {
-      await askEventMomoNumber(from, phone, data, quantity, ticketPrice, totalPrice, commissionAmount, lang)
-      return ok()
+      return askEventMomoNumber(from, phone, data, quantity, ticketPrice, totalPrice, commissionAmount, lang)
     }
 
     // Reserve → re-pull the event to re-check capacity, then confirm.
@@ -2055,17 +2058,30 @@ interface EventReserveRow {
   whatsapp: string | null
 }
 
+// A signup_sessions save that fails must never be followed by its prompt: the
+// customer's answer would go nowhere. That is exactly how the event and
+// reservation flows died silently — the user_type CHECK rejected them and no
+// one read the error — so log it loudly and ask the customer to retry instead.
+async function sessionSaveFailed(
+  from: string, userType: string, err: { code?: string; message: string }, lang: Lang,
+): Promise<NextResponse> {
+  console.error('[whatsapp] %s session upsert failed:', userType, err.code, err.message)
+  await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Retry.', lang))
+  return ok()
+}
+
 // Sets the session to step 2 and prompts for the Mobile Money number. Shared by
 // the payment_only path and the 'both' → pay-now choice.
 async function askEventMomoNumber(
   from: string, phone: string, data: Record<string, unknown>,
   q: number, ticketPrice: number, totalPrice: number, commissionAmount: number, lang: Lang,
-): Promise<void> {
-  await supabaseAdmin.from('signup_sessions').upsert({
+): Promise<NextResponse> {
+  const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
     phone, user_type: 'event_reserve', step: 2,
     data: { ...data, quantity: q, total_price: totalPrice, commission_amount: commissionAmount },
     expires_at: sessionExpiry(15),
   })
+  if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
   await sendWhatsApp(from,
     `💰 ${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\n` +
     pickLang(
@@ -2073,6 +2089,7 @@ async function askEventMomoNumber(
       `Send your Mobile Money number to pay.\n\nEx: 237670000000\n\nOr "cancel"`,
       lang,
     ))
+  return ok()
 }
 
 // Inserts a free / pay-at-door event reservation, bumps tickets_sold, confirms
@@ -2193,11 +2210,12 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
           `💡 Envoyez 'reserver' pour réserver, ou 'retour' pour la liste.`,
           `💡 Send 'reserve' to book, or 'back' for the list.`, lang)
 
-  await supabaseAdmin.from('signup_sessions').upsert({
+  const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
     phone, user_type: 'event_detail', step: 1,
     data: { event_id: event.id, event_name: event.title },
     expires_at: sessionExpiry(15),
   })
+  if (sessErr) return sessionSaveFailed(from, 'event_detail', sessErr, lang)
 
   await sendWhatsApp(from, [
     `🎉 *${event.title}*`,
@@ -2277,7 +2295,7 @@ async function startReserveFlow(
     return ok()
   }
 
-  await supabaseAdmin.from('signup_sessions').upsert({
+  const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
     phone, user_type: 'event_reserve', step: 1,
     data: {
       event_id:        event.id,
@@ -2287,6 +2305,7 @@ async function startReserveFlow(
     },
     expires_at: sessionExpiry(15),
   })
+  if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
   const cap = remaining === Infinity ? 10 : Math.min(10, remaining)
   await sendWhatsApp(from, pickLang(
     `Combien de places? (1-${cap})\n\nOu "annuler"`,

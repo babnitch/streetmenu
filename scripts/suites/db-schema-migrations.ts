@@ -20,8 +20,8 @@
 // non-head select. Only #19's status-value checks and #20/#21 write anything,
 // and those go through the fixtures so the ledger owns the cleanup.
 
-import { readFileSync } from 'fs'
-import { resolve } from 'path'
+import { readdirSync, readFileSync, statSync } from 'fs'
+import { join, relative, resolve } from 'path'
 import { sb, anonSb } from '../testkit/env'
 import { assert, assertEq, step, warn, finish } from '../testkit/assert'
 import { makeCustomer, makeRestaurant, type TestCustomer } from '../testkit/fixtures'
@@ -47,6 +47,17 @@ async function tableExists(table: string): Promise<{ ok: boolean; detail: string
   if (!error) return { ok: true, detail: 'present' }
   if (error.code === 'PGRST205') return { ok: false, detail: `MISSING — ${error.message}` }
   return { ok: false, detail: `unexpected ${error.code}: ${error.message}` }
+}
+
+/** Every .ts file under `dir`, recursively. */
+function tsFilesUnder(dir: string): string[] {
+  const out: string[] = []
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name)
+    if (statSync(path).isDirectory()) out.push(...tsFilesUnder(path))
+    else if (name.endsWith('.ts')) out.push(path)
+  }
+  return out
 }
 
 /**
@@ -322,29 +333,48 @@ async function main(): Promise<void> {
         `and rejects it via the CHECK constraint, not some other error (got ${bogus})`)
 
       // (b) Every value the constraint is supposed to allow.
+      // supabase-signup-session-types.sql (first seven) and
+      // supabase-signup-session-event-types.sql (the event + reservation flows).
       const EXPECTED = [
         'customer', 'vendor', 'photo_update', 'restaurant_select',
         'ordering', 'menu_category', 'invite_accept',
+        'event_browse', 'event_detail', 'event_reserve', 'reservations_browse',
       ]
       for (const t of EXPECTED) {
         const err = await tryType(t)
         assert(err === null, `signup_sessions.user_type accepts '${t}'`, err ?? undefined)
       }
 
-      // (c) The part that catches the NEXT divergence: read what the router
-      // actually writes and assert each literal is allowed. Adding an eighth
-      // session type without a migration fails here, by name, instead of
-      // dying silently in production.
-      const routerSrc = readFileSync(
-        resolve(process.cwd(), 'app/api/whatsapp/incoming/route.ts'), 'utf8')
-      const written = Array.from(new Set(
-        Array.from(routerSrc.matchAll(/user_type:\s*'([a-z_]+)'/g)).map(m => m[1]),
-      )).sort()
-      assert(written.length > 0, `found the router's user_type literals (${written.join(', ')})`)
+      // (c) The part that catches the NEXT divergence: read what the WhatsApp
+      // handlers actually write and assert each literal is allowed. Adding a
+      // session type without a migration fails here, by name, instead of dying
+      // silently in production.
+      //
+      // Scans the router AND everything under lib/whatsapp/. This guard used to
+      // read route.ts alone, and the four event/reservation types written from
+      // lib/whatsapp/ordering.ts sat outside it — dead in production for months.
+      const root = process.cwd()
+      const writers = [
+        resolve(root, 'app/api/whatsapp/incoming/route.ts'),
+        ...tsFilesUnder(resolve(root, 'lib/whatsapp')),
+      ]
+      const writtenBy = new Map<string, string>()   // user_type → first file that writes it
+      for (const file of writers) {
+        for (const m of Array.from(readFileSync(file, 'utf8').matchAll(/user_type:\s*'([a-z_]+)'/g))) {
+          if (!writtenBy.has(m[1])) writtenBy.set(m[1], relative(root, file))
+        }
+      }
+      const written = Array.from(writtenBy.keys()).sort()
+      assert(written.length > 0, `found the WhatsApp handlers' user_type literals (${written.join(', ')})`)
+      // Positive control: the scan must actually reach lib/whatsapp/, or it is
+      // back to covering the router alone.
+      assert(Array.from(writtenBy.values()).some(f => f.startsWith('lib/whatsapp/')),
+        'the scan reached lib/whatsapp/ and found session types written there',
+        `scanned ${writers.length} file(s)`)
       for (const t of written) {
         assert(EXPECTED.includes(t),
-          `the router writes user_type '${t}' and the constraint allows it`,
-          `'${t}' is written by app/api/whatsapp/incoming/route.ts but is NOT in the allowed set — ` +
+          `${writtenBy.get(t)} writes user_type '${t}' and the constraint allows it`,
+          `'${t}' is written by ${writtenBy.get(t)} but is NOT in the allowed set — ` +
           'widen signup_sessions_user_type_check with a migration, or the flow using it is silently dead')
       }
 
