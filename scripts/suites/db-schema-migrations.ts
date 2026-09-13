@@ -257,6 +257,9 @@ async function main(): Promise<void> {
         ['restaurants',        'whatsapp_payment_enabled', 'supabase-payment-modes.sql'],
         ['events',             'whatsapp_payment_enabled', 'supabase-payment-modes.sql'],
         ['event_reservations', 'reservation_code',         'reservation codes'],
+        ['events',             'end_date',                 'supabase-event-date-range.sql'],
+        ['events',             'end_time',                 'supabase-event-date-range.sql'],
+        ['events',             'effective_end_date',       'supabase-event-date-range.sql'],
       ]
       for (const [table, column, origin] of columns) {
         const r = await columnExists(table, column)
