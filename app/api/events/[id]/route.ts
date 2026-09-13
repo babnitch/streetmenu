@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 import { notifyEventUpdate, type SignificantChanges } from '@/lib/directMessaging'
+import { EVENT_DATE_COLUMNS } from '@/lib/eventDate'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,7 +76,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const { data: updated, error: updErr } = await supabaseAdmin
     .from('events').update(updates).eq('id', event.id)
-    .select('id, title, date, time, venue')
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue`)
     .single()
   if (updErr || !updated) {
     console.error('[events/PATCH] update failed:', updErr?.message)
@@ -95,7 +96,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // significant field changed, pings attendees. Pending events have no
   // audience (you can't reserve a draft), so this safely returns 0 for them.
   const notified = await notifyEventUpdate(
-    { id: updated.id, title: updated.title, date: updated.date, time: updated.time, venue: updated.venue },
+    {
+      id: updated.id, title: updated.title, date: updated.date, time: updated.time,
+      end_date: updated.end_date, end_time: updated.end_time, venue: updated.venue,
+    },
     changes,
     session.id,
     session.role,

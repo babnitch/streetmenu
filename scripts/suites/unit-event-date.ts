@@ -16,8 +16,10 @@ import {
   EVENT_DATE_COLUMNS,
   effectiveEndDate,
   eventSpansDay,
+  formatEventDates,
   formatEventEnd,
   formatEventWhen,
+  isMultiDay,
   isPastEvent,
   todayISO,
   type EventDateStyle,
@@ -27,6 +29,17 @@ import { assert, assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-event-date'
 const NOW = new Date('2026-01-18T12:00:00Z')
+
+// The exact Intl options each group of call sites used before the helper
+// existed — single-day output must still match them.
+const LEGACY_OPTIONS: Record<EventDateStyle, Intl.DateTimeFormatOptions> = {
+  card:       { day: '2-digit', month: 'short', year: 'numeric' },
+  detail:     { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' },
+  message:    { day: '2-digit', month: 'long', year: 'numeric' },
+  list:       { weekday: 'short', day: '2-digit', month: 'short' },
+  compact:    { day: '2-digit', month: 'short' },
+  chatDetail: { weekday: 'short', day: '2-digit', month: 'long', year: 'numeric' },
+}
 
 // Intl puts thin spaces around the dash in some ranges — spelled out so the
 // expectations below are unambiguous.
@@ -154,23 +167,32 @@ async function main(): Promise<void> {
     assertEq(missing.errors.length, 1, 'and logs')
   })
 
-  await step('formatEventWhen: single-day output matches the pre-range formatting', () => {
-    // The exact Intl options each group of call sites used before the helper.
-    const legacy: Record<EventDateStyle, Intl.DateTimeFormatOptions> = {
-      card:       { day: '2-digit', month: 'short', year: 'numeric' },
-      detail:     { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' },
-      message:    { day: '2-digit', month: 'long', year: 'numeric' },
-      list:       { weekday: 'short', day: '2-digit', month: 'short' },
-      compact:    { day: '2-digit', month: 'short' },
-      chatDetail: { weekday: 'short', day: '2-digit', month: 'long', year: 'numeric' },
-    }
+  await step('formatEventWhen / formatEventDates: single-day output matches the pre-range formatting', () => {
     for (const lang of ['fr', 'en'] as const) {
       const locale = lang === 'en' ? 'en-GB' : 'fr-FR'
-      for (const style of Object.keys(legacy) as EventDateStyle[]) {
-        const before = new Date('2026-01-17').toLocaleDateString(locale, { ...legacy[style], timeZone: 'UTC' })
-        assertEq(formatEventWhen(ev('2026-01-17'), lang, style), before, `${lang} ${style} unchanged`)
+      for (const style of Object.keys(LEGACY_OPTIONS) as EventDateStyle[]) {
+        const before = new Date('2026-01-17').toLocaleDateString(locale, { ...LEGACY_OPTIONS[style], timeZone: 'UTC' })
+        assertEq(formatEventWhen(ev('2026-01-17'), lang, style), before, `${lang} ${style} unchanged (when)`)
+        assertEq(formatEventDates(ev('2026-01-17', null, '18:00'), lang, style), before, `${lang} ${style} unchanged (dates)`)
       }
     }
+  })
+
+  await step('formatEventDates: dates without times', () => {
+    assertEq(formatEventDates(ev('2026-01-17', null, '18:00', '23:00'), 'fr', 'message'), '17 janvier 2026',
+      'single day drops both times')
+    assertEq(formatEventDates(ev('2026-01-17', '2026-01-19', '18:00'), 'fr', 'compact'), '17–19 janv.',
+      'same month, FR compact')
+    assertEq(formatEventDates(ev('2026-01-30', '2026-02-02', '18:00'), 'fr', 'message'), `30 janvier${THIN_DASH}2 février 2026`,
+      'across a month, FR message')
+    assertEq(formatEventDates(ev(null), 'fr', 'card'), '', 'NULL date → empty string')
+  })
+
+  await step('isMultiDay', () => {
+    assertEq(isMultiDay(ev('2026-01-17')), false, 'NULL end_date → single day')
+    assertEq(isMultiDay(ev('2026-01-17', '2026-01-17')), false, 'end_date equal to date → single day')
+    assertEq(isMultiDay(ev('2026-01-17', '2026-01-19')), true, 'range → multi-day')
+    assertEq(isMultiDay(ev(null, '2026-01-19')), false, 'NULL date → not multi-day')
   })
 
   await step('formatEventWhen: times', () => {

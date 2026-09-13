@@ -10,9 +10,10 @@
 // response stays open until both messages land at Twilio.
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { vendorRecipients } from '@/lib/whatsapp/ordering'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
+import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen } from '@/lib/eventDate'
 
 export async function notifyPaidOrder(
   orderId: string,
@@ -120,7 +121,7 @@ export async function notifyPaidReservation(
   }
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, whatsapp, organizer_id')
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, whatsapp, organizer_id`)
     .eq('id', r.event_id)
     .maybeSingle()
   if (!event) {
@@ -131,9 +132,8 @@ export async function notifyPaidReservation(
   const total   = Number(r.total_price ?? 0)
   const id4     = r.reservation_code ?? r.id.replace(/-/g, '').slice(-4).toUpperCase()
   // Format the date in each recipient's language (customer vs organizer).
-  const fmtDate = (l: string) => new Date(event.date).toLocaleDateString(l === 'en' ? 'en-GB' : 'fr-FR', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
+  const fmtDate = (l: Lang) => formatEventDates(event, l, 'message')
+  const fmtWhen = (l: Lang) => formatEventWhen(event, l, 'message')
   const mno = correspondent ? mnoLabel(correspondent) : 'mobile money'
 
   console.log(`[payment] calling notifyPaidReservation for reservation: ${r.id} event=${event.id}`)
@@ -146,7 +146,7 @@ export async function notifyPaidReservation(
       pickLang(`🎟 *Réservation payée!*`, `🎟 *Reservation paid!*`, lang),
       ``,
       `🎉 ${event.title}`,
-      `📅 ${fmtDate(lang)}${event.time ? ` · ${event.time}` : ''}`,
+      `📅 ${fmtWhen(lang)}`,
       event.venue ? `📍 ${event.venue}` : '',
       pickLang(
         `🎟 ${r.quantity} place(s)`,

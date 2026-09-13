@@ -31,7 +31,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
-import { isPastEvent } from '@/lib/eventDate'
+import { isPastEvent, formatEventDates, formatEventWhen } from '@/lib/eventDate'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
 const EVENT_EDIT_CATEGORIES = [
@@ -263,6 +263,7 @@ export default function AccountPage() {
   // means the "Mes événements" tab stays hidden.
   interface MyEvent {
     id: string; title: string; date: string; time: string | null
+    end_date: string | null; end_time: string | null
     description?: string | null; neighborhood?: string | null; category?: string | null
     venue: string | null; city: string | null; cover_photo: string | null
     ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
@@ -2735,6 +2736,7 @@ function orderShortId(id: string): string {
 // already in scope — onChanged triggers a parent reload after any mutation.
 interface MyEventsPanelEvent {
   id: string; title: string; date: string; time: string | null
+  end_date: string | null; end_time: string | null
   description?: string | null; neighborhood?: string | null; category?: string | null
   venue: string | null; city: string | null; cover_photo: string | null
   ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
@@ -3052,9 +3054,7 @@ function MyEventsPanel({
   }
 
   if (selected) {
-    const dateStr = new Date(selected.date).toLocaleDateString('fr-FR', {
-      day: '2-digit', month: 'long', year: 'numeric',
-    })
+    const dateStr = formatEventDates(selected, 'fr', 'message')
     return (
       <div>
         <button
@@ -3530,9 +3530,7 @@ function MyEventsPanel({
       </Link>
 
       {events.map(e => {
-        const dateStr = new Date(e.date).toLocaleDateString('fr-FR', {
-          day: '2-digit', month: 'short', year: 'numeric',
-        })
+        const whenStr = formatEventWhen(e, 'fr', 'card')
         const ticketPrice = Number(e.ticket_price ?? 0)
         return (
           <button
@@ -3544,7 +3542,7 @@ function MyEventsPanel({
               <div className="min-w-0">
                 <p className="font-semibold text-ink-primary text-sm truncate">{e.title}</p>
                 <p className="text-xs text-ink-tertiary mt-0.5">
-                  {dateStr}{e.time ? ` · ${e.time}` : ''}{e.venue ? ` · ${e.venue}` : ''}
+                  {whenStr}{e.venue ? ` · ${e.venue}` : ''}
                 </p>
               </div>
               {!e.is_active && (
@@ -3676,9 +3674,7 @@ function EventReservationCard({
   const bi = useBi()
   const [cancelling, setCancelling] = useState(false)
   const ev = reservation.events
-  const dateStr = ev?.date
-    ? new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
-    : ''
+  const dateStr = ev ? formatEventDates(ev, 'fr', 'message') : ''
   const statusPill: Record<EventReservation['reservation_status'], { cls: string; label: string }> = {
     pending:   { cls: 'bg-amber-50 text-amber-700 border border-amber-200',     label: '⏳ ' + bi('En attente', 'Pending') },
     confirmed: { cls: 'bg-brand-light text-brand-darker',                       label: '✅ ' + bi('Confirmée', 'Confirmed') },

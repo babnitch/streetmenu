@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
+import { EVENT_DATE_COLUMNS } from '@/lib/eventDate'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, is_active, organizer_id, date, time, venue, city, category, price, ticket_price')
+    .select(`id, title, is_active, organizer_id, ${EVENT_DATE_COLUMNS}, venue, city, category, price, ticket_price`)
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
@@ -107,6 +108,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         title:        event.title,
         date:         (event as { date: string }).date,
         time:         (event as { time: string | null }).time,
+        end_date:     (event as { end_date: string | null }).end_date,
+        end_time:     (event as { end_time: string | null }).end_time,
         venue:        (event as { venue: string | null }).venue,
         city:         (event as { city: string }).city,
         category:     (event as { category: string }).category,

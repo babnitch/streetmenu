@@ -9,7 +9,7 @@ import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
-import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventWhen } from '@/lib/eventDate'
 import { samePhone } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
@@ -228,15 +228,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // locale sent with the request → account preference → phone lookup.
       const lang: Lang = requestLocale ?? storedLang ?? await getLangByPhone(custPhone)
       console.log('[events/pay] customer lang=%s (locale=%s stored=%s)', lang, requestLocale ?? '-', storedLang ?? '-')
-      const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', {
-        day: '2-digit', month: 'long', year: 'numeric',
-      })
+      const whenStr = formatEventWhen(event, lang, 'message')
       console.log('[reserve] sending WhatsApp to customer:', custPhone)
       await sendWhatsApp(custPhone, [
         pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, lang),
         ``,
         `🎉 ${event.title}`,
-        `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+        `📅 ${whenStr}`,
         event.venue ? `📍 ${event.venue}` : '',
         pickLang(`🎟 ${quantity} place(s)`, `🎟 ${quantity} ticket(s)`, lang),
         pickLang(`🎫 Code de réservation: *#${freeRes.reservation_code}*`, `🎫 Reservation code: *#${freeRes.reservation_code}*`, lang),

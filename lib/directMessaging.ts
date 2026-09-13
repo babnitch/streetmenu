@@ -12,6 +12,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
 import { fanoutBatched } from '@/lib/subscriptions'
 import { writeAudit } from '@/lib/audit'
+import { formatEventWhen, isMultiDay } from '@/lib/eventDate'
 
 // Reservation rows that count as a real attendee (exclude cancelled/rejected).
 const ACTIVE_RESERVATION_STATUSES = ['confirmed', 'pending', 'attended']
@@ -33,13 +34,6 @@ export async function messagesSentInLast24h(action: string, targetId: string): P
     .eq('target_id', targetId)
     .gte('created_at', since)
   return (data ?? []).length
-}
-
-// ── Localised date helper ────────────────────────────────────────────────────
-
-function fmtDate(dateStr: string, lang: Lang): string {
-  const locale = lang === 'en' ? 'en-GB' : 'fr-FR'
-  return new Date(dateStr).toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 // ── Audience fetchers ────────────────────────────────────────────────────────
@@ -100,6 +94,8 @@ export interface EventForUpdate {
   title: string
   date: string
   time: string | null
+  end_date: string | null
+  end_time: string | null
   venue: string | null
 }
 
@@ -118,7 +114,9 @@ export function hasSignificantChange(c: SignificantChanges): boolean {
 
 function changeSummary(c: SignificantChanges, event: EventForUpdate, lang: Lang): string {
   const parts: string[] = []
-  if (c.date)  parts.push(pickLang('nouvelle date', 'new date', lang))
+  if (c.date)  parts.push(isMultiDay(event)
+    ? pickLang('nouvelles dates', 'new dates', lang)
+    : pickLang('nouvelle date', 'new date', lang))
   if (c.time)  parts.push(pickLang('nouvelle heure', 'new time', lang))
   if (c.venue) parts.push(pickLang('nouveau lieu', 'new venue', lang))
   if (c.price) {
@@ -134,7 +132,7 @@ function formatUpdateMessage(event: EventForUpdate, c: SignificantChanges, lang:
   const lines = [
     pickLang(`📢 Mise à jour pour ${event.title}:`, `📢 Update for ${event.title}:`, lang),
     summary,
-    `📅 ${fmtDate(event.date, lang)}${event.time ? ` — ${event.time}` : ''}`,
+    `📅 ${formatEventWhen(event, lang, 'card')}`,
   ]
   if (event.venue) lines.push(`📍 ${event.venue}`)
   return lines.join('\n')
@@ -173,6 +171,8 @@ export interface EventForMessage {
   title: string
   date: string
   time: string | null
+  end_date: string | null
+  end_time: string | null
   venue: string | null
   organizer_name: string | null
 }
@@ -188,7 +188,7 @@ function formatEventMessage(event: EventForMessage, message: string, lang: Lang)
     '',
     message,
     '',
-    `📅 ${fmtDate(event.date, lang)}${event.time ? ` — ${event.time}` : ''}`,
+    `📅 ${formatEventWhen(event, lang, 'card')}`,
   ]
   if (event.venue) lines.push(`📍 ${event.venue}`)
   return lines.join('\n')

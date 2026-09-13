@@ -4,7 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
-import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen } from '@/lib/eventDate'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canReserve, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCodes } from '@/lib/reservationCode'
@@ -376,9 +376,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .from('customers').update({ preferred_language: bodyLocale }).eq('id', customerId)
     console.log('[reserve] synced customer=%s preferred_language → %s', customerId, bodyLocale)
   }
-  const dateStr = new Date(event.date).toLocaleDateString(custLang === 'en' ? 'en-GB' : 'fr-FR', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
+  const whenStr = formatEventWhen(event, custLang, 'message')
   // Discount line shown to both parties when a voucher applied.
   const discountLineFor = (lang: 'fr' | 'en') => appliedVoucher && discountTotal > 0
     ? pickLang(
@@ -406,7 +404,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     customerHeader,
     ``,
     `🎉 ${event.title}`,
-    `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+    `📅 ${whenStr}`,
     event.venue ? `📍 ${event.venue}` : '',
     ...tierLinesFor(custLang),
     codeLineFor(custLang),
@@ -420,9 +418,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const orgLang = await getLangByPhone(organizerPhone)
     console.log('[notify] customer phone=%s lang=%s, organizer phone=%s lang=%s',
       custPhone, custLang, organizerPhone, orgLang)
-    const orgDateStr = new Date(event.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', {
-      day: '2-digit', month: 'long', year: 'numeric',
-    })
+    const orgDateStr = formatEventDates(event, orgLang, 'message')
     const organizerHeader = needsApproval
       ? pickLang(
           `📋 *Nouvelle réservation en attente*\nCode #${primaryCode} — répondez "confirmer reservation ${primaryCode}" ou "rejeter reservation ${primaryCode}".`,

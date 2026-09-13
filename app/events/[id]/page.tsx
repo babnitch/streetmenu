@@ -16,7 +16,7 @@ import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, effectiveWebMode, canPayOnline, canReserve } from '@/lib/paymentMode'
-import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd } from '@/lib/eventDate'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -135,9 +135,11 @@ export default function EventDetailPage() {
     )
   }
 
-  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
-  })
+  // Dates alone for the share text and the booking modal; dates + time for the
+  // details row, plus a "Fin" row when the event spans several days.
+  const dateStr = formatEventDates(event, 'fr', 'detail')
+  const whenStr = formatEventWhen(event, 'fr', 'detail')
+  const endStr  = formatEventEnd(event, 'fr', 'detail')
 
   // Reservation gating + price display all derive from a single source of
   // truth so the button copy and the modal stay in lockstep.
@@ -417,7 +419,8 @@ export default function EventDetailPage() {
       {/* Content */}
       <div className="max-w-xl mx-auto px-4 py-6 space-y-6">
         <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-          <DetailRow icon="📅" label={t('evt.date')} value={`${dateStr}${event.time ? ` · ${event.time}` : ''}`} />
+          <DetailRow icon="📅" label={t('evt.date')} value={whenStr} />
+          {endStr && <DetailRow icon="🏁" label={bi('Fin', 'Ends')} value={endStr} />}
           {event.venue && (
             <DetailRow
               icon="📍"

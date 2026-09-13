@@ -6,6 +6,7 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, normalizeLang, pickLang, type Lang, type SendOptions } from '@/lib/whatsapp'
 import { categoryLabelBilingual } from '@/lib/categoryLabels'
+import { formatEventWhen } from '@/lib/eventDate'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -189,6 +190,8 @@ interface EventForNotify {
   title:        string
   date:         string
   time:         string | null
+  end_date:     string | null
+  end_time:     string | null
   venue:        string | null
   city:         string
   category:     string
@@ -197,10 +200,6 @@ interface EventForNotify {
 }
 
 function formatEventLine(e: EventForNotify, lang: Lang): string {
-  const locale = lang === 'en' ? 'en-GB' : 'fr-FR'
-  const date = new Date(e.date).toLocaleDateString(locale, {
-    day: '2-digit', month: 'short', year: 'numeric',
-  })
   const price = e.ticket_price ?? e.price
   const priceLine = price && price > 0
     ? `🎫 ${Number(price).toLocaleString()} FCFA`
@@ -214,7 +213,7 @@ function formatEventLine(e: EventForNotify, lang: Lang): string {
     pickLang(`🎉 *Nouvel événement à ${e.city}!*`, `🎉 *New event in ${e.city}!*`, lang),
     ``,
     e.title,
-    `📅 ${date}${e.time ? ` — ${e.time}` : ''}`,
+    `📅 ${formatEventWhen(e, lang, 'card')}`,
   ]
   if (e.venue) lines.push(`📍 ${e.venue}`)
   lines.push(priceLine)

@@ -28,7 +28,7 @@ import {
 } from '@/lib/paymentMode'
 import { samePhone } from '@/lib/phone'
 import { isEventOrganizer } from '@/lib/eventAuth'
-import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen } from '@/lib/eventDate'
 
 // Every send from this module is a reply in the WhatsApp bot conversation,
 // so it lands in the message log as 'bot_reply' unless the call site says
@@ -849,7 +849,7 @@ export async function handleOrderCommand(
   if (cmd === 'mes reservations' || cmd === 'mes réservations' || cmd === 'my reservations') {
     const { data } = await supabaseAdmin
       .from('event_reservations')
-      .select('id, quantity, total_price, payment_status, reservation_status, reservation_code, created_at, events(id, title, date, venue, event_status)')
+      .select(`id, quantity, total_price, payment_status, reservation_status, reservation_code, created_at, events(id, title, ${EVENT_DATE_COLUMNS}, venue, event_status)`)
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false })
       .limit(10)
@@ -883,10 +883,8 @@ export async function handleOrderCommand(
       not_required: '📋 Gratuit',
     }
     const lines = data.map((r, i) => {
-      const ev = r.events as unknown as { title: string; date: string; venue: string | null } | null
-      const dateStr = ev?.date
-        ? new Date(ev.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', { day: '2-digit', month: 'short' })
-        : ''
+      const ev = r.events as unknown as { title: string; date: string; end_date: string | null; venue: string | null } | null
+      const dateStr = ev ? formatEventDates(ev, lang, 'compact') : ''
       const pay   = payLabel[r.payment_status ?? 'not_required'] ?? ''
       const stat  = statusLabel[r.reservation_status] ?? r.reservation_status
       const codeStr = r.reservation_code ? ` · #${r.reservation_code}` : ''
@@ -945,7 +943,7 @@ export async function handleOrderCommand(
       return ok()
     }
     const { data: ev } = await supabaseAdmin
-      .from('events').select('id, title, date, organizer_id, whatsapp, tickets_sold').eq('id', r.event_id).maybeSingle()
+      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, whatsapp, tickets_sold`).eq('id', r.event_id).maybeSingle()
     if (!ev) {
       await sendWhatsApp(from, pickLang(`❌ Événement introuvable.`, `❌ Event not found.`, lang))
       return ok()
@@ -988,7 +986,7 @@ export async function handleOrderCommand(
     if (!organizerPhone && ev.whatsapp) organizerPhone = ev.whatsapp
     if (organizerPhone) {
       const orgLang = await getLangByPhone(organizerPhone)
-      const dateStr = new Date(ev.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      const dateStr = formatEventDates(ev, orgLang, 'message')
       await sendWhatsApp(organizerPhone, [
         pickLang(`❌ *Réservation${cancelCodeStr} annulée*`, `❌ *Reservation${cancelCodeStr} cancelled*`, orgLang),
         ``,
@@ -1034,11 +1032,11 @@ export async function handleOrderCommand(
       ? pickLang(`🎉 *Événements à ${cityScope}:*`, `🎉 *Events in ${cityScope}:*`, lang)
       : pickLang(`🎉 *Événements à venir:*`, `🎉 *Upcoming events:*`, lang)
     const lines = scoped.map((e, i) => {
-      const d = new Date(e.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', { weekday: 'short', day: '2-digit', month: 'short' })
+      const when = formatEventWhen(e, lang, 'list')
       const price = !e.ticket_price || e.ticket_price <= 0
         ? pickLang('Gratuit', 'Free', lang)
         : `${Number(e.ticket_price).toLocaleString()} FCFA`
-      return `${i + 1}. *${e.title}* — ${d}${e.time ? ` · ${e.time}` : ''} — ${price}`
+      return `${i + 1}. *${e.title}* — ${when} — ${price}`
     })
 
     const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
@@ -1135,7 +1133,7 @@ export async function handleOrderCommand(
     const text  = msgEventMatch[2].trim()
     const { data: candidates } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, organizer_name')
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, organizer_name`)
       .or(organizerScope(customer.id)).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
@@ -1583,7 +1581,7 @@ export async function handleOrderCommand(
   if (cmd === 'mes evenements' || cmd === 'mes événements' || cmd === 'my events') {
     const { data } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, is_active, auto_approved, event_status')
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, is_active, auto_approved, event_status`)
       .or(organizerScope(customer.id))
       .order('date', { ascending: false })
       .limit(10)
@@ -1613,7 +1611,7 @@ export async function handleOrderCommand(
         )
 
     const lines = data.map((e, i) => {
-      const dateStr = new Date(e.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', { day: '2-digit', month: 'short' })
+      const dateStr = formatEventDates(e, lang, 'compact')
       const statusLabel = e.event_status === 'cancelled'
         ? pickLang('❌ Annulé', '❌ Cancelled', lang)
         : !e.is_active
@@ -2149,7 +2147,7 @@ async function confirmEventReservationWhatsapp(opts: {
 
   // Customer message date in the customer's language; pingOrganizer formats
   // its own date in the organizer's language.
-  const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const whenStr = formatEventWhen(event, lang, 'message')
   const payLine = ticketPrice > 0
     ? '\n' + pickLang(
         `💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA`,
@@ -2161,7 +2159,7 @@ async function confirmEventReservationWhatsapp(opts: {
     pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, lang),
     ``,
     `🎉 ${event.title}`,
-    `📅 ${dateStr}${event.time ? ` · ${event.time}` : ''}`,
+    `📅 ${whenStr}`,
     event.venue ? `📍 ${event.venue}` : '',
     pickLang(`🎟 ${q} place(s)`, `🎟 ${q} spot(s)`, lang),
     pickLang(`🎫 Code de réservation: *#${reservationCode}*`, `🎫 Reservation code: *#${reservationCode}*`, lang),
@@ -2187,9 +2185,7 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     await sendWhatsApp(from, pickLang(`❌ Événement indisponible.`, `❌ Event unavailable.`, lang))
     return ok()
   }
-  const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', {
-    weekday: 'short', day: '2-digit', month: 'long', year: 'numeric',
-  })
+  const whenStr = formatEventWhen(event, lang, 'chatDetail')
   const venueLine = event.venue
     ? `📍 ${event.venue}${event.neighborhood ? ', ' + event.neighborhood : ''}${event.city ? ' — ' + event.city : ''}`
     : ''
@@ -2220,7 +2216,7 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
 
   await sendWhatsApp(from, [
     `🎉 *${event.title}*`,
-    `📅 ${dateStr}${event.time ? ` — ${event.time}` : ''}`,
+    `📅 ${whenStr}`,
     venueLine,
     priceLine,
     capacityLine,
@@ -2319,7 +2315,7 @@ async function startReserveFlow(
 // Organizer ping for free / pay-at-door reservations. Paid reservations
 // notify on the webhook → notifyPaidReservation path.
 async function pingOrganizer(
-  event:    { id: string; title: string; date: string; organizer_id: string | null; whatsapp: string | null },
+  event:    { id: string; title: string; date: string; end_date: string | null; organizer_id: string | null; whatsapp: string | null },
   customer: OrderingCustomer,
   quantity: number,
   total:    number,
@@ -2334,9 +2330,7 @@ async function pingOrganizer(
   if (!organizerPhone) return
   const orgLang = await getLangByPhone(organizerPhone)
   // Format the date in the ORGANIZER's language — don't inherit the customer's.
-  const dateStr = new Date(event.date).toLocaleDateString(orgLang === 'en' ? 'en-GB' : 'fr-FR', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
+  const dateStr = formatEventDates(event, orgLang, 'message')
   await sendWhatsApp(organizerPhone, [
     reservationCode
       ? pickLang(`🔔 *Nouvelle réservation!* — #${reservationCode}`, `🔔 *New reservation!* — #${reservationCode}`, orgLang)

@@ -187,6 +187,8 @@ export async function POST(req: NextRequest) {
         title:        String(insertRow.title),
         date:         String(insertRow.date),
         time:         insertRow.time as string | null,
+        end_date:     (insertRow.end_date as string | null | undefined) ?? null,
+        end_time:     (insertRow.end_time as string | null | undefined) ?? null,
         venue:        insertRow.venue as string | null,
         city:         String(insertRow.city),
         category:     String(insertRow.category),

@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { EVENT_DATE_COLUMNS, formatEventDates } from '@/lib/eventDate'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,7 @@ export async function POST(
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
 
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, organizer_id, submitted_by, title, date, venue').eq('id', params.id).maybeSingle()
+    .from('events').select(`id, organizer_id, submitted_by, title, ${EVENT_DATE_COLUMNS}, venue`).eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
   if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
@@ -54,9 +55,7 @@ export async function POST(
 
   if (r.customer_phone) {
     const lang = await getLangByPhone(r.customer_phone)
-    const dateStr = new Date(event.date).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR', {
-      day: '2-digit', month: 'long', year: 'numeric',
-    })
+    const dateStr = formatEventDates(event, lang, 'message')
     const codeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
     await sendWhatsApp(r.customer_phone, [
       pickLang(

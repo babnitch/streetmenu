@@ -14,7 +14,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { useCity } from '@/lib/cityContext'
 import { useDataMode } from '@/lib/dataMode'
 import { arrangePromoted, FEED_INJECT_EVERY_EVENT } from '@/lib/promotions'
-import { isPastEvent, effectiveEndDate } from '@/lib/eventDate'
+import { isPastEvent, effectiveEndDate, formatEventWhen } from '@/lib/eventDate'
 import TopNav from '@/components/TopNav'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
@@ -34,9 +34,7 @@ const CATEGORIES = [
 function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices, isPast }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[]; isPast?: boolean }) {
   const bi = useBi()
   const { isLowData } = useDataMode()
-  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  })
+  const whenStr = formatEventWhen(event, 'fr', 'card')
   const cardRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!promotionId) return
@@ -122,7 +120,7 @@ function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promot
         <p className="font-bold text-ink-primary text-sm leading-tight line-clamp-2 mb-1">
           {event.title}
         </p>
-        <p className="text-xs text-brand font-medium mb-0.5">📅 {dateStr}{event.time ? ` · ${event.time}` : ''}</p>
+        <p className="text-xs text-brand font-medium mb-0.5">📅 {whenStr}</p>
         {event.venue && (
           <p className="text-xs text-ink-tertiary truncate">📍 {event.venue}{event.neighborhood ? `, ${event.neighborhood}` : ''}</p>
         )}
@@ -609,8 +607,7 @@ export default function EventsPage() {
                   <div className="p-4">
                     <p className="font-bold text-ink-primary text-base leading-tight mb-1">{mapSelected.title}</p>
                     <p className="text-xs text-brand font-medium mb-0.5">
-                      📅 {new Date(mapSelected.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      {mapSelected.time ? ` · ${mapSelected.time}` : ''}
+                      📅 {formatEventWhen(mapSelected, 'fr', 'card')}
                     </p>
                     {mapSelected.venue && (
                       <p className="text-xs text-ink-tertiary truncate mb-3">

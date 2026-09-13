@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
+import { formatEventWhen } from '@/lib/eventDate'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
@@ -322,9 +323,7 @@ function EventRow({
   pendingLabel: string
 }) {
   const bi = useBi()
-  const dateStr = new Date(event.date).toLocaleDateString('fr-FR', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  })
+  const whenStr = formatEventWhen(event, 'fr', 'card')
 
   const ticketPrice = Number(event.ticket_price ?? 0)
   const isFree      = !(ticketPrice > 0)
@@ -369,7 +368,7 @@ function EventRow({
             <div>
               <p className="font-bold text-ink-primary text-sm leading-tight">{event.title}</p>
               <p className="text-xs text-brand font-medium mt-0.5">
-                📅 {dateStr}{event.time ? ` · ${event.time}` : ''}
+                📅 {whenStr}
               </p>
             </div>
             <div className="flex flex-col items-end gap-1 flex-shrink-0">

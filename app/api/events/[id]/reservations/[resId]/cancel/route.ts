@@ -3,7 +3,8 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
+import { EVENT_DATE_COLUMNS, formatEventDates } from '@/lib/eventDate'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +35,7 @@ export async function POST(
   }
 
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, title, date, organizer_id, submitted_by, tickets_sold').eq('id', params.id).maybeSingle()
+    .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, submitted_by, tickets_sold`).eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
 
   // Authz: customer self-cancel, organizer, or admin.
@@ -85,9 +86,7 @@ export async function POST(
   // of a redundant message.
   // Each recipient's date is formatted in THEIR language below (organizer vs
   // customer) — not a single shared locale.
-  const fmtDate = (l: string) => new Date(event.date).toLocaleDateString(l === 'en' ? 'en-GB' : 'fr-FR', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
+  const fmtDate = (l: Lang) => formatEventDates(event, l, 'message')
   const codeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
   if (isOwner) {
     let organizerPhone: string | null = null
