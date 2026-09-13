@@ -14,7 +14,11 @@ import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative, resolve } from 'path'
 import {
   EVENT_DATE_COLUMNS,
+  EVENT_RANGE_ERRORS,
   effectiveEndDate,
+  eventRangeErrorText,
+  normalizeEndDate,
+  validateEventRange,
   eventSpansDay,
   formatEventDates,
   formatEventEnd,
@@ -226,6 +230,45 @@ async function main(): Promise<void> {
       'multi-day with end time')
     assertEq(formatEventEnd(ev('2026-01-17', '2026-01-19'), 'fr', 'detail'), 'lundi 19 janvier 2026',
       'multi-day without end time')
+  })
+
+  await step('validateEventRange', () => {
+    const check = (date: string | null, time: string | null, endDate: string | null, endTime: string | null) =>
+      validateEventRange({ date, time, end_date: endDate, end_time: endTime })
+
+    assertEq(check('2026-01-17', null, null, null), null, 'single day, no times')
+    assertEq(check('2026-01-17', '', '', ''), null, 'blank strings count as unset')
+    assertEq(check('2026-01-17', '18:00', null, '23:00'), null, 'single day, 18:00–23:00')
+    assertEq(check('2026-01-17', '18:00', null, '18:00'), null, 'end time equal to start time is allowed')
+    assertEq(check('2026-01-17', '18:00', '2026-01-19', '02:00'), null,
+      'multi-day: an end time before the start time is fine on a later day')
+
+    assertEq(check('2026-01-17', null, '2026-01-16', null), 'end_before_start', 'end date before start → refused')
+    assertEq(check('2026-01-17', '22:00', null, '03:00'), 'end_time_before_start',
+      'overnight with no end date → refused, not moved to the next day')
+    assertEq(check('2026-01-17', '22:00', '2026-01-17', '03:00'), 'end_time_before_start',
+      'overnight with the end date equal to the start → refused too')
+    assertEq(check('2026-01-17', '22:00', '2026-01-18', '03:00'), null,
+      'overnight with the next day as end date → accepted')
+    assertEq(check('2026-01-17', null, null, '23:00'), 'end_time_without_start', 'end time without a start time → refused')
+
+    assertEq(check(null, null, null, null), 'bad_format', 'no start date → bad_format')
+    assertEq(check('17/01/2026', null, null, null), 'bad_format', 'non-ISO date → bad_format')
+    assertEq(check('2026-02-31', null, null, null), 'bad_format', 'impossible calendar date → bad_format')
+    assertEq(check('2026-01-17', '6pm', null, null), 'bad_format', 'non-HH:MM time → bad_format')
+    assertEq(check('2026-01-17T00:00:00+00:00', null, '2026-01-19T00:00:00+00:00', null), null,
+      'timestamp-shaped DB values are cut to the day')
+
+    assert(eventRangeErrorText('end_time_before_start').includes('next day'), 'the overnight error tells them to use the next day (EN)')
+    assert(EVENT_RANGE_ERRORS.end_time_before_start.fr.includes('lendemain'), 'and in French')
+  })
+
+  await step('normalizeEndDate: only a later day is stored', () => {
+    assertEq(normalizeEndDate('2026-01-17', '2026-01-19'), '2026-01-19', 'a later day is kept')
+    assertEq(normalizeEndDate('2026-01-17', '2026-01-17'), null, 'the same day → NULL (single-day)')
+    assertEq(normalizeEndDate('2026-01-17', null), null, 'no end → NULL')
+    assertEq(normalizeEndDate('2026-01-17', ''), null, 'blank end → NULL')
+    assertEq(normalizeEndDate('2026-01-17', '2026-01-16'), null, 'an earlier day is never stored')
   })
 
   await step('EVENT_DATE_COLUMNS carries the whole range', () => {

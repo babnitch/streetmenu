@@ -80,6 +80,78 @@ export function eventSpansDay(event: EventWhen, dayISO: string): boolean {
   return start <= dayISO && dayISO <= end
 }
 
+// ── Validating a range (both forms and both APIs) ─────────────────────────────
+
+export type EventRangeError = 'bad_format' | 'end_time_without_start' | 'end_before_start' | 'end_time_before_start'
+
+// One wording for every place a range is refused.
+export const EVENT_RANGE_ERRORS: Record<EventRangeError, { fr: string; en: string }> = {
+  bad_format: {
+    fr: 'Date ou heure invalide.',
+    en: 'Invalid date or time.',
+  },
+  end_time_without_start: {
+    fr: 'Indiquez une heure de début pour pouvoir indiquer une heure de fin.',
+    en: 'Set a start time before setting an end time.',
+  },
+  end_before_start: {
+    fr: 'La date de fin ne peut pas être avant la date de début.',
+    en: 'The end date cannot be before the start date.',
+  },
+  end_time_before_start: {
+    fr: "L'heure de fin est avant l'heure de début. Si l'événement se termine après minuit, choisissez le lendemain comme date de fin.",
+    en: 'The end time is before the start time. If the event ends after midnight, set the end date to the next day.',
+  },
+}
+
+// "fr / en" — the bilingual shape the API error bodies use.
+export function eventRangeErrorText(error: EventRangeError): string {
+  return `${EVENT_RANGE_ERRORS[error].fr} / ${EVENT_RANGE_ERRORS[error].en}`
+}
+
+export interface EventRangeInput {
+  date:     string | null
+  time:     string | null
+  end_date: string | null
+  end_time: string | null
+}
+
+const HH_MM = /^\d{2}:\d{2}$/
+
+// A real calendar day in YYYY-MM-DD (rejects 2026-02-31, which the DB would
+// otherwise turn into a 500).
+function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+}
+
+// Null when the range is acceptable. Blank strings count as unset; a blank end
+// date means a single-day event. An overnight event entered with a same-day end
+// (22:00 → 03:00) is REJECTED, never silently moved to the next day — the
+// organizer sets the end date to the next day themselves.
+export function validateEventRange(input: EventRangeInput): EventRangeError | null {
+  const date    = input.date ? input.date.slice(0, 10) : null
+  const endDate = input.end_date ? input.end_date.slice(0, 10) : null
+  const time    = input.time || null
+  const endTime = input.end_time || null
+
+  if (!date || !isCalendarDate(date)) return 'bad_format'
+  if (endDate && !isCalendarDate(endDate)) return 'bad_format'
+  if ((time && !HH_MM.test(time)) || (endTime && !HH_MM.test(endTime))) return 'bad_format'
+  if (endTime && !time) return 'end_time_without_start'
+  if (endDate && endDate < date) return 'end_before_start'
+  const sameDay = !endDate || endDate === date
+  if (sameDay && time && endTime && endTime < time) return 'end_time_before_start'
+  return null
+}
+
+// The end_date to store: only a day AFTER the start. Blank or equal → NULL, so
+// every single-day row has the same shape.
+export function normalizeEndDate(date: string, endDate: string | null | undefined): string | null {
+  const end = endDate ? endDate.slice(0, 10) : null
+  return end && end > date.slice(0, 10) ? end : null
+}
+
 // ── Display ───────────────────────────────────────────────────────────────────
 
 export type EventDateStyle = 'card' | 'detail' | 'message' | 'list' | 'compact' | 'chatDetail'

@@ -5,11 +5,12 @@ import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
+import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/events/submit
-// Body: full event payload (title, description, date, time, venue, city,
+// Body: full event payload (title, description, date, time, end_date, end_time, venue, city,
 // neighborhood, category, price/ticket_price, max_tickets, payment_enabled,
 // cover_photo URL, whatsapp, organizer_name).
 //
@@ -33,6 +34,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       error: 'Champs requis manquants / Missing required fields',
     }, { status: 400 })
+  }
+
+  // Start/end range. A blank end means a single-day event — same rules as the form.
+  const range = {
+    date:     String(body.date),
+    time:     body.time || null,
+    end_date: body.end_date || null,
+    end_time: body.end_time || null,
+  }
+  const rangeError = validateEventRange(range)
+  if (rangeError) {
+    return NextResponse.json({ error: eventRangeErrorText(rangeError) }, { status: 400 })
   }
 
   // Trust read — used to decide auto_approved + is_active.
@@ -67,8 +80,10 @@ export async function POST(req: NextRequest) {
   const insertRow: Record<string, unknown> = {
     title:           String(body.title).trim(),
     description:     body.description ? String(body.description).trim() : null,
-    date:            body.date,
-    time:            body.time || null,
+    date:            range.date,
+    time:            range.time,
+    end_date:        normalizeEndDate(range.date, range.end_date),
+    end_time:        range.end_time,
     venue:           body.venue || null,
     city:            body.city,
     neighborhood:    body.neighborhood || null,

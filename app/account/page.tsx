@@ -31,7 +31,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
-import { isPastEvent, formatEventDates, formatEventWhen } from '@/lib/eventDate'
+import { isPastEvent, formatEventDates, formatEventWhen, validateEventRange, EVENT_RANGE_ERRORS } from '@/lib/eventDate'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
 const EVENT_EDIT_CATEGORIES = [
@@ -2765,6 +2765,7 @@ interface MyEventReservation {
 }
 interface EventEditForm {
   title: string; description: string; date: string; time: string
+  end_date: string; end_time: string
   venue: string; neighborhood: string; category: string
   ticket_price: string; max_tickets: string
   payment_mode: PaymentMode; whatsapp_payment_enabled: boolean
@@ -2937,6 +2938,8 @@ function MyEventsPanel({
       description:  selected.description ?? '',
       date:         selected.date ? String(selected.date).slice(0, 10) : '',
       time:         selected.time ?? '',
+      end_date:     selected.end_date ? String(selected.end_date).slice(0, 10) : '',
+      end_time:     selected.end_time ?? '',
       venue:        selected.venue ?? '',
       neighborhood: selected.neighborhood ?? '',
       category:     selected.category ?? '',
@@ -2974,6 +2977,14 @@ function MyEventsPanel({
       setEditError(bi('Titre, date et catégorie requis.', 'Title, date and category are required.'))
       return
     }
+    const rangeError = validateEventRange({
+      date: editForm.date, time: editForm.time || null,
+      end_date: editForm.end_date || null, end_time: editForm.end_time || null,
+    })
+    if (rangeError) {
+      setEditError(bi(EVENT_RANGE_ERRORS[rangeError].fr, EVENT_RANGE_ERRORS[rangeError].en))
+      return
+    }
     setSavingEdit(true)
     setEditError(null)
     try {
@@ -2985,6 +2996,8 @@ function MyEventsPanel({
           description:  editForm.description,
           date:         editForm.date,
           time:         editForm.time,
+          end_date:     editForm.end_date || null,
+          end_time:     editForm.end_time || null,
           venue:        editForm.venue,
           neighborhood: editForm.neighborhood,
           category:     editForm.category,
@@ -3352,13 +3365,27 @@ function MyEventsPanel({
 
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">
-                    <span className="text-xs font-semibold text-ink-secondary">{bi('Date', 'Date')}</span>
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Date de début', 'Start date')}</span>
                     <input type="date" value={editForm.date} onChange={e => setEdit('date', e.target.value)}
                       className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
                   </label>
                   <label className="block">
-                    <span className="text-xs font-semibold text-ink-secondary">{bi('Heure', 'Time')}</span>
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Heure de début', 'Start time')}</span>
                     <input type="time" value={editForm.time} onChange={e => setEdit('time', e.target.value)}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                </div>
+
+                {/* End — optional; blank = same day as the start */}
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Date de fin (optionnel)', 'End date (optional)')}</span>
+                    <input type="date" min={editForm.date || undefined} value={editForm.end_date} onChange={e => setEdit('end_date', e.target.value)}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Heure de fin (optionnel)', 'End time (optional)')}</span>
+                    <input type="time" value={editForm.end_time} onChange={e => setEdit('end_time', e.target.value)}
                       className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
                   </label>
                 </div>

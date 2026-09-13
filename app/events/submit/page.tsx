@@ -11,6 +11,7 @@ import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
+import { validateEventRange, EVENT_RANGE_ERRORS } from '@/lib/eventDate'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
 
@@ -46,6 +47,8 @@ export default function SubmitEventPage() {
     description: '',
     date: '',
     time: '',
+    end_date: '',
+    end_time: '',
     venue: '',
     city: '',
     neighborhood: '',
@@ -133,6 +136,15 @@ export default function SubmitEventPage() {
       return
     }
 
+    // Start/end range — same rules the API applies. Blank end = single-day.
+    const rangeError = validateEventRange({
+      date: form.date, time: form.time || null, end_date: form.end_date || null, end_time: form.end_time || null,
+    })
+    if (rangeError) {
+      setError(bi(EVENT_RANGE_ERRORS[rangeError].fr, EVENT_RANGE_ERRORS[rangeError].en))
+      return
+    }
+
     // Tier-mode validation: at least one row, every row needs a name +
     // numeric price (0 is fine — denotes a free tier).
     let tierPayload: Array<{ name: string; name_en: string | null; price: number; max_quantity: number; description: string | null }> | null = null
@@ -191,6 +203,8 @@ export default function SubmitEventPage() {
         description:     form.description,
         date:            form.date,
         time:            form.time,
+        end_date:        form.end_date || null,
+        end_time:        form.end_time || null,
         venue:           form.venue,
         city:            form.city,
         neighborhood:    form.neighborhood,
@@ -344,13 +358,23 @@ export default function SubmitEventPage() {
             />
           </Field>
 
-          {/* Date + Time */}
+          {/* Start */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t('evt.dateLbl')}>
+            <Field label={bi('Date de début', 'Start date')}>
               <input type="date" className={INPUT} value={form.date} onChange={e => set('date', e.target.value)} />
             </Field>
-            <Field label={t('evt.timeLbl')}>
+            <Field label={bi('Heure de début', 'Start time')}>
               <input type="time" className={INPUT} value={form.time} onChange={e => set('time', e.target.value)} />
+            </Field>
+          </div>
+
+          {/* End — optional; blank = same day as the start */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={bi('Date de fin (optionnel)', 'End date (optional)')}>
+              <input type="date" className={INPUT} min={form.date || undefined} value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+            </Field>
+            <Field label={bi('Heure de fin (optionnel)', 'End time (optional)')}>
+              <input type="time" className={INPUT} value={form.end_time} onChange={e => set('end_time', e.target.value)} />
             </Field>
           </div>
 

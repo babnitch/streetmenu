@@ -147,6 +147,144 @@ async function main(): Promise<void> {
         category: TEST_CATEGORY, whatsapp: organizer.phone }, orgCookie)).status, 400, 'missing date → 400')
     })
 
+    // ── START + END RANGE (submit + edit) ──────────────────────────────────
+    const readRange = async (id: string) => {
+      const { data } = await sb.from('events')
+        .select('date, time, end_date, end_time, effective_end_date').eq('id', id).maybeSingle()
+      return data as {
+        date: string; time: string | null; end_date: string | null; end_time: string | null; effective_end_date: string
+      } | null
+    }
+    // A pending (non-auto-approve) submission in the namespaced test city.
+    const submitRange = (label: string, range: Record<string, unknown>) => submitEvent({
+      title: testName(label), city: TEST_CITY, category: TEST_CATEGORY,
+      whatsapp: organizer.phone, ticket_price: 0, ...range,
+    }, orgCookie)
+    const countTitled = async (label: string) => {
+      const { data } = await sb.from('events').select('id').eq('title', testName(label))
+      return (data ?? []).length
+    }
+
+    await step('#34 submit: a single-day event (end left blank) stores end_date NULL, as before', async () => {
+      const r = await submitRange('range_single', { date: futureDateISO(20), time: '18:00' })
+      assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 180)})`)
+      const id = r.body.event_id ?? ''
+      track('events', id)
+      const row = await readRange(id)
+      assertEq(row?.end_date, null, 'end_date NULL')
+      assertEq(row?.end_time, null, 'end_time NULL')
+      assertEq(row?.effective_end_date, futureDateISO(20), 'the effective end is the start day')
+    })
+
+    await step('#34 submit: an end date equal to the start is stored as single-day', async () => {
+      const r = await submitRange('range_same_day', {
+        date: futureDateISO(20), time: '18:00', end_date: futureDateISO(20), end_time: '23:00',
+      })
+      assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 180)})`)
+      const id = r.body.event_id ?? ''
+      track('events', id)
+      const row = await readRange(id)
+      assertEq(row?.end_date, null, 'end_date normalised to NULL — single-day rows all look the same')
+      assertEq(row?.end_time, '23:00', 'the end time is kept')
+    })
+
+    await step('#34 submit: a multi-day event stores its end date and time', async () => {
+      const r = await submitRange('range_multi', {
+        date: futureDateISO(20), time: '18:00', end_date: futureDateISO(22), end_time: '23:00',
+      })
+      assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 180)})`)
+      const id = r.body.event_id ?? ''
+      track('events', id)
+      const row = await readRange(id)
+      assertEq(row?.end_date, futureDateISO(22), 'end_date stored')
+      assertEq(row?.end_time, '23:00', 'end_time stored')
+      assertEq(row?.effective_end_date, futureDateISO(22), 'the effective end is the last day')
+    })
+
+    await step('#34 submit refuses an invalid range with 400 and creates nothing', async () => {
+      const cases: Array<[string, Record<string, unknown>, string]> = [
+        ['range_bad_end_before', { date: futureDateISO(20), end_date: futureDateISO(19) }, 'end date before start'],
+        ['range_bad_overnight', { date: futureDateISO(20), time: '22:00', end_time: '03:00' }, 'same-day end time before start (overnight)'],
+        ['range_bad_overnight_eq', { date: futureDateISO(20), time: '22:00', end_date: futureDateISO(20), end_time: '03:00' }, 'overnight with end date = start'],
+        ['range_bad_no_start_time', { date: futureDateISO(20), end_time: '23:00' }, 'end time without a start time'],
+      ]
+      for (const [label, range, what] of cases) {
+        const r = await submitRange(label, range)
+        assertEq(r.status, 400, `${what} → 400`)
+        assertEq(await countTitled(label), 0, `${what}: no event row was created`)
+      }
+      const overnight = await submitRange('range_bad_overnight_msg', { date: futureDateISO(20), time: '22:00', end_time: '03:00' })
+      assert((overnight.body.error ?? '').includes('next day'), 'the overnight refusal tells them to set the next day', overnight.body.error)
+
+      // Control: the same overnight event with the next day as its end is accepted.
+      const ok = await submitRange('range_ok_overnight', {
+        date: futureDateISO(20), time: '22:00', end_date: futureDateISO(21), end_time: '03:00',
+      })
+      assertEq(ok.status, 200, 'overnight with the next day as end date → 200')
+      track('events', ok.body.event_id ?? '')
+    })
+
+    await step('#34 edit validates the MERGED range, not just the request', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'range_edit', city: TEST_CITY, category: TEST_CATEGORY,
+        date: futureDateISO(10), endDate: futureDateISO(12),
+      })
+      const patch = (body: Record<string, unknown>) =>
+        api<{ error?: string }>(`/api/events/${ev.id}`, { method: 'PATCH', body, cookie: orgCookie })
+
+      const pastEnd = await patch({ date: futureDateISO(13) })
+      assertEq(pastEnd.status, 400, 'a new start ALONE, past the stored end date → 400')
+      assertEq((await readRange(ev.id))?.date, futureDateISO(10), 'and nothing was saved')
+
+      assertEq((await patch({ date: futureDateISO(11) })).status, 200, 'a new start inside the range → 200')
+      let row = await readRange(ev.id)
+      assertEq(row?.date, futureDateISO(11), 'start moved')
+      assertEq(row?.end_date, futureDateISO(12), 'the stored end date is kept')
+
+      assertEq((await patch({ end_date: futureDateISO(11) })).status, 200, 'end date set equal to the start → 200')
+      assertEq((await readRange(ev.id))?.end_date, null, 'and stored as NULL (single-day)')
+
+      assertEq((await patch({ end_date: futureDateISO(14), time: '22:00', end_time: '02:00' })).status, 200,
+        'multi-day with an end time before the start time → 200')
+      row = await readRange(ev.id)
+      assertEq(row?.end_date, futureDateISO(14), 'range stored')
+
+      const overnight = await patch({ end_date: '' })
+      assertEq(overnight.status, 400,
+        'collapsing to one day while 22:00 → 02:00 is stored → 400 (the merged row is overnight)')
+      assertEq((await readRange(ev.id))?.end_date, futureDateISO(14), 'and the range is untouched')
+    })
+
+    await step('#34 a multi-day event created through submit flows through the booking gates', async () => {
+      // ONGOING: started 2 days ago, ends in 2 — submitted, approved, booked today.
+      const ongoing = await submitRange('range_gate_ongoing', {
+        date: pastDateISO(2), time: '18:00', end_date: futureDateISO(2), end_time: '23:00',
+      })
+      assertEq(ongoing.status, 200, `submit → 200 (body ${ongoing.raw.slice(0, 180)})`)
+      const ongoingId = ongoing.body.event_id ?? ''
+      track('events', ongoingId)
+      assertEq((await readRange(ongoingId))?.end_date, futureDateISO(2), 'stored as a range')
+      await assertNoSubscribers(TEST_CITY, TEST_CATEGORY)   // interlock 3
+      assertEq((await approve(ongoingId, admin)).status, 200, 'approved')
+      const booked = await reserve(ongoingId, { quantity: 1 }, bookerCookie)
+      const rows = await reservationRows(ongoingId)
+      for (const row of rows) track('event_reservations', row.id)
+      assertEq(booked.status, 200, `reserving on day 3 of the range → 200 (body ${booked.raw.slice(0, 180)})`)
+      assertEq(rows.length, 1, 'one reservation row')
+
+      // FINISHED: ended yesterday — submitted and approved, but not bookable.
+      const finished = await submitRange('range_gate_finished', { date: pastDateISO(5), end_date: pastDateISO(1) })
+      assertEq(finished.status, 200, 'submit → 200')
+      const finishedId = finished.body.event_id ?? ''
+      track('events', finishedId)
+      await assertNoSubscribers(TEST_CITY, TEST_CATEGORY)   // interlock 3
+      assertEq((await approve(finishedId, admin)).status, 200, 'approved')
+      const refused = await reserve(finishedId, { quantity: 1 }, bookerCookie)
+      assertEq(refused.status, 409, 'reserving after the last day → 409')
+      assert((refused.body.error ?? '').toLowerCase().includes('pass'), 'with the past-event error', refused.body.error)
+      assertEq((await reservationRows(finishedId)).length, 0, 'and no reservation row')
+    })
+
     // ── ADMIN APPROVE → active ─────────────────────────────────────────────
     await step('#34 admin approve publishes the event', async () => {
       await assertNoSubscribers(TEST_CITY, TEST_CATEGORY)   // interlock 3

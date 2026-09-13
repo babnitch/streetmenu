@@ -4,13 +4,15 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 import { notifyEventUpdate, type SignificantChanges } from '@/lib/directMessaging'
-import { EVENT_DATE_COLUMNS } from '@/lib/eventDate'
+import {
+  EVENT_DATE_COLUMNS, effectiveEndDate, validateEventRange, eventRangeErrorText, normalizeEndDate,
+} from '@/lib/eventDate'
 
 export const dynamic = 'force-dynamic'
 
 // PATCH /api/events/[id]
 // Organizer (organizer_id === session.id) or admin only. Edits event details
-// after publishing. Editable: title, description, date, time, venue,
+// after publishing. Editable: title, description, date, time, end_date, end_time, venue,
 // neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode,
 // whatsapp_payment_enabled.
 //
@@ -24,7 +26,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, organizer_id, submitted_by, organizer_name, title, description, date, time, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active')
+    .select(`id, organizer_id, submitted_by, organizer_name, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active`)
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
@@ -40,6 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ('description' in body)  updates.description  = body.description ? String(body.description).trim() : null
   if (typeof body.date === 'string' && body.date)            updates.date = body.date
   if ('time' in body)         updates.time         = body.time || null
+  if ('end_time' in body)     updates.end_time     = body.end_time || null
   if ('venue' in body)        updates.venue        = body.venue || null
   if ('neighborhood' in body) updates.neighborhood = body.neighborhood || null
   if (typeof body.category === 'string' && body.category)    updates.category = body.category
@@ -70,6 +73,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     updates.whatsapp_payment_enabled = isPaid ? !!body.whatsapp_payment_enabled : false
   }
 
+  // Start/end range — validate the MERGED row, not just what was sent, so a new
+  // start alone can't jump past a stored end date. Only checked when a range
+  // field was sent: an unrelated edit is never refused over the stored range.
+  const rangeSent = 'date' in updates || 'time' in updates || 'end_date' in body || 'end_time' in updates
+  const merged = {
+    date:     'date' in updates ? String(updates.date) : event.date,
+    time:     'time' in updates ? (updates.time as string | null) : event.time,
+    end_date: 'end_date' in body ? (body.end_date || null) : event.end_date,
+    end_time: 'end_time' in updates ? (updates.end_time as string | null) : event.end_time,
+  }
+  if (rangeSent) {
+    const rangeError = validateEventRange(merged)
+    if (rangeError) {
+      return NextResponse.json({ error: eventRangeErrorText(rangeError) }, { status: 400 })
+    }
+  }
+  // Re-derive the stored end whenever either day moved: equal to the new start → NULL.
+  if ('date' in updates || 'end_date' in body) {
+    updates.end_date = normalizeEndDate(merged.date, merged.end_date)
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'Aucun champ à mettre à jour / Nothing to update' }, { status: 400 })
   }
@@ -84,9 +108,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   // Significant-change detection — compare against the pre-update snapshot.
+  // Dates compare the whole range: a new start OR a new last day both count.
   const changes: SignificantChanges = {}
-  if ('date' in updates && updates.date !== event.date)   changes.date  = true
-  if ('time' in updates && (updates.time ?? null) !== (event.time ?? null)) changes.time  = true
+  if (updated.date !== event.date || effectiveEndDate(updated) !== effectiveEndDate(event)) changes.date = true
+  if (('time' in updates && (updates.time ?? null) !== (event.time ?? null)) ||
+      ('end_time' in updates && (updates.end_time ?? null) !== (event.end_time ?? null))) changes.time = true
   if ('venue' in updates && (updates.venue ?? null) !== (event.venue ?? null)) changes.venue = true
   if ('ticket_price' in updates && (updates.ticket_price ?? null) !== (event.ticket_price ?? null)) {
     changes.price = { to: (updates.ticket_price as number | null) }
