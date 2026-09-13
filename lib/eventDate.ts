@@ -178,11 +178,11 @@ function dateFormatter(lang: 'fr' | 'en', style: EventDateStyle): Intl.DateTimeF
   return new Intl.DateTimeFormat(lang === 'en' ? 'en-GB' : 'fr-FR', { ...STYLE_OPTIONS[style], timeZone: 'UTC' })
 }
 
-interface DayRange { start: string; end: string }
+export interface DayRange { start: string; end: string }
 
 // First and last day (YYYY-MM-DD) of the event, or null without a start date.
 // Computed once per call so the missing-key guard logs at most once.
-function dayRange(event: EventWhen): DayRange | null {
+export function eventDayRange(event: EventWhen): DayRange | null {
   const start = toISODate(event.date)
   if (!start) return null
   return { start, end: effectiveEndDate(event) ?? start }
@@ -190,7 +190,7 @@ function dayRange(event: EventWhen): DayRange | null {
 
 // Whether the event covers more than one calendar day.
 export function isMultiDay(event: EventWhen): boolean {
-  const range = dayRange(event)
+  const range = eventDayRange(event)
   return !!range && range.end !== range.start
 }
 
@@ -204,7 +204,7 @@ function formatDays(range: DayRange, lang: 'fr' | 'en', style: EventDateStyle): 
 // Dates only: "17 janv. 2026" or "17–19 janv. 2026". For the messages and
 // lists that have never shown a time.
 export function formatEventDates(event: EventWhen, lang: 'fr' | 'en', style: EventDateStyle): string {
-  const range = dayRange(event)
+  const range = eventDayRange(event)
   return range ? formatDays(range, lang, style) : ''
 }
 
@@ -212,7 +212,7 @@ export function formatEventDates(event: EventWhen, lang: 'fr' | 'en', style: Eve
 // "17–19 janv. 2026 · 18:00" — a range shows only its start time; the end goes
 // on its own line through formatEventEnd.
 export function formatEventWhen(event: EventWhen, lang: 'fr' | 'en', style: EventDateStyle): string {
-  const range = dayRange(event)
+  const range = eventDayRange(event)
   if (!range) return ''
   const hours = range.end !== range.start
     ? event.time ?? ''
@@ -223,7 +223,7 @@ export function formatEventWhen(event: EventWhen, lang: 'fr' | 'en', style: Even
 // Last day (+ end time) of a multi-day event, for a "Fin :" line. Null for a
 // single-day event, whose end time is already in formatEventWhen's output.
 export function formatEventEnd(event: EventWhen, lang: 'fr' | 'en', style: EventDateStyle): string | null {
-  const range = dayRange(event)
+  const range = eventDayRange(event)
   if (!range || range.end === range.start) return null
   return dateFormatter(lang, style).format(utcDate(range.end)) + (event.end_time ? ` · ${event.end_time}` : '')
 }
