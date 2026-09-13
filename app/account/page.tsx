@@ -31,6 +31,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
+import { isPastEvent } from '@/lib/eventDate'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
 const EVENT_EDIT_CATEGORIES = [
@@ -3691,7 +3692,7 @@ function EventReservationCard({
   // — past events shouldn't surprise the organizer with a last-minute pull,
   // and cancelled/attended rows can't be un-set from here. The cancel API
   // performs its own checks too; this is a UI-side filter for clarity.
-  const isUpcoming = ev?.date ? new Date(ev.date) >= new Date(new Date().toDateString()) : false
+  const isUpcoming = ev?.date ? !isPastEvent(ev) : false
   const canCancel  = reservation.reservation_status === 'confirmed' && ev && isUpcoming
 
   async function handleCancel(e: React.MouseEvent) {

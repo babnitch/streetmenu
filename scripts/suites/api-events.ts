@@ -107,6 +107,8 @@ async function main(): Promise<void> {
       api(`/api/admin/events/${id}/approve`, { method: 'POST', cookie })
     const reserve = (id: string, body: Record<string, unknown>, cookie: string | null) =>
       api<ReserveBody>(`/api/events/${id}/reserve`, { method: 'POST', body, ...(cookie ? { cookie } : {}) })
+    const pay = (id: string, body: Record<string, unknown>, cookie: string | null) =>
+      api<ReserveBody>(`/api/events/${id}/pay`, { method: 'POST', body, ...(cookie ? { cookie } : {}) })
 
     // ── SUBMIT → pending ───────────────────────────────────────────────────
     let submittedId = ''
@@ -343,6 +345,45 @@ async function main(): Promise<void> {
       assert((r.body.error ?? '').toLowerCase().includes('pass'), 'the error says the event has passed')
       assertEq((await reservationRows(ev.id)).length, 0, 'no reservation row was created')
       assertEq((await readEvent(ev.id))?.tickets_sold ?? 0, 0, 'and tickets_sold is untouched')
+    })
+
+    // ── MULTI-DAY: past means the LAST day is over ─────────────────────────
+    // Getting this wrong refuses valid bookings on day 2+ of a festival, or
+    // sells tickets to one that has finished — both directions are pinned.
+    await step('#34 an ONGOING multi-day event still takes bookings', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'multiday_ongoing', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, date: pastDateISO(2), endDate: futureDateISO(2),
+      })
+      const r = await reserve(ev.id, { quantity: 1 }, bookerCookie)
+      const rows = await reservationRows(ev.id)
+      for (const row of rows) track('event_reservations', row.id)
+      assertEq(r.status, 200, `reserve → 200, not refused as past (body ${r.raw.slice(0, 180)})`)
+      assertEq(rows.length, 1, 'one reservation row was created')
+      assertEq((await readEvent(ev.id))?.tickets_sold, 1, 'and tickets_sold counts it')
+
+      // /pay runs the past gate BEFORE the payment-mode check. This event is
+      // reservation_only, so a request that clears the past gate stops at the
+      // 400 "online payment not enabled" — before any PawaPay call.
+      const p = await pay(ev.id, { quantity: 1, phoneNumber: booker.phone }, bookerCookie)
+      assertEq(p.status, 400, `pay → 400 payment-not-enabled, i.e. it cleared the past gate (body ${p.raw.slice(0, 180)})`)
+      assert(!(p.body.error ?? '').toLowerCase().includes('pass'), 'and the error is NOT the past-event one', p.body.error)
+    })
+
+    await step('#34 a FINISHED multi-day event refuses bookings', async () => {
+      const ev = await makeEvent({
+        organizerId: organizer.id, label: 'multiday_finished', city: TEST_CITY, category: TEST_CATEGORY,
+        isActive: true, date: pastDateISO(5), endDate: pastDateISO(1),
+      })
+      const r = await reserve(ev.id, { quantity: 1 }, bookerCookie)
+      assertEq(r.status, 409, 'reserve → 409')
+      assert((r.body.error ?? '').toLowerCase().includes('pass'), 'the error says the event has passed', r.body.error)
+      assertEq((await reservationRows(ev.id)).length, 0, 'no reservation row was created')
+      assertEq((await readEvent(ev.id))?.tickets_sold ?? 0, 0, 'and tickets_sold is untouched')
+
+      const p = await pay(ev.id, { quantity: 1, phoneNumber: booker.phone }, bookerCookie)
+      assertEq(p.status, 409, 'pay → 409 as well')
+      assert((p.body.error ?? '').toLowerCase().includes('pass'), 'with the past-event error', p.body.error)
     })
 
     await step('#34 an unpublished event refuses bookings', async () => {

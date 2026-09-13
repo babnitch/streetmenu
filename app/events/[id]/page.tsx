@@ -157,7 +157,7 @@ export default function EventDetailPage() {
   const reservationsClosed = event.reservations_open === false
   // A date in the past closes bookings no matter what the organizer set —
   // the reserve/pay APIs enforce the same rule server-side.
-  const isPast       = isPastEvent(event.date)
+  const isPast       = isPastEvent(event)
   const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed && !isPast
   // Resolve the 3-way payment mode (free events collapse to reservation_only).
   // reservation_only / both → reserve button; payment_only / both → pay button.

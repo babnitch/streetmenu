@@ -4,7 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
-import { isPastEvent, PAST_EVENT_ERROR } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canReserve, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCodes } from '@/lib/reservationCode'
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, whatsapp, organizer_id, submitted_by, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, requires_confirmation, reservations_open')
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, whatsapp, organizer_id, submitted_by, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, requires_confirmation, reservations_open`)
     .eq('id', params.id)
     .maybeSingle()
 
@@ -64,8 +64,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   // Past events can never take a new booking, whatever the organizer's other
   // settings say. Mirrors the client-side gate on /events/[id].
-  if (isPastEvent(event.date)) {
-    console.log('[events/reserve] rejected — event %s is past (date=%s)', event.id, event.date)
+  if (isPastEvent(event)) {
+    console.log('[events/reserve] rejected — event %s is past (date=%s end_date=%s)', event.id, event.date, event.end_date)
     return NextResponse.json({ error: PAST_EVENT_ERROR }, { status: 409 })
   }
   if (event.reservations_open === false) {

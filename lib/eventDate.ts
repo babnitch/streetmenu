@@ -44,10 +44,6 @@ export function todayISO(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10)
 }
 
-function isEventWhen(value: EventWhen | BareDate): value is EventWhen {
-  return typeof value === 'object' && value !== null && !(value instanceof Date)
-}
-
 // Last day of the event (YYYY-MM-DD): end_date, or date for a single-day event.
 //
 // A row with no end_date KEY at all means its select forgot EVENT_DATE_COLUMNS.
@@ -68,11 +64,10 @@ export function effectiveEndDate(event: EventWhen): string | null {
 // Null/undefined/unparseable dates are treated as NOT past — a missing date
 // should never silently block a booking.
 //
-// The bare-date form is the old single-date signature, kept only until every
-// caller passes the event row. Delete it then, so the compiler flags any caller
-// still judging an event by its start date.
-export function isPastEvent(event: EventWhen | BareDate, now: Date = new Date()): boolean {
-  const lastDay = isEventWhen(event) ? effectiveEndDate(event) : toISODate(event)
+// Takes the event row, never a bare date: a bare date cannot say when a
+// multi-day event ends, so the compiler rejects any caller passing one.
+export function isPastEvent(event: EventWhen, now: Date = new Date()): boolean {
+  const lastDay = effectiveEndDate(event)
   if (!lastDay) return false
   return lastDay < todayISO(now)
 }

@@ -10,6 +10,8 @@
 // valid booking on an ongoing multi-day event or sells tickets to one that has
 // finished, so both directions are pinned below.
 
+import { readdirSync, readFileSync, statSync } from 'fs'
+import { join, relative, resolve } from 'path'
 import {
   EVENT_DATE_COLUMNS,
   effectiveEndDate,
@@ -38,6 +40,35 @@ function ev(date: string | null, endDate: string | null = null, time: string | n
 function rowWithoutEndDate(date: string): EventWhen {
   return { id: 'no-end-key', date } as unknown as EventWhen
 }
+
+// Compile-time only, never called. isPastEvent takes the event row so the
+// compiler rejects any gate still judging an event by its start date — if
+// either call below ever type-checks again, tsc fails on the unused directive.
+export function bareDatesDoNotCompile(): void {
+  // @ts-expect-error — a bare date cannot say when a multi-day event ends
+  isPastEvent('2026-01-17', NOW)
+  // @ts-expect-error — a row selected without end_date is not an EventWhen
+  isPastEvent({ date: '2026-01-17' }, NOW)
+}
+
+// Every .ts/.tsx file under dir.
+function sourceFiles(dir: string): string[] {
+  const out: string[] = []
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name)
+    if (statSync(path).isDirectory()) out.push(...sourceFiles(path))
+    else if (/\.tsx?$/.test(name)) out.push(path)
+  }
+  return out
+}
+
+// Shapes that judge an event by its START date. The compiler cannot catch them:
+// Supabase rows are untyped `any`, so isPastEvent(row.date) still type-checks.
+// This scan is the standing guard that keeps them from coming back.
+const START_DATE_SHAPES: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'isPastEvent(<x>.date)', pattern: /isPastEvent\([^)]*\.date\b/ },
+  { label: ".gte('date', …)",       pattern: /\.gte\(\s*['"`]date['"`]/ },
+]
 
 // Runs fn with console.error captured, so the missing-key guard can be asserted
 // without printing into the suite output.
@@ -103,15 +134,6 @@ async function main(): Promise<void> {
     assertEq(isPastEvent(ev(null), NOW), false, 'NULL date → not past')
     assertEq(isPastEvent(ev('soon'), NOW), false, 'garbage date → not past')
     assertEq(isPastEvent(ev('2026-01-16', 'garbage'), NOW), true, 'garbage end_date → falls back to date')
-  })
-
-  await step('bare-date form still behaves as before (until every caller passes the row)', () => {
-    assertEq(isPastEvent('2026-01-17', NOW), true, 'yesterday string → past')
-    assertEq(isPastEvent('2026-01-18', NOW), false, 'today string → not past')
-    assertEq(isPastEvent(new Date('2026-01-17T00:00:00Z'), NOW), true, 'Date object → past')
-    assertEq(isPastEvent(null, NOW), false, 'null → not past')
-    assertEq(isPastEvent(undefined, NOW), false, 'undefined → not past')
-    assertEq(isPastEvent('garbage', NOW), false, 'garbage string → not past')
   })
 
   await step('eventSpansDay', () => {
@@ -188,6 +210,31 @@ async function main(): Promise<void> {
     const cols = EVENT_DATE_COLUMNS.split(',').map(c => c.trim())
     for (const col of ['date', 'time', 'end_date', 'end_time']) {
       assert(cols.includes(col), `includes ${col}`, EVENT_DATE_COLUMNS)
+    }
+  })
+
+  await step('source scan: no gate in app/ or lib/ judges an event by its start date', () => {
+    // Positive controls first — a clean scan proves nothing unless the
+    // patterns demonstrably match the old shapes.
+    const [pastByDate, gteDate] = START_DATE_SHAPES
+    assert(pastByDate.pattern.test('if (isPastEvent(event.date)) {'), 'control: detects isPastEvent(event.date)')
+    assert(pastByDate.pattern.test('.filter(e => !isPastEvent(e.date))'), 'control: detects isPastEvent(e.date) in a filter')
+    assert(!pastByDate.pattern.test('if (isPastEvent(event)) {'), 'control: isPastEvent(event) is allowed')
+    assert(gteDate.pattern.test(".gte('date', today)"), "control: detects .gte('date', today)")
+    assert(!gteDate.pattern.test(".gte('effective_end_date', today)"), "control: .gte('effective_end_date', …) is allowed")
+
+    const root = process.cwd()
+    const files = [...sourceFiles(resolve(root, 'app')), ...sourceFiles(resolve(root, 'lib'))]
+    assert(files.length > 50, `scanned app/ + lib/ (${files.length} files)`)
+
+    for (const { label, pattern } of START_DATE_SHAPES) {
+      const hits: string[] = []
+      for (const file of files) {
+        readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+          if (pattern.test(line)) hits.push(`${relative(root, file)}:${i + 1}`)
+        })
+      }
+      assertEq(hits, [], `no ${label} anywhere in app/ or lib/`)
     }
   })
 

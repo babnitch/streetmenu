@@ -35,8 +35,12 @@
 import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api } from '../testkit/session'
-import { makeCustomer, makeRestaurant, makeMenuItem, makeOrder, addTeamMember, type TestCustomer } from '../testkit/fixtures'
+import {
+  makeCustomer, makeRestaurant, makeMenuItem, makeOrder, addTeamMember, makeEvent,
+  futureDateISO, pastDateISO, type TestCustomer,
+} from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
+import { countMatchingSubscribers } from '@/lib/subscriptions'
 
 const SUITE = 'api-whatsapp-router'
 
@@ -61,6 +65,19 @@ async function subsFor(customerId: string) {
     .select('id, city, is_active, unsubscribed_at').eq('customer_id', customerId)
   return (data ?? []) as Array<{ id: string; city: string; is_active: boolean; unsubscribed_at: string | null }>
 }
+
+async function sessionFor(phone: string) {
+  const { data } = await sb.from('signup_sessions').select('user_type, step, data').eq('phone', phone).maybeSingle()
+  return data as { user_type: string; step: number; data: Record<string, unknown> | null } | null
+}
+
+async function eventReservationIds(eventId: string): Promise<string[]> {
+  const { data } = await sb.from('event_reservations').select('id').eq('event_id', eventId)
+  return ((data ?? []) as Array<{ id: string }>).map(r => r.id)
+}
+
+// The 4-hex short code "reserver XXXX" matches against the end of the event id.
+const shortCode = (eventId: string) => eventId.replace(/-/g, '').slice(-4)
 
 /**
  * Proves a phone is not rate-limited, by making it do something with a
@@ -804,6 +821,75 @@ async function main(): Promise<void> {
       if (otherRow) track('restaurant_team', otherRow.id)
       assertEq(otherRow?.role, 'manager', 'and lands with the right role')
     })
+
+    // ══ #34 EVENTS OVER WHATSAPP — multi-day ranges ═════════════════════════
+    // "evenements" and "reserver XXXX" filter on effective_end_date, and the
+    // reserve flow re-checks isPastEvent at every step, so an ONGOING
+    // multi-day event must be listed and bookable while a FINISHED one is
+    // neither.
+    //
+    // SAFETY: nothing in this router fans out to subscribers (see the header),
+    // but these events still use a run-namespaced city and the same
+    // zero-subscriber check as api-events, so a future change cannot quietly
+    // arm a send. step() records a throw and carries on, so the check gates
+    // the event steps explicitly rather than by throwing.
+
+    const EVENT_CITY = testName('city')
+    let eventCitySafe = false
+    await step('🔴 event safety preflight: the event test city has no real subscribers', async () => {
+      const n = await countMatchingSubscribers({ city: EVENT_CITY, category: 'Autre' })
+      eventCitySafe = n === 0
+      assert(eventCitySafe, `0 subscribers for ${JSON.stringify(EVENT_CITY)} / Autre — event steps run only if so`, `${n} found`)
+    })
+
+    if (eventCitySafe) {
+      const eventOrganizer = await makeCustomer({
+        suiteNo: 34, name: 'WA Event Organizer', city: EVENT_CITY,
+        extra: { event_auto_approve: false },
+      })
+      const ongoing = await makeEvent({
+        organizerId: eventOrganizer.id, label: 'wa_multiday_ongoing', city: EVENT_CITY,
+        isActive: true, date: pastDateISO(2), endDate: futureDateISO(2),
+      })
+      const finished = await makeEvent({
+        organizerId: eventOrganizer.id, label: 'wa_multiday_finished', city: EVENT_CITY,
+        isActive: true, date: pastDateISO(5), endDate: pastDateISO(1),
+      })
+
+      await step('#34 "evenements" lists an ONGOING multi-day event and hides a FINISHED one', async () => {
+        const c = await makeCustomer({ suiteNo: 34, name: 'WA Event Browser', city: EVENT_CITY })
+        await send(c.phone, 'evenements')
+        const s = await sessionFor(c.phone)
+        // The session opening is the positive control: the command ran, so the
+        // absence below is the filter, not a throttle.
+        assertEq(s?.user_type, 'event_browse', 'the list opened an event_browse session')
+        const ids = (s?.data?.event_ids as string[] | undefined) ?? []
+        assert(ids.includes(ongoing.id), 'the ONGOING event (started 2 days ago, ends in 2) is listed', JSON.stringify(ids))
+        assert(!ids.includes(finished.id), 'the FINISHED event (ended yesterday) is not', JSON.stringify(ids))
+        await send(c.phone, 'reset')
+      })
+
+      await step('#34 "reserver XXXX" books an ONGOING multi-day event and refuses a FINISHED one', async () => {
+        const c = await makeCustomer({ suiteNo: 34, name: 'WA Event Booker', city: EVENT_CITY })
+
+        // Refusal first: the finished event is filtered out of the lookup, so
+        // no reservation flow opens and no row is written.
+        await send(c.phone, `reserver ${shortCode(finished.id)}`)
+        assertEq(await sessionsFor(c.phone), 0, 'FINISHED event: no reservation flow was opened')
+        assertEq((await eventReservationIds(finished.id)).length, 0, 'and no reservation row exists')
+
+        // Control from the SAME phone: the ongoing event opens the quantity
+        // prompt and "1" books it (free, reservation_only → immediate insert).
+        await send(c.phone, `reserver ${shortCode(ongoing.id)}`)
+        assertEq((await sessionFor(c.phone))?.user_type, 'event_reserve',
+          'ONGOING event: the quantity prompt opened — the refusal above was the filter, not a throttle')
+        await send(c.phone, '1')
+        const rows = await eventReservationIds(ongoing.id)
+        for (const id of rows) track('event_reservations', id)
+        assertEq(rows.length, 1, 'ONGOING event: one reservation row was created')
+        assertEq(await sessionsFor(c.phone), 0, 'and the flow closed its session')
+      })
+    }
 
   } finally {
     const r = await teardown()

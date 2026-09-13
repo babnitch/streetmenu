@@ -153,6 +153,8 @@ export interface MakeEventOpts {
   organizerId?: string
   label?:       string
   date?:        string
+  /** Last day of a multi-day event. Omitted = single-day (end_date NULL). */
+  endDate?:     string
   city?:        string
   category?:    string
   ticketPrice?: number
@@ -200,6 +202,7 @@ export async function makeEvent(opts: MakeEventOpts = {}): Promise<TestEvent> {
     title,
     description:  null,
     date:         opts.date ?? futureDateISO(30),
+    end_date:     opts.endDate ?? null,
     time:         null,
     venue:        null,
     // Interlock 1 — see the note above. Namespaced, not merely quiet.

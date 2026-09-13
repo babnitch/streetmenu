@@ -28,7 +28,7 @@ import {
 } from '@/lib/paymentMode'
 import { samePhone } from '@/lib/phone'
 import { isEventOrganizer } from '@/lib/eventAuth'
-import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
 
 // Every send from this module is a reply in the WhatsApp bot conversation,
 // so it lands in the message log as 'bot_reply' unless the call site says
@@ -1011,17 +1011,17 @@ export async function handleOrderCommand(
     // no upcoming events.
     let { data: scoped } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, ticket_price, payment_enabled, city')
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, ticket_price, payment_enabled, city`)
       .eq('is_active', true).eq('city', customer.city)
-      .gte('date', today)
+      .gte('effective_end_date', today)
       .order('date', { ascending: true }).limit(10)
     let cityScope = customer.city
     if (!scoped || scoped.length === 0) {
       const { data: any } = await supabaseAdmin
         .from('events')
-        .select('id, title, date, time, ticket_price, payment_enabled, city')
+        .select(`id, title, ${EVENT_DATE_COLUMNS}, ticket_price, payment_enabled, city`)
         .eq('is_active', true)
-        .gte('date', today)
+        .gte('effective_end_date', today)
         .order('date', { ascending: true }).limit(10)
       scoped = any ?? []
       cityScope = ''
@@ -1475,7 +1475,7 @@ export async function handleOrderCommand(
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, event_status, is_active, date, reservations_open')
       .eq('is_active', true)
-      .gte('date', new Date().toISOString().slice(0, 10))
+      .gte('effective_end_date', new Date().toISOString().slice(0, 10))
       .order('date', { ascending: true }).limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
@@ -1717,7 +1717,7 @@ export async function handleEventSession(
     // have been sitting on the prompt while others booked).
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city')
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city`)
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -1810,7 +1810,7 @@ export async function handleEventSession(
     }
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, submitted_by, whatsapp, tickets_sold, ticket_price')
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, tickets_sold, ticket_price`)
       .eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -1884,7 +1884,7 @@ export async function handleEventSession(
     }
 
     const { data: event } = await supabaseAdmin
-      .from('events').select('id, title, date, city, organizer_id, submitted_by, whatsapp, tickets_sold, max_tickets').eq('id', eventId).maybeSingle()
+      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, city, organizer_id, submitted_by, whatsapp, tickets_sold, max_tickets`).eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
@@ -2017,7 +2017,7 @@ export async function handleEventSession(
     // Reserve → re-pull the event to re-check capacity, then confirm.
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select('id, title, date, time, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, tickets_sold, max_tickets')
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, tickets_sold, max_tickets`)
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2054,6 +2054,7 @@ export async function handleEventSession(
 // Minimal event shape the reservation confirmation needs.
 interface EventReserveRow {
   id: string; title: string; date: string; time: string | null
+  end_date: string | null; end_time: string | null
   venue: string | null; organizer_id: string | null; submitted_by?: string | null
   whatsapp: string | null
 }
@@ -2179,7 +2180,7 @@ async function confirmEventReservationWhatsapp(opts: {
 async function showEventDetail(from: string, phone: string, eventId: string, lang: Lang = 'fr'): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active')
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active`)
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2201,7 +2202,7 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
   const capacityLine = remaining != null
     ? `👥 ${remaining} ${remaining > 0 ? pickLang('places restantes', 'spots remaining', lang) : pickLang('— ❌ Complet', '— ❌ Sold out', lang)}`
     : ''
-  const past = isPastEvent(event.date)
+  const past = isPastEvent(event)
   const tail = past
     ? '\n' + `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
     : remaining === 0
@@ -2235,14 +2236,14 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
 // entry points can't drift apart.
 function bookingBlock(
   event: {
-    id: string; title?: string; date?: string | null
+    id: string; title?: string; date: string | null; end_date: string | null
     organizer_id?: string | null; submitted_by?: string | null; whatsapp?: string | null
   },
   customer: OrderingCustomer | undefined,
   lang: Lang,
 ): string | null {
-  if (isPastEvent(event.date)) {
-    console.log('[whatsapp/reserve] blocked — event %s is past (date=%s)', event.id, event.date)
+  if (isPastEvent(event)) {
+    console.log('[whatsapp/reserve] blocked — event %s is past (date=%s end_date=%s)', event.id, event.date, event.end_date)
     return `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
   }
   if (!customer) return null
@@ -2269,7 +2270,7 @@ async function startReserveFlow(
 ): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, organizer_id, submitted_by, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status')
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, submitted_by, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status`)
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)

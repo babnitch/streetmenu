@@ -127,6 +127,9 @@ export interface Event {
   description: string
   date: string
   time: string
+  // Range end (supabase-event-date-range.sql). NULL end_date = single-day.
+  end_date: string | null
+  end_time: string | null
   venue: string
   city: string
   neighborhood: string
@@ -173,5 +176,5 @@ export interface EventReservation {
   created_at:         string
   updated_at:         string
   // Joined view when /api/customer/reservations or admin queries include it
-  events?: Pick<Event, 'id' | 'title' | 'date' | 'time' | 'venue' | 'city' | 'cover_photo' | 'ticket_price' | 'event_status'> | null
+  events?: Pick<Event, 'id' | 'title' | 'date' | 'time' | 'end_date' | 'end_time' | 'venue' | 'city' | 'cover_photo' | 'ticket_price' | 'event_status'> | null
 }

@@ -9,7 +9,7 @@ import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
-import { isPastEvent, PAST_EVENT_ERROR } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
 import { samePhone } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event, error: evErr } = await supabaseAdmin
     .from('events')
-    .select('id, title, date, time, venue, city, whatsapp, organizer_id, submitted_by, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, reservations_open')
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, city, whatsapp, organizer_id, submitted_by, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_mode, payment_enabled, commission_rate, reservations_open`)
     .eq('id', params.id)
     .maybeSingle()
 
@@ -70,8 +70,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Événement clôturé / Event closed' }, { status: 409 })
   }
   // Same past-event gate as /reserve — a finished event can't sell tickets.
-  if (isPastEvent(event.date)) {
-    console.log('[events/pay] rejected — event %s is past (date=%s)', event.id, event.date)
+  if (isPastEvent(event)) {
+    console.log('[events/pay] rejected — event %s is past (date=%s end_date=%s)', event.id, event.date, event.end_date)
     return NextResponse.json({ error: PAST_EVENT_ERROR }, { status: 409 })
   }
   if (event.reservations_open === false) {

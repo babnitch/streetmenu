@@ -14,7 +14,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { useCity } from '@/lib/cityContext'
 import { useDataMode } from '@/lib/dataMode'
 import { arrangePromoted, FEED_INJECT_EVERY_EVENT } from '@/lib/promotions'
-import { isPastEvent } from '@/lib/eventDate'
+import { isPastEvent, effectiveEndDate } from '@/lib/eventDate'
 import TopNav from '@/components/TopNav'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
@@ -354,16 +354,17 @@ export default function EventsPage() {
     return cityMatch && catMatch
   })
 
-  // Upcoming first (soonest first), past events pushed into their own
-  // grayed-out section at the bottom (most recent first). The Supabase query
-  // already sorts by date ascending, which put *past* events at the very top
-  // of the list — hence the explicit split here.
+  // Upcoming first (soonest start first, so ongoing multi-day events lead),
+  // past events pushed into their own grayed-out section at the bottom (most
+  // recently ended first). The Supabase query already sorts by date ascending,
+  // which put *past* events at the very top of the list — hence the explicit
+  // split here.
   const upcomingEvents = filtered
-    .filter(e => !isPastEvent(e.date))
+    .filter(e => !isPastEvent(e))
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
   const pastEvents = filtered
-    .filter(e => isPastEvent(e.date))
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+    .filter(e => isPastEvent(e))
+    .sort((a, b) => String(effectiveEndDate(b)).localeCompare(String(effectiveEndDate(a))))
 
   // Active event promotions for this city — pin top_list at the front
   // and inject feed_card every 4th position, capped at MAX_PROMOS_PER_PAGE.
