@@ -1,5 +1,5 @@
-// Events-tab calendar maths (lib/eventCalendar.ts): the day strip, the weekend
-// pill, the month picker grid and the per-day event dots.
+// Events-tab calendar maths (lib/eventCalendar.ts): the day strip, the month
+// picker grid and the per-day event dots.
 //
 // Pure: no server, no DB, no cleanup. Every case pins `today` / `now`, so the
 // result never depends on when the suite runs.
@@ -25,7 +25,6 @@ import {
   selectionDays,
   stripDays,
   weekdayIndex,
-  weekendDays,
 } from '@/lib/eventCalendar'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 
@@ -87,28 +86,9 @@ async function main(): Promise<void> {
     assertEq(stripDays(TODAY, '2026-09-01'), strip, 'a day before today is ignored')
   })
 
-  await step('weekendDays from each weekday', () => {
-    const saturdayAndSunday = ['2026-09-19', '2026-09-20']
-    const cases: Array<[string, string, string[]]> = [
-      ['2026-09-14', 'Monday',    saturdayAndSunday],
-      ['2026-09-15', 'Tuesday',   saturdayAndSunday],
-      ['2026-09-16', 'Wednesday', saturdayAndSunday],
-      ['2026-09-17', 'Thursday',  saturdayAndSunday],
-      ['2026-09-18', 'Friday',    saturdayAndSunday],
-      ['2026-09-19', 'Saturday',  saturdayAndSunday],
-      ['2026-09-20', 'Sunday',    ['2026-09-20']],
-    ]
-    for (const [today, weekday, expected] of cases) {
-      assertEq(weekendDays(today), expected, `today = ${weekday} ${today}`)
-    }
-    assertEq(weekendDays('2026-10-30'), ['2026-10-31', '2026-11-01'], 'a weekend split across a month end')
-  })
-
   await step('selectionDays', () => {
-    assertEq(selectionDays({ kind: 'day', day: '2026-09-20' }, TODAY), ['2026-09-20'], 'a day covers itself')
-    assertEq(selectionDays({ kind: 'weekend' }, '2026-09-16'), ['2026-09-19', '2026-09-20'], 'the weekend covers Saturday + Sunday')
-    assertEq(selectionDays({ kind: 'weekend' }, TODAY), [TODAY], 'on a Sunday the weekend is just today')
-    assertEq(selectionDays({ kind: 'past' }, TODAY), [], '"Passés" covers no upcoming day')
+    assertEq(selectionDays({ kind: 'day', day: '2026-09-20' }), ['2026-09-20'], 'a day covers itself')
+    assertEq(selectionDays({ kind: 'past' }), [], 'the past-events list covers no upcoming day')
   })
 
   await step('picker bounds: today through the same date next year', () => {
@@ -174,7 +154,7 @@ async function main(): Promise<void> {
       'an event starting beyond the horizon adds no dot')
   })
 
-  await step('eventsOnDays: festivals on each day, weekend events counted once', () => {
+  await step('eventsOnDays: festivals on each day, a multi-day selection lists each event once', () => {
     const friday = '2026-09-18'
     const fridayNoon = new Date('2026-09-18T12:00:00Z')
     const events = [
@@ -184,8 +164,8 @@ async function main(): Promise<void> {
       ev('sat',      '2026-09-19', null, '18:00'),
       ev('mon',      '2026-09-21'),
     ]
-    assertEq(ids(eventsOnDays(events, weekendDays(friday), fridayNoon)), ['festival', 'sat', 'sun'],
-      'the weekend lists the Sat–Sun festival ONCE, plus the Saturday and Sunday events, soonest start first')
+    assertEq(ids(eventsOnDays(events, ['2026-09-19', '2026-09-20'], fridayNoon)), ['festival', 'sat', 'sun'],
+      'Saturday + Sunday list the Sat–Sun festival ONCE, plus each day\'s own event, soonest start first')
     assertEq(ids(eventsOnDays(events, ['2026-09-19'], fridayNoon)), ['festival', 'sat'], 'Saturday: festival + Saturday event')
     assertEq(ids(eventsOnDays(events, ['2026-09-20'], fridayNoon)), ['festival', 'sun'], 'Sunday: the festival again + Sunday event')
     assertEq(ids(eventsOnDays(events, [friday], fridayNoon)), ['fri'], 'Friday: only its own event')

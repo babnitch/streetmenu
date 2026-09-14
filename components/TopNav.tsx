@@ -39,6 +39,9 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const { locale } = useLanguage()
 
   const [me, setMe] = useState<SessionUser | null>(null)
+  // True once /api/auth/me has answered, so a guest-only control never
+  // flashes up for a signed-in visitor while the session is still loading.
+  const [authChecked, setAuthChecked] = useState(false)
   const [vendor, setVendor] = useState<VendorState>({ kind: 'none' })
   const [searchDraft, setSearchDraft] = useState('')
   // Mirror of the mobile BottomNav's vendor pending count so the desktop
@@ -63,6 +66,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         if (cancelled) return
         const sessionUser = (data?.user ?? null) as SessionUser | null
         setMe(sessionUser)
+        setAuthChecked(true)
         if (!sessionUser) { setVendor({ kind: 'none' }); return }
         if (isAdminRole(sessionUser.role)) {
           // Admins get the admin bar below; they have no vendor CTA and
@@ -78,7 +82,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         const allPending = list.every(r => r.status === 'pending')
         setVendor({ kind: allPending ? 'pending' : 'approved' })
       } catch {
-        if (!cancelled) { setVendor({ kind: 'none' }); setMe(null) }
+        if (!cancelled) { setVendor({ kind: 'none' }); setMe(null); setAuthChecked(true) }
       }
     })()
     return () => { cancelled = true }
@@ -185,10 +189,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
       {/* ── Mobile bar (< md) ────────────────────────────────────────────
           Deliberately spare: city picker on the left, notification bell on
-          the right, nothing else. The logo, search field, language toggle
-          and map button all moved off mobile — search lives in the
-          BottomNav overlay, the language switch in Account → Profil, and
-          the map is desktop-only now. Compact 48px height so the cuisine
+          the right. The logo, search field and map button all moved off
+          mobile — search lives in the BottomNav overlay and the map is
+          desktop-only now. Signed-in visitors switch language in
+          Account → Profil; guests have no profile, so they get the FR/EN
+          toggle here, next to the bell. Compact 48px height so the cuisine
           row below it sits above the fold. */}
       <div className="md:hidden px-4 h-12 flex items-center justify-between gap-2">
         {/* The city picker is a customer filter and is hidden from admins
@@ -196,24 +201,27 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             nav is still the in-page grid in /account — replacing that is a
             separate commit, so this bar is otherwise left alone. */}
         {!isAdmin && <CityDropdown />}
-        <Link
-          href="/account"
-          aria-label={
-            pendingCount > 0
-              ? bi(`Notifications — ${pendingCount} en attente`, `Notifications — ${pendingCount} pending`)
-              : bi('Notifications', 'Notifications')
-          }
-          className="relative w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-xl hover:bg-surface-muted transition-colors"
-        >
-          <span aria-hidden="true">🔔</span>
-          {pendingCount > 0 && (
-            <span className={`absolute top-1 right-1 rounded-full bg-brand text-white font-bold flex items-center justify-center leading-none ring-2 ring-surface ${
-              pendingCount > 9 ? 'h-5 min-w-5 text-[10px] px-1' : 'h-4 w-4 text-[10px]'
-            }`}>
-              {pendingCount > 99 ? '99+' : pendingCount}
-            </span>
-          )}
-        </Link>
+        <div className="flex items-center gap-2">
+          {authChecked && me === null && <LanguageToggle />}
+          <Link
+            href="/account"
+            aria-label={
+              pendingCount > 0
+                ? bi(`Notifications — ${pendingCount} en attente`, `Notifications — ${pendingCount} pending`)
+                : bi('Notifications', 'Notifications')
+            }
+            className="relative w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-xl hover:bg-surface-muted transition-colors"
+          >
+            <span aria-hidden="true">🔔</span>
+            {pendingCount > 0 && (
+              <span className={`absolute top-1 right-1 rounded-full bg-brand text-white font-bold flex items-center justify-center leading-none ring-2 ring-surface ${
+                pendingCount > 9 ? 'h-5 min-w-5 text-[10px] px-1' : 'h-4 w-4 text-[10px]'
+              }`}>
+                {pendingCount > 99 ? '99+' : pendingCount}
+              </span>
+            )}
+          </Link>
+        </div>
       </div>
 
       {/* ── Desktop ADMIN bar (md+) ─────────────────────────────────────

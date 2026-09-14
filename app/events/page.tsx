@@ -67,23 +67,12 @@ export default function EventsPage() {
   const [selection, setSelection] = useState<DaySelection>({ kind: 'day', day: '' })
   const [calendarOpen, setCalendarOpen] = useState(false)
   const calendarButtonRef = useRef<HTMLButtonElement>(null)
+  const listHeadingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     const day = localDayISO()
     setToday(day)
     setSelection({ kind: 'day', day })
   }, [])
-
-  // Auth state — drives the "Publish an event" button target. Logged-in
-  // customers go straight to /events/submit; everyone else is routed
-  // through the login gate with a return URL so they land back on submit.
-  const [isCustomer, setIsCustomer] = useState(false)
-  useEffect(() => {
-    fetch('/api/auth/me', { cache: 'no-store' })
-      .then(r => r.json())
-      .then(d => setIsCustomer(d?.user?.role === 'customer'))
-      .catch(() => setIsCustomer(false))
-  }, [])
-  const publishHref = isCustomer ? '/events/submit' : '/account?return=/events/submit'
 
   // Subscription state
   const [mySubs, setMySubs] = useState<MySubscription[]>([])
@@ -245,15 +234,27 @@ export default function EventsPage() {
     [filtered, today],
   )
 
+  // Finished events, most recently ended first — reached through the quiet
+  // "Voir les événements passés" link below the list.
+  const pastList = useMemo(() => pastEvents(filtered), [filtered])
+
   // The days the selection covers, and what the list shows for it: the
-  // selected day's (or weekend's) events, or finished ones for "Passés".
-  const coveredDays = today ? selectionDays(selection, today) : []
+  // selected day's events, or the finished ones.
+  const coveredDays = today ? selectionDays(selection) : []
   const listEvents = useMemo(() => {
     if (!today) return []
     return selection.kind === 'past'
-      ? pastEvents(filtered)
-      : eventsOnDays(filtered, selectionDays(selection, today))
-  }, [filtered, selection, today])
+      ? pastList
+      : eventsOnDays(filtered, selectionDays(selection))
+  }, [filtered, pastList, selection, today])
+
+  // Switches the list from the link at the bottom and brings its heading into
+  // view, since the content changes above where the link was tapped.
+  function showList(next: DaySelection) {
+    setSelection(next)
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    requestAnimationFrame(() => listHeadingRef.current?.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' }))
+  }
 
   // Where "Prochain événement →" jumps when the selection is empty.
   const nextDay = selection.kind === 'past' || coveredDays.length === 0
@@ -265,7 +266,6 @@ export default function EventsPage() {
     if (!today) return ''
     if (selection.kind === 'past') return bi('Événements passés', 'Past events')
     const dates = formatEventDates({ date: coveredDays[0], end_date: coveredDays[coveredDays.length - 1] }, 'fr', 'list')
-    if (selection.kind === 'weekend') return `${bi('Ce week-end', 'This weekend')} · ${dates}`
     if (selection.day === today) return `${bi("Aujourd'hui", 'Today')} · ${dates}`
     if (selection.day === addDays(today, 1)) return `${bi('Demain', 'Tomorrow')} · ${dates}`
     return dates
@@ -326,7 +326,9 @@ export default function EventsPage() {
   return (
     <div className="min-h-screen bg-surface">
 
-      <TopNav cta={{ label: t('evt.submitBtn'), href: '/events/submit' }} />
+      {/* No top-bar CTA here: Publish lives in the page (title row on md+,
+          floating button below md), so every width shows exactly one. */}
+      <TopNav />
 
       {/* City selection lives in the TopNav CityDropdown now — filtering
           reads from useCity() above. */}
@@ -370,14 +372,14 @@ export default function EventsPage() {
             <p className="text-sm text-ink-tertiary">{t('evt.sub')}</p>
           </div>
           <div className="flex-shrink-0 flex items-center gap-2">
-            {/* Publish an event — orange outline, next to Subscribe. Routes
-                logged-in customers straight to the submit form; logged-out
-                visitors through the login gate, returning to submit after. */}
+            {/* Publish, desktop only (md+) — there is room beside Subscribe.
+                Below md the floating button publishes instead, so the phone
+                title row holds only Subscribe and never overflows. */}
             <Link
-              href={publishHref}
-              className="text-xs font-semibold px-3 py-2 rounded-xl border border-brand text-brand bg-white hover:bg-brand-light transition-colors whitespace-nowrap"
+              href="/events/submit"
+              className="hidden md:inline-flex items-center text-xs font-semibold px-3 py-2 rounded-xl border border-brand text-brand bg-white hover:bg-brand-light transition-colors whitespace-nowrap"
             >
-              {bi('📢 Publier un événement', '📢 Publish an event')}
+              {t('evt.submitBtn')}
             </Link>
             <button
               onClick={openSubModal}
@@ -443,7 +445,7 @@ export default function EventsPage() {
               calendarButtonRef={calendarButtonRef}
             />
 
-            <h2 className="mt-5 mb-3 text-sm font-bold text-ink-primary flex items-center gap-2">
+            <h2 ref={listHeadingRef} className="mt-5 mb-3 scroll-mt-20 text-sm font-bold text-ink-primary flex items-center gap-2">
               {selectionHeading}
               {selection.kind === 'past' && listEvents.length > 0 && (
                 <span className="text-xs font-semibold bg-surface-muted text-ink-tertiary px-2 py-0.5 rounded-full">
@@ -475,9 +477,7 @@ export default function EventsPage() {
                 <p className="text-base font-bold text-ink-primary">
                   {selection.kind === 'past'
                     ? bi('Aucun événement passé', 'No past events')
-                    : selection.kind === 'weekend'
-                      ? bi('Rien de prévu ce week-end', 'Nothing planned this weekend')
-                      : bi('Rien de prévu ce jour', 'Nothing planned this day')}
+                    : bi('Rien de prévu ce jour', 'Nothing planned this day')}
                 </p>
                 {nextDay && (
                   <button
@@ -488,6 +488,21 @@ export default function EventsPage() {
                     {bi('Prochain événement :', 'Next event:')} {formatEventDates({ date: nextDay, end_date: null }, 'fr', 'list')} →
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* Past events — a quiet way in, below the list */}
+            {pastList.length > 0 && (
+              <div className="mt-10 text-center">
+                <button
+                  type="button"
+                  onClick={() => showList(selection.kind === 'past' ? { kind: 'day', day: today } : { kind: 'past' })}
+                  className="text-xs font-semibold text-ink-tertiary underline underline-offset-2 hover:text-ink-secondary rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                >
+                  {selection.kind === 'past'
+                    ? bi('Revenir aux événements à venir', 'Back to upcoming events')
+                    : `${bi('Voir les événements passés', 'See past events')} (${pastList.length})`}
+                </button>
               </div>
             )}
           </>
@@ -512,10 +527,10 @@ export default function EventsPage() {
 
       </main>
 
-      {/* Floating submit (mobile) — bottom-20 clears the 56px BottomNav
-          with breathing room; mobile-only since desktop has the inline
-          submit button inside the TopNav area. */}
-      <div className="sm:hidden fixed bottom-20 right-4 z-30">
+      {/* Floating Publish button — bottom-20 clears the 56px BottomNav.
+          Shown below md, exactly where the TopNav's desktop bar (and its
+          Publish button) is hidden, so every width has one Publish button. */}
+      <div className="md:hidden fixed bottom-20 right-4 z-30">
         <Link
           href="/events/submit"
           className="bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"

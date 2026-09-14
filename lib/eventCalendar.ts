@@ -1,5 +1,5 @@
-// Calendar maths for the Events tab: the day strip, the "Ce week-end" pill,
-// the month picker grid and the per-day event dots. Pure — no UI, and the
+// Calendar maths for the Events tab: the day strip, the month picker grid and
+// the per-day event dots. Pure — no UI, and the
 // clock only enters through the `today` / `now` arguments — so every boundary
 // is unit-tested (scripts/suites/unit-event-calendar.ts).
 //
@@ -21,7 +21,6 @@ export const HORIZON_DAYS = 365
 
 export type DaySelection =
   | { kind: 'day'; day: string }
-  | { kind: 'weekend' }
   | { kind: 'past' }
 
 // ── Days ─────────────────────────────────────────────────────────────────────
@@ -66,22 +65,9 @@ export function stripDays(today: string, selectedDay?: string | null): string[] 
   return daysBetween(today, last)
 }
 
-// "Ce week-end": Saturday and Sunday of the current week. On a Saturday that
-// is today and tomorrow; on a Sunday only today is left.
-export function weekendDays(today: string): string[] {
-  const weekday = weekdayIndex(today)
-  if (weekday === 6) return [today]
-  const saturday = addDays(today, 5 - weekday)
-  return [saturday, addDays(saturday, 1)]
-}
-
-// The days a strip selection covers. "Passés" covers no upcoming day.
-export function selectionDays(selection: DaySelection, today: string): string[] {
-  switch (selection.kind) {
-    case 'day':     return [selection.day]
-    case 'weekend': return weekendDays(today)
-    case 'past':    return []
-  }
+// The days a selection covers. The past-events list covers no upcoming day.
+export function selectionDays(selection: DaySelection): string[] {
+  return selection.kind === 'day' ? [selection.day] : []
 }
 
 // Whether the picker lets this day be chosen: today through HORIZON_DAYS ahead.
@@ -142,8 +128,8 @@ export function eventDaySet(events: EventWhen[], today: string, now: Date = new 
   return days
 }
 
-// The events on any of `days`, each listed once — a festival covering both
-// weekend days is not doubled — soonest start first. Finished events never show.
+// The events on any of `days`, each listed once — a festival covering several
+// of them is not doubled — soonest start first. Finished events never show.
 export function eventsOnDays<T extends EventWhen>(events: T[], days: string[], now: Date = new Date()): T[] {
   return events
     .filter(event => !isPastEvent(event, now) && days.some(day => eventSpansDay(event, day)))
