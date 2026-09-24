@@ -265,7 +265,7 @@ export default function EventsPage() {
   const selectionHeading = (() => {
     if (!today) return ''
     if (selection.kind === 'past') return bi('Événements passés', 'Past events')
-    const dates = formatEventDates({ date: coveredDays[0], end_date: coveredDays[coveredDays.length - 1] }, 'fr', 'list')
+    const dates = formatEventDates({ date: coveredDays[0], end_date: coveredDays[coveredDays.length - 1] }, locale, 'list')
     if (selection.day === today) return `${bi("Aujourd'hui", 'Today')} · ${dates}`
     if (selection.day === addDays(today, 1)) return `${bi('Demain', 'Tomorrow')} · ${dates}`
     return dates
@@ -485,7 +485,7 @@ export default function EventsPage() {
                     onClick={() => setSelection({ kind: 'day', day: nextDay })}
                     className="mt-3 text-sm font-semibold text-brand hover:text-brand-dark rounded-lg px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
-                    {bi('Prochain événement :', 'Next event:')} {formatEventDates({ date: nextDay, end_date: null }, 'fr', 'list')} →
+                    {bi('Prochain événement :', 'Next event:')} {formatEventDates({ date: nextDay, end_date: null }, locale, 'list')} →
                   </button>
                 )}
               </div>
@@ -584,7 +584,7 @@ export default function EventsPage() {
                   <div className="p-4">
                     <p className="font-bold text-ink-primary text-base leading-tight mb-1">{mapSelected.title}</p>
                     <p className="text-xs text-brand font-medium mb-0.5">
-                      📅 {formatEventWhen(mapSelected, 'fr', 'card')}
+                      📅 {formatEventWhen(mapSelected, locale, 'card')}
                     </p>
                     {mapSelected.venue && (
                       <p className="text-xs text-ink-tertiary truncate mb-3">

@@ -137,9 +137,9 @@ export default function EventDetailPage() {
 
   // Dates alone for the share text and the booking modal; dates + time for the
   // details row, plus a "Fin" row when the event spans several days.
-  const dateStr = formatEventDates(event, 'fr', 'detail')
-  const whenStr = formatEventWhen(event, 'fr', 'detail')
-  const endStr  = formatEventEnd(event, 'fr', 'detail')
+  const dateStr = formatEventDates(event, locale, 'detail')
+  const whenStr = formatEventWhen(event, locale, 'detail')
+  const endStr  = formatEventEnd(event, locale, 'detail')
 
   // Reservation gating + price display all derive from a single source of
   // truth so the button copy and the modal stay in lockstep.

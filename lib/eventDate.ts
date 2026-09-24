@@ -172,10 +172,35 @@ function utcDate(iso: string): Date {
   return new Date(Date.UTC(y, m - 1, d))
 }
 
+// BCP 47 tag for a UI language. The one place that mapping lives: the day
+// strip and the month picker format their own labels through it too, rather
+// than each keeping a copy.
+export function dateLocale(lang: 'fr' | 'en'): string {
+  return lang === 'en' ? 'en-GB' : 'fr-FR'
+}
+
 // timeZone UTC: these are calendar days, not instants. Formatting them in the
 // viewer's zone would show the previous day to anyone west of UTC.
 function dateFormatter(lang: 'fr' | 'en', style: EventDateStyle): Intl.DateTimeFormat {
-  return new Intl.DateTimeFormat(lang === 'en' ? 'en-GB' : 'fr-FR', { ...STYLE_OPTIONS[style], timeZone: 'UTC' })
+  return new Intl.DateTimeFormat(dateLocale(lang), { ...STYLE_OPTIONS[style], timeZone: 'UTC' })
+}
+
+// Any Monday — only the weekday matters. Pinned by the unit tests.
+const REFERENCE_MONDAY = '2026-09-14'
+
+// The seven column headers of a Monday-first calendar grid: a one-letter
+// initial plus the full name for its tooltip. Derived from Intl so English
+// reads M T W T F S S; French is identical to the initials this replaced.
+export function weekdayInitials(lang: 'fr' | 'en'): Array<{ initial: string; name: string }> {
+  const tag = dateLocale(lang)
+  const initial = new Intl.DateTimeFormat(tag, { weekday: 'narrow', timeZone: 'UTC' })
+  const name    = new Intl.DateTimeFormat(tag, { weekday: 'long',   timeZone: 'UTC' })
+  const monday  = utcDate(REFERENCE_MONDAY)
+  return Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(monday)
+    day.setUTCDate(day.getUTCDate() + i)
+    return { initial: initial.format(day), name: name.format(day) }
+  })
 }
 
 export interface DayRange { start: string; end: string }

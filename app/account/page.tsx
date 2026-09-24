@@ -3067,7 +3067,7 @@ function MyEventsPanel({
   }
 
   if (selected) {
-    const dateStr = formatEventDates(selected, 'fr', 'message')
+    const dateStr = formatEventDates(selected, locale, 'message')
     return (
       <div>
         <button
@@ -3557,7 +3557,7 @@ function MyEventsPanel({
       </Link>
 
       {events.map(e => {
-        const whenStr = formatEventWhen(e, 'fr', 'card')
+        const whenStr = formatEventWhen(e, locale, 'card')
         const ticketPrice = Number(e.ticket_price ?? 0)
         return (
           <button
@@ -3699,9 +3699,10 @@ function EventReservationCard({
   onCancelled?: () => void
 }) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const [cancelling, setCancelling] = useState(false)
   const ev = reservation.events
-  const dateStr = ev ? formatEventDates(ev, 'fr', 'message') : ''
+  const dateStr = ev ? formatEventDates(ev, locale, 'message') : ''
   const statusPill: Record<EventReservation['reservation_status'], { cls: string; label: string }> = {
     pending:   { cls: 'bg-amber-50 text-amber-700 border border-amber-200',     label: '⏳ ' + bi('En attente', 'Pending') },
     confirmed: { cls: 'bg-brand-light text-brand-darker',                       label: '✅ ' + bi('Confirmée', 'Confirmed') },

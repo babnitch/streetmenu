@@ -1,13 +1,9 @@
 'use client'
 
-import { useEffect, useRef, type RefObject } from 'react'
-import { useBi } from '@/lib/languageContext'
+import { useEffect, useMemo, useRef, type RefObject } from 'react'
+import { useBi, useLanguage } from '@/lib/languageContext'
 import { addDays, stripDays, type DaySelection } from '@/lib/eventCalendar'
-
-// Day labels stay fr-FR on the web, like every other event date on the site.
-const WEEKDAY_SHORT = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', timeZone: 'UTC' })
-const MONTH_SHORT   = new Intl.DateTimeFormat('fr-FR', { month: 'short', timeZone: 'UTC' })
-const DAY_LONG      = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
+import { dateLocale } from '@/lib/eventDate'
 
 const asDate    = (day: string) => new Date(`${day}T00:00:00Z`)
 const dayNumber = (day: string) => String(Number(day.slice(8)))
@@ -26,7 +22,19 @@ interface DayStripProps {
 // event.
 export default function DayStrip({ today, selection, eventDays, onSelect, onOpenCalendar, calendarButtonRef }: DayStripProps) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const selectedRef = useRef<HTMLButtonElement>(null)
+
+  // Day labels follow the reader's language. Rebuilt only when it changes —
+  // an Intl.DateTimeFormat is expensive to construct.
+  const fmt = useMemo(() => {
+    const tag = dateLocale(locale)
+    return {
+      weekdayShort: new Intl.DateTimeFormat(tag, { weekday: 'short', timeZone: 'UTC' }),
+      monthShort:   new Intl.DateTimeFormat(tag, { month: 'short', timeZone: 'UTC' }),
+      dayLong:      new Intl.DateTimeFormat(tag, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }),
+    }
+  }, [locale])
 
   const selectedDay = selection.kind === 'day' ? selection.day : null
   const tomorrow = addDays(today, 1)
@@ -66,7 +74,7 @@ export default function DayStrip({ today, selection, eventDays, onSelect, onOpen
             : day === tomorrow
               ? bi('Demain', 'Tomorrow')
               // The 1st of a month names the month, so the strip reads across month ends.
-              : (day.endsWith('-01') ? MONTH_SHORT : WEEKDAY_SHORT).format(asDate(day))
+              : (day.endsWith('-01') ? fmt.monthShort : fmt.weekdayShort).format(asDate(day))
           return (
             <button
               key={day}
@@ -74,7 +82,7 @@ export default function DayStrip({ today, selection, eventDays, onSelect, onOpen
               type="button"
               onClick={() => onSelect({ kind: 'day', day })}
               aria-pressed={selected}
-              aria-label={`${DAY_LONG.format(asDate(day))}${hasDot ? ` — ${withEvents}` : ''}`}
+              aria-label={`${fmt.dayLong.format(asDate(day))}${hasDot ? ` — ${withEvents}` : ''}`}
               className={`flex-shrink-0 min-w-[3.5rem] px-3 py-2 rounded-2xl flex flex-col items-center gap-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${
                 selected ? 'bg-brand text-white' : 'bg-surface-muted text-ink-primary hover:bg-divider'
               }`}

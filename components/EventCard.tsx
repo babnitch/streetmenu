@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Event } from '@/types'
-import { useBi } from '@/lib/languageContext'
+import { useBi, useLanguage } from '@/lib/languageContext'
 import { useDataMode } from '@/lib/dataMode'
 import { formatEventWhen } from '@/lib/eventDate'
 
@@ -12,8 +12,9 @@ import { formatEventWhen } from '@/lib/eventDate'
 // an impression once it is half on screen and a click when opened.
 export default function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices, isPast }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[]; isPast?: boolean }) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const { isLowData } = useDataMode()
-  const whenStr = formatEventWhen(event, 'fr', 'card')
+  const whenStr = formatEventWhen(event, locale, 'card')
   const cardRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!promotionId) return

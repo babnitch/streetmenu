@@ -323,7 +323,8 @@ function EventRow({
   pendingLabel: string
 }) {
   const bi = useBi()
-  const whenStr = formatEventWhen(event, 'fr', 'card')
+  const { locale } = useLanguage()
+  const whenStr = formatEventWhen(event, locale, 'card')
 
   const ticketPrice = Number(event.ticket_price ?? 0)
   const isFree      = !(ticketPrice > 0)

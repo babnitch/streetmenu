@@ -1,15 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
-import { useBi } from '@/lib/languageContext'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useBi, useLanguage } from '@/lib/languageContext'
 import { addMonths, isPickableDay, lastPickerMonth, monthGrid, monthOf } from '@/lib/eventCalendar'
-
-// fr-FR on the web, like every other event date on the site.
-const MONTH_TITLE = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-const DAY_LONG    = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
-const WEEKDAYS: Array<[string, string]> = [
-  ['L', 'lundi'], ['M', 'mardi'], ['M', 'mercredi'], ['J', 'jeudi'], ['V', 'vendredi'], ['S', 'samedi'], ['D', 'dimanche'],
-]
+import { dateLocale, weekdayInitials } from '@/lib/eventDate'
 
 interface MonthPickerProps {
   today:          string
@@ -26,8 +20,20 @@ interface MonthPickerProps {
 // Bottom sheet on phones, centred dialog on wider screens.
 export default function MonthPicker({ today, selectedDay, eventDays, onPick, onClose, returnFocusRef }: MonthPickerProps) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const [month, setMonth] = useState(() => monthOf(selectedDay ?? today))
   const gridRef = useRef<HTMLDivElement>(null)
+
+  // Month title, day labels and the Monday-first column headers all follow the
+  // reader's language. Rebuilt only when it changes.
+  const fmt = useMemo(() => {
+    const tag = dateLocale(locale)
+    return {
+      monthTitle: new Intl.DateTimeFormat(tag, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+      dayLong:    new Intl.DateTimeFormat(tag, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    }
+  }, [locale])
+  const weekdays = useMemo(() => weekdayInitials(locale), [locale])
 
   // Read through a ref so a parent re-render (a new onClose function) never
   // re-runs the effect below and bounces focus back to the calendar button.
@@ -89,7 +95,7 @@ export default function MonthPicker({ today, selectedDay, eventDays, onPick, onC
             <span aria-hidden="true">‹</span>
           </button>
           <p className="text-sm font-semibold text-ink-primary capitalize" aria-live="polite">
-            {MONTH_TITLE.format(new Date(`${month}-01T00:00:00Z`))}
+            {fmt.monthTitle.format(new Date(`${month}-01T00:00:00Z`))}
           </p>
           <button
             type="button"
@@ -103,8 +109,8 @@ export default function MonthPicker({ today, selectedDay, eventDays, onPick, onC
         </div>
 
         <div className="grid grid-cols-7 gap-1 mb-1 text-center text-[11px] font-semibold text-ink-tertiary">
-          {WEEKDAYS.map(([letter, name]) => (
-            <abbr key={name} title={name} className="no-underline">{letter}</abbr>
+          {weekdays.map(({ initial, name }) => (
+            <abbr key={name} title={name} className="no-underline">{initial}</abbr>
           ))}
         </div>
 
@@ -125,7 +131,7 @@ export default function MonthPicker({ today, selectedDay, eventDays, onPick, onC
                 onClick={() => onPick(day)}
                 aria-pressed={selected}
                 aria-current={isToday ? 'date' : undefined}
-                aria-label={`${DAY_LONG.format(new Date(`${day}T00:00:00Z`))}${hasEvents ? ` — ${withEvents}` : ''}`}
+                aria-label={`${fmt.dayLong.format(new Date(`${day}T00:00:00Z`))}${hasEvents ? ` — ${withEvents}` : ''}`}
                 className={`h-11 rounded-xl flex flex-col items-center justify-center text-sm tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                   selected
                     ? 'bg-brand text-white font-bold'

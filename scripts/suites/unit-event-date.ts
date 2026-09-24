@@ -15,8 +15,10 @@ import { join, relative, resolve } from 'path'
 import {
   EVENT_DATE_COLUMNS,
   EVENT_RANGE_ERRORS,
+  dateLocale,
   effectiveEndDate,
   eventRangeErrorText,
+  weekdayInitials,
   normalizeEndDate,
   validateEventRange,
   eventSpansDay,
@@ -269,6 +271,28 @@ async function main(): Promise<void> {
     assertEq(normalizeEndDate('2026-01-17', null), null, 'no end → NULL')
     assertEq(normalizeEndDate('2026-01-17', ''), null, 'blank end → NULL')
     assertEq(normalizeEndDate('2026-01-17', '2026-01-16'), null, 'an earlier day is never stored')
+  })
+
+  await step('dateLocale: one mapping, used by the strip and picker too', () => {
+    assertEq(dateLocale('fr'), 'fr-FR', 'French')
+    assertEq(dateLocale('en'), 'en-GB', 'English is en-GB, not en-US — "24 Sept", not "Sep 24"')
+  })
+
+  await step('weekdayInitials: Monday-first column headers per language', () => {
+    const fr = weekdayInitials('fr')
+    const en = weekdayInitials('en')
+    assertEq(fr.length, 7, 'seven French headers')
+    assertEq(en.length, 7, 'seven English headers')
+    // Pinned to the values the French grid shipped with as hardcoded literals:
+    // lifting D7 must not have changed what a French reader sees.
+    assertEq(fr.map(d => d.initial), ['L', 'M', 'M', 'J', 'V', 'S', 'D'], 'French initials unchanged')
+    assertEq(fr.map(d => d.name), ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'],
+      'French tooltips unchanged')
+    assertEq(en.map(d => d.initial), ['M', 'T', 'W', 'T', 'F', 'S', 'S'], 'English initials')
+    assertEq(en.map(d => d.name), ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      'English tooltips')
+    // Tuesday and Thursday share an initial in English; the name is the React key.
+    assertEq(new Set(en.map(d => d.name)).size, 7, 'English names are unique, so they work as keys')
   })
 
   await step('EVENT_DATE_COLUMNS carries the whole range', () => {
