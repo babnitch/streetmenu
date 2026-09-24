@@ -2,8 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
@@ -33,6 +33,7 @@ interface SessionUser { id: string; name: string; phone: string; role: string }
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
   const { t, locale } = useLanguage()
   const bi = useBi()
   const [event, setEvent] = useState<Event | null>(null)
@@ -116,6 +117,49 @@ export default function EventDetailPage() {
       .catch(() => null)
       .finally(() => setMeLoaded(true))
   }, [])
+
+  // Resume a booking the login gate interrupted. A signed-out visitor who taps
+  // Reserve is sent to /account?return=/events/<id>?reserve=1 (or =pay) and
+  // lands back here with the form already open, instead of having to find the
+  // button again. Read synchronously on mount, like the ?tab= handling in
+  // /account, so the flag is known before the first paint.
+  const [resumeIntent, setResumeIntent] = useState<'reserve' | 'pay' | null>(() => {
+    if (typeof window === 'undefined') return null
+    const raw = new URLSearchParams(window.location.search).get('reserve')
+    return raw === 'pay' ? 'pay' : raw === '1' ? 'reserve' : null
+  })
+
+  // Opening the booking form is pure state, so the resume effect below can
+  // call it as well as the button.
+  const startReservation = useCallback((pay: boolean) => {
+    setPayNow(pay)
+    setQuantity(1)
+    setReserveError('')
+    setReservationId(null)
+    setReservationCode(null)
+    setPromoOpen(false)
+    setPromoInput('')
+    setPromoError('')
+    setAppliedPromo(null)
+    setMomoPhone('')
+    setPayPhase('idle')
+    setActiveDepositId(null)
+    setShowModal(true)
+  }, [])
+
+  // The flag arrives before the session check and the event do, so wait for
+  // both. The query is cleared first, so a refresh doesn't reopen the form.
+  useEffect(() => {
+    if (!resumeIntent || !meLoaded) return
+    if (me && !event) return                       // signed in, event still loading
+    const url = new URL(window.location.href)
+    url.searchParams.delete('reserve')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    setResumeIntent(null)
+    // Still signed out (they backed out of login) — the flag is cleared above
+    // and nothing opens.
+    if (me && event) startReservation(resumeIntent === 'pay')
+  }, [resumeIntent, meLoaded, me, event, startReservation])
 
   if (loading) {
     return (
@@ -238,32 +282,24 @@ export default function EventDetailPage() {
   )
   const shareUrl = `https://wa.me/?text=${shareMsg}`
 
-  // Login gate target — /account honours ?return= for same-site paths and
-  // bounces back here once the session cookie is set.
-  const loginHref = `/account?return=${encodeURIComponent(`/events/${event.id}`)}`
+  // Login gate target — /account honours ?return= for same-site paths (its
+  // safeReturnUrl rejects anything else) and bounces back here once the
+  // session cookie is set. The resume flag rides along INSIDE the return path,
+  // so the booking form reopens on arrival.
+  const loginHref = (intent: 'reserve' | 'pay') =>
+    `/account?return=${encodeURIComponent(`/events/${event.id}?reserve=${intent === 'pay' ? 'pay' : '1'}`)}`
 
   function openReserve(pay: boolean) {
     // Booking requires an account (the API returns 401 otherwise). Anyone can
-    // read the page; tapping Reserve while signed out opens the login prompt,
-    // which routes through /account?return=<this event> and lands the customer
-    // back here with a session.
+    // read the page; a signed-out visitor goes STRAIGHT to the login gate —
+    // one tap, one intent — and comes back with the form open. The buttons
+    // stay disabled until /api/auth/me answers, so a null `me` here really
+    // does mean signed out rather than "not checked yet".
     if (!me) {
-      setLoginPrompt(true)
+      router.push(loginHref(pay ? 'pay' : 'reserve'))
       return
     }
-    setPayNow(pay)
-    setQuantity(1)
-    setReserveError('')
-    setReservationId(null)
-    setReservationCode(null)
-    setPromoOpen(false)
-    setPromoInput('')
-    setPromoError('')
-    setAppliedPromo(null)
-    setMomoPhone('')
-    setPayPhase('idle')
-    setActiveDepositId(null)
-    setShowModal(true)
+    startReservation(pay)
   }
 
   function stopPolling() {
@@ -645,7 +681,7 @@ export default function EventDetailPage() {
               )}
             </p>
             <Link
-              href={loginHref}
+              href={loginHref(payNow ? 'pay' : 'reserve')}
               className="block w-full bg-brand hover:bg-brand-dark text-white py-2.5 rounded-full text-sm font-semibold transition-colors"
             >
               {bi('Se connecter', 'Log in')}
