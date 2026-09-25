@@ -361,15 +361,19 @@ export async function createPayout(params: PayoutParams): Promise<PayoutResult> 
 // │   off, PawaPay sends no signature and EVERY real callback logs           │
 // │   INVALID reason=missing-signature.                                      │
 // │ Then: watch real callbacks log VALID. This is also where an encoding     │
-// │   mismatch would surface (RFC 9421 ECDSA is raw r‖s; if PawaPay sent DER │
-// │   every callback would log INVALID reason=signature-mismatch), as would  │
-// │   a wrong @authority/@path reconstruction behind Vercel's proxy.         │
+// │   mismatch would surface (PawaPay DOES send DER — handled by            │
+// │   verifierFor below), as would a wrong @authority/@path reconstruction   │
+// │   behind Vercel's proxy.                                                 │
+// │ Also decide before stage 5: PawaPay sets expires = created + 60 and the  │
+// │   library checks it with ZERO clock tolerance, so a callback delivered   │
+// │   (or retried) >60s after signing logs INVALID reason=expired. Watch for │
+// │   that in the logs; a small tolerance may be needed before rejecting.    │
 // │ Only then, stage 5: flip the switch below to true. Flipping it before    │
 // │   real callbacks log VALID blocks EVERY real payment.                    │
 // └──────────────────────────────────────────────────────────────────────────┘
-import { createHash, createPublicKey, timingSafeEqual, type KeyObject } from 'crypto'
+import { createHash, createPublicKey, createVerify, timingSafeEqual, type KeyObject } from 'crypto'
 import {
-  httpbis, createVerifier, type Algorithm, type VerifyingKey,
+  httpbis, createVerifier, type Algorithm, type Verifier, type VerifyingKey,
   ExpiredError, UnsupportedAlgorithmError, MalformedSignatureError, UnacceptableSignatureError,
 } from 'http-message-signatures'
 import { parseDictionary, isInnerList } from 'structured-headers'
@@ -505,6 +509,7 @@ export type CallbackInvalidReason =
   | 'alg-mismatch'
   | 'expired'
   | 'signature-mismatch'
+  | 'signature-encoding'       // crypto refused the signature bytes (e.g. wrong length for the encoding)
   | 'verifier-error'
 
 export type CallbackVerification =
@@ -552,6 +557,28 @@ export async function verifyPawaPayCallback(
   } catch (e) {
     return { status: 'invalid', reason: 'verifier-error', detail: (e as Error).message }
   }
+}
+
+// PawaPay signs ECDSA callbacks DER-encoded (an ASN.1 SEQUENCE of r and s,
+// 70–72 bytes for P-256), not RFC 9421's raw r‖s — the library's own ECDSA
+// verifier only does raw, and Node throws "Malformed signature" on anything
+// that isn't exactly 64 bytes. So for EC keys we hand the library a verify
+// function that uses Node's built-in DER support; the library still parses the
+// headers, rebuilds the signature base and enforces alg/created/expires.
+// Raw r‖s is accepted too: it is exactly 2× the coordinate size, which a DER
+// signature never is in practice, so the length alone picks the encoding.
+const ECDSA_HASH: Record<string, { hash: string; rawLength: number }> = {
+  'ecdsa-p256-sha256': { hash: 'sha256', rawLength: 64 },
+  'ecdsa-p384-sha384': { hash: 'sha384', rawLength: 96 },
+}
+
+function verifierFor(key: KeyObject, alg: Algorithm): Verifier {
+  const ec = ECDSA_HASH[alg]
+  if (!ec) return createVerifier(key, alg)   // RSA / ed25519: the library's own verifier, unchanged
+  return async (data, signature) => createVerify(ec.hash).update(data).verify({
+    key,
+    dsaEncoding: signature.length === ec.rawLength ? 'ieee-p1363' : 'der',
+  }, signature)
 }
 
 async function verifyInner(msg: CallbackMessage, fetchKeys: PawaPayKeyFetcher): Promise<CallbackVerification> {
@@ -605,7 +632,7 @@ async function verifyInner(msg: CallbackMessage, fetchKeys: PawaPayKeyFetcher): 
       throw new UnsupportedAlgorithmError(`alg=${params.alg ?? '<none>'} not allowed for key (allows ${cached.algs.join(',') || 'nothing'})`)
     }
     usedAlg = alg
-    return { id: params.keyid, algs: cached.algs, verify: createVerifier(cached.key, alg) }
+    return { id: params.keyid, algs: cached.algs, verify: verifierFor(cached.key, alg) }
   }
 
   let ok: boolean | null
@@ -617,6 +644,9 @@ async function verifyInner(msg: CallbackMessage, fetchKeys: PawaPayKeyFetcher): 
     if (e instanceof UnsupportedAlgorithmError) return { status: 'invalid', reason: 'alg-mismatch', detail, keyid, covered }
     if (e instanceof MalformedSignatureError || e instanceof UnacceptableSignatureError) {
       return { status: 'invalid', reason: 'malformed', detail, keyid, covered }
+    }
+    if ((e as { code?: string }).code === 'ERR_CRYPTO_OPERATION_FAILED') {
+      return { status: 'invalid', reason: 'signature-encoding', detail, keyid, covered }
     }
     return { status: 'invalid', reason: 'verifier-error', detail, keyid, covered }
   }

@@ -2,12 +2,14 @@
 //
 // No network: a P-256 key pair is generated here, callbacks are signed with
 // the same library's signMessage, and the public-key fetch is a stub that
-// counts its calls. Covers the verdicts the webhook logs, the key cache's
+// counts its calls. Signatures are produced in BOTH ECDSA encodings: raw r‖s
+// (RFC 9421, the library's default) and DER — PawaPay really sends DER, and a
+// raw-only suite is how that slipped through to production logs. Covers the verdicts the webhook logs, the key cache's
 // refetch/throttle behaviour, the skip flag, and that nothing is rejected
 // while PAWAPAY_REJECT_INVALID_CALLBACKS is false.
 
-import { generateKeyPairSync, createHash } from 'crypto'
-import { httpbis, createSigner } from 'http-message-signatures'
+import { generateKeyPairSync, createHash, createSign, type KeyObject } from 'crypto'
+import { httpbis, createSigner, type SigningKey } from 'http-message-signatures'
 import {
   verifyPawaPayCallback, callbackVerifySkipped, shouldRejectCallback,
   PAWAPAY_REJECT_INVALID_CALLBACKS, __resetPawaPayKeyCache, detectMNO,
@@ -29,24 +31,41 @@ function digestHeader(body: Buffer): string {
   return `sha-256=:${createHash('sha256').update(body).digest('base64')}:`
 }
 
+// DER-encoded ECDSA signer — the encoding PawaPay's callbacks actually use
+// (docs example: sig-pp=:MEQCI…: → 30 44 02 20 …, a 70-byte ASN.1 SEQUENCE).
+function derSigner(key: KeyObject, keyid: string): SigningKey {
+  return {
+    id:   keyid,
+    alg:  'ecdsa-p256-sha256',
+    sign: async (data) => createSign('sha256').update(data).sign({ key, dsaEncoding: 'der' }),
+  }
+}
+
+// PawaPay's own covered set and headers (docs.pawapay.io/v2/docs/signatures).
+const PAWAPAY_FIELDS = ['@method', '@authority', '@path', 'signature-date', 'content-digest', 'content-type']
+
 async function signedCallback(opts: {
-  body?:   string
-  fields?: string[]
-  keyid?:  string
+  body?:     string
+  fields?:   string[]
+  keyid?:    string
   signWith?: typeof privateKey
+  encoding?: 'raw' | 'der'
+  pawapayShape?: boolean   // sha-512 digest + Signature-Date header, as PawaPay sends
 } = {}): Promise<CallbackMessage> {
   const rawBody = Buffer.from(opts.body ?? JSON.stringify({ depositId: 'd-1', status: 'COMPLETED' }))
-  const req = {
-    method: 'POST',
-    url:    URL_,
-    headers: {
-      'content-type':   'application/json',
-      'content-digest': digestHeader(rawBody),
-    } as Record<string, string>,
+  const headers_: Record<string, string> = {
+    'content-type':   'application/json',
+    'content-digest': opts.pawapayShape
+      ? `sha-512=:${createHash('sha512').update(rawBody).digest('base64')}:`
+      : digestHeader(rawBody),
   }
+  if (opts.pawapayShape) headers_['signature-date'] = new Date().toISOString()
+  const req = { method: 'POST', url: URL_, headers: headers_ }
+  const key = opts.signWith ?? privateKey
+  const keyid = opts.keyid ?? KEYID
   const signed = await httpbis.signMessage({
-    key:    createSigner(opts.signWith ?? privateKey, 'ecdsa-p256-sha256', opts.keyid ?? KEYID),
-    fields: opts.fields ?? ['@method', '@authority', '@path', 'content-digest', 'content-type'],
+    key:    opts.encoding === 'der' ? derSigner(key, keyid) : createSigner(key, 'ecdsa-p256-sha256', keyid),
+    fields: opts.fields ?? (opts.pawapayShape ? PAWAPAY_FIELDS : ['@method', '@authority', '@path', 'content-digest', 'content-type']),
   }, req)
   const headers: Record<string, string> = {}
   for (const [k, v] of Object.entries(signed.headers)) headers[k.toLowerCase()] = String(v)
@@ -81,6 +100,34 @@ async function main() {
     assertEq(fetchCalls, 1, 'keys fetched once')
     await verifyPawaPayCallback(await signedCallback(), { fetchKeys })
     assertEq(fetchCalls, 1, 'second callback uses the cache')
+  })
+
+  await step('DER-encoded signature (what PawaPay sends)', async () => {
+    fresh()
+    const msg = await signedCallback({ encoding: 'der', pawapayShape: true })
+    const sigBytes = Buffer.from(msg.headers['signature'].split(':')[1], 'base64')
+    assert(sigBytes.length >= 68 && sigBytes.length <= 72 && sigBytes[0] === 0x30,
+      `fixture really is DER (${sigBytes.length} bytes, first byte 0x${sigBytes[0].toString(16)})`)
+    const v = await verifyPawaPayCallback(msg, { fetchKeys })
+    assertEq(v.status, 'valid', 'PawaPay-shaped DER callback verifies')
+    if (v.status === 'valid') assertEq(v.alg, 'ecdsa-p256-sha256', 'as ecdsa-p256-sha256')
+
+    const raw = await verifyPawaPayCallback(await signedCallback({ pawapayShape: true }), { fetchKeys })
+    assertEq(raw.status, 'valid', 'same shape with raw 64-byte r‖s still verifies')
+
+    const forged = await signedCallback({ encoding: 'der', pawapayShape: true, signWith: other.privateKey })
+    const f = await verifyPawaPayCallback(forged, { fetchKeys })
+    assertEq(f.status === 'invalid' && f.reason, 'signature-mismatch', 'DER signature from another key fails')
+
+    const tampered = await signedCallback({ encoding: 'der', pawapayShape: true })
+    tampered.headers['signature-date'] = new Date(Date.now() + 1000).toISOString()
+    const t = await verifyPawaPayCallback(tampered, { fetchKeys })
+    assertEq(t.status === 'invalid' && t.reason, 'signature-mismatch', 'DER: changing a signed header (signature-date) fails')
+
+    const junk = await signedCallback({ encoding: 'der', pawapayShape: true })
+    junk.headers['signature'] = `sig=:${Buffer.alloc(50, 1).toString('base64')}:`
+    const j = await verifyPawaPayCallback(junk, { fetchKeys })
+    assertEq(j.status, 'invalid', 'junk non-64-byte signature is INVALID, not VALID')
   })
 
   await step('tampered body', async () => {
