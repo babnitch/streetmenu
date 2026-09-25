@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { timingSafeEqual } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { authorizeInternal } from '@/lib/internalAuth'
 import { writeAudit } from '@/lib/audit'
 import { normalizeLang, type Lang } from '@/lib/whatsapp'
 import {
@@ -15,59 +15,8 @@ export const dynamic = 'force-dynamic'
 // This route is the ONLY thing in the app that emits bulk WhatsApp, and it
 // used to have no authentication at all — its single guard was
 // status === 'paid', which made it world-callable by anyone who learned a
-// broadcast id during the window between payment and fan-out.
-//
-// Same header shape as app/api/admin/cleanup-expired/route.ts (the existing
-// machine-caller pattern) but a DIFFERENT secret: CRON_SECRET belongs to
-// Vercel cron and is handed to a third party, so reusing it here would widen
-// what a leaked cron secret can do. Secrets stay scoped to one job.
-//
-// Constant-time compare rather than the `===` the cleanup route uses. A
-// deliberate improvement, not an inconsistency: `===` short-circuits on the
-// first differing byte, which leaks the secret's prefix through response
-// timing. Free to do correctly, and this is a security fix.
-const BEARER = 'Bearer '
-
-type AuthOutcome =
-  | { ok: true }
-  | { ok: false; status: 401 | 503; logLine: string }
-
-function authorizeInternal(req: NextRequest): AuthOutcome {
-  const secret = process.env.INTERNAL_API_SECRET
-
-  // FAIL CLOSED, LOUDLY. An unset secret must never mean "allow everyone" —
-  // that is exactly how the original hole reads, and it is the same failure
-  // class as a missing env var silently disabling webhook verification.
-  // 503 rather than 401 so the cause is distinguishable in logs and
-  // monitoring: 401 means someone called with the wrong credential, 503
-  // means this deployment cannot authenticate anyone at all.
-  if (!secret) {
-    return {
-      ok: false,
-      status: 503,
-      logLine:
-        'INTERNAL_API_SECRET is not set on this deployment — refusing EVERY call, ' +
-        'including the payment webhook\'s own. Broadcasts will be marked paid but ' +
-        'never fan out. Set INTERNAL_API_SECRET in Vercel (Production), redeploy, ' +
-        'then re-POST this route for any broadcast stuck at status=paid.',
-    }
-  }
-
-  const header = req.headers.get('authorization') ?? ''
-  if (!header.startsWith(BEARER)) {
-    return { ok: false, status: 401, logLine: 'missing or malformed Authorization header' }
-  }
-
-  const provided = Buffer.from(header.slice(BEARER.length))
-  const expected = Buffer.from(secret)
-  // timingSafeEqual throws on a length mismatch, so that is checked first —
-  // the length of a secret is not itself the secret.
-  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
-    return { ok: false, status: 401, logLine: 'bearer token did not match' }
-  }
-
-  return { ok: true }
-}
+// broadcast id during the window between payment and fan-out. The bearer
+// check lives in lib/internalAuth.ts, shared with /api/payments/reconcile.
 
 // POST /api/broadcasts/[id]/send
 // Called by the PawaPay webhook (and as a self-serve retry) once the
@@ -83,7 +32,10 @@ function authorizeInternal(req: NextRequest): AuthOutcome {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = authorizeInternal(req)
   if (!auth.ok) {
-    console.error(`[broadcasts/send] REFUSED (${auth.status}) for broadcast=${params.id}: ${auth.logLine}`)
+    console.error(
+      `[broadcasts/send] REFUSED (${auth.status}) for broadcast=${params.id}: ${auth.logLine}` +
+      (auth.status === 503 ? ' Broadcasts are marked paid but never fan out; re-POST this route for any stuck at status=paid once fixed.' : ''),
+    )
     return NextResponse.json(
       // Deliberately says nothing about which check failed.
       { error: 'Non autorisé / Unauthorized' },

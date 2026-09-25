@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import {
   verifyPawaPayCallback, logCallbackVerification, shouldRejectCallback,
   type PawaPayCorrespondent,
 } from '@/lib/pawapay'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
-import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
+import { settleDeposit } from '@/lib/payments-settle'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,12 +19,11 @@ export const dynamic = 'force-dynamic'
 //      LOG-ONLY: the result is logged and the callback is processed either
 //      way. Rejection is the PAWAPAY_REJECT_INVALID_CALLBACKS switch — see
 //      the ROLLOUT note in lib/pawapay.ts before flipping it.
-//   2. Look up the order by orders.payment_id = depositId.
-//   3. Write the new status + audit row.
-//   4. Notify customer + vendors over WhatsApp on success/failure.
+//   2. Settle the deposit through lib/payments-settle.ts (orders,
+//      reservations, broadcasts, promotions) — atomic claim, audit, WhatsApp.
+//   3. For a paid broadcast this callback won, trigger the fan-out.
 //
-// Idempotent: a duplicate COMPLETED callback for an already-paid order is a
-// no-op except for re-sending the notification (skipped — see early return).
+// Idempotent: a duplicate or late callback loses the claim and is a no-op.
 export async function POST(req: NextRequest) {
   // Exact bytes — the Content-Digest is over what was sent, not over a
   // decoded-and-re-encoded string.
@@ -79,330 +76,81 @@ export async function POST(req: NextRequest) {
   const depositId = payload.depositId
   if (!depositId) return NextResponse.json({ error: 'no depositId' }, { status: 400 })
 
-  const { data: order } = await supabaseAdmin
-    .from('orders')
-    .select('id, payment_status, customer_phone')
-    .eq('payment_id', depositId)
-    .maybeSingle()
+  // Settling is lib/payments-settle.ts, shared with the status poll and the
+  // reconcile job — an atomic pending→terminal claim, so a callback racing a
+  // poll (or a duplicate callback) notifies once and the loser no-ops.
+  const result = await settleDeposit(depositId, {
+    status:        payload.status ?? '',
+    amount:        payload.amount,
+    currency:      payload.currency,
+    correspondent: payload.correspondent,
+    failureReason: payload.failureReason?.failureMessage ?? null,
+  }, 'webhook')
 
-  if (order) {
-    if (order.payment_status === 'paid' || order.payment_status === 'failed') {
-      return NextResponse.json({ ok: true, ignored: 'already settled' })
-    }
-
-    if (payload.status === 'COMPLETED') {
-      await supabaseAdmin
-        .from('orders')
-        .update({ payment_status: 'paid', payment_at: new Date().toISOString() })
-        .eq('id', order.id)
-
-      await writeAudit({
-        action:     'payment_completed',
-        targetType: 'order',
-        targetId:   order.id,
-        metadata:   { deposit_id: depositId, amount: payload.amount, currency: payload.currency, correspondent: payload.correspondent },
-      })
-
-      console.log(`[payment] webhook → paid: order=${order.id} deposit=${depositId}`)
-      await notifyPaidOrder(order.id, payload.correspondent)
-    } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
-      await supabaseAdmin
-        .from('orders')
-        .update({ payment_status: 'failed' })
-        .eq('id', order.id)
-
-      await writeAudit({
-        action:     'payment_failed',
-        targetType: 'order',
-        targetId:   order.id,
-        metadata:   {
-          deposit_id: depositId,
-          reason:     payload.failureReason?.failureMessage ?? null,
-          amount:     payload.amount,
-          currency:   payload.currency,
-        },
-      })
-
-      if (order.customer_phone) {
-        const lang = await getLangByPhone(order.customer_phone)
-        await sendWhatsApp(order.customer_phone, [
-          pickLang(`❌ *Paiement échoué*`, `❌ *Payment failed*`, lang),
-          ``,
-          pickLang(
-            `Votre paiement n'a pas abouti. Envoyez "payer" pour réessayer ou contactez le restaurant.`,
-            `Your payment didn't go through. Send "pay" to retry or contact the restaurant.`,
-            lang,
-          ),
-        ].join('\n'), { context: 'payment_confirmation', relatedId: order.id }).catch(() => null)
-      }
-    }
-
-    return NextResponse.json({ ok: true })
-  }
-
-  // ── Broadcast fallback ─────────────────────────────────────────────────────
-  // Same idempotent guard + audit shape, but for paid broadcasts. On
-  // COMPLETED we mark paid and fire the fan-out via the /send route.
-  const { data: broadcast } = await supabaseAdmin
-    .from('broadcasts')
-    .select('id, sender_id, payment_status, status')
-    .eq('payment_id', depositId)
-    .maybeSingle()
-
-  if (broadcast) {
-    if (broadcast.payment_status === 'paid' || broadcast.payment_status === 'failed') {
-      return NextResponse.json({ ok: true, ignored: 'already settled' })
-    }
-
-    if (payload.status === 'COMPLETED') {
-      await supabaseAdmin
-        .from('broadcasts')
-        .update({ payment_status: 'paid', status: 'paid' })
-        .eq('id', broadcast.id)
-
-      await writeAudit({
-        action:          'broadcast_paid',
-        targetType:      'customer',
-        targetId:        broadcast.sender_id,
-        performedBy:     broadcast.sender_id,
-        performedByType: 'system',
-        metadata: {
-          broadcast_id: broadcast.id,
-          deposit_id:   depositId,
-          amount:       payload.amount,
-          currency:     payload.currency,
-        },
-      })
-
-      // Fire-and-await the fan-out. We're already in a background webhook,
-      // so blocking until WhatsApp finishes is fine and keeps audit ordering
-      // deterministic.
-      //
-      // The send route now requires Authorization: Bearer <INTERNAL_API_SECRET>
-      // (it is the only bulk-WhatsApp emitter in the app and used to be
-      // world-callable). This is its one legitimate caller.
-      //
-      // RECOVERY NOTE for both failure paths below: the broadcast has ALREADY
-      // been marked paid above, so a failed send leaves it at status='paid',
-      // which is exactly the state /send requires. Nothing is lost — fix the
-      // cause and re-POST the route to fan out.
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://streetmenu.vercel.app'
-      const internalSecret = process.env.INTERNAL_API_SECRET
-      if (!internalSecret) {
-        // Checked BEFORE the call so the log names the real cause. Calling
-        // without it would come back 503 and read like the send route is
-        // broken, when the actual fault is a missing env var here.
-        console.error(
-          `[payments/webhook] INTERNAL_API_SECRET is not set — CANNOT trigger the fan-out ` +
-          `for broadcast=${broadcast.id}. It is PAID and stuck at status=paid. Set ` +
-          `INTERNAL_API_SECRET in Vercel (Production), redeploy, then ` +
-          `POST /api/broadcasts/${broadcast.id}/send with that bearer token to recover.`,
-        )
-      } else {
-        try {
-          const sendRes = await fetch(`${baseUrl}/api/broadcasts/${broadcast.id}/send`, {
-            method:  'POST',
-            headers: { Authorization: `Bearer ${internalSecret}` },
-          })
-          // fetch does NOT throw on a non-2xx, so without this check a 401 or
-          // 503 would be swallowed by the catch below and look like success.
-          if (!sendRes.ok) {
-            const detail = await sendRes.text().catch(() => '')
-            console.error(
-              `[payments/webhook] broadcast fan-out REFUSED: broadcast=${broadcast.id} ` +
-              `status=${sendRes.status} body=${detail.slice(0, 200)} — it is PAID and stuck ` +
-              `at status=paid; re-POST /api/broadcasts/${broadcast.id}/send once fixed.`,
-            )
-          }
-        } catch (e) {
-          console.error(
-            `[payments/webhook] broadcast send failed: broadcast=${broadcast.id} — ` +
-            `${(e as Error).message} — it is PAID and stuck at status=paid; re-POST ` +
-            `/api/broadcasts/${broadcast.id}/send to recover.`,
-          )
-        }
-      }
-    } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
-      await supabaseAdmin
-        .from('broadcasts')
-        .update({ payment_status: 'failed', status: 'failed' })
-        .eq('id', broadcast.id)
-
-      await writeAudit({
-        action:          'broadcast_payment_failed',
-        targetType:      'customer',
-        targetId:        broadcast.sender_id,
-        performedBy:     broadcast.sender_id,
-        performedByType: 'system',
-        metadata: {
-          broadcast_id: broadcast.id,
-          deposit_id:   depositId,
-          reason:       payload.failureReason?.failureMessage ?? null,
-        },
-      })
-    }
-
-    return NextResponse.json({ ok: true })
-  }
-
-  // ── Promotion fallback ─────────────────────────────────────────────────────
-  // Same idempotent guard + audit shape. On COMPLETED the promotion
-  // flips to pending_review so an admin can vet ad copy before it goes
-  // live in the feed; on FAILED/REJECTED the row is marked rejected.
-  const { data: promo } = await supabaseAdmin
-    .from('promotions')
-    .select('id, promoter_id, payment_status, status')
-    .eq('payment_id', depositId)
-    .maybeSingle()
-
-  if (promo) {
-    if (promo.payment_status === 'paid' || promo.payment_status === 'failed') {
-      return NextResponse.json({ ok: true, ignored: 'already settled' })
-    }
-
-    if (payload.status === 'COMPLETED') {
-      await supabaseAdmin
-        .from('promotions')
-        .update({
-          payment_status: 'paid',
-          status:         'pending_review',
-          updated_at:     new Date().toISOString(),
-        })
-        .eq('id', promo.id)
-
-      await writeAudit({
-        action:          'promotion_paid',
-        targetType:      'promotion',
-        targetId:        promo.id,
-        performedBy:     promo.promoter_id,
-        performedByType: 'system',
-        metadata: {
-          deposit_id: depositId,
-          amount:     payload.amount,
-          currency:   payload.currency,
-        },
-      })
-    } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
-      await supabaseAdmin
-        .from('promotions')
-        .update({
-          payment_status: 'failed',
-          status:         'rejected',
-          updated_at:     new Date().toISOString(),
-        })
-        .eq('id', promo.id)
-
-      await writeAudit({
-        action:          'promotion_payment_failed',
-        targetType:      'promotion',
-        targetId:        promo.id,
-        performedBy:     promo.promoter_id,
-        performedByType: 'system',
-        metadata: {
-          deposit_id: depositId,
-          reason:     payload.failureReason?.failureMessage ?? null,
-        },
-      })
-    }
-
-    return NextResponse.json({ ok: true })
-  }
-
-  // ── Event-reservation fallback ─────────────────────────────────────────────
-  // Same idempotent guard + audit shape as orders, but with event_reservations
-  // as the row and notifyPaidReservation as the fan-out.
-  const { data: reservation } = await supabaseAdmin
-    .from('event_reservations')
-    .select('id, event_id, payment_status, customer_phone, total_price, quantity, tier_id')
-    .eq('payment_id', depositId)
-    .maybeSingle()
-
-  if (!reservation) {
-    console.warn(`[payments/webhook] no order OR reservation matches depositId=${depositId}`)
+  if (result.kind === 'unknown') {
+    console.warn(`[payments/webhook] no order, reservation, broadcast or promotion matches depositId=${depositId}`)
     return NextResponse.json({ ok: true, ignored: 'unknown deposit' })
   }
-  if (reservation.payment_status === 'paid' || reservation.payment_status === 'failed') {
+  if (result.action === 'already_settled') {
     return NextResponse.json({ ok: true, ignored: 'already settled' })
   }
 
-  if (payload.status === 'COMPLETED') {
-    await supabaseAdmin
-      .from('event_reservations')
-      .update({ payment_status: 'paid', updated_at: new Date().toISOString() })
-      .eq('id', reservation.id)
-
-    await writeAudit({
-      action:     'event_payment_completed',
-      targetType: 'event_reservation',
-      targetId:   reservation.id,
-      metadata:   {
-        deposit_id:    depositId,
-        amount:        payload.amount,
-        currency:      payload.currency,
-        correspondent: payload.correspondent,
-        event_id:      reservation.event_id,
-      },
-    })
-
-    console.log(`[payment] webhook → reservation paid: reservation=${reservation.id} deposit=${depositId}`)
-    await notifyPaidReservation(reservation.id, payload.correspondent)
-  } else if (payload.status === 'FAILED' || payload.status === 'REJECTED') {
-    // Release the held seats so a failed payment doesn't permanently
-    // inflate tickets_sold. Best-effort: read current, subtract, write.
-    // When the reservation came from a tier, also decrement that tier's
-    // sold_count so the public picker shows the seats as available again.
-    const { data: ev } = await supabaseAdmin
-      .from('events').select('tickets_sold').eq('id', reservation.event_id).maybeSingle()
-    const sold = Number(ev?.tickets_sold ?? 0)
-    const nextSold = Math.max(0, sold - Number(reservation.quantity ?? 0))
-
-    await Promise.all([
-      supabaseAdmin
-        .from('event_reservations')
-        .update({ payment_status: 'failed', updated_at: new Date().toISOString() })
-        .eq('id', reservation.id),
-      supabaseAdmin
-        .from('events').update({ tickets_sold: nextSold }).eq('id', reservation.event_id),
-      reservation.tier_id
-        ? supabaseAdmin
-            .from('event_ticket_tiers')
-            .select('sold_count').eq('id', reservation.tier_id).maybeSingle()
-            .then(({ data: t }) => {
-              const next = Math.max(0, Number(t?.sold_count ?? 0) - Number(reservation.quantity ?? 0))
-              return supabaseAdmin
-                .from('event_ticket_tiers')
-                .update({ sold_count: next, updated_at: new Date().toISOString() })
-                .eq('id', reservation.tier_id)
-            })
-        : Promise.resolve(),
-    ])
-
-    await writeAudit({
-      action:     'event_payment_failed',
-      targetType: 'event_reservation',
-      targetId:   reservation.id,
-      metadata:   {
-        deposit_id: depositId,
-        reason:     payload.failureReason?.failureMessage ?? null,
-        amount:     payload.amount,
-        currency:   payload.currency,
-        event_id:   reservation.event_id,
-      },
-    })
-
-    if (reservation.customer_phone) {
-      const lang = await getLangByPhone(reservation.customer_phone)
-      await sendWhatsApp(reservation.customer_phone, [
-        pickLang(`❌ *Paiement échoué*`, `❌ *Payment failed*`, lang),
-        ``,
-        pickLang(
-          `Votre paiement pour la réservation n'a pas abouti. Réessayez ou contactez l'organisateur.`,
-          `Your reservation payment didn't go through. Retry or contact the organizer.`,
-          lang,
-        ),
-      ].join('\n'), { context: 'payment_confirmation', relatedId: reservation.id }).catch(() => null)
-    }
+  // Broadcast fan-out stays webhook-only, and now fires only when THIS
+  // callback won the claim — a duplicate callback can no longer re-send.
+  if (result.kind === 'broadcast' && result.action === 'paid') {
+    await triggerBroadcastFanOut(result.id)
   }
 
   return NextResponse.json({ ok: true })
+}
+
+// Fire-and-await the fan-out. We're already in a background webhook, so
+// blocking until WhatsApp finishes is fine and keeps audit ordering
+// deterministic.
+//
+// The send route requires Authorization: Bearer <INTERNAL_API_SECRET> (it is
+// the only bulk-WhatsApp emitter in the app). This is its one legitimate
+// caller.
+//
+// RECOVERY NOTE for every failure path below: the broadcast has ALREADY been
+// marked paid, so a failed send leaves it at status='paid', which is exactly
+// the state /send requires. Nothing is lost — fix the cause and re-POST the
+// route to fan out.
+async function triggerBroadcastFanOut(broadcastId: string): Promise<void> {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://streetmenu.vercel.app'
+  const internalSecret = process.env.INTERNAL_API_SECRET
+  if (!internalSecret) {
+    // Checked BEFORE the call so the log names the real cause. Calling
+    // without it would come back 503 and read like the send route is
+    // broken, when the actual fault is a missing env var here.
+    console.error(
+      `[payments/webhook] INTERNAL_API_SECRET is not set — CANNOT trigger the fan-out ` +
+      `for broadcast=${broadcastId}. It is PAID and stuck at status=paid. Set ` +
+      `INTERNAL_API_SECRET in Vercel (Production), redeploy, then ` +
+      `POST /api/broadcasts/${broadcastId}/send with that bearer token to recover.`,
+    )
+    return
+  }
+  try {
+    const sendRes = await fetch(`${baseUrl}/api/broadcasts/${broadcastId}/send`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${internalSecret}` },
+    })
+    // fetch does NOT throw on a non-2xx, so without this check a 401 or 503
+    // would be swallowed and look like success.
+    if (!sendRes.ok) {
+      const detail = await sendRes.text().catch(() => '')
+      console.error(
+        `[payments/webhook] broadcast fan-out REFUSED: broadcast=${broadcastId} ` +
+        `status=${sendRes.status} body=${detail.slice(0, 200)} — it is PAID and stuck ` +
+        `at status=paid; re-POST /api/broadcasts/${broadcastId}/send once fixed.`,
+      )
+    }
+  } catch (e) {
+    console.error(
+      `[payments/webhook] broadcast send failed: broadcast=${broadcastId} — ` +
+      `${(e as Error).message} — it is PAID and stuck at status=paid; re-POST ` +
+      `/api/broadcasts/${broadcastId}/send to recover.`,
+    )
+  }
 }
