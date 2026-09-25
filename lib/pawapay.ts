@@ -364,10 +364,9 @@ export async function createPayout(params: PayoutParams): Promise<PayoutResult> 
 // │   mismatch would surface (PawaPay DOES send DER — handled by            │
 // │   verifierFor below), as would a wrong @authority/@path reconstruction   │
 // │   behind Vercel's proxy.                                                 │
-// │ Also decide before stage 5: PawaPay sets expires = created + 60 and the  │
-// │   library checks it with ZERO clock tolerance, so a callback delivered   │
-// │   (or retried) >60s after signing logs INVALID reason=expired. Watch for │
-// │   that in the logs; a small tolerance may be needed before rejecting.    │
+// │ Expiry: PawaPay sets expires = created + 60s; we allow                   │
+// │   CALLBACK_CLOCK_TOLERANCE_S (30s) of clock skew/latency either way, so  │
+// │   a callback verifies up to ~90s after signing. Past that: expired.      │
 // │ Only then, stage 5: flip the switch below to true. Flipping it before    │
 // │   real callbacks log VALID blocks EVERY real payment.                    │
 // └──────────────────────────────────────────────────────────────────────────┘
@@ -567,6 +566,14 @@ export async function verifyPawaPayCallback(
 // headers, rebuilds the signature base and enforces alg/created/expires.
 // Raw r‖s is accepted too: it is exactly 2× the coordinate size, which a DER
 // signature never is in practice, so the length alone picks the encoding.
+// Clock tolerance for created/expires. PawaPay signs with expires = created
+// + 60s; with zero tolerance a genuine callback delivered >60s after signing,
+// or signed by a clock even 1s AHEAD of ours (created in our future), fails
+// as "expired". 30s each way costs a negligible extra replay window (a replay
+// still needs a genuine PawaPay signature over the same body, and settlement
+// is idempotent); no tolerance risks rejecting real payments once enforcing.
+export const CALLBACK_CLOCK_TOLERANCE_S = 30
+
 const ECDSA_HASH: Record<string, { hash: string; rawLength: number }> = {
   'ecdsa-p256-sha256': { hash: 'sha256', rawLength: 64 },
   'ecdsa-p384-sha384': { hash: 'sha384', rawLength: 96 },
@@ -637,7 +644,7 @@ async function verifyInner(msg: CallbackMessage, fetchKeys: PawaPayKeyFetcher): 
 
   let ok: boolean | null
   try {
-    ok = await httpbis.verifyMessage({ keyLookup }, { method: msg.method, url: msg.url, headers: msg.headers })
+    ok = await httpbis.verifyMessage({ keyLookup, tolerance: CALLBACK_CLOCK_TOLERANCE_S }, { method: msg.method, url: msg.url, headers: msg.headers })
   } catch (e) {
     const detail = (e as Error).message
     if (e instanceof ExpiredError)              return { status: 'invalid', reason: 'expired', detail, keyid, covered }

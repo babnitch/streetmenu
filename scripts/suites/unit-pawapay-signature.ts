@@ -12,7 +12,7 @@ import { generateKeyPairSync, createHash, createSign, type KeyObject } from 'cry
 import { httpbis, createSigner, type SigningKey } from 'http-message-signatures'
 import {
   verifyPawaPayCallback, callbackVerifySkipped, shouldRejectCallback,
-  PAWAPAY_REJECT_INVALID_CALLBACKS, __resetPawaPayKeyCache, detectMNO,
+  PAWAPAY_REJECT_INVALID_CALLBACKS, CALLBACK_CLOCK_TOLERANCE_S, __resetPawaPayKeyCache, detectMNO,
   type CallbackMessage, type PawaPayPublicKey,
 } from '@/lib/pawapay'
 import { PAWAPAY_SANDBOX_COMPLETED_CMR } from '../testkit/pawapay'
@@ -51,6 +51,7 @@ async function signedCallback(opts: {
   signWith?: typeof privateKey
   encoding?: 'raw' | 'der'
   pawapayShape?: boolean   // sha-512 digest + Signature-Date header, as PawaPay sends
+  createdAgoS?: number     // sign as if PawaPay signed this many seconds ago (negative = our future)
 } = {}): Promise<CallbackMessage> {
   const rawBody = Buffer.from(opts.body ?? JSON.stringify({ depositId: 'd-1', status: 'COMPLETED' }))
   const headers_: Record<string, string> = {
@@ -66,6 +67,11 @@ async function signedCallback(opts: {
   const signed = await httpbis.signMessage({
     key:    opts.encoding === 'der' ? derSigner(key, keyid) : createSigner(key, 'ecdsa-p256-sha256', keyid),
     fields: opts.fields ?? (opts.pawapayShape ? PAWAPAY_FIELDS : ['@method', '@authority', '@path', 'content-digest', 'content-type']),
+    // PawaPay's lifetime: expires = created + 60s.
+    ...(opts.createdAgoS !== undefined && (() => {
+      const created = new Date(Date.now() - opts.createdAgoS * 1000)
+      return { paramValues: { created, expires: new Date(created.getTime() + 60_000) } }
+    })()),
   }, req)
   const headers: Record<string, string> = {}
   for (const [k, v] of Object.entries(signed.headers)) headers[k.toLowerCase()] = String(v)
@@ -128,6 +134,26 @@ async function main() {
     junk.headers['signature'] = `sig=:${Buffer.alloc(50, 1).toString('base64')}:`
     const j = await verifyPawaPayCallback(junk, { fetchKeys })
     assertEq(j.status, 'invalid', 'junk non-64-byte signature is INVALID, not VALID')
+  })
+
+  await step('expiry clock tolerance (PawaPay: expires = created + 60s)', async () => {
+    fresh()
+    assertEq(CALLBACK_CLOCK_TOLERANCE_S, 30, 'tolerance is 30s')
+    const at = async (createdAgoS: number) =>
+      verifyPawaPayCallback(await signedCallback({ encoding: 'der', pawapayShape: true, createdAgoS }), { fetchKeys })
+
+    assertEq((await at(0)).status, 'valid', 'age 0s → VALID')
+    assertEq((await at(59)).status, 'valid', 'age 59s (inside expires) → VALID')
+    assertEq((await at(75)).status, 'valid', 'age 75s (past expires, inside tolerance) → VALID')
+    assertEq((await at(88)).status, 'valid', 'age 88s (just inside 90s) → VALID')
+    const late = await at(95)
+    assertEq(late.status === 'invalid' && late.reason, 'expired', 'age 95s (past 60+30) → expired')
+    const veryLate = await at(600)
+    assertEq(veryLate.status === 'invalid' && veryLate.reason, 'expired', 'age 10min → expired')
+
+    assertEq((await at(-20)).status, 'valid', 'PawaPay clock 20s ahead (created in our future) → VALID')
+    const farFuture = await at(-60)
+    assertEq(farFuture.status === 'invalid' && farFuture.reason, 'expired', 'created 60s in our future → expired')
   })
 
   await step('tampered body', async () => {
