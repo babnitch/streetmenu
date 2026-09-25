@@ -19,6 +19,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/mapbox-gl": "^3.4.1",
     "bcryptjs": "^3.0.3",
+    "http-message-signatures": "^1.0.6",
     "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",
     "mapbox-gl": "^3.21.0",
@@ -28,6 +29,7 @@
     "react-dom": "^18",
     "react-map-gl": "^8.1.0",
     "sharp": "^0.34.5",
+    "structured-headers": "^2.1.0",
     "twilio": "^6.0.2"
   },
   "devDependencies": {

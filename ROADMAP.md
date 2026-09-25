@@ -65,7 +65,7 @@ For the *what* of the product see `FUNCTIONAL-SPEC.md`. For the *how* see `TECHN
 - Webhook handles 4 domains: orders, event reservations, broadcasts, promotions; idempotent
 - Manual mark-paid by vendor (`paye XXXX cash` / `mtn 237…`)
 - Vendor payout settings (`payout_phone`); admin-triggered payout endpoint
-- Production webhook signature verification (RFC-9421 `Content-Digest`)
+- Production webhook signature verification (RFC 9421 signature + Content-Digest) — verifying in log-only mode; rejecting pending (enable signed callbacks in the PawaPay dashboard, confirm VALID in logs, then flip `PAWAPAY_REJECT_INVALID_CALLBACKS`)
 - `<PaymentBadge />` component used across customer + admin views
 
 ---

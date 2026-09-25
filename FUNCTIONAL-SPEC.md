@@ -344,7 +344,7 @@ The `/api/whatsapp/incoming` route is the single Twilio webhook. It routes by:
 | Vendor payouts (admin-triggered) | — | logged as `payout_completed` / `payout_failed` |
 
 ### 8.3 Webhook (`/api/payments/webhook`)
-- Verifies the RFC-9421 `Content-Digest` header in production (sandbox bypasses).
+- Verifies PawaPay's RFC 9421 callback signature and the signed `Content-Digest` (log-only until signed callbacks are confirmed VALID in production logs).
 - Dispatches based on which table owns the `payment_id`. Idempotent for re-deliveries.
 - On `COMPLETED`: row flipped to paid, audit row written, customer + vendor / organizer pinged over WhatsApp.
 - On `FAILED` / `REJECTED`: row flipped to failed; for reservations the held seats are released (events.tickets_sold + event_ticket_tiers.sold_count both decremented).

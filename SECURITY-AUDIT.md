@@ -85,7 +85,7 @@ Walked every `POST/PATCH/DELETE` route under `app/api/**/route.ts`.
 | Vendor manager/staff actions (orders, menu, vouchers) | 10 | Membership check via `restaurant_team` row with role gate. ✓ |
 | Customer self-actions (vouchers/claim, subscriptions, reservations) | 12 | All require `session.role === 'customer'`. ✓ |
 | Organizer-only (event settings, tiers, reservations confirm/reject) | 8 | Check `events.organizer_id === session.id` OR admin role. ✓ |
-| Payment/webhook endpoints | 4 | Webhook validates RFC-9421 `Content-Digest`. Initiate / status check session for customer ownership. ✓ |
+| Payment/webhook endpoints | 4 | Webhook verifies PawaPay's RFC 9421 signature + signed `Content-Digest` — LOG-ONLY for now, not yet rejecting. Initiate / status check session for customer ownership. ✓ |
 
 No route was found ungated. The two unauthenticated public endpoints are `/api/whatsapp/incoming` (now signature-validated) and `/api/payments/webhook` (signature-validated since launch).
 
@@ -113,7 +113,7 @@ The WhatsApp message parser uses fixed regex shapes (`/^reserver\s+([0-9a-f]{4})
 | Admin password rotation never exercised | Stale `JWT_SECRET` could be reused if leaked. | Schedule a rotation drill; build a "rotate JWT secret" runbook. |
 | No DB-level audit on PII reads | Cannot detect if a leaked service-role key reads `customers` rows. | Enable `pg_audit` on `customers` + `orders` + `event_reservations`. |
 | Bcrypt at 10 rounds | Acceptable for current login volume; weak vs a future GPU attacker. | Bump to 12 when admin login crosses ~5/min sustained. |
-| Sandbox PawaPay webhook bypasses signature check | Useful in dev; risky if `PAWAPAY_ENVIRONMENT=sandbox` leaks into prod. | Treat the env value as a deploy-time invariant; surface it in `/admin` profile. |
+| Sandbox PawaPay webhook bypasses signature check | Replaced: skipping now needs explicit `PAWAPAY_SKIP_WEBHOOK_VERIFY=true`, and it is ignored in production. | Done. |
 | No CSRF tokens on POST routes | We rely on SameSite=Lax cookies + JSON-only POSTs. Sufficient for current browsers; not airtight. | Add per-session CSRF tokens on form submissions; tracked Phase 11. |
 | Customer accounts can't be locked after N failed OTP attempts | OTP records are single-use + 10-min TTL, so brute-force is limited but not blocked. | Add per-phone lock after 10 failed verifies; ~half a day of work. |
 | Image upload size cap is 20MB | A flood of 20MB uploads costs Vercel egress + sharp CPU. | Tighter cap (5MB) + per-IP upload limiter; one-line change once Redis limiter is in. |

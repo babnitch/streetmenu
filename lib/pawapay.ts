@@ -342,51 +342,302 @@ export async function createPayout(params: PayoutParams): Promise<PayoutResult> 
   }
 }
 
-// ── Webhook signature verification ───────────────────────────────────────────
-// PawaPay uses RFC-9421 HTTP Message Signatures with an RFC-9530
-// Content-Digest header. The Content-Digest is a structured-field
-// sf-dictionary whose `sha-256` entry holds an sf-binary (base64) of the
-// SHA-256 hash of the raw request body, e.g.
-//   Content-Digest: sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:
+// ── Callback signature verification (RFC 9421) ──────────────────────────────
+// PawaPay signs callbacks with RFC 9421 HTTP Message Signatures (Signature +
+// Signature-Input) using THEIR private key, and binds the body with an
+// RFC 9530 Content-Digest that the signature covers. Their public keys come
+// from GET /v2/public-key/http as [{ id, key }], id being the keyid.
 //
-// In sandbox we skip verification entirely — PawaPay sandbox callbacks are
-// unauthenticated by design, and the API token alone is enough to identify
-// the environment for dev work. In production we recompute the digest of
-// the raw body and compare against the header (constant-time).
-import { createHash, timingSafeEqual } from 'crypto'
+// The signature crypto is http-message-signatures (not hand-rolled). The
+// Content-Digest compare is ours — it is a plain hash check, and the library
+// does not do it. The digest alone proves nothing (anyone can hash a body
+// they wrote); it only means something because the signature covers it, so a
+// signature that does not cover content-digest is INVALID.
+//
+// ┌─ ROLLOUT — READ BEFORE TOUCHING PAWAPAY_REJECT_INVALID_CALLBACKS ─────────┐
+// │ Stage 2 (now): LOG ONLY. Every callback is verified and logged as        │
+// │   VALID / INVALID reason=… / SKIPPED, and processed regardless.          │
+// │ Then: enable "Signed callbacks" in the PawaPay dashboard. While it is    │
+// │   off, PawaPay sends no signature and EVERY real callback logs           │
+// │   INVALID reason=missing-signature.                                      │
+// │ Then: watch real callbacks log VALID. This is also where an encoding     │
+// │   mismatch would surface (RFC 9421 ECDSA is raw r‖s; if PawaPay sent DER │
+// │   every callback would log INVALID reason=signature-mismatch), as would  │
+// │   a wrong @authority/@path reconstruction behind Vercel's proxy.         │
+// │ Only then, stage 5: flip the switch below to true. Flipping it before    │
+// │   real callbacks log VALID blocks EVERY real payment.                    │
+// └──────────────────────────────────────────────────────────────────────────┘
+import { createHash, createPublicKey, timingSafeEqual, type KeyObject } from 'crypto'
+import {
+  httpbis, createVerifier, type Algorithm, type VerifyingKey,
+  ExpiredError, UnsupportedAlgorithmError, MalformedSignatureError, UnacceptableSignatureError,
+} from 'http-message-signatures'
+import { parseDictionary, isInnerList } from 'structured-headers'
 
-export function verifyWebhookSignature(
-  rawBody: string,
-  contentDigestHeader: string | null | undefined,
-): boolean {
-  if (ENVIRONMENT !== 'production') {
-    console.info('[pawapay] sandbox/dev mode — skipping webhook signature verification')
-    return true
-  }
+// THE switch. Code constant on purpose, not an env var — a missing or
+// mistyped env var must never be what decides whether money callbacks are
+// authenticated. Stage 5 flips this to true (see ROLLOUT above).
+export const PAWAPAY_REJECT_INVALID_CALLBACKS = false
 
-  if (!contentDigestHeader) {
-    console.warn('[pawapay] missing Content-Digest header on production webhook')
+// The single place the webhook asks "reject this?". SKIPPED is never
+// rejected: in stage 5 PAWAPAY_SKIP_WEBHOOK_VERIFY=true therefore also means
+// "accept unverified" — which is why callbackVerifySkipped() refuses it in
+// production.
+export function shouldRejectCallback(v: CallbackVerification): boolean {
+  return PAWAPAY_REJECT_INVALID_CALLBACKS && v.status === 'invalid'
+}
+
+// Production if EITHER signal says so, so a blank PAWAPAY_ENVIRONMENT on a
+// deploy pointed at the live API still counts as production.
+function isProductionPawaPay(): boolean {
+  const env  = (process.env.PAWAPAY_ENVIRONMENT ?? '').trim()
+  const base = (process.env.PAWAPAY_BASE_URL ?? '').trim()
+  return env === 'production' || (base !== '' && !base.includes('sandbox'))
+}
+
+// Explicit opt-out for local/sandbox work: exactly 'true', nothing looser.
+// Unset, empty, 'TRUE', ' true', '1' all mean VERIFY. Ignored in production
+// — a sandbox flag copied into prod must never disable verification.
+export function callbackVerifySkipped(): boolean {
+  if (process.env.PAWAPAY_SKIP_WEBHOOK_VERIFY !== 'true') return false
+  if (isProductionPawaPay()) {
+    console.error(
+      '[pawapay] PAWAPAY_SKIP_WEBHOOK_VERIFY=true is set in PRODUCTION — IGNORED, ' +
+      'callbacks are still verified. Remove it from the production environment.',
+    )
     return false
   }
+  return true
+}
 
-  // sf-dictionary: `sha-256=:<base64>:` possibly alongside other algos.
-  // We only care about sha-256.
-  const match = contentDigestHeader.match(/sha-256\s*=\s*:([^:]+):/i)
-  if (!match) {
-    console.warn('[pawapay] Content-Digest missing sha-256 entry:', contentDigestHeader)
-    return false
+// ── Public-key fetch + cache ──
+// In-memory, keyed by keyid. Lost on a cold start, which only costs one
+// refetch. Unknown keyid → refetch once; refetches are throttled and shared
+// so a stream of junk keyids cannot turn into a stream of PawaPay calls.
+
+export interface PawaPayPublicKey { id: string; key: string }
+export type PawaPayKeyFetcher = () => Promise<PawaPayPublicKey[]>
+
+interface CachedKey { key: KeyObject; algs: Algorithm[] }
+
+const KEY_TTL_MS              = 24 * 60 * 60 * 1000
+const REFETCH_MIN_INTERVAL_MS = 60 * 1000
+
+let keyCache       = new Map<string, CachedKey>()
+let keysFetchedAt  = 0
+let lastFetchStart = 0
+let inflightFetch: Promise<void> | null = null
+
+async function fetchPawaPayPublicKeys(): Promise<PawaPayPublicKey[]> {
+  const { status, body } = await pawapayFetch('/v2/public-key/http', { method: 'GET' })
+  if (status !== 200 || !Array.isArray(body)) {
+    throw new Error(`public-key fetch failed: HTTP ${status}`)
   }
+  return body as PawaPayPublicKey[]
+}
 
-  const providedB64 = match[1].trim()
-  const computedB64 = createHash('sha256').update(rawBody, 'utf8').digest('base64')
+// Algorithms a key may verify, derived from the KEY — never taken from the
+// request, so a caller cannot pick a weaker algorithm for us.
+function algsForKey(key: KeyObject): Algorithm[] {
+  const type = key.asymmetricKeyType
+  if (type === 'ec') {
+    const curve = key.asymmetricKeyDetails?.namedCurve
+    if (curve === 'prime256v1') return ['ecdsa-p256-sha256']
+    if (curve === 'secp384r1')  return ['ecdsa-p384-sha384']
+    return []
+  }
+  if (type === 'ed25519') return ['ed25519']
+  if (type === 'rsa-pss') return ['rsa-pss-sha512']
+  if (type === 'rsa')     return ['rsa-pss-sha512', 'rsa-v1_5-sha256']
+  return []
+}
 
+async function refreshKeys(fetchKeys: PawaPayKeyFetcher): Promise<void> {
+  if (inflightFetch) return inflightFetch
+  if (Date.now() - lastFetchStart < REFETCH_MIN_INTERVAL_MS) return
+  lastFetchStart = Date.now()
+  inflightFetch = (async () => {
+    try {
+      const rows = await fetchKeys()
+      const next = new Map<string, CachedKey>()
+      for (const row of rows) {
+        if (!row?.id || !row?.key) continue
+        try {
+          const key = createPublicKey(row.key)
+          next.set(row.id, { key, algs: algsForKey(key) })
+        } catch (e) {
+          console.error(`[pawapay] public key id=${row.id} unparseable: ${(e as Error).message}`)
+        }
+      }
+      keyCache = next
+      keysFetchedAt = Date.now()
+      console.info(`[pawapay] public keys refreshed: ${Array.from(next.keys()).join(', ') || '<none>'}`)
+    } finally {
+      inflightFetch = null
+    }
+  })()
+  return inflightFetch
+}
+
+async function lookupKey(keyid: string, fetchKeys: PawaPayKeyFetcher): Promise<CachedKey | null> {
+  const fresh = Date.now() - keysFetchedAt < KEY_TTL_MS
+  if (!fresh || !keyCache.has(keyid)) {
+    try { await refreshKeys(fetchKeys) }
+    catch (e) { console.error(`[pawapay] ${(e as Error).message}`) } // fall back to whatever is cached
+  }
+  return keyCache.get(keyid) ?? null
+}
+
+// Tests only.
+export function __resetPawaPayKeyCache(): void {
+  keyCache = new Map(); keysFetchedAt = 0; lastFetchStart = 0; inflightFetch = null
+}
+
+// ── Verification ──
+
+export type CallbackInvalidReason =
+  | 'missing-signature'        // no Signature / Signature-Input at all (dashboard signing off?)
+  | 'malformed'                // headers present but unparseable, or not exactly one signature
+  | 'required-component-not-covered'
+  | 'missing-content-digest'
+  | 'digest-mismatch'
+  | 'unknown-keyid'
+  | 'alg-mismatch'
+  | 'expired'
+  | 'signature-mismatch'
+  | 'verifier-error'
+
+export type CallbackVerification =
+  | { status: 'valid';   keyid: string; alg: string; covered: string[]; ageSeconds: number | null }
+  | { status: 'invalid'; reason: CallbackInvalidReason; detail?: string; keyid?: string; covered?: string[] }
+  | { status: 'skipped' }
+
+export interface CallbackMessage {
+  method:  string
+  url:     string                  // absolute URL as PawaPay addressed it
+  headers: Record<string, string>  // lowercase names
+  rawBody: Buffer                  // exact bytes received
+}
+
+const DIGEST_ALGS: Record<string, string> = { 'sha-256': 'sha256', 'sha-512': 'sha512' }
+
+// Every supported digest present must match; at least one must be present.
+function checkContentDigest(header: string | undefined, body: Buffer): 'ok' | 'missing' | 'mismatch' {
+  if (!header) return 'missing'
+  let dict
+  try { dict = parseDictionary(header) } catch { return 'mismatch' }
+  let checked = 0
+  for (const [name, [value]] of Array.from(dict.entries())) {
+    const alg = DIGEST_ALGS[name]
+    if (!alg) continue
+    if (!(value instanceof ArrayBuffer)) return 'mismatch'
+    const given = Buffer.from(value)
+    const want  = createHash(alg).update(body).digest()
+    if (given.length !== want.length || !timingSafeEqual(given, want)) return 'mismatch'
+    checked++
+  }
+  return checked > 0 ? 'ok' : 'missing'
+}
+
+export async function verifyPawaPayCallback(
+  msg: CallbackMessage,
+  opts: { fetchKeys?: PawaPayKeyFetcher } = {},
+): Promise<CallbackVerification> {
+  if (callbackVerifySkipped()) return { status: 'skipped' }
+  // Never throws: in log-only mode a verifier bug must not block a payment.
   try {
-    const a = Buffer.from(providedB64, 'base64')
-    const b = Buffer.from(computedB64, 'base64')
-    if (a.length === 0 || a.length !== b.length) return false
-    return timingSafeEqual(a, b)
-  } catch {
-    return false
+    const headers: Record<string, string> = {}
+    for (const [name, value] of Object.entries(msg.headers)) headers[name.toLowerCase()] = value
+    return await verifyInner({ ...msg, headers }, opts.fetchKeys ?? fetchPawaPayPublicKeys)
+  } catch (e) {
+    return { status: 'invalid', reason: 'verifier-error', detail: (e as Error).message }
+  }
+}
+
+async function verifyInner(msg: CallbackMessage, fetchKeys: PawaPayKeyFetcher): Promise<CallbackVerification> {
+  const sigHeader   = msg.headers['signature']
+  const inputHeader = msg.headers['signature-input']
+  if (!sigHeader && !inputHeader) return { status: 'invalid', reason: 'missing-signature' }
+  if (!sigHeader || !inputHeader) {
+    return { status: 'invalid', reason: 'malformed', detail: 'only one of Signature / Signature-Input present' }
+  }
+
+  // Parsed here only to enforce policy and to log what was signed; the
+  // library re-parses and does the actual verification.
+  let inputs
+  try { inputs = parseDictionary(inputHeader) } catch (e) {
+    return { status: 'invalid', reason: 'malformed', detail: (e as Error).message }
+  }
+  if (inputs.size !== 1) {
+    return { status: 'invalid', reason: 'malformed', detail: `expected 1 signature, got ${inputs.size}` }
+  }
+  const [input] = Array.from(inputs.values())
+  if (!isInnerList(input)) return { status: 'invalid', reason: 'malformed', detail: 'signature input is not an inner list' }
+  const covered = input[0].map(([name]) => String(name))
+  const keyidParam = input[1].get('keyid')
+  const keyid = typeof keyidParam === 'string' ? keyidParam : undefined
+  const createdParam = input[1].get('created')
+  const ageSeconds = typeof createdParam === 'number' ? Math.floor(Date.now() / 1000) - createdParam : null
+
+  const coversTarget = covered.includes('@path') || covered.includes('@target-uri')
+  if (!covered.includes('content-digest') || !covered.includes('@method') || !coversTarget) {
+    return {
+      status: 'invalid', reason: 'required-component-not-covered', keyid, covered,
+      detail: 'must cover content-digest, @method and @path/@target-uri',
+    }
+  }
+  if (!keyid) return { status: 'invalid', reason: 'malformed', detail: 'no keyid', covered }
+
+  const digest = checkContentDigest(msg.headers['content-digest'], msg.rawBody)
+  if (digest === 'missing')  return { status: 'invalid', reason: 'missing-content-digest', keyid, covered }
+  if (digest === 'mismatch') return { status: 'invalid', reason: 'digest-mismatch', keyid, covered }
+
+  let keyFound = false
+  let usedAlg = ''
+  const keyLookup = async (params: { keyid?: string; alg?: string }): Promise<VerifyingKey | null> => {
+    if (!params.keyid) return null
+    const cached = await lookupKey(params.keyid, fetchKeys)
+    if (!cached) return null
+    keyFound = true
+    // With no alg param the key must imply exactly one algorithm.
+    const alg = params.alg ?? (cached.algs.length === 1 ? cached.algs[0] : undefined)
+    if (!alg || !cached.algs.includes(alg)) {
+      throw new UnsupportedAlgorithmError(`alg=${params.alg ?? '<none>'} not allowed for key (allows ${cached.algs.join(',') || 'nothing'})`)
+    }
+    usedAlg = alg
+    return { id: params.keyid, algs: cached.algs, verify: createVerifier(cached.key, alg) }
+  }
+
+  let ok: boolean | null
+  try {
+    ok = await httpbis.verifyMessage({ keyLookup }, { method: msg.method, url: msg.url, headers: msg.headers })
+  } catch (e) {
+    const detail = (e as Error).message
+    if (e instanceof ExpiredError)              return { status: 'invalid', reason: 'expired', detail, keyid, covered }
+    if (e instanceof UnsupportedAlgorithmError) return { status: 'invalid', reason: 'alg-mismatch', detail, keyid, covered }
+    if (e instanceof MalformedSignatureError || e instanceof UnacceptableSignatureError) {
+      return { status: 'invalid', reason: 'malformed', detail, keyid, covered }
+    }
+    return { status: 'invalid', reason: 'verifier-error', detail, keyid, covered }
+  }
+
+  if (!keyFound) return { status: 'invalid', reason: 'unknown-keyid', keyid, covered }
+  if (ok !== true) return { status: 'invalid', reason: 'signature-mismatch', keyid, covered }
+  return { status: 'valid', keyid, alg: usedAlg, covered, ageSeconds }
+}
+
+export function logCallbackVerification(v: CallbackVerification, context: string): void {
+  if (v.status === 'valid') {
+    console.log(`[pawapay] callback signature: VALID keyid=${v.keyid} alg=${v.alg} age=${v.ageSeconds ?? '?'}s covered=(${v.covered.join(' ')}) ${context}`)
+  } else if (v.status === 'skipped') {
+    console.warn(`[pawapay] callback signature: SKIPPED (PAWAPAY_SKIP_WEBHOOK_VERIFY=true) ${context}`)
+  } else {
+    console.error(
+      `[pawapay] callback signature: INVALID reason=${v.reason}` +
+      `${v.keyid ? ` keyid=${v.keyid}` : ''}${v.covered ? ` covered=(${v.covered.join(' ')})` : ''}` +
+      `${v.detail ? ` detail="${v.detail}"` : ''} ${context}` +
+      (PAWAPAY_REJECT_INVALID_CALLBACKS ? ' → REJECTED' : ' → processed anyway (log-only mode)'),
+    )
   }
 }
 

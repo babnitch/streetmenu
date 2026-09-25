@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
-import { verifyWebhookSignature, type PawaPayCorrespondent } from '@/lib/pawapay'
+import {
+  verifyPawaPayCallback, logCallbackVerification, shouldRejectCallback,
+  type PawaPayCorrespondent,
+} from '@/lib/pawapay'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
 
@@ -14,8 +17,10 @@ export const dynamic = 'force-dynamic'
 //     correspondent, failureReason?: { failureMessage } }
 //
 // We:
-//   1. Verify the RFC-9421 Content-Digest header in production; sandbox
-//      callbacks bypass verification (PawaPay sandbox is unsigned).
+//   1. Verify PawaPay's RFC 9421 signature (lib/pawapay.ts). STAGE 2 is
+//      LOG-ONLY: the result is logged and the callback is processed either
+//      way. Rejection is the PAWAPAY_REJECT_INVALID_CALLBACKS switch — see
+//      the ROLLOUT note in lib/pawapay.ts before flipping it.
 //   2. Look up the order by orders.payment_id = depositId.
 //   3. Write the new status + audit row.
 //   4. Notify customer + vendors over WhatsApp on success/failure.
@@ -23,11 +28,23 @@ export const dynamic = 'force-dynamic'
 // Idempotent: a duplicate COMPLETED callback for an already-paid order is a
 // no-op except for re-sending the notification (skipped — see early return).
 export async function POST(req: NextRequest) {
-  const rawBody = await req.text()
-  const contentDigest = req.headers.get('content-digest')
+  // Exact bytes — the Content-Digest is over what was sent, not over a
+  // decoded-and-re-encoded string.
+  const rawBytes = Buffer.from(await req.arrayBuffer())
+  const rawBody = rawBytes.toString('utf8')
 
-  if (!verifyWebhookSignature(rawBody, contentDigest)) {
-    console.warn('[payments/webhook] Content-Digest verification failed')
+  const headers: Record<string, string> = {}
+  req.headers.forEach((value, name) => { headers[name.toLowerCase()] = value })
+
+  // @authority / @path must be what PawaPay addressed, not an internal hop.
+  const internal = new URL(req.url)
+  const host  = headers['x-forwarded-host'] ?? headers['host'] ?? internal.host
+  const proto = headers['x-forwarded-proto'] ?? internal.protocol.replace(':', '')
+  const url   = `${proto}://${host}${internal.pathname}${internal.search}`
+
+  const verification = await verifyPawaPayCallback({ method: req.method, url, headers, rawBody: rawBytes })
+  logCallbackVerification(verification, `url=${url}`)
+  if (shouldRejectCallback(verification)) {
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 })
   }
 

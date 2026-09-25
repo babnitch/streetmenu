@@ -295,7 +295,8 @@ Legacy — kept for compatibility with the early prototype; current code reads `
 | `TWILIO_SMS_NUMBER` | no | Regular Twilio phone number for the SMS fallback on verification codes. Falls back to `TWILIO_PHONE_NUMBER` if unset; SMS is disabled if neither is present. |
 | `PAWAPAY_API_TOKEN` | yes | Bearer token |
 | `PAWAPAY_BASE_URL` | yes | `https://api.sandbox.pawapay.io` or prod |
-| `PAWAPAY_ENVIRONMENT` | yes | `sandbox` or `production` (controls webhook signature verification) |
+| `PAWAPAY_ENVIRONMENT` | yes | `sandbox` or `production`. `production` (or a non-sandbox `PAWAPAY_BASE_URL`) makes `PAWAPAY_SKIP_WEBHOOK_VERIFY` ignored |
+| `PAWAPAY_SKIP_WEBHOOK_VERIFY` | no | Exactly `true` skips callback signature verification — sandbox/dev only, ignored in production. Unset = verify |
 
 ---
 
@@ -368,7 +369,7 @@ All in `supabase-*.sql`. Run in order; each is idempotent and safe to re-run.
 - Every table that holds anything sensitive enforces `service_role_only` RLS so a leaked anon key can't read or write.
 - Admin passwords are bcrypt-hashed (10 rounds).
 - WhatsApp OTP codes are single-use, 6-digit, 10-minute TTL, max 5 attempts.
-- PawaPay webhook verifies the RFC-9421 `Content-Digest` header in production.
+- PawaPay webhook verifies PawaPay's RFC 9421 signature (keys from `/v2/public-key/http`) plus the signed `Content-Digest`. Currently LOG-ONLY — see the ROLLOUT note in `lib/pawapay.ts`.
 - Cache-Control headers prevent stale HTML serving a deploy that has been rolled (HTML `no-cache, must-revalidate`; `/api/*` `no-store`).
 - Phone normalisation centralised (`lib/phone.ts`) so injection-style payloads can't sneak through inconsistent parsers.
 
