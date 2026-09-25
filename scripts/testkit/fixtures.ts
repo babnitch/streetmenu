@@ -13,6 +13,9 @@
 import { sb, testPhone, testName, testCode } from './env'
 import { track, installCleanupHandlers } from './ledger'
 
+// Sandbox payment test numbers — defined in ./pawapay (side-effect-free).
+export { PAWAPAY_SANDBOX_COMPLETED_CMR } from './pawapay'
+
 installCleanupHandlers()
 
 // Per-process sequence so two fixtures in one suite never collide on a phone.

@@ -10,9 +10,10 @@ import { generateKeyPairSync, createHash } from 'crypto'
 import { httpbis, createSigner } from 'http-message-signatures'
 import {
   verifyPawaPayCallback, callbackVerifySkipped, shouldRejectCallback,
-  PAWAPAY_REJECT_INVALID_CALLBACKS, __resetPawaPayKeyCache,
+  PAWAPAY_REJECT_INVALID_CALLBACKS, __resetPawaPayKeyCache, detectMNO,
   type CallbackMessage, type PawaPayPublicKey,
 } from '@/lib/pawapay'
+import { PAWAPAY_SANDBOX_COMPLETED_CMR } from '../testkit/pawapay'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-pawapay-signature'
@@ -219,6 +220,16 @@ async function main() {
 
     delete process.env.PAWAPAY_BASE_URL
     delete process.env.PAWAPAY_SKIP_WEBHOOK_VERIFY
+  })
+
+  await step('sandbox test number still routes', async () => {
+    // A prefix-range change in detectMNO must fail here, not silently break
+    // sandbox payments made with PawaPay's COMPLETED test number.
+    const mno = detectMNO(PAWAPAY_SANDBOX_COMPLETED_CMR)
+    assertEq(mno?.correspondent, 'MTN_MOMO_CMR', `detectMNO(${PAWAPAY_SANDBOX_COMPLETED_CMR}) → MTN_MOMO_CMR`)
+    assertEq(mno?.currency, 'XAF', 'currency XAF')
+    assertEq(mno?.msisdn, PAWAPAY_SANDBOX_COMPLETED_CMR, 'msisdn passed to PawaPay unchanged')
+    assertEq(detectMNO(`+${PAWAPAY_SANDBOX_COMPLETED_CMR}`)?.correspondent, 'MTN_MOMO_CMR', 'also with a leading +')
   })
 
   finish(SUITE)
