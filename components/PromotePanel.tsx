@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
+import { useDepositPoll } from '@/lib/useDepositPoll'
 
 type Placement = 'top_list' | 'feed_card' | 'banner'
 type TargetType = 'restaurant' | 'event'
@@ -80,6 +81,7 @@ export default function PromotePanel() {
   const [phoneNumber, setPhoneNumber] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [payFailReason, setPayFailReason] = useState<string | null>(null)
 
   const loadEligibility = useCallback(async () => {
     try {
@@ -106,6 +108,16 @@ export default function PromotePanel() {
   }, [])
 
   useEffect(() => { loadEligibility(); loadHistory() }, [loadEligibility, loadHistory])
+
+  // Watch the MoMo prompt through to a terminal state. A paid promotion is
+  // settled completely by the poll (→ pending_review), so one refresh shows it.
+  const pay = useDepositPoll({
+    onPaid: () => { loadHistory() },
+    onFailed: (reason) => {
+      setPayFailReason(reason)
+      loadHistory()
+    },
+  })
 
   function flash(msg: string) {
     setToast(msg)
@@ -159,14 +171,11 @@ export default function PromotePanel() {
         flash(d?.error ?? bi('Erreur', 'Error'))
         return
       }
-      flash(bi(
-        '💰 Confirmez le paiement sur votre téléphone. Promotion en attente de validation.',
-        '💰 Approve the payment on your phone. Promotion pending review.',
-      ))
+      setPayFailReason(null)
+      pay.start(d.deposit_id)
       setComposeOpen(false)
       setPhoneNumber('')
-      setTimeout(loadHistory, 2000)
-      setTimeout(loadHistory, 8000)
+      loadHistory()
     } catch (e) {
       flash((e as Error).message)
     } finally {
@@ -201,13 +210,41 @@ export default function PromotePanel() {
         </p>
         {!composeOpen && (
           <button
-            onClick={() => setComposeOpen(true)}
-            className="text-xs font-semibold text-brand hover:text-brand-dark"
+            onClick={() => { pay.reset(); setComposeOpen(true) }}
+            disabled={pay.phase === 'waiting'}
+            className="text-xs font-semibold text-brand hover:text-brand-dark disabled:opacity-50"
           >
             {bi('+ Nouvelle promotion', '+ New promotion')}
           </button>
         )}
       </div>
+
+      {pay.phase !== 'idle' && (
+        <div className={`rounded-xl p-3 text-xs mb-3 border ${
+          pay.phase === 'paid'   ? 'bg-emerald-50 border-emerald-100 text-emerald-800' :
+          pay.phase === 'failed' ? 'bg-rose-50 border-rose-100 text-rose-700' :
+                                   'bg-amber-50 border-amber-100 text-amber-800'
+        }`}>
+          {pay.phase === 'waiting' && <>⏳ {bi(
+            'Confirmez le paiement sur votre téléphone… En attente de la confirmation MoMo.',
+            'Approve the payment on your phone… Waiting for MoMo confirmation.',
+          )}</>}
+          {pay.phase === 'paid' && <>✅ {bi(
+            'Paiement reçu. Votre promotion est en attente de validation par notre équipe.',
+            'Payment received. Your promotion is awaiting review by our team.',
+          )}</>}
+          {pay.phase === 'failed' && <>❌ {payFailReason ?? bi('Paiement refusé.', 'Payment refused.')}</>}
+          {pay.phase === 'timeout' && <>
+            ⌛ {bi(
+              'Pas encore de confirmation. Si vous avez validé sur votre téléphone, vérifiez à nouveau.',
+              'No confirmation yet. If you approved on your phone, check again.',
+            )}{' '}
+            <button onClick={pay.retry} className="font-semibold underline">
+              {bi('Vérifier à nouveau', 'Check again')}
+            </button>
+          </>}
+        </div>
+      )}
 
       {composeOpen && (
         <div className="bg-white border border-divider rounded-xl p-4 space-y-3 mb-4">
