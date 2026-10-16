@@ -101,35 +101,52 @@ export interface BroadcastEligibility {
   blocked:      boolean
 }
 
-// A customer can broadcast as a publisher when they're a verified event
-// publisher (event_auto_approve=true OR events_approved_count >= 1). They
-// can also broadcast on behalf of any restaurant they own that's active
-// or approved (status in ('active','approved')).
+// Broadcasting is an admin-granted capability, OFF by default
+// (supabase-broadcast-capability.sql):
+//   - as a publisher when customers.broadcast_enabled is true;
+//   - on behalf of a restaurant they own (restaurants.customer_id) that is
+//     active or approved, not deleted, and has restaurants.broadcast_enabled.
+// customers.broadcast_blocked overrides both. Any read error leaves the
+// caller ineligible — this gate fails closed.
 export async function getBroadcastEligibility(customerId: string): Promise<BroadcastEligibility> {
   const { data: customer } = await supabaseAdmin
     .from('customers')
-    .select('id, event_auto_approve, events_approved_count, broadcast_blocked')
+    .select('id, broadcast_enabled, broadcast_blocked')
     .eq('id', customerId)
     .maybeSingle()
 
-  const asPublisher = !!customer && !customer.broadcast_blocked && (
-    customer.event_auto_approve === true ||
-    (customer.events_approved_count ?? 0) >= 1
-  )
+  const blocked = !!customer?.broadcast_blocked
+  const asPublisher = !!customer && !blocked && customer.broadcast_enabled === true
 
   const { data: rests } = await supabaseAdmin
     .from('restaurants')
     .select('id, name, status, deleted_at')
     .eq('customer_id', customerId)
+    .eq('broadcast_enabled', true)
   const asRestaurants = ((rests ?? []) as Array<{ id: string; name: string; status: string | null; deleted_at: string | null }>)
     .filter(r => !r.deleted_at && (r.status === 'active' || r.status === 'approved'))
     .map(r => ({ id: r.id, name: r.name }))
 
   return {
     asPublisher,
-    asRestaurants: customer?.broadcast_blocked ? [] : asRestaurants,
-    blocked: !!customer?.broadcast_blocked,
+    asRestaurants: !customer || blocked ? [] : asRestaurants,
+    blocked,
   }
+}
+
+// Whether a broadcast row's sender is still allowed to send it. Re-checked at
+// fan-out time so a capability revoked (or a block added) between payment and
+// send stops the broadcast.
+export async function senderCanBroadcast(b: {
+  sender_id:     string
+  sender_type:   string
+  restaurant_id: string | null
+}): Promise<boolean> {
+  const e = await getBroadcastEligibility(b.sender_id)
+  if (b.sender_type === 'restaurant') {
+    return !!b.restaurant_id && e.asRestaurants.some(r => r.id === b.restaurant_id)
+  }
+  return e.asPublisher
 }
 
 // 1 broadcast / sender / 24h. Counts paid+sending+sent rows so a failed

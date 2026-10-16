@@ -6,8 +6,12 @@
 // code out of a 'use client' module. The two imports below are `import
 // type`, erased at compile time.
 //
-// Nothing renders from this yet — it is introduced ahead of the nav rework
-// so the destination sets can be reviewed on their own.
+// BottomNav and TopNav both render from navFor().
+//
+// Paid broadcasts are deliberately NOT a destination in either set. They are
+// an admin-granted capability (restaurants/customers.broadcast_enabled),
+// enforced server-side in lib/subscriptions.ts getBroadcastEligibility; the
+// composer lives in Account and only renders for eligible senders.
 //
 // ── Two deliberate differences from what ships today ──────────────────────
 //

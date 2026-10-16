@@ -2332,8 +2332,8 @@ async function handleCustomer(
           `→ open/close reservations [code] · confirm/reject reservation [code]`,
           ``,
           `🔔 *Notifications*`,
-          `Get alerted when new events are published in your city. You can also broadcast messages to subscribers (paid).`,
-          `→ subscribe · unsubscribe · my subscriptions · broadcast`,
+          `Get alerted when new events are published in your city.`,
+          `→ subscribe · unsubscribe · my subscriptions`,
           ``,
           `🏪 *Own a restaurant?*`,
           `Register your restaurant on the platform.`,
@@ -2364,8 +2364,8 @@ async function handleCustomer(
           `→ ouvrir/fermer reservations [code] · confirmer/rejeter reservation [code]`,
           ``,
           `🔔 *Notifications*`,
-          `Soyez alerté quand de nouveaux événements sont publiés dans votre ville. Vous pouvez aussi diffuser des messages aux abonnés (payant).`,
-          `→ abonner · desabonner · mes abonnements · diffuser`,
+          `Soyez alerté quand de nouveaux événements sont publiés dans votre ville.`,
+          `→ abonner · desabonner · mes abonnements`,
           ``,
           `🏪 *Vous avez un restaurant?*`,
           `Inscrivez votre restaurant sur la plateforme.`,
@@ -2386,8 +2386,17 @@ async function handleCustomer(
   if (subResp) return subResp
 
   // "diffuser" / "broadcast" → punt to the website (compose UI is too
-  // heavy for chat, per spec).
+  // heavy for chat, per spec). Only for accounts an admin has enabled for
+  // broadcasting; everyone else is told it isn't available.
   if (cmd === 'diffuser' || cmd === 'broadcast') {
+    const { getBroadcastEligibility } = await import('@/lib/subscriptions')
+    const e = await getBroadcastEligibility(customer.id)
+    if (!e.asPublisher && e.asRestaurants.length === 0) {
+      await sendWhatsApp(from, pickLang(
+        `📢 La diffusion de messages n'est pas activée pour votre compte.`,
+        `📢 Broadcasting is not enabled for your account.`, lang))
+      return ok()
+    }
     await sendWhatsApp(from, pickLang(
       `📢 *Diffuser un message*\n\n` +
       `Composez votre message sur le site:\n` +

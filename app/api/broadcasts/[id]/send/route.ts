@@ -7,6 +7,7 @@ import {
   findMatchingSubscribers,
   fanoutBatched,
   formatBroadcastMessage,
+  senderCanBroadcast,
 } from '@/lib/subscriptions'
 
 export const dynamic = 'force-dynamic'
@@ -54,6 +55,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (broadcast.status !== 'paid') {
     return NextResponse.json({ error: 'Broadcast not paid', status: broadcast.status }, { status: 409 })
+  }
+
+  // Third guard: the sender must still hold the broadcast capability. An
+  // admin can disable it (or block the account) between payment and fan-out;
+  // then nothing is sent and the row stays 'paid' for a manual refund.
+  if (!(await senderCanBroadcast(broadcast))) {
+    console.error('[broadcasts/send] REFUSED broadcast=%s sender=%s type=%s — capability not enabled; paid, needs manual refund',
+      broadcast.id, broadcast.sender_id, broadcast.sender_type)
+    await writeAudit({
+      action:          'broadcast_send_refused_capability',
+      targetType:      'customer',
+      targetId:        broadcast.sender_id,
+      performedBy:     broadcast.sender_id,
+      performedByType: 'system',
+      metadata: {
+        broadcast_id:  broadcast.id,
+        sender_type:   broadcast.sender_type,
+        restaurant_id: broadcast.restaurant_id,
+        needs_refund:  true,
+      },
+    })
+    return NextResponse.json({ error: 'Sender not enabled for broadcasting' }, { status: 403 })
   }
 
   await supabaseAdmin

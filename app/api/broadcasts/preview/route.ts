@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import {
+  getBroadcastEligibility,
   findMatchingSubscribers,
   computeBroadcastCost,
   getActivePricing,
@@ -20,6 +22,22 @@ export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') {
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
+  }
+
+  // Broadcast-enabled senders get the full quote. Event organizers who are
+  // not enabled still get the audience size — the "who can I reach" card
+  // under their event list reads it — but never the cost or pricing.
+  // Everyone else is refused.
+  const eligibility = await getBroadcastEligibility(session.id)
+  const canBroadcast = eligibility.asPublisher || eligibility.asRestaurants.length > 0
+  if (!canBroadcast) {
+    const { count } = await supabaseAdmin
+      .from('events')
+      .select('id', { count: 'exact', head: true })
+      .or(`organizer_id.eq.${session.id},submitted_by.eq.${session.id}`)
+    if (!count) {
+      return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
+    }
   }
 
   const body = await req.json().catch(() => ({}))
@@ -47,6 +65,8 @@ export async function POST(req: NextRequest) {
     }
     recipients = seen.size
   }
+
+  if (!canBroadcast) return NextResponse.json({ recipients })
 
   const pricing = await getActivePricing()
   const cost = computeBroadcastCost(recipients, pricing)

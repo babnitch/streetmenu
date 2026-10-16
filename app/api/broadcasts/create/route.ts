@@ -70,14 +70,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Diffusion bloquée par l\'administration. / Broadcasting blocked by administration.' }, { status: 403 })
   }
   if (senderType === 'publisher' && !eligibility.asPublisher) {
-    return NextResponse.json({ error: 'Vous devez être un éditeur vérifié. / You must be a verified publisher.' }, { status: 403 })
+    return NextResponse.json({ error: 'Diffusion non activée pour ce compte. / Broadcasting is not enabled for this account.' }, { status: 403 })
   }
   if (senderType === 'restaurant') {
     if (!restaurantId) {
       return NextResponse.json({ error: 'restaurant_id requis / required' }, { status: 400 })
     }
+    // asRestaurants holds only owned, live restaurants with broadcasting
+    // enabled by an admin — one check covers ownership and the capability.
     if (!eligibility.asRestaurants.some(r => r.id === restaurantId)) {
-      return NextResponse.json({ error: 'Vous ne possédez pas ce restaurant. / You do not own this restaurant.' }, { status: 403 })
+      return NextResponse.json({ error: 'Diffusion non activée pour ce restaurant. / Broadcasting is not enabled for this restaurant.' }, { status: 403 })
     }
   }
   if (await hasRecentBroadcast(session.id)) {

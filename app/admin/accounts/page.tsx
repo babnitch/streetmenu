@@ -34,6 +34,8 @@ interface EnrichedCustomer {
   // Event-publisher standing — orthogonal to the team roles above.
   events_submitted_count: number | null
   event_auto_approve:     boolean | null
+  // Paid-broadcast capability as an event publisher (admin opt-in).
+  broadcast_enabled:      boolean | null
 }
 
 interface RestaurantRow {
@@ -162,6 +164,28 @@ export default function AdminAccountsPage() {
       if (!restaurantsByAccount[accountId]) loadRestaurantsForAccount(accountId)
     }
     setExpandedIds(next)
+  }
+
+  // ── Broadcast capability (admin opt-in, default OFF) ──
+  async function toggleBroadcast(account: EnrichedCustomer) {
+    const next = !account.broadcast_enabled
+    setAccountActionLoading(account.id + '-broadcast')
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/broadcast`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ broadcast_enabled: next }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setAccounts(prev => prev.map(x => x.id === account.id ? { ...x, broadcast_enabled: next } : x))
+        showToast(`📢 ${account.name} — ${next ? bi('diffusion activée', 'broadcasting enabled') : bi('diffusion désactivée', 'broadcasting disabled')}`)
+      } else {
+        showToast(data.error ?? bi('Erreur', 'Error'), false)
+      }
+    } finally {
+      setAccountActionLoading(null)
+    }
   }
 
   // ── Account actions ──
@@ -518,6 +542,12 @@ export default function AdminAccountsPage() {
                   <div className="flex gap-2 flex-wrap flex-shrink-0" onClick={e => e.stopPropagation()}>
                     {a.status === 'active' && !a.deleted_at && (
                       <>
+                        <ActionBtn
+                          label={a.broadcast_enabled ? bi('📢 Diffusion activée', '📢 Broadcast on') : bi('📢 Diffusion désactivée', '📢 Broadcast off')}
+                          cls={a.broadcast_enabled ? 'green' : 'amber'}
+                          loading={accountActionLoading === a.id + '-broadcast'}
+                          onClick={() => toggleBroadcast(a)}
+                        />
                         <ActionBtn
                           label="⏸️ Suspendre"
                           cls="amber"

@@ -37,6 +37,7 @@ interface RestaurantRow {
   payment_enabled: boolean
   payment_mode: PaymentMode | null
   whatsapp_payment_enabled: boolean | null
+  broadcast_enabled: boolean | null
   owner: { id: string; name: string; phone: string } | null
 }
 
@@ -288,6 +289,24 @@ export default function AdminRestaurantsPage() {
   const setRestaurantMode      = (r: RestaurantRow, mode: PaymentMode) => patchPayment(r, { payment_mode: mode })
   const toggleRestaurantWhatsapp = (r: RestaurantRow, next: boolean) => patchPayment(r, { whatsapp_payment_enabled: next })
 
+  // ── Broadcast capability (super_admin / admin only, default OFF) ──
+  async function toggleRestaurantBroadcast(r: RestaurantRow, next: boolean) {
+    setActionLoading(r.id + '-broadcast')
+    const res = await fetch(`/api/admin/restaurants/${r.id}/broadcast`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ broadcast_enabled: next }),
+    })
+    if (res.ok) {
+      setRestaurants(prev => prev.map(x => x.id === r.id ? { ...x, broadcast_enabled: next } : x))
+      showToast(`✅ ${r.name} — ${next ? bi('diffusion activée', 'broadcasting enabled') : bi('diffusion désactivée', 'broadcasting disabled')}`)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      showToast(d.error ?? bi('Erreur', 'Error'), false)
+    }
+    setActionLoading(null)
+  }
+
   // ── Logo upload ──
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -470,6 +489,7 @@ export default function AdminRestaurantsPage() {
               onUndoDelete={undoDelete}
               onSetMode={setRestaurantMode}
               onToggleWhatsapp={toggleRestaurantWhatsapp}
+              onToggleBroadcast={toggleRestaurantBroadcast}
             />
           ))}
         </div>
@@ -533,7 +553,7 @@ function RestaurantCard({
   tab,
   actionLoading,
   canTogglePayment,
-  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onSetMode, onToggleWhatsapp,
+  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onSetMode, onToggleWhatsapp, onToggleBroadcast,
 }: {
   restaurant: RestaurantRow
   tab: Tab
@@ -547,6 +567,7 @@ function RestaurantCard({
   onUndoDelete: (r: RestaurantRow) => void
   onSetMode:        (r: RestaurantRow, mode: PaymentMode) => void
   onToggleWhatsapp: (r: RestaurantRow, next: boolean) => void
+  onToggleBroadcast: (r: RestaurantRow, next: boolean) => void
 }) {
   const bi = useBi()
   const within30Days = r.deleted_at
@@ -616,6 +637,24 @@ function RestaurantCard({
           onSetMode={(m) => onSetMode(r, m)}
           onToggleWhatsapp={(n) => onToggleWhatsapp(r, n)}
         />
+      )}
+
+      {/* Paid-broadcast capability — admin/super_admin only, default OFF. */}
+      {canTogglePayment && !r.deleted_at && (
+        <div className="border-t border-divider px-5 py-3 bg-surface flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-ink-secondary mr-1">{bi('Diffusion', 'Broadcast')}:</span>
+          <button
+            disabled={actionLoading === r.id + '-broadcast'}
+            onClick={() => onToggleBroadcast(r, !r.broadcast_enabled)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-60 ${
+              r.broadcast_enabled
+                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                : 'bg-white text-ink-secondary border-divider hover:bg-surface-muted'
+            }`}
+          >
+            📢 {r.broadcast_enabled ? bi('Diffusion activée', 'Broadcast on') : bi('Diffusion désactivée', 'Broadcast off')}
+          </button>
+        </div>
       )}
 
       {/* Action bar */}
