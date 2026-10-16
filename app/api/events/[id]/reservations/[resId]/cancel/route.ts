@@ -4,18 +4,21 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
-import { EVENT_DATE_COLUMNS, formatEventDates } from '@/lib/eventDate'
+import { EVENT_DATE_COLUMNS, formatEventDates, isPastEvent } from '@/lib/eventDate'
+import { closeReservation, OPEN_RESERVATION_STATUSES } from '@/lib/eventSeats'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/events/[id]/reservations/[resId]/cancel
 // Allowed roles:
-//   - the reservation's customer (self-cancel)
+//   - the reservation's customer (self-cancel) — unpaid bookings of an
+//     upcoming event only; a PAID ticket must be cancelled by the organizer
 //   - the event organizer (organizer_id match)
 //   - admins
-// Releases the seats back to tickets_sold so a cancellation immediately
-// frees capacity. PawaPay-paid cancellations are flagged in the audit
-// log + customer message — actual refund is out of band for now.
+// Only pending/confirmed reservations can be cancelled, never while their
+// MoMo payment is still in flight. Releases the seats (event total AND tier)
+// exactly once, via closeReservation. PawaPay-paid cancellations are flagged
+// in the audit log + customer message — actual refund is out of band for now.
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string; resId: string } },
@@ -27,7 +30,7 @@ export async function POST(
 
   const { data: r } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price, reservation_code')
+    .select('id, event_id, customer_id, customer_name, customer_phone, quantity, tier_id, payment_status, reservation_status, total_price, reservation_code')
     .eq('id', params.resId).eq('event_id', params.id).maybeSingle()
   if (!r) return NextResponse.json({ error: 'Réservation introuvable / Reservation not found' }, { status: 404 })
   if (r.reservation_status === 'cancelled') {
@@ -35,7 +38,7 @@ export async function POST(
   }
 
   const { data: event } = await supabaseAdmin
-    .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, submitted_by, tickets_sold`).eq('id', params.id).maybeSingle()
+    .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, submitted_by`).eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
 
   // Authz: customer self-cancel, organizer, or admin.
@@ -45,22 +48,56 @@ export async function POST(
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
   }
 
+  if (!(OPEN_RESERVATION_STATUSES as readonly string[]).includes(r.reservation_status)) {
+    return NextResponse.json(
+      { error: 'Cette réservation ne peut plus être annulée. / This reservation can no longer be cancelled.' },
+      { status: 409 },
+    )
+  }
+
+  // Customer self-cancel rules. The organizer and admins are not bound by
+  // them (they can cancel a paid ticket; needs_refund is audited below).
+  const selfCancel = !!isOwner && !isAdmin && !isOrganizer
+  if (selfCancel && r.payment_status === 'paid') {
+    return NextResponse.json(
+      { error: "Contactez l'organisateur pour annuler un billet payé. / Contact the organiser to cancel a paid ticket." },
+      { status: 403 },
+    )
+  }
+  if (selfCancel && isPastEvent(event)) {
+    return NextResponse.json(
+      { error: 'Événement passé — annulation impossible. / This event is over — it can no longer be cancelled.' },
+      { status: 409 },
+    )
+  }
+  if (r.payment_status === 'pending') {
+    return NextResponse.json(
+      { error: 'Paiement en cours — réessayez dans quelques minutes. / Payment in progress — try again in a few minutes.' },
+      { status: 409 },
+    )
+  }
+
   // Body may carry an optional reason — surfaced in the audit row.
   const body = await req.json().catch(() => ({}))
   const reason = typeof body?.reason === 'string' ? body.reason.trim().slice(0, 200) : null
 
-  const sold = Number(event.tickets_sold ?? 0)
-  const nextSold = Math.max(0, sold - Number(r.quantity ?? 0))
-  console.log('[events/cancel] event=%s tickets_sold %d → %d (-%d)', event.id, sold, nextSold, Number(r.quantity ?? 0))
-
-  await Promise.all([
-    supabaseAdmin
-      .from('event_reservations')
-      .update({ reservation_status: 'cancelled', updated_at: new Date().toISOString() })
-      .eq('id', r.id),
-    supabaseAdmin
-      .from('events').update({ tickets_sold: nextSold }).eq('id', event.id),
-  ])
+  // Conditional transition: only the request that actually moves the row
+  // releases its seats, so a double click or a second tab can't release
+  // them twice.
+  let closed
+  try {
+    closed = await closeReservation(r.id, 'cancelled')
+  } catch (e) {
+    console.error('[events/cancel] failed:', (e as Error).message)
+    return NextResponse.json({ error: 'Erreur — réessayez. / Error — please try again.' }, { status: 500 })
+  }
+  if (!closed) {
+    return NextResponse.json(
+      { error: 'Réservation déjà modifiée — actualisez. / Reservation already changed — refresh.' },
+      { status: 409 },
+    )
+  }
+  console.log('[events/cancel] reservation=%s event=%s released %d seat(s) tier=%s', r.id, event.id, Number(r.quantity ?? 0), r.tier_id ?? '-')
 
   const cancelledBy = isAdmin ? session.role : (isOrganizer ? 'organizer' : 'customer')
   await writeAudit({

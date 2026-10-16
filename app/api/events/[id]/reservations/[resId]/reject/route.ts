@@ -4,13 +4,15 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { closeReservation } from '@/lib/eventSeats'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/events/[id]/reservations/[resId]/reject
 // Body: { reason?: string }
-// Organizer-only action: flip a reservation to 'rejected'. Releases the
-// seats back into the pool (decrements events.tickets_sold). When the
+// Organizer-only action: flip a pending/confirmed reservation to 'rejected'.
+// Releases its seats (event total AND tier) exactly once, via
+// closeReservation. Refused while its MoMo payment is in flight. When the
 // rejected row was a paid reservation, payment_status is left untouched
 // — operator refunds the customer manually for now (matches the
 // existing cancel path).
@@ -26,7 +28,7 @@ export async function POST(
   const reason = body?.reason ? String(body.reason) : null
 
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, organizer_id, submitted_by, title, tickets_sold').eq('id', params.id).maybeSingle()
+    .from('events').select('id, organizer_id, submitted_by, title').eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
   if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
@@ -43,20 +45,24 @@ export async function POST(
     return NextResponse.json({ error: 'Réservation déjà clôturée / Reservation already closed' }, { status: 409 })
   }
 
-  // Release seats back. Same race-window caveat as the reserve path —
-  // acceptable at this scale; concurrent rejects could under-decrement
-  // briefly but never persist a wrong total because no second-pass
-  // counter exists.
-  const nextSold = Math.max(0, Number(event.tickets_sold ?? 0) - Number(r.quantity ?? 0))
-  console.log('[events/reject] event=%s tickets_sold %d → %d (-%d)', event.id, Number(event.tickets_sold ?? 0), nextSold, Number(r.quantity ?? 0))
-  await Promise.all([
-    supabaseAdmin
-      .from('event_reservations')
-      .update({ reservation_status: 'rejected', updated_at: new Date().toISOString() })
-      .eq('id', r.id),
-    supabaseAdmin
-      .from('events').update({ tickets_sold: nextSold }).eq('id', event.id),
-  ])
+  if (r.payment_status === 'pending') {
+    return NextResponse.json(
+      { error: 'Paiement en cours — réessayez dans quelques minutes. / Payment in progress — try again in a few minutes.' },
+      { status: 409 },
+    )
+  }
+
+  let closed
+  try {
+    closed = await closeReservation(r.id, 'rejected')
+  } catch (e) {
+    console.error('[events/reject] failed:', (e as Error).message)
+    return NextResponse.json({ error: 'Erreur — réessayez. / Error — please try again.' }, { status: 500 })
+  }
+  if (!closed) {
+    return NextResponse.json({ error: 'Réservation déjà clôturée / Reservation already closed' }, { status: 409 })
+  }
+  console.log('[events/reject] reservation=%s event=%s released %d seat(s)', r.id, event.id, Number(r.quantity ?? 0))
 
   await writeAudit({
     action:          'reservation_rejected',

@@ -24,6 +24,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
+import { releaseSeats } from '@/lib/eventSeats'
 import type { PawaPayCorrespondent } from '@/lib/pawapay'
 
 export type SettleVia = 'webhook' | 'status_poll' | 'reconcile'
@@ -219,27 +220,6 @@ async function settleReservation(
     ].join('\n'), { context: 'payment_confirmation', relatedId: id }).catch(() => null)
   }
   return { kind: 'reservation', id, action: 'failed' }
-}
-
-async function releaseSeats(r: ClaimedReservation, now: string): Promise<void> {
-  const qty = Number(r.quantity ?? 0)
-  if (qty <= 0) return
-
-  const { data: ev } = await supabaseAdmin
-    .from('events').select('tickets_sold').eq('id', r.event_id).maybeSingle()
-  await supabaseAdmin
-    .from('events')
-    .update({ tickets_sold: Math.max(0, Number(ev?.tickets_sold ?? 0) - qty) })
-    .eq('id', r.event_id)
-
-  if (r.tier_id) {
-    const { data: tier } = await supabaseAdmin
-      .from('event_ticket_tiers').select('sold_count').eq('id', r.tier_id).maybeSingle()
-    await supabaseAdmin
-      .from('event_ticket_tiers')
-      .update({ sold_count: Math.max(0, Number(tier?.sold_count ?? 0) - qty), updated_at: now })
-      .eq('id', r.tier_id)
-  }
 }
 
 // ── Broadcasts ───────────────────────────────────────────────────────────────

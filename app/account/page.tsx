@@ -24,6 +24,7 @@ import PromotePanel from '@/components/PromotePanel'
 import EventTiersPanel from '@/components/EventTiersPanel'
 import EventVouchersPanel from '@/components/EventVouchersPanel'
 import PhoneInput from '@/components/PhoneInput'
+import ConfirmModal from '@/components/ConfirmModal'
 import OtpInput from '@/components/OtpInput'
 import { useDataMode } from '@/lib/dataMode'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
@@ -2785,6 +2786,10 @@ function MyEventsPanel({
   const [reservations, setReservations] = useState<MyEventReservation[]>([])
   const [loadingResv, setLoadingResv] = useState(false)
   const [acting, setActing] = useState<string | null>(null)
+  // Cancel-reservation confirmation (in-page; window.confirm() is silently
+  // refused by some in-app browsers).
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   // Edit-event modal state.
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState<EventEditForm | null>(null)
@@ -2820,27 +2825,33 @@ function MyEventsPanel({
     }
   }
 
-  async function cancel(resId: string) {
-    const r = reservations.find(x => x.id === resId)
-    const code = r?.reservation_code ?? resId.slice(-4).toUpperCase()
-    const warn = r?.payment_status === 'paid'
-      ? bi(
-          `Annuler #${code}? Le client devra être remboursé.`,
-          `Cancel #${code}? The customer will need a refund.`,
-        )
-      : bi(`Annuler #${code}?`, `Cancel #${code}?`)
-    if (!confirm(warn)) return
+  function cancel(resId: string) {
+    setCancelError(null)
+    setCancelTarget(resId)
+  }
+
+  async function doCancel() {
+    const resId = cancelTarget
+    if (!resId || !selectedId) return
     setActing(resId)
+    setCancelError(null)
     try {
       const res = await fetch(`/api/events/${selectedId}/reservations/${resId}/cancel`, { method: 'POST' })
-      if (res.ok && selectedId) {
+      const d = await res.json().catch(() => ({}))
+      if (res.ok) {
         setReservations(prev => prev.map(x => x.id === resId ? { ...x, reservation_status: 'cancelled' } : x))
+        setCancelTarget(null)
         onChanged()
+      } else {
+        setCancelError(pickBi(d?.error ?? 'Erreur — réessayez. / Error — please try again.', locale))
       }
+    } catch {
+      setCancelError(bi('Connexion impossible — réessayez.', 'Connection failed — please try again.'))
     } finally {
       setActing(null)
     }
   }
+  const cancelRow = cancelTarget ? reservations.find(x => x.id === cancelTarget) ?? null : null
 
   async function attend(resId: string) {
     setActing(resId)
@@ -3341,6 +3352,29 @@ function MyEventsPanel({
           </div>
         )}
 
+        {/* ── Cancel reservation confirmation ── */}
+        {cancelTarget && (
+          <ConfirmModal
+            title={bi(
+              `Annuler la réservation #${cancelRow?.reservation_code ?? cancelTarget.slice(-4).toUpperCase()} ?`,
+              `Cancel reservation #${cancelRow?.reservation_code ?? cancelTarget.slice(-4).toUpperCase()}?`,
+            )}
+            confirmLabel={bi('Oui, annuler', 'Yes, cancel')}
+            confirmClass="bg-danger hover:bg-danger text-white"
+            cancelLabel={bi('Garder', 'Keep it')}
+            busy={acting === cancelTarget}
+            error={cancelError}
+            onCancel={() => setCancelTarget(null)}
+            onConfirm={doCancel}
+          >
+            {cancelRow?.payment_status === 'paid' && (
+              <p className="text-sm text-ink-secondary">
+                💰 {bi('Ce billet est payé : le client devra être remboursé.', 'This ticket is paid: the customer will need a refund.')}
+              </p>
+            )}
+          </ConfirmModal>
+        )}
+
         {/* ── Edit event modal ── */}
         {editing && editForm && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4" onClick={() => !savingEdit && setEditing(false)}>
@@ -3701,6 +3735,8 @@ function EventReservationCard({
   const bi = useBi()
   const { locale } = useLanguage()
   const [cancelling, setCancelling] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const ev = reservation.events
   const dateStr = ev ? formatEventDates(ev, locale, 'message') : ''
   const statusPill: Record<EventReservation['reservation_status'], { cls: string; label: string }> = {
@@ -3712,29 +3748,42 @@ function EventReservationCard({
   }
   const s = statusPill[reservation.reservation_status]
 
-  // Customer self-cancel is allowed only for upcoming, confirmed reservations
-  // — past events shouldn't surprise the organizer with a last-minute pull,
-  // and cancelled/attended rows can't be un-set from here. The cancel API
-  // performs its own checks too; this is a UI-side filter for clarity.
+  // Customer self-cancel: upcoming, still-open (pending/confirmed) bookings
+  // that are NOT paid. A paid ticket is cancelled by the organizer — the
+  // card says so instead of offering the button. The cancel API enforces
+  // the same rules; this only decides what to show.
   const isUpcoming = ev?.date ? !isPastEvent(ev) : false
-  const canCancel  = reservation.reservation_status === 'confirmed' && ev && isUpcoming
+  const isOpen     = reservation.reservation_status === 'confirmed' || reservation.reservation_status === 'pending'
+  const isPaid     = reservation.payment_status === 'paid'
+  const canCancel  = !!ev && isUpcoming && isOpen && !isPaid && reservation.payment_status !== 'pending'
+  const paidNote   = !!ev && isUpcoming && isOpen && isPaid
+  const id4 = reservation.reservation_code ?? reservation.id.slice(-4).toUpperCase()
 
-  async function handleCancel(e: React.MouseEvent) {
+  function openConfirm(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
+    setCancelError(null)
+    setConfirmOpen(true)
+  }
+
+  // In-page confirmation (window.confirm() is silently refused by some
+  // in-app browsers). Every outcome is shown: the API's refusal, a server
+  // error, or a network failure.
+  async function doCancel() {
     if (!ev) return
-    const id4 = reservation.reservation_code ?? reservation.id.slice(-4).toUpperCase()
-    const warn = reservation.payment_status === 'paid'
-      ? bi(
-          `Annuler #${id4}? L'organisateur vous contactera pour le remboursement.`,
-          `Cancel #${id4}? The organizer will contact you for a refund.`,
-        )
-      : bi(`Annuler #${id4}?`, `Cancel #${id4}?`)
-    if (!confirm(warn)) return
     setCancelling(true)
+    setCancelError(null)
     try {
       const res = await fetch(`/api/events/${ev.id}/reservations/${reservation.id}/cancel`, { method: 'POST' })
-      if (res.ok) onCancelled?.()
+      const d = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setConfirmOpen(false)
+        onCancelled?.()
+      } else {
+        setCancelError(pickBi(d?.error ?? 'Erreur — réessayez. / Error — please try again.', locale))
+      }
+    } catch {
+      setCancelError(bi('Connexion impossible — réessayez.', 'Connection failed — please try again.'))
     } finally {
       setCancelling(false)
     }
@@ -3775,13 +3824,34 @@ function EventReservationCard({
       {canCancel && (
         <div className="px-3 pb-3 pt-1 flex justify-end">
           <button
-            onClick={handleCancel}
+            onClick={openConfirm}
             disabled={cancelling}
             className="text-xs px-3 py-1.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors disabled:opacity-50"
           >
             {cancelling ? bi('Annulation…', 'Cancelling…') : `❌ ${bi('Annuler', 'Cancel')}`}
           </button>
         </div>
+      )}
+      {paidNote && (
+        <p className="px-3 pb-3 pt-1 text-xs text-ink-tertiary text-right">
+          💰 {bi("Contactez l'organisateur pour annuler un billet payé.", 'Contact the organiser to cancel a paid ticket.')}
+        </p>
+      )}
+      {confirmOpen && (
+        <ConfirmModal
+          title={bi(`Annuler la réservation #${id4} ?`, `Cancel reservation #${id4}?`)}
+          confirmLabel={bi('Oui, annuler', 'Yes, cancel')}
+          confirmClass="bg-danger hover:bg-danger text-white"
+          cancelLabel={bi('Garder', 'Keep it')}
+          busy={cancelling}
+          error={cancelError}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={doCancel}
+        >
+          <p className="text-sm text-ink-secondary">
+            🎉 {ev?.title} · 🎟 {reservation.quantity} {bi('place(s)', 'ticket(s)')}
+          </p>
+        </ConfirmModal>
       )}
     </div>
   )

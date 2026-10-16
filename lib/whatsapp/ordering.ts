@@ -21,6 +21,7 @@ import {
 import { validateVoucher, consumeVoucherForOrder, consumeVoucherForReservation, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, checkDepositStatus, detectMNO, countryFromCity, isPawaPayTimeout } from '@/lib/pawapay'
 import { randomUUID } from 'crypto'
+import { closeReservation } from '@/lib/eventSeats'
 import { formatPrepTime } from '@/lib/prepTime'
 import { sendEventMessage } from '@/lib/directMessaging'
 import { generateReservationCode } from '@/lib/reservationCode'
@@ -1046,7 +1047,7 @@ export async function handleOrderCommand(
     // organizer ping reuses sendWhatsApp.
     const { data: r } = await supabaseAdmin
       .from('event_reservations')
-      .select('id, event_id, customer_id, customer_name, customer_phone, quantity, payment_status, reservation_status, total_price, reservation_code')
+      .select('id, event_id, customer_id, customer_name, customer_phone, quantity, tier_id, payment_status, reservation_status, total_price, reservation_code')
       .eq('id', resvId).maybeSingle()
     if (!r || r.customer_id !== customer.id) {
       await sendWhatsApp(from, pickLang(`❌ Réservation introuvable.`, `❌ Reservation not found.`, lang))
@@ -1056,21 +1057,43 @@ export async function handleOrderCommand(
       await sendWhatsApp(from, pickLang(`Déjà annulée.`, `Already cancelled.`, lang))
       return ok()
     }
+    // Same rule as the web: a paid ticket is cancelled by the organizer.
+    if (r.payment_status === 'paid') {
+      await sendWhatsApp(from, pickLang(
+        `💰 Contactez l'organisateur pour annuler un billet payé.`,
+        `💰 Contact the organiser to cancel a paid ticket.`,
+        lang,
+      ))
+      return ok()
+    }
+    if (r.payment_status === 'pending') {
+      await sendWhatsApp(from, pickLang(
+        `⏳ Paiement en cours — réessayez dans quelques minutes.`,
+        `⏳ Payment in progress — try again in a few minutes.`,
+        lang,
+      ))
+      return ok()
+    }
     const { data: ev } = await supabaseAdmin
-      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, whatsapp, tickets_sold`).eq('id', r.event_id).maybeSingle()
+      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, whatsapp`).eq('id', r.event_id).maybeSingle()
     if (!ev) {
       await sendWhatsApp(from, pickLang(`❌ Événement introuvable.`, `❌ Event not found.`, lang))
       return ok()
     }
-    const sold = Number(ev.tickets_sold ?? 0)
-    await Promise.all([
-      supabaseAdmin.from('event_reservations')
-        .update({ reservation_status: 'cancelled', updated_at: new Date().toISOString() })
-        .eq('id', r.id),
-      supabaseAdmin.from('events')
-        .update({ tickets_sold: Math.max(0, sold - Number(r.quantity ?? 0)) })
-        .eq('id', ev.id),
-    ])
+    // Only the call that actually moves the row releases the seats (event
+    // total and tier).
+    let closed
+    try {
+      closed = await closeReservation(r.id, 'cancelled')
+    } catch (e) {
+      console.error('[whatsapp/cancel] failed:', (e as Error).message)
+      await sendWhatsApp(from, pickLang(`⚠️ Erreur — réessayez.`, `⚠️ Error — please try again.`, lang))
+      return ok()
+    }
+    if (!closed) {
+      await sendWhatsApp(from, pickLang(`Cette réservation ne peut plus être annulée.`, `This reservation can no longer be cancelled.`, lang))
+      return ok()
+    }
     await writeAudit({
       action:          'event_reservation_cancelled',
       targetType:      'event_reservation',
@@ -1082,14 +1105,7 @@ export async function handleOrderCommand(
     })
 
     const cancelCodeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
-    const refundLine = r.payment_status === 'paid'
-      ? '\n' + pickLang(
-          `⚠️ Cette réservation a été payée. Contactez l'organisateur pour un remboursement.`,
-          `⚠️ This reservation was paid. Contact the organizer for a refund.`,
-          lang,
-        )
-      : ''
-    await sendWhatsApp(from, `${pickLang(`✅ Réservation${cancelCodeStr} annulée.`, `✅ Reservation${cancelCodeStr} cancelled.`, lang)}${refundLine}`)
+    await sendWhatsApp(from, pickLang(`✅ Réservation${cancelCodeStr} annulée.`, `✅ Reservation${cancelCodeStr} cancelled.`, lang))
 
     // Organizer ping — reuse the customer-cancel pathway from the API.
     let organizerPhone: string | null = null
@@ -1468,17 +1484,25 @@ export async function handleOrderCommand(
       console.log('[whatsapp] reservation %s confirmed by organizer %s', match.id, customer.id)
       await sendWhatsApp(from, pickLang(`✅ Réservation #${shownCode} confirmée.`, `✅ Reservation #${shownCode} confirmed.`, lang))
     } else {
-      // Reject — also release seats.
+      // Reject — also release seats (event total and tier, exactly once).
       const { data: r } = await supabaseAdmin
-        .from('event_reservations').select('quantity, customer_phone, event_id, events(title, tickets_sold)').eq('id', match.id).maybeSingle()
+        .from('event_reservations').select('quantity, customer_phone, event_id, events!event_reservations_event_id_fkey(title)').eq('id', match.id).maybeSingle()
+      let closed = null
+      try {
+        closed = r ? await closeReservation(match.id, 'rejected') : null
+      } catch (e) {
+        console.error('[whatsapp/reject] failed:', (e as Error).message)
+      }
+      if (!closed) {
+        await sendWhatsApp(from, pickLang(
+          `⚠️ Impossible de refuser cette réservation (déjà clôturée ou paiement en cours).`,
+          `⚠️ Couldn't reject this reservation (already closed or payment in progress).`,
+          lang,
+        ))
+        return ok()
+      }
       if (r) {
-        const ev = r.events as unknown as { title: string; tickets_sold: number } | null
-        const sold = Number(ev?.tickets_sold ?? 0)
-        const next = Math.max(0, sold - Number(r.quantity ?? 0))
-        await Promise.all([
-          supabaseAdmin.from('event_reservations').update({ reservation_status: 'rejected', updated_at: new Date().toISOString() }).eq('id', match.id),
-          supabaseAdmin.from('events').update({ tickets_sold: next }).eq('id', match.event_id),
-        ])
+        const ev = r.events as unknown as { title: string } | null
         await writeAudit({
           action:          'reservation_rejected',
           targetType:      'event_reservation',
