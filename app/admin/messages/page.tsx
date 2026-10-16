@@ -4,6 +4,7 @@
 // sub-tab inside the account dashboard (app/account/page.tsx).
 
 import MessageLogPanel from '@/components/MessageLogPanel'
+import FailedMessagesPanel from '@/components/FailedMessagesPanel'
 import { useBi } from '@/lib/languageContext'
 
 export default function AdminMessagesPage() {
@@ -23,6 +24,7 @@ export default function AdminMessagesPage() {
         </p>
       </div>
 
+      <FailedMessagesPanel />
       <MessageLogPanel showStats showFilters />
     </div>
   )

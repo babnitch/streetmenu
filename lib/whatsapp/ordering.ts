@@ -19,7 +19,8 @@ import {
   type SendResult,
 } from '@/lib/whatsapp'
 import { validateVoucher, consumeVoucherForOrder, consumeVoucherForReservation, isPercentDiscount } from '@/lib/vouchers'
-import { createDeposit, detectMNO, countryFromCity } from '@/lib/pawapay'
+import { createDeposit, checkDepositStatus, detectMNO, countryFromCity, isPawaPayTimeout } from '@/lib/pawapay'
+import { randomUUID } from 'crypto'
 import { formatPrepTime } from '@/lib/prepTime'
 import { sendEventMessage } from '@/lib/directMessaging'
 import { generateReservationCode } from '@/lib/reservationCode'
@@ -446,11 +447,64 @@ export async function notifyVendorsOfNewOrder(
 }
 
 // ── Payment helpers ──────────────────────────────────────────────────────────
+
+// How a createDeposit failure should be told to the customer. `definitive`
+// means PawaPay refused the deposit (or we never sent it) — no prompt will
+// appear. Otherwise the outcome is unknown (timeout, network, PawaPay 5xx):
+// the deposit may exist, so the row keeps its payment_id and the webhook or
+// the reconcile job settles it.
+export function depositFailure(e: unknown): { definitive: boolean; reason: string } {
+  if (isPawaPayTimeout(e) || e instanceof TypeError) {
+    return { definitive: false, reason: (e as Error).message }
+  }
+  const msg = (e as Error)?.message ?? String(e)
+  if (/HTTP 5\d\d/.test(msg)) return { definitive: false, reason: msg }
+  // createDeposit's messages are "<fr> / <en>: <PawaPay reason>"; keep only
+  // PawaPay's own reason so the customer gets one language plus the cause.
+  const m = msg.match(/Payment rejected: (.*)$/)
+  return { definitive: true, reason: (m ? m[1] : msg).trim() }
+}
+
+// Points a pending or failed order at a NEW deposit and makes it 'pending'
+// again, in one conditional update. Returns false when the order is no longer
+// awaiting payment (e.g. already paid); throws on a database error.
+export async function claimOrderForDeposit(
+  orderId: string,
+  depositId: string,
+  correspondent: string,
+  total: number,
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .update({
+      payment_id:     depositId,
+      payment_status: 'pending',
+      payment_method: correspondent,
+      payment_amount: total,
+    })
+    .eq('id', orderId)
+    .in('payment_status', ['pending', 'failed'])
+    .select('id')
+    .maybeSingle()
+  if (error) throw new Error(`claim order ${orderId}: ${error.message}`)
+  return !!data
+}
+
 // Internal: kicks off a PawaPay deposit for a paid_order WhatsApp order and
-// tells the customer to confirm on their phone. The caller is expected to
-// have already inserted the order row with payment_status='pending'. The
-// final success/failure messaging is dispatched by the webhook, which is
-// the source of truth for terminal payment status.
+// tells the customer to confirm on their phone. Used for the first attempt
+// and for every "payer" retry. The final success/failure messaging is
+// dispatched by settleDeposit (webhook / reconcile), the source of truth for
+// terminal payment status.
+//
+// The order is claimed for a NEW deposit id before PawaPay is called: one
+// conditional update sets payment_id and resets payment_status to 'pending'
+// (a retry after a failure must, or settleDeposit's pending-only claim would
+// ignore the new deposit's callback and the customer would pay into silence).
+// Writing the id first also means a callback that beats our own update, or a
+// request that times out after PawaPay created the deposit, still matches.
+//
+// Always tells the customer what happened; returns true when the prompt is
+// on its way.
 async function initiateWhatsappPayment(
   from:           string,
   orderId:        string,
@@ -472,44 +526,68 @@ async function initiateWhatsappPayment(
     return false
   }
 
-  let result
+  const depositId = randomUUID()
+  let claimed = false
+  let claimErr: Error | null = null
   try {
-    result = await createDeposit({
+    claimed = await claimOrderForDeposit(orderId, depositId, mno.correspondent, total)
+  } catch (e) {
+    claimErr = e as Error
+  }
+  if (claimErr || !claimed) {
+    console.error(`[ordering] payment claim failed order=${orderId}: ${claimErr?.message ?? 'order not pending/failed (already paid?)'}`)
+    await sendWhatsApp(from, pickLang(
+      claimErr
+        ? `⚠️ Impossible de démarrer le paiement. Envoyez "payer" pour réessayer.`
+        : `ℹ️ Cette commande n'attend plus de paiement.`,
+      claimErr
+        ? `⚠️ Couldn't start payment. Send "pay" to retry.`
+        : `ℹ️ This order is no longer awaiting payment.`,
+      lang,
+    ))
+    return false
+  }
+
+  try {
+    await createDeposit({
       amount:      total,
       currency:    mno.currency,
       phoneNumber: customerPhone,
       orderId,
       description: `${restaurantName} ${orderId.slice(0, 6)}`,
+      depositId,
     })
   } catch (e) {
-    console.error('[ordering] createDeposit failed:', (e as Error).message)
+    const f = depositFailure(e)
+    console.error(`[ordering] createDeposit failed order=${orderId} deposit=${depositId} definitive=${f.definitive}: ${(e as Error).message}`)
+    await sendWhatsApp(from, f.definitive
+      ? pickLang(
+          `❌ Paiement refusé : ${f.reason}\n\nEnvoyez "payer" pour réessayer.`,
+          `❌ Payment refused: ${f.reason}\n\nSend "pay" to try again.`,
+          lang)
+      : pickLang(
+          `⏳ Le service de paiement ne répond pas. Si une demande de paiement apparaît sur votre téléphone, vous pouvez la valider — vous recevrez une confirmation. Sinon, envoyez "payer" dans 2 minutes.`,
+          `⏳ The payment service is not responding. If a payment prompt appears on your phone you can approve it — you'll get a confirmation. Otherwise send "pay" in 2 minutes.`,
+          lang))
     return false
   }
-
-  await supabaseAdmin
-    .from('orders')
-    .update({
-      payment_id:     result.depositId,
-      payment_method: result.correspondent,
-      payment_amount: total,
-    })
-    .eq('id', orderId)
 
   // Remember the wallet used for the next order's pre-fill. On WhatsApp the
   // customer's account phone is also their MoMo number (Twilio gave us the
   // wallet number for free), so we save it the same way the web flow does.
-  await supabaseAdmin
+  const { error: momoErr } = await supabaseAdmin
     .from('customers')
     .update({ momo_phone: customerPhone })
     .eq('id', customerId)
+  if (momoErr) console.error(`[ordering] momo_phone save failed customer=${customerId}: ${momoErr.message}`)
 
   await writeAudit({
     action:     'payment_initiated',
     targetType: 'order',
     targetId:   orderId,
     metadata: {
-      deposit_id:    result.depositId,
-      correspondent: result.correspondent,
+      deposit_id:    depositId,
+      correspondent: mno.correspondent,
       amount:        total,
       currency:      mno.currency,
       via:           'whatsapp',
@@ -521,13 +599,13 @@ async function initiateWhatsappPayment(
     ``,
     `Un prompt de paiement va apparaître sur votre téléphone. Confirmez le paiement avec votre code PIN mobile money.`,
     ``,
-    `_Si rien n'apparaît dans 30s, envoyez "payer" pour réessayer._`,
+    `_Si rien n'apparaît dans 2 minutes, envoyez "payer" pour réessayer._`,
   ].join('\n'), [
     `💰 *Order of ${total.toLocaleString()} FCFA*`,
     ``,
     `A payment prompt will appear on your phone. Confirm the payment with your mobile money PIN.`,
     ``,
-    `_If nothing appears in 30s, send "pay" to retry._`,
+    `_If nothing appears within 2 minutes, send "pay" to retry._`,
   ].join('\n'), lang))
 
   return true
@@ -546,7 +624,7 @@ export async function handlePaymentRetry(
 
   const { data: order } = await supabaseAdmin
     .from('orders')
-    .select('id, restaurant_id, total_price, payment_status, restaurants(name, city)')
+    .select('id, restaurant_id, total_price, payment_status, payment_id, restaurants!orders_restaurant_id_fkey(name, city)')
     .eq('customer_id', customer.id)
     .eq('order_type', 'paid_order')
     .in('payment_status', ['pending', 'failed'])
@@ -563,8 +641,51 @@ export async function handlePaymentRetry(
     return ok()
   }
 
+  // A pending order may still have a deposit in flight. Starting a second
+  // one would overwrite payment_id, and if the customer then approved the
+  // FIRST prompt its callback would match nothing — paid, never confirmed.
+  // So ask PawaPay first: settle it if it already finished, and refuse a new
+  // deposit while it is still running.
+  if (order.payment_status === 'pending' && order.payment_id) {
+    let st: Awaited<ReturnType<typeof checkDepositStatus>> | null = null
+    try {
+      st = await checkDepositStatus(order.payment_id)
+    } catch (e) {
+      console.error(`[ordering] retry status check failed order=${order.id} deposit=${order.payment_id}: ${(e as Error).message}`)
+    }
+    if (!st) {
+      await sendWhatsApp(from, pickLang(
+        `⏳ Impossible de vérifier votre paiement en cours. Réessayez "payer" dans 2 minutes.`,
+        `⏳ Couldn't check your current payment. Send "pay" again in 2 minutes.`,
+        lang,
+      ))
+      return ok()
+    }
+    if (!st.notFound) {
+      if (st.status === 'COMPLETED') {
+        // settleDeposit sends the payment confirmation itself.
+        const { settleDeposit } = await import('@/lib/payments-settle')
+        await settleDeposit(order.payment_id, st, 'status_poll')
+        return ok()
+      }
+      if (st.status === 'FAILED' || st.status === 'REJECTED') {
+        const { settleDeposit } = await import('@/lib/payments-settle')
+        await settleDeposit(order.payment_id, st, 'status_poll')
+        // Now 'failed' — fall through to a fresh deposit below.
+      } else {
+        await sendWhatsApp(from, pickLang(
+          `⏳ Votre paiement précédent est toujours en cours. Validez la demande sur votre téléphone; si elle a expiré, envoyez "payer" dans 2 minutes.`,
+          `⏳ Your previous payment is still being processed. Approve the prompt on your phone; if it expired, send "pay" again in 2 minutes.`,
+          lang,
+        ))
+        return ok()
+      }
+    }
+  }
+
   const rest = order.restaurants as unknown as { name?: string; city?: string } | null
-  const initiated = await initiateWhatsappPayment(
+  // initiateWhatsappPayment tells the customer the outcome either way.
+  await initiateWhatsappPayment(
     from,
     order.id,
     customer.id,
@@ -574,13 +695,6 @@ export async function handlePaymentRetry(
     rest?.city ?? '',
     lang,
   )
-  if (!initiated) {
-    await sendWhatsApp(from, pickLang(
-      `⚠️ Paiement indisponible pour le moment. Réessayez plus tard.`,
-      `⚠️ Payment unavailable right now. Try again later.`,
-      lang,
-    ))
-  }
   return ok()
 }
 
@@ -1915,6 +2029,10 @@ export async function handleEventSession(
       return ok()
     }
     const reservationCode = await generateReservationCode()
+    // The deposit id is stored with the row, before PawaPay is called, so a
+    // callback that beats us — or a request that times out after PawaPay
+    // created the deposit — still finds this reservation.
+    const depositId = randomUUID()
     const { data: reservation, error: insErr } = await supabaseAdmin
       .from('event_reservations')
       .insert({
@@ -1926,15 +2044,19 @@ export async function handleEventSession(
         total_price:        totalPrice,
         commission_amount:  commissionAmount,
         payment_status:     'pending',
+        payment_id:         depositId,
+        payment_method:     mno.correspondent,
         reservation_status: 'confirmed',
         reservation_code:   reservationCode,
       }).select('id, reservation_code').single()
     if (insErr || !reservation) {
+      console.error(`[whatsapp/reserve-pay] insert failed event=${event.id}: ${insErr?.message}`)
       await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
       return ok()
     }
     console.log('[whatsapp/reserve-pay] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + quantity, quantity)
-    await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
+    const { error: soldErr } = await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
+    if (soldErr) console.error(`[whatsapp/reserve-pay] tickets_sold update failed event=${event.id}: ${soldErr.message}`)
 
     let depositResult
     try {
@@ -1944,20 +2066,35 @@ export async function handleEventSession(
         phoneNumber,
         orderId:     reservation.id,
         description: `${event.title} ${reservation.id.slice(0, 6)}`,
+        depositId,
       })
     } catch (e) {
-      const msg = (e as Error).message
-      await sendWhatsApp(from, pickLang(
-        `⚠️ PawaPay: ${msg}. Envoyez "annuler" et réessayez.`,
-        `⚠️ PawaPay: ${msg}. Send "cancel" and try again.`,
-        lang,
-      ))
+      const f = depositFailure(e)
+      console.error(`[whatsapp/reserve-pay] createDeposit failed reservation=${reservation.id} deposit=${depositId} definitive=${f.definitive}: ${(e as Error).message}`)
+      if (f.definitive) {
+        // No prompt will ever appear: settle as failed so the held seats go
+        // back (settleDeposit's failed path releases them). 'status_poll'
+        // sends no failure WhatsApp — the message below is the only one.
+        const { settleDeposit } = await import('@/lib/payments-settle')
+        await settleDeposit(depositId, { status: 'REJECTED', failureReason: f.reason }, 'status_poll')
+        await sendWhatsApp(from, pickLang(
+          `❌ Paiement refusé : ${f.reason}\n\nEnvoyez un autre numéro MoMo pour réessayer, ou "annuler".`,
+          `❌ Payment refused: ${f.reason}\n\nSend another MoMo number to try again, or "cancel".`,
+          lang,
+        ))
+      } else {
+        // Outcome unknown: keep the reservation pending under its deposit id
+        // — the webhook or the reconcile job settles it either way. End the
+        // session so a retry can't double-book.
+        await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+        await sendWhatsApp(from, pickLang(
+          `⏳ Le service de paiement ne répond pas. Si une demande de paiement apparaît sur votre téléphone, vous pouvez la valider — vous recevrez une confirmation.`,
+          `⏳ The payment service is not responding. If a payment prompt appears on your phone you can approve it — you'll get a confirmation.`,
+          lang,
+        ))
+      }
       return ok()
     }
-    await supabaseAdmin
-      .from('event_reservations')
-      .update({ payment_id: depositResult.depositId, payment_method: depositResult.correspondent })
-      .eq('id', reservation.id)
 
     await writeAudit({
       action:          'event_payment_initiated',
@@ -2696,7 +2833,10 @@ async function finalizeRestaurantWhatsappOrder(opts: {
   // ── Paid path: ask for the wallet PIN, defer vendor ping to the
   // payment webhook (a pending payment shouldn't wake up the kitchen).
   if (paid) {
-    const initiated = await initiateWhatsappPayment(
+    // On failure the order stays payment_status='pending' so the customer
+    // can retry with "payer"; initiateWhatsappPayment has already told them
+    // why, so no second message here.
+    await initiateWhatsappPayment(
       from,
       newOrder.id,
       customer.id,
@@ -2706,15 +2846,6 @@ async function finalizeRestaurantWhatsappOrder(opts: {
       restaurantCity,
       lang,
     )
-    if (!initiated) {
-      // Initiation failed — leave the order in payment_status='pending'
-      // so the customer can retry with "payer" once they fix the issue.
-      await sendWhatsApp(from, pickLang(
-        `⚠️ Impossible de démarrer le paiement. Envoyez "payer" pour réessayer.`,
-        `⚠️ Couldn't start payment. Send "pay" to retry.`,
-        lang,
-      ))
-    }
     return ok()
   }
 

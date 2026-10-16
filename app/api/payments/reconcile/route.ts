@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authorizeInternal } from '@/lib/internalAuth'
 import { runReconcile, liveReconcileDeps } from '@/lib/payments-reconcile'
+import { runMessageRetries } from '@/lib/messageRetry'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -20,11 +21,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: auth.status })
   }
 
+  // Same cron tick also re-sends queued WhatsApp notifications that Twilio
+  // refused for a temporary reason (lib/messageRetry.ts). Run after the
+  // reconcile, and independently: one failing must not block the other.
+  let summary: Awaited<ReturnType<typeof runReconcile>> | null = null
+  let reconcileError: string | null = null
   try {
-    const summary = await runReconcile(liveReconcileDeps)
-    return NextResponse.json({ ok: true, ...summary })
+    summary = await runReconcile(liveReconcileDeps)
   } catch (e) {
-    console.error('[reconcile] run failed:', (e as Error).message)
-    return NextResponse.json({ ok: false, error: 'reconcile failed' }, { status: 500 })
+    reconcileError = (e as Error).message
+    console.error('[reconcile] run failed:', reconcileError)
   }
+
+  let messageRetries: Awaited<ReturnType<typeof runMessageRetries>> | { error: string }
+  try {
+    messageRetries = await runMessageRetries()
+  } catch (e) {
+    console.error('[reconcile] message retries failed:', (e as Error).message)
+    messageRetries = { error: 'message retries failed' }
+  }
+
+  if (reconcileError) {
+    return NextResponse.json({ ok: false, error: 'reconcile failed', messageRetries }, { status: 500 })
+  }
+  return NextResponse.json({ ok: true, ...summary, messageRetries })
 }

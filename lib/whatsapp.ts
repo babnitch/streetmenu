@@ -1,6 +1,7 @@
 // Twilio WhatsApp notification service — server-only
 
 import { logMessage, statusCallbackUrl, type SendOptions } from '@/lib/messageLog'
+import { enqueueFailedSend } from '@/lib/messageRetry'
 
 // Re-exported so callers can type their options without a second import.
 export type { SendOptions } from '@/lib/messageLog'
@@ -82,6 +83,8 @@ export interface SendResult {
   sid?:   string            // Twilio message SID when present
   twilioStatus?: string     // Twilio's own status field (queued, accepted, failed…)
   error?: string            // Short error string when ok=false
+  errorCode?: string        // Twilio error code when Twilio returned one
+  logId?: string | null     // message_log row written for this send
 }
 
 // Low-level single-shot send via Twilio. Does not split; callers that may
@@ -104,6 +107,19 @@ async function sendWhatsAppRaw(to: string, message: string, opts: SendOptions = 
 
   const logBase = { channel: 'whatsapp' as const, from: FROM, to: destination, body: message, ...opts }
 
+  // A refused notification is queued for a later retry when the cause is
+  // temporary (trial daily cap 63038, rate limits, network, Twilio 5xx) —
+  // see lib/messageRetry.ts. Retries themselves (opts.retryOf) are tracked
+  // by the runner, not re-queued.
+  const queueIfRetryable = async (logId: string | null, httpStatus: number, code: string | null, error: string) => {
+    if (opts.retryOf) return
+    const queued = await enqueueFailedSend({
+      to: destination, body: message, context: opts.context, relatedId: opts.relatedId,
+      customerId: opts.customerId, logId, errorCode: code, error, httpStatus,
+    })
+    console.error(`[whatsapp] send FAILED context=${opts.context ?? '-'} related=${opts.relatedId ?? '-'} to=${destination} code=${code ?? httpStatus} → ${queued ? 'QUEUED for retry' : 'not retried'}`)
+  }
+
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -124,24 +140,26 @@ async function sendWhatsAppRaw(to: string, message: string, opts: SendOptions = 
         if (parsed.code !== undefined) code = String(parsed.code)
         if (parsed.message) detail = parsed.message
       } catch { /* not JSON — keep the raw prefix */ }
-      await logMessage({ ...logBase, status: 'failed', errorCode: code, errorMessage: detail })
-      return { ok: false, status: res.status, error: text.slice(0, 400) }
+      const logId = await logMessage({ ...logBase, status: 'failed', errorCode: code, errorMessage: detail })
+      await queueIfRetryable(logId, res.status, code, detail)
+      return { ok: false, status: res.status, error: text.slice(0, 400), errorCode: code ?? undefined, logId }
     }
     try {
       const parsed = JSON.parse(text) as { sid?: string; status?: string }
       console.log(`[whatsapp] send ok to=${destination} sid=${parsed.sid ?? '-'} twilioStatus=${parsed.status ?? '-'}`)
-      await logMessage({ ...logBase, status: 'queued', twilioSid: parsed.sid ?? null })
-      return { ok: true, status: res.status, sid: parsed.sid, twilioStatus: parsed.status }
+      const logId = await logMessage({ ...logBase, status: 'queued', twilioSid: parsed.sid ?? null })
+      return { ok: true, status: res.status, sid: parsed.sid, twilioStatus: parsed.status, logId }
     } catch {
       console.log(`[whatsapp] send ok to=${destination} (no JSON body)`)
-      await logMessage({ ...logBase, status: 'queued' })
-      return { ok: true, status: res.status }
+      const logId = await logMessage({ ...logBase, status: 'queued' })
+      return { ok: true, status: res.status, logId }
     }
   } catch (e) {
     const msg = (e as Error).message
     console.error(`[whatsapp] send THREW to=${destination}: ${msg}`)
-    await logMessage({ ...logBase, status: 'failed', errorMessage: msg })
-    return { ok: false, status: 0, error: msg }
+    const logId = await logMessage({ ...logBase, status: 'failed', errorMessage: msg })
+    await queueIfRetryable(logId, 0, null, msg)
+    return { ok: false, status: 0, error: msg, logId }
   }
 }
 

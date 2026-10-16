@@ -43,6 +43,10 @@ export interface DepositParams {
   phoneNumber:   string             // +E.164
   orderId:       string             // for traceability + statementDescription
   description?:  string             // 4–22 chars; PawaPay shows it on the wallet statement
+  /** Caller-chosen id, so it can be stored on the row BEFORE PawaPay is
+   *  called (a fast callback, or a timed-out request, can then still be
+   *  matched). Defaults to a fresh UUID. */
+  depositId?:    string
 }
 
 export interface DepositResult {
@@ -57,6 +61,9 @@ export interface DepositStatus {
   currency?:     PawaPayCurrency
   correspondent?: PawaPayCorrespondent
   failureReason?: string            // when status is FAILED/REJECTED
+  /** PawaPay has no deposit with this id (yet). `status` is then the
+   *  optimistic 'ACCEPTED'. */
+  notFound?:     boolean
 }
 
 export interface PayoutParams {
@@ -181,6 +188,17 @@ export function countryFromCity(city: string): CountryCode | null {
 
 // ── HTTP layer ───────────────────────────────────────────────────────────────
 
+// Every PawaPay call is bounded. Without it a hung request holds the caller
+// until the platform kills the function — for the WhatsApp bot that means
+// the customer gets no reply at all. A timeout rejects with a DOMException
+// named 'TimeoutError' (see isPawaPayTimeout).
+export const PAWAPAY_TIMEOUT_MS = 15_000
+
+export function isPawaPayTimeout(e: unknown): boolean {
+  const name = (e as { name?: string } | null)?.name
+  return name === 'TimeoutError' || name === 'AbortError'
+}
+
 async function pawapayFetch(path: string, init: RequestInit): Promise<{ status: number; body: unknown }> {
   const url = `${BASE_URL}${path}`
 
@@ -198,6 +216,7 @@ async function pawapayFetch(path: string, init: RequestInit): Promise<{ status: 
 
   const res = await fetch(url, {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(PAWAPAY_TIMEOUT_MS),
     headers: {
       'Authorization': `Bearer ${API_TOKEN}`,
       'Content-Type':  'application/json',
@@ -239,7 +258,7 @@ export async function createDeposit(params: DepositParams): Promise<DepositResul
     throw new Error(`Devise incompatible / Currency mismatch: detected ${mno.currency}, requested ${params.currency}`)
   }
 
-  const depositId = randomUUID()
+  const depositId = params.depositId ?? randomUUID()
   const description = sanitiseStatementDescription(params.description ?? `Order ${params.orderId.slice(0, 8)}`)
 
   const payload = {
@@ -280,7 +299,7 @@ export async function createDeposit(params: DepositParams): Promise<DepositResul
 export async function checkDepositStatus(depositId: string): Promise<DepositStatus> {
   const { body } = await pawapayFetch(`/deposits/${depositId}`, { method: 'GET' })
   const arr = Array.isArray(body) ? body : []
-  if (arr.length === 0) return { status: 'ACCEPTED' } // optimistic — deposit not yet visible
+  if (arr.length === 0) return { status: 'ACCEPTED', notFound: true } // optimistic — deposit not yet visible
 
   const row = arr[0] as {
     status?:        PawaPayStatus

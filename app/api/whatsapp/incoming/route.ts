@@ -14,6 +14,10 @@ import {
 } from '@/lib/whatsapp/ordering'
 
 export const dynamic = 'force-dynamic'
+// A payment step does a dozen DB round-trips plus a PawaPay call (itself
+// capped at 15s) before the reply goes out. Give it room, so the platform
+// never cuts the function between "deposit created" and "customer told".
+export const maxDuration = 60
 
 // ── TwiML ack (replies sent out-of-band via REST) ─────────────────────────────
 const EMPTY_TWIML   = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'

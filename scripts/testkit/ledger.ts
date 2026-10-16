@@ -108,6 +108,7 @@ export const DELETE_ORDER: string[] = [
   'event_subscriptions',
   'signup_sessions',
   'verification_codes',
+  'message_retry_queue',
   'message_log',
   'audit_log',
   'customers',

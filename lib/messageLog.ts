@@ -11,11 +11,17 @@
 // Table: supabase-message-log.sql
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { RETRYABLE_CONTEXTS } from '@/lib/messageRetry'
 
 // Bodies are kept for the admin log preview and for debugging a failed
 // send; the full text is rarely needed and some of it is PII, so we store
 // a bounded prefix.
 export const MAX_LOGGED_BODY = 500
+// Notifications the retry queue may re-send (lib/messageRetry.ts) keep their
+// whole body: when Twilio reports a failure through the status callback, this
+// row is the only copy of the text. WhatsApp sends are split at 1500 chars,
+// so this never truncates one of them.
+const MAX_LOGGED_RETRYABLE_BODY = 1600
 
 export type MessageChannel = 'whatsapp' | 'sms'
 export type MessageStatus  = 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'undelivered'
@@ -46,6 +52,9 @@ export interface SendOptions {
   customerId?: string | null   // recipient customer when the caller knows it
   /** Opt out of logging entirely (used by the log's own retry paths). */
   skipLog?:    boolean
+  /** Set by the retry runner: this send IS a retry of that queue row, so a
+   *  failure must not enqueue a second copy. */
+  retryOf?:    string
 }
 
 interface LogInput extends SendOptions {
@@ -94,7 +103,8 @@ export async function logMessage(input: LogInput): Promise<string | null> {
         channel:       input.channel,
         from_number:   normalizeLogNumber(input.from),
         to_number:     normalizeLogNumber(input.to),
-        body:          (input.body ?? '').slice(0, MAX_LOGGED_BODY),
+        body:          (input.body ?? '').slice(0,
+          input.context && RETRYABLE_CONTEXTS.has(input.context) ? MAX_LOGGED_RETRYABLE_BODY : MAX_LOGGED_BODY),
         status:        input.status,
         error_code:    input.errorCode ?? null,
         error_message: input.errorMessage ? input.errorMessage.slice(0, 500) : null,

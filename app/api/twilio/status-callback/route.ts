@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { normalizeLogNumber, type MessageStatus } from '@/lib/messageLog'
+import { requeueFromStatusCallback } from '@/lib/messageRetry'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -152,6 +153,14 @@ export async function POST(req: NextRequest) {
       console.error(`[twilio-status] update failed for ${sid}:`, error.message)
     } else {
       console.log(`[twilio-status] ${sid} → ${status}${errorCode ? ` (error ${errorCode})` : ''}`)
+    }
+
+    // Accepted by Twilio, then refused for a temporary reason (trial daily
+    // cap 63038, rate limits): queue the notification for a later retry.
+    // Only on the first transition into a terminal state, so a duplicate
+    // callback doesn't count as another failed attempt.
+    if ((status === 'failed' || status === 'undelivered') && current !== status && !error) {
+      await requeueFromStatusCallback(existing.id as string, errorCode)
     }
   } catch (e) {
     // Swallow: Twilio must not retry because our DB hiccuped.
