@@ -228,6 +228,11 @@ export default function EventDetailPage() {
         .map(t => ({ tier_id: t.id, quantity: tierQty[t.id] ?? 0, price: t.price }))
         .filter(i => i.quantity > 0)
     : []
+  // One PawaPay deposit buys exactly one tier (/pay takes a single tier_id),
+  // so paid checkout is blocked when more than one tier is selected rather
+  // than silently charging for the first tier only.
+  // TODO: multi-tier paid checkout (one deposit covering several tiers).
+  const multiTierPay = hasTiers && selectedTierItems.length > 1
   const totalForQty = hasTiers ? tierTotalPrice : ticketPrice * quantity
   // Applied-promo discount, capped at the current total (guards against a
   // stale fixed discount exceeding a smaller quantity). finalTotal is the
@@ -334,15 +339,12 @@ export default function EventDetailPage() {
   }
 
   async function submitPay() {
-    if (!trimmedMomo || !momoValid) return
+    if (!trimmedMomo || !momoValid || multiTierPay) return
     setSubmitting(true)
     setReserveError('')
     try {
-      // Paid checkout buys one tier per PawaPay deposit. If the user
-      // selected multiple tiers in the picker, we send the first one
-      // with positive qty — the modal copy below the picker spells
-      // this out, so the failure case is "fine, but suboptimal" not
-      // "lost money".
+      // Paid checkout buys one tier per PawaPay deposit; multiTierPay
+      // blocks the button upstream, so there is exactly one item here.
       const tierItem = selectedTierItems[0]
       const body: Record<string, unknown> = {
         quantity:    hasTiers ? (tierItem?.quantity ?? 1) : quantity,
@@ -607,13 +609,12 @@ export default function EventDetailPage() {
           </button>
         )}
 
-        {/* Paid online reservation — PawaPay flow. Multi-tier paid
-            checkouts buy one tier per deposit, so the button label
-            picks the highest-qty selected tier. */}
+        {/* Paid online reservation — PawaPay flow. One deposit buys one
+            tier, so the button is disabled while several are selected. */}
         {onlinePayReservable && (
           <button
             onClick={() => openReserve(true)}
-            disabled={!meLoaded || (me != null && hasTiers && tierTotalQty === 0)}
+            disabled={!meLoaded || (me != null && hasTiers && (tierTotalQty === 0 || multiTierPay))}
             className="block w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
             {me
@@ -621,7 +622,9 @@ export default function EventDetailPage() {
               : <>🔐 {bi('Connectez-vous pour payer', 'Log in to pay')}</>}
             <span className="block text-xs font-normal opacity-90 mt-0.5">
               {hasTiers
-                ? (tierTotalPrice > 0 ? `${tierTotalPrice.toLocaleString()} FCFA` : bi('Sélectionnez un tarif', 'Pick a tier'))
+                ? (multiTierPay
+                    ? bi('Un seul tarif par paiement', 'One tier per payment')
+                    : tierTotalPrice > 0 ? `${tierTotalPrice.toLocaleString()} FCFA` : bi('Sélectionnez un tarif', 'Pick a tier'))
                 : `${ticketPrice.toLocaleString()} FCFA${bi(' / personne', ' / person')}`}
             </span>
           </button>
@@ -757,7 +760,7 @@ export default function EventDetailPage() {
                   {bi('Validez le paiement sur votre téléphone.', 'Confirm the payment on your phone.')}
                 </p>
                 <p className="text-xs text-ink-tertiary mb-4 font-mono">
-                  {totalForQty.toLocaleString()} FCFA · {trimmedMomo}
+                  {finalTotal.toLocaleString()} FCFA · {trimmedMomo}
                 </p>
                 {activeDepositId && (
                   <p className="text-[10px] text-ink-tertiary font-mono">ref: {activeDepositId.slice(0, 12)}…</p>
@@ -794,19 +797,34 @@ export default function EventDetailPage() {
                 </h3>
                 <p className="text-xs text-ink-tertiary mb-4">{event.title} · {dateStr}</p>
 
-                <label className="block text-xs text-ink-secondary mb-1">
-                  {bi('Nombre de places', 'Number of tickets')}
-                </label>
-                <select
-                  value={quantity}
-                  onChange={e => { setQuantity(Number(e.target.value)); clearPromo() }}
-                  className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface mb-3"
-                  disabled={submitting}
-                >
-                  {Array.from({ length: Math.min(10, remaining === Infinity ? 10 : remaining) }, (_, i) => i + 1).map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
+                {/* Tier events: the quantities were picked in the tier
+                    steppers and are what gets submitted, so show them
+                    read-only. The legacy dropdown is for untiered events. */}
+                {hasTiers ? (
+                  <div className="bg-surface-muted rounded-xl px-3 py-2 mb-3 text-sm text-ink-primary space-y-0.5">
+                    {selectedTierItems.map(i => {
+                      const t = tiers.find(x => x.id === i.tier_id)
+                      const name = t ? (locale === 'en' && t.name_en ? t.name_en : t.name) : ''
+                      return <p key={i.tier_id}>🎫 {name} × {i.quantity}</p>
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    <label className="block text-xs text-ink-secondary mb-1">
+                      {bi('Nombre de places', 'Number of tickets')}
+                    </label>
+                    <select
+                      value={quantity}
+                      onChange={e => { setQuantity(Number(e.target.value)); clearPromo() }}
+                      className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface mb-3"
+                      disabled={submitting}
+                    >
+                      {Array.from({ length: Math.min(10, remaining === Infinity ? 10 : remaining) }, (_, i) => i + 1).map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
 
                 {/* The modal only opens for a signed-in customer, so the
                     booking is always made under this account. */}
