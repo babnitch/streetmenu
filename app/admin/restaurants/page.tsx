@@ -8,6 +8,7 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
+import ConfirmModal from '@/components/ConfirmModal'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
 interface RestaurantRow {
@@ -841,25 +842,3 @@ function Field({ label, children, className = '' }: { label: string; children: R
   )
 }
 
-function ConfirmModal({ title, confirmLabel, confirmClass, children, onCancel, onConfirm }: {
-  title: string; confirmLabel: string; confirmClass: string
-  children: React.ReactNode; onCancel: () => void; onConfirm: () => void
-}) {
-  const bi = useBi()
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-        <h3 className="font-bold text-ink-primary mb-4 text-base">{title}</h3>
-        <div className="mb-4">{children}</div>
-        <div className="flex gap-3">
-          <button onClick={onConfirm} className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-colors ${confirmClass}`}>
-            {confirmLabel}
-          </button>
-          <button onClick={onCancel} className="flex-1 bg-surface-muted text-ink-primary py-2.5 rounded-xl font-semibold text-sm hover:bg-divider transition-colors">
-            {bi('Annuler', 'Cancel')}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
