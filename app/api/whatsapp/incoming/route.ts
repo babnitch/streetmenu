@@ -1083,6 +1083,39 @@ async function handleSession(
 // ─────────────────────────────────────────────────────────────────────────────
 // APPROVED VENDOR COMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
+// Reply to "diffuser" / "broadcast". Composing happens on the website; this
+// only says whether the sender may broadcast (admin opt-in, see
+// lib/subscriptions.ts getBroadcastEligibility) and where to go. `audience`
+// picks the refusal wording: a restaurant number is told about its
+// restaurant, anyone else about their account.
+async function replyBroadcastCommand(
+  from:       string,
+  customerId: string | null,
+  lang:       Lang,
+  audience:   'account' | 'restaurant',
+): Promise<NextResponse> {
+  const { getBroadcastEligibility } = await import('@/lib/subscriptions')
+  const e = customerId ? await getBroadcastEligibility(customerId) : null
+  if (!e || (!e.asPublisher && e.asRestaurants.length === 0)) {
+    await sendWhatsApp(from, audience === 'restaurant'
+      ? pickLang(
+          `📢 La diffusion de messages n'est pas activée pour votre restaurant.`,
+          `📢 Broadcasting is not enabled for your restaurant.`, lang)
+      : pickLang(
+          `📢 La diffusion de messages n'est pas activée pour votre compte.`,
+          `📢 Broadcasting is not enabled for your account.`, lang))
+    return ok()
+  }
+  await sendWhatsApp(from, pickLang(
+    `📢 *Diffuser un message*\n\n` +
+    `Composez votre message sur le site:\n` +
+    `${BASE_URL}/account?tab=profile`,
+    `📢 *Broadcast a message*\n\n` +
+    `Compose on the website:\n` +
+    `${BASE_URL}/account?tab=profile`, lang))
+  return ok()
+}
+
 async function handleVendor(
   from:       string,
   phone:      string,
@@ -2194,6 +2227,15 @@ async function handleVendor(
     if (actionResp) return actionResp
   }
 
+  // ── "diffuser" / "broadcast" ─────────────────────────────────────────────
+  // Restaurant numbers never reach handleCustomer, so the command is handled
+  // here too, with the same eligibility rule (the account behind this number).
+  if (cmd === 'diffuser' || cmd === 'broadcast') {
+    const { data: me } = await supabaseAdmin
+      .from('customers').select('id').eq('phone', phone).maybeSingle()
+    return replyBroadcastCommand(from, me?.id ?? null, lang, 'restaurant')
+  }
+
   // ── Customer / organizer commands for a vendor's number ──────────────────
   // A restaurant owner is very often also an event organizer. Routing lands
   // them here (they own a restaurant), so without this delegation their
@@ -2393,22 +2435,7 @@ async function handleCustomer(
   // heavy for chat, per spec). Only for accounts an admin has enabled for
   // broadcasting; everyone else is told it isn't available.
   if (cmd === 'diffuser' || cmd === 'broadcast') {
-    const { getBroadcastEligibility } = await import('@/lib/subscriptions')
-    const e = await getBroadcastEligibility(customer.id)
-    if (!e.asPublisher && e.asRestaurants.length === 0) {
-      await sendWhatsApp(from, pickLang(
-        `📢 La diffusion de messages n'est pas activée pour votre compte.`,
-        `📢 Broadcasting is not enabled for your account.`, lang))
-      return ok()
-    }
-    await sendWhatsApp(from, pickLang(
-      `📢 *Diffuser un message*\n\n` +
-      `Composez votre message sur le site:\n` +
-      `${BASE_URL}/account?tab=profile`,
-      `📢 *Broadcast a message*\n\n` +
-      `Compose on the website:\n` +
-      `${BASE_URL}/account?tab=profile`, lang))
-    return ok()
+    return replyBroadcastCommand(from, customer.id, lang, 'account')
   }
 
   // "promouvoir" / "promote" → same: too complex for chat, redirect.

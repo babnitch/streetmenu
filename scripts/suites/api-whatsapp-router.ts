@@ -834,6 +834,29 @@ async function main(): Promise<void> {
     // arm a send. step() records a throw and carries on, so the check gates
     // the event steps explicitly rather than by throwing.
 
+    // "diffuser" from a restaurant number used to fall through to "I didn't
+    // understand" — restaurant numbers never reach the customer handler. The
+    // reply is logged in message_log even though the local Twilio send fails.
+    await step('"diffuser" from a restaurant owner: refusal when not enabled, link when enabled', async () => {
+      const owner = await makeCustomer({ suiteNo: 49, name: 'WA Broadcast Owner' })
+      const rest  = await makeRestaurant({ ownerId: owner.id, label: 'wa_diffuser', whatsapp: owner.phone })
+      const lastReply = async () => {
+        const { data } = await sb.from('message_log').select('body')
+          .eq('to_number', owner.phone).order('created_at', { ascending: false }).limit(1).maybeSingle()
+        return (data as { body?: string } | null)?.body ?? ''
+      }
+
+      await send(owner.phone, 'diffuser')
+      const refusal = await lastReply()
+      assert(refusal.includes("n'est pas activée pour votre restaurant"), 'not enabled → restaurant refusal', refusal)
+
+      const { error: colErr } = await sb.from('restaurants').update({ broadcast_enabled: true } as never).eq('id', rest.id)
+      if (colErr) throw new Error(`enable broadcast: ${colErr.message}`)
+      await send(owner.phone, 'diffuser')
+      const link = await lastReply()
+      assert(link.includes('Diffuser un message') && link.includes('/account?tab=profile'), 'enabled → compose link', link)
+    })
+
     const EVENT_CITY = testName('city')
     let eventCitySafe = false
     await step('🔴 event safety preflight: the event test city has no real subscribers', async () => {
