@@ -40,7 +40,16 @@ export type TierAvailability =
   | { kind: 'sold_out' }
   | { kind: 'inactive' }
 
-export function tierAvailability(tier: TicketTier, nowISO: string = new Date().toISOString()): TierAvailability {
+// Capacity is per DAY (supabase-event-day-capacity.sql): tier.sold_count is an
+// all-days total for dashboards and decides nothing. Pass `soldOnDay` (from
+// event_availability) to include capacity; without it only the lifecycle is
+// checked and `remaining` is null — the booking itself is capacity-checked
+// atomically by reserve_event_seats.
+export function tierAvailability(
+  tier: TicketTier,
+  nowISO: string = new Date().toISOString(),
+  soldOnDay?: number,
+): TierAvailability {
   if (!tier.is_active) return { kind: 'inactive' }
   const now = new Date(nowISO).getTime()
   if (tier.sales_start && new Date(tier.sales_start).getTime() > now) {
@@ -49,11 +58,9 @@ export function tierAvailability(tier: TicketTier, nowISO: string = new Date().t
   if (tier.sales_end && new Date(tier.sales_end).getTime() < now) {
     return { kind: 'expired' }
   }
-  if (tier.max_quantity > 0 && tier.sold_count >= tier.max_quantity) {
-    return { kind: 'sold_out' }
-  }
-  const remaining = tier.max_quantity > 0 ? Math.max(0, tier.max_quantity - tier.sold_count) : null
-  return { kind: 'active', remaining }
+  if (soldOnDay === undefined || tier.max_quantity <= 0) return { kind: 'active', remaining: null }
+  if (soldOnDay >= tier.max_quantity) return { kind: 'sold_out' }
+  return { kind: 'active', remaining: tier.max_quantity - soldOnDay }
 }
 
 // Server-side fetch — used by the public event-detail page (anon-safe).

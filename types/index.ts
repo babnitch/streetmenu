@@ -173,6 +173,7 @@ export interface EventReservation {
   payment_method:     string | null
   reservation_status: 'pending' | 'confirmed' | 'cancelled' | 'attended' | 'rejected'
   reservation_code:   string | null   // short check-in code, e.g. "A3F7"
+  event_date:         string | null   // day the booking is for; null = legacy multi-day row (counts every day)
   created_at:         string
   updated_at:         string
   // Joined view when /api/customer/reservations or admin queries include it

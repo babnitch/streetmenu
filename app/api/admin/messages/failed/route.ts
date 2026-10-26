@@ -6,7 +6,11 @@
 //     their number in sent / delivered / read), with the last attempt's
 //     status and error and its retry-queue state;
 //   - the retry queue itself (lib/messageRetry.ts) — pending, in flight and
-//     given up.
+//     given up;
+//   - "oversold" tickets: paid after their seat hold expired and pushed a day
+//     or tier over capacity (audit event_reservation_oversold, written by
+//     lib/payments-settle.ts). The customer was confirmed; the organizer may
+//     need to make room or refund.
 //
 // Same access rule as /api/admin/messages: super_admin / admin only, the
 // bodies and numbers here are customer PII.
@@ -112,5 +116,35 @@ export async function GET(req: NextRequest) {
     }]
   }).sort((a, b) => b.created_at.localeCompare(a.created_at))
 
-  return NextResponse.json({ windowDays: WINDOW_DAYS, unconfirmed, queue, queueAvailable: queue !== null })
+  // Oversold tickets in the window, with what the admin needs to act.
+  const { data: overAudit } = await supabaseAdmin.from('audit_log')
+    .select('target_id, metadata, created_at')
+    .eq('action', 'event_reservation_oversold')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .range(0, 99)
+  const overIds = (overAudit ?? []).map(a => a.target_id as string)
+  const { data: overRes } = overIds.length
+    ? await supabaseAdmin.from('event_reservations')
+        .select('id, event_date, quantity, customer_name, customer_phone, reservation_code, tier_name, events!event_reservations_event_id_fkey(title)')
+        .in('id', overIds)
+    : { data: [] }
+  const oversold = (overAudit ?? []).map(a => {
+    const r = (overRes ?? []).find(x => x.id === a.target_id) as Record<string, unknown> | undefined
+    const ev = r?.events as { title?: string } | null | undefined
+    return {
+      reservation_id:   a.target_id,
+      flagged_at:       a.created_at,
+      event_title:      ev?.title ?? null,
+      event_date:       (r?.event_date as string | null) ?? null,
+      tier_name:        (r?.tier_name as string | null) ?? null,
+      quantity:         (r?.quantity as number | null) ?? null,
+      customer_name:    (r?.customer_name as string | null) ?? null,
+      customer_phone:   (r?.customer_phone as string | null) ?? null,
+      reservation_code: (r?.reservation_code as string | null) ?? null,
+      overflow:         (a.metadata as { overflow?: unknown } | null)?.overflow ?? null,
+    }
+  })
+
+  return NextResponse.json({ windowDays: WINDOW_DAYS, unconfirmed, queue, queueAvailable: queue !== null, oversold })
 }

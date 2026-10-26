@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const { data, error } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, customer_name, customer_phone, quantity, total_price, payment_status, payment_method, reservation_status, reservation_code, created_at')
+    .select('id, event_date, customer_name, customer_phone, quantity, total_price, payment_status, payment_method, reservation_status, reservation_code, created_at')
     .eq('event_id', params.id)
     .order('created_at', { ascending: false })
 

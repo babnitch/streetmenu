@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('event_reservations')
-    .select(`id, event_id, quantity, total_price, payment_status, reservation_status, reservation_code, created_at, events(id, title, ${EVENT_DATE_COLUMNS}, venue, city, cover_photo, ticket_price, event_status)`)
+    .select(`id, event_id, event_date, quantity, total_price, payment_status, reservation_status, reservation_code, created_at, events!event_reservations_event_id_fkey(id, title, ${EVENT_DATE_COLUMNS}, venue, city, cover_photo, ticket_price, event_status)`)
     .eq('customer_id', session.id)
     .order('created_at', { ascending: false })
     .limit(50)

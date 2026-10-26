@@ -32,7 +32,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
-import { isPastEvent, formatEventDates, formatEventWhen, validateEventRange, EVENT_RANGE_ERRORS } from '@/lib/eventDate'
+import { isPastEvent, formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validateEventRange, EVENT_RANGE_ERRORS } from '@/lib/eventDate'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
 const EVENT_EDIT_CATEGORIES = [
@@ -2762,6 +2762,7 @@ interface MyEventReservation {
   payment_method: string | null
   reservation_status: 'pending' | 'confirmed' | 'cancelled' | 'attended' | 'rejected'
   reservation_code: string | null
+  event_date: string | null
   created_at: string
 }
 interface EventEditForm {
@@ -3296,6 +3297,9 @@ function MyEventsPanel({
                         📱 {r.customer_phone}
                       </a>
                       <p className="text-xs text-ink-tertiary mt-0.5">
+                        {selected && isMultiDay(selected) && r.event_date && (
+                          <>📅 {formatEventDay(r.event_date, locale, 'compact')} · </>
+                        )}
                         🎟 {r.quantity}{r.total_price > 0 && <> · {Number(r.total_price).toLocaleString()} FCFA</>}
                       </p>
                     </div>
@@ -3738,7 +3742,11 @@ function EventReservationCard({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
   const ev = reservation.events
-  const dateStr = ev ? formatEventDates(ev, locale, 'message') : ''
+  // A multi-day ticket is for one day: show that day, not the whole range.
+  const dateStr = !ev ? ''
+    : reservation.event_date && isMultiDay(ev)
+      ? formatEventDay(reservation.event_date, locale, 'message')
+      : formatEventDates(ev, locale, 'message')
   const statusPill: Record<EventReservation['reservation_status'], { cls: string; label: string }> = {
     pending:   { cls: 'bg-amber-50 text-amber-700 border border-amber-200',     label: '⏳ ' + bi('En attente', 'Pending') },
     confirmed: { cls: 'bg-brand-light text-brand-darker',                       label: '✅ ' + bi('Confirmée', 'Confirmed') },

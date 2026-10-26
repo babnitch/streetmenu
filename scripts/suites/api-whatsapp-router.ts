@@ -892,7 +892,7 @@ async function main(): Promise<void> {
         await send(c.phone, 'reset')
       })
 
-      await step('#34 "reserver XXXX" books an ONGOING multi-day event and refuses a FINISHED one', async () => {
+      await step('#34 "reserver XXXX": FINISHED event refused, ONGOING multi-day event sent to the website', async () => {
         const c = await makeCustomer({ suiteNo: 34, name: 'WA Event Booker', city: EVENT_CITY })
 
         // Refusal first: the finished event is filtered out of the lookup, so
@@ -901,16 +901,16 @@ async function main(): Promise<void> {
         assertEq(await sessionsFor(c.phone), 0, 'FINISHED event: no reservation flow was opened')
         assertEq((await eventReservationIds(finished.id)).length, 0, 'and no reservation row exists')
 
-        // Control from the SAME phone: the ongoing event opens the quantity
-        // prompt and "1" books it (free, reservation_only → immediate insert).
+        // Multi-day events are sold per day, which the chat flow can't ask
+        // for: the reply is the event's web page (day picker), and nothing is
+        // booked. The logged reply is the positive control — the command ran.
         await send(c.phone, `reserver ${shortCode(ongoing.id)}`)
-        assertEq((await sessionFor(c.phone))?.user_type, 'event_reserve',
-          'ONGOING event: the quantity prompt opened — the refusal above was the filter, not a throttle')
-        await send(c.phone, '1')
-        const rows = await eventReservationIds(ongoing.id)
-        for (const id of rows) track('event_reservations', id)
-        assertEq(rows.length, 1, 'ONGOING event: one reservation row was created')
-        assertEq(await sessionsFor(c.phone), 0, 'and the flow closed its session')
+        const { data: reply } = await sb.from('message_log').select('body')
+          .eq('to_number', c.phone).order('created_at', { ascending: false }).limit(1).maybeSingle()
+        const body = (reply as { body?: string } | null)?.body ?? ''
+        assert(body.includes(`/events/${ongoing.id}`), 'ONGOING multi-day event: the reply links to its web page', body)
+        assertEq(await sessionsFor(c.phone), 0, 'no reservation flow was opened')
+        assertEq((await eventReservationIds(ongoing.id)).length, 0, 'and nothing was booked')
       })
     }
 

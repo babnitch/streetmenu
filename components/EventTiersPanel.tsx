@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useBi } from '@/lib/languageContext'
+import { useBi, useLanguage } from '@/lib/languageContext'
+import { formatEventDay } from '@/lib/eventDate'
+import type { DayAvailability } from '@/lib/eventSeats'
 
 interface Tier {
   id:           string
@@ -31,7 +33,11 @@ interface TierDraft {
 // the only "delete" path because sold reservations reference the tier_id.
 export default function EventTiersPanel({ eventId }: { eventId: string }) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const [tiers, setTiers] = useState<Tier[]>([])
+  // Seats sold per day and per tier (capacity is per day). The tier's own
+  // sold_count is an all-days total and is only a fallback here.
+  const [days, setDays] = useState<DayAvailability[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -41,13 +47,33 @@ export default function EventTiersPanel({ eventId }: { eventId: string }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await fetch(`/api/events/${eventId}/tiers`, { cache: 'no-store' })
+      const [r, a] = await Promise.all([
+        fetch(`/api/events/${eventId}/tiers`, { cache: 'no-store' }),
+        fetch(`/api/events/${eventId}/availability`, { cache: 'no-store' }).catch(() => null),
+      ])
       const d = await r.json()
       if (Array.isArray(d?.tiers)) setTiers(d.tiers)
+      const av = a ? await a.json().catch(() => null) : null
+      setDays(Array.isArray(av?.days) ? av.days : null)
     } finally { setLoading(false) }
   }, [eventId])
 
   useEffect(() => { load() }, [load])
+
+  // "3/10 vendus" for a single-day event; one "22 oct. 3/10" per upcoming
+  // day for a multi-day one (the cap applies to each day).
+  function soldLines(t: Tier): string[] {
+    const fmt = (sold: number) => t.max_quantity === 0
+      ? `${sold} ${bi('vendus', 'sold')}`
+      : `${sold}/${t.max_quantity} ${bi('vendus', 'sold')}`
+    const upcoming = (days ?? []).filter(d => !d.past)
+    const perDay = upcoming
+      .map(d => ({ date: d.date, entry: d.tiers.find(x => x.tier_id === t.id) }))
+      .filter(x => x.entry)
+    if (perDay.length === 0) return [fmt(t.sold_count)]
+    if (perDay.length === 1 && upcoming.length === 1) return [fmt(perDay[0].entry!.sold)]
+    return perDay.map(x => `${formatEventDay(x.date, locale, 'compact')} ${fmt(x.entry!.sold)}`)
+  }
 
   function beginEdit(t: Tier) {
     setEditingId(t.id)
@@ -206,11 +232,11 @@ export default function EventTiersPanel({ eventId }: { eventId: string }) {
                     {t.description && <p className="text-xs text-ink-tertiary mt-0.5">{t.description}</p>}
                     <p className="text-xs text-ink-tertiary mt-0.5">
                       {t.price === 0 ? bi('Gratuit', 'Free') : `${t.price.toLocaleString()} FCFA`}
-                      {' · '}
-                      {t.max_quantity === 0
-                        ? `${t.sold_count} ${bi('vendus', 'sold')}`
-                        : `${t.sold_count}/${t.max_quantity} ${bi('vendus', 'sold')}`}
+                      {soldLines(t).length === 1 && <>{' · '}{soldLines(t)[0]}</>}
                     </p>
+                    {soldLines(t).length > 1 && (
+                      <p className="text-[11px] text-ink-tertiary mt-0.5">{soldLines(t).join(' · ')}</p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1 items-end flex-shrink-0">
                     <button onClick={() => beginEdit(t)}

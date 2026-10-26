@@ -76,3 +76,147 @@ export async function closeReservation(
   await releaseSeats(won, now)
   return won
 }
+
+// ── Booking: per-day, per-tier capacity (supabase-event-day-capacity.sql) ───
+//
+// Every new reservation goes through reserve_event_seats(), which locks the
+// event row, checks the tier and event caps for THAT day against the rows
+// that actually hold seats, bumps the all-days counters and inserts — in one
+// transaction. Callers never read-check-insert themselves.
+
+export interface SeatRequestRow {
+  customer_id:        string | null
+  customer_name:      string
+  customer_phone:     string
+  quantity:           number
+  total_price:        number
+  commission_amount:  number
+  discount_amount?:   number
+  voucher_code?:      string | null
+  payment_status:     'not_required' | 'pending'
+  payment_id?:        string | null
+  payment_method?:    string | null
+  reservation_status: 'pending' | 'confirmed'
+  reservation_code:   string
+  tier_id:            string | null
+  tier_name:          string | null
+  tier_price:         number | null
+}
+
+export interface BookedRow {
+  id:               string
+  event_id:         string
+  event_date:       string
+  quantity:         number
+  total_price:      number
+  tier_id:          string | null
+  tier_name:        string | null
+  reservation_code: string | null
+}
+
+export type ReserveSeatsResult =
+  | { ok: true; rows: BookedRow[] }
+  | { ok: false; status: number; body: { error: string; remaining?: number; tier_id?: string; state?: 'sold_out' } }
+
+function errorDetail(details: string | null | undefined): { remaining?: number; tier_id?: string } {
+  try { return details ? JSON.parse(details) : {} } catch { return {} }
+}
+
+export async function reserveEventSeats(
+  eventId: string,
+  day: string,
+  rows: SeatRequestRow[],
+): Promise<ReserveSeatsResult> {
+  const { data, error } = await supabaseAdmin.rpc('reserve_event_seats', {
+    p_event_id: eventId, p_event_date: day, p_rows: rows,
+  })
+  if (!error) return { ok: true, rows: (data ?? []) as BookedRow[] }
+
+  const d = errorDetail(error.details)
+  switch (error.message) {
+    case 'tier_sold_out':
+      return { ok: false, status: 409, body: {
+        error: 'Plus assez de places pour ce tarif ce jour-là / Not enough remaining for this tier on that day',
+        remaining: d.remaining ?? 0, tier_id: d.tier_id, state: 'sold_out' } }
+    case 'event_sold_out':
+      return { ok: false, status: 409, body: {
+        error: 'Plus assez de places ce jour-là / Not enough spots remaining on that day',
+        remaining: d.remaining ?? 0 } }
+    case 'tier_unavailable':
+      return { ok: false, status: 409, body: { error: 'Tarif non disponible / Tier not available', tier_id: d.tier_id } }
+    case 'invalid_event_date':
+      return { ok: false, status: 400, body: { error: 'Choisissez un jour de l\'événement / Pick a day of the event' } }
+    case 'past_event_date':
+      return { ok: false, status: 409, body: { error: 'Ce jour est passé / That day has passed' } }
+    case 'event_not_found':
+      return { ok: false, status: 404, body: { error: 'Événement introuvable / Event not found' } }
+    case 'invalid_quantity':
+    case 'no_rows':
+      return { ok: false, status: 400, body: { error: 'Quantité invalide / Invalid quantity' } }
+    default:
+      console.error('[seats] reserve_event_seats failed event=%s day=%s: %s', eventId, day, error.message)
+      return { ok: false, status: 500, body: { error: 'Erreur — réessayez. / Error — please try again.' } }
+  }
+}
+
+// Availability per day, as the public picker and the organizer panel show
+// it. remaining null = unlimited. A day is sold out when the event-wide cap
+// is reached, or when every tier is capped and full.
+export interface TierDayAvailability {
+  tier_id:   string
+  capacity:  number
+  sold:      number
+  remaining: number | null
+  soldOut:   boolean
+}
+export interface DayAvailability {
+  date:      string
+  past:      boolean
+  capacity:  number
+  sold:      number
+  remaining: number | null
+  soldOut:   boolean
+  tiers:     TierDayAvailability[]
+}
+
+export async function getEventAvailability(eventId: string, today: string): Promise<DayAvailability[] | null> {
+  const { data, error } = await supabaseAdmin.rpc('event_availability', { p_event_id: eventId })
+  if (error) {
+    console.error('[seats] event_availability failed event=%s: %s', eventId, error.message)
+    return null
+  }
+  const left = (capacity: number, sold: number) => capacity > 0 ? Math.max(0, capacity - sold) : null
+  const byDay = new Map<string, DayAvailability>()
+  for (const r of (data ?? []) as Array<{ day: string; tier_id: string | null; capacity: number; sold: number }>) {
+    const day = byDay.get(r.day) ?? {
+      date: r.day, past: r.day < today, capacity: 0, sold: 0, remaining: null, soldOut: false, tiers: [],
+    }
+    if (r.tier_id === null) {
+      day.capacity  = r.capacity
+      day.sold      = r.sold
+      day.remaining = left(r.capacity, r.sold)
+    } else {
+      const remaining = left(r.capacity, r.sold)
+      day.tiers.push({ tier_id: r.tier_id, capacity: r.capacity, sold: r.sold, remaining, soldOut: remaining === 0 })
+    }
+    byDay.set(r.day, day)
+  }
+  const days = Array.from(byDay.values())
+  for (const d of days) {
+    const tierRoom = d.tiers.length === 0 || d.tiers.some(t => !t.soldOut)
+    d.soldOut = d.remaining === 0 || !tierRoom
+  }
+  return days.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+// A paid reservation whose MoMo hold had expired before it settled can push a
+// day or tier over capacity. The customer paid, so they keep their ticket;
+// this reports the overflow so it can be flagged "oversold" for the admin.
+export async function reservationOverflow(reservationId: string): Promise<Array<{ day: string; tier_id: string | null; capacity: number; sold: number }>> {
+  const { data, error } = await supabaseAdmin.rpc('event_reservation_overflow', { p_reservation_id: reservationId })
+  if (error) {
+    console.error('[seats] overflow check failed reservation=%s: %s', reservationId, error.message)
+    return []
+  }
+  return (data ?? []) as Array<{ day: string; tier_id: string | null; capacity: number; sold: number }>
+}

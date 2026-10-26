@@ -266,7 +266,8 @@ async function main(): Promise<void> {
       assertEq((await readRange(ongoingId))?.end_date, futureDateISO(2), 'stored as a range')
       await assertNoSubscribers(TEST_CITY, TEST_CATEGORY)   // interlock 3
       assertEq((await approve(ongoingId, admin)).status, 200, 'approved')
-      const booked = await reserve(ongoingId, { quantity: 1 }, bookerCookie)
+      // Multi-day bookings name their day (capacity is per day); today is day 3.
+      const booked = await reserve(ongoingId, { quantity: 1, event_date: futureDateISO(0) }, bookerCookie)
       const rows = await reservationRows(ongoingId)
       for (const row of rows) track('event_reservations', row.id)
       assertEq(booked.status, 200, `reserving on day 3 of the range → 200 (body ${booked.raw.slice(0, 180)})`)
@@ -493,7 +494,8 @@ async function main(): Promise<void> {
         organizerId: organizer.id, label: 'multiday_ongoing', city: TEST_CITY, category: TEST_CATEGORY,
         isActive: true, date: pastDateISO(2), endDate: futureDateISO(2),
       })
-      const r = await reserve(ev.id, { quantity: 1 }, bookerCookie)
+      // Multi-day bookings name their day (capacity is per day).
+      const r = await reserve(ev.id, { quantity: 1, event_date: futureDateISO(0) }, bookerCookie)
       const rows = await reservationRows(ev.id)
       for (const row of rows) track('event_reservations', row.id)
       assertEq(r.status, 200, `reserve → 200, not refused as past (body ${r.raw.slice(0, 180)})`)

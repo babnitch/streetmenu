@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
+import { formatEventDay } from '@/lib/eventDate'
 
 interface Unconfirmed {
   kind:            'order' | 'reservation'
@@ -20,6 +21,18 @@ interface Unconfirmed {
   last_attempt_at: string | null
   retry_status:    string | null
   retry_next_at:   string | null
+}
+
+interface OversoldRow {
+  reservation_id:   string
+  flagged_at:       string
+  event_title:      string | null
+  event_date:       string | null
+  tier_name:        string | null
+  quantity:         number | null
+  customer_name:    string | null
+  customer_phone:   string | null
+  reservation_code: string | null
 }
 
 interface QueueRow {
@@ -45,6 +58,7 @@ export default function FailedMessagesPanel() {
   const locale = bi('fr', 'en')
   const [unconfirmed, setUnconfirmed] = useState<Unconfirmed[]>([])
   const [queue, setQueue]             = useState<QueueRow[] | null>(null)
+  const [oversold, setOversold]       = useState<OversoldRow[]>([])
   const [days, setDays]               = useState(7)
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState<string | null>(null)
@@ -60,6 +74,7 @@ export default function FailedMessagesPanel() {
       } else {
         setUnconfirmed(data.unconfirmed ?? [])
         setQueue(data.queueAvailable ? (data.queue ?? []) : null)
+        setOversold(data.oversold ?? [])
         setDays(data.windowDays ?? 7)
       }
     } catch (e) {
@@ -120,6 +135,35 @@ export default function FailedMessagesPanel() {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* Only rendered when there is something to act on. */}
+      {oversold.length > 0 && (
+        <div className="mb-4">
+          <h3 className="font-semibold text-amber-700 text-xs mb-1">
+            ⚠️ {bi('Survente — billets payés au-delà de la capacité', 'Oversold — tickets paid beyond capacity')}
+          </h3>
+          <p className="text-[11px] text-ink-tertiary mb-2">
+            {bi(
+              'Paiement arrivé après expiration de la réservation : le client est confirmé. Prévenez l\'organisateur (place à libérer ou remboursement).',
+              'Payment arrived after the hold expired: the customer is confirmed. Tell the organiser (make room or refund).',
+            )}
+          </p>
+          <ul className="divide-y divide-divider">
+            {oversold.map(o => (
+              <li key={o.reservation_id} className="py-2 text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="font-semibold text-ink-primary">🎟 #{o.reservation_code ?? o.reservation_id.slice(-4).toUpperCase()}</span>
+                <span className="text-ink-secondary">{o.event_title ?? '—'}</span>
+                {o.event_date && <span className="text-ink-secondary">{formatEventDay(o.event_date, locale === 'en' ? 'en' : 'fr', 'compact')}</span>}
+                {o.tier_name && <span className="text-ink-secondary">{o.tier_name}</span>}
+                <span className="text-ink-secondary">× {o.quantity ?? '?'}</span>
+                <span className="text-ink-secondary">{o.customer_name ?? '—'}</span>
+                <span className="font-mono text-ink-secondary">{o.customer_phone}</span>
+                <span className="text-ink-tertiary">{fmt(o.flagged_at, locale)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <h3 className="font-semibold text-ink-primary text-xs mb-2">

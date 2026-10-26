@@ -16,7 +16,8 @@ import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, effectiveWebMode, canPayOnline, canReserve } from '@/lib/paymentMode'
-import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd, formatEventDay, isMultiDay, todayISO } from '@/lib/eventDate'
+import type { DayAvailability } from '@/lib/eventSeats'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -61,6 +62,20 @@ export default function EventDetailPage() {
   }
   const [tiers, setTiers] = useState<PublicTier[]>([])
   const [tierQty, setTierQty] = useState<Record<string, number>>({})
+
+  // Seats per day and per tier (capacity is per day). null until loaded, or
+  // when the endpoint failed — the page then falls back to the event-wide
+  // counters, and the booking API still enforces the real limit.
+  const [availability, setAvailability] = useState<DayAvailability[] | null>(null)
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const loadAvailability = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/events/${id}/availability`, { cache: 'no-store' })
+      const d = await r.json()
+      if (r.ok && Array.isArray(d?.days)) setAvailability(d.days)
+    } catch { /* keep the counter fallback */ }
+  }, [id])
+  useEffect(() => { loadAvailability() }, [loadAvailability])
 
   // Reservation modal state
   const [showModal, setShowModal] = useState(false)
@@ -109,6 +124,19 @@ export default function EventDetailPage() {
     }
     fetchEvent()
   }, [id])
+
+  // Default day: today when it is a bookable day with room, else the first
+  // future day with room, else the first future day.
+  useEffect(() => {
+    if (!availability) return
+    const future = availability.filter(d => !d.past)
+    if (selectedDay && future.some(d => d.date === selectedDay)) return
+    const today = todayISO()
+    const pick = future.find(d => d.date === today && !d.soldOut)
+      ?? future.find(d => !d.soldOut)
+      ?? future[0]
+    setSelectedDay(pick?.date ?? null)
+  }, [availability, selectedDay])
 
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
@@ -193,9 +221,32 @@ export default function EventDetailPage() {
     ? tiers.every(t => t.price === 0)
     : ticketPrice === 0
   const maxTickets   = Number(event.max_tickets ?? 0)
+  // Capacity is per day. With availability loaded, seats come from the
+  // selected day and the event is sold out only when EVERY remaining day is
+  // full. Without it (still loading / failed), fall back to the event-wide
+  // counters; the booking API enforces the real per-day limit either way.
+  const multiDay     = isMultiDay(event)
+  const futureDays   = availability ? availability.filter(d => !d.past) : []
+  const dayAv        = availability && selectedDay ? availability.find(d => d.date === selectedDay) ?? null : null
   const ticketsSold  = Number(event.tickets_sold ?? 0)
-  const remaining    = maxTickets > 0 ? Math.max(0, maxTickets - ticketsSold) : Infinity
-  const soldOut      = maxTickets > 0 && remaining <= 0
+  const remaining    = availability
+    ? (dayAv?.remaining ?? Infinity)
+    : maxTickets > 0 ? Math.max(0, maxTickets - ticketsSold) : Infinity
+  const soldOut      = availability
+    ? futureDays.length > 0 && futureDays.every(d => d.soldOut)
+    : maxTickets > 0 && remaining <= 0
+  const daySoldOut   = !!dayAv?.soldOut
+  const tierLeft = (tierId: string): number | null => {
+    const t = dayAv?.tiers.find(x => x.tier_id === tierId)
+    return t ? t.remaining : null
+  }
+  const dayLabel = (d: string) => formatEventDay(d, locale, 'compact')
+  function chooseDay(d: string) {
+    if (d === selectedDay) return
+    setSelectedDay(d)
+    setTierQty({})
+    setQuantity(1)
+  }
   const isCancelled  = event.event_status === 'cancelled'
   const isCompleted  = event.event_status === 'completed'
   // Organizer can close the reservation gate independently of event_status —
@@ -323,6 +374,7 @@ export default function EventDetailPage() {
           setPayPhase('paid')
           const { data: refreshed } = await supabase.from('events').select('*').eq('id', event!.id).single()
           if (refreshed) setEvent(refreshed)
+          loadAvailability()
         } else if (d.phase === 'failed') {
           stopPolling()
           setReserveError(d.failureReason ?? bi('Paiement refusé', 'Payment refused'))
@@ -349,6 +401,7 @@ export default function EventDetailPage() {
       const body: Record<string, unknown> = {
         quantity:    hasTiers ? (tierItem?.quantity ?? 1) : quantity,
         phoneNumber: trimmedMomo,
+        event_date:  selectedDay ?? undefined,
         // Site language at booking time — the API confirms in this language
         // (and syncs it onto the customer's account) so a customer browsing
         // in French never gets an English confirmation.
@@ -393,6 +446,7 @@ export default function EventDetailPage() {
       const body: Record<string, unknown> = hasTiers
         ? { items: selectedTierItems.map(i => ({ tier_id: i.tier_id, quantity: i.quantity })), locale }
         : { quantity, locale }
+      if (selectedDay) body.event_date = selectedDay
       if (appliedPromo) body.voucher_code = appliedPromo.code
       const res = await fetch(`/api/events/${event!.id}/reserve`, {
         method: 'POST',
@@ -414,6 +468,7 @@ export default function EventDetailPage() {
       // Re-fetch event so the remaining counter reflects the new sale.
       const { data: refreshed } = await supabase.from('events').select('*').eq('id', event!.id).single()
       if (refreshed) setEvent(refreshed)
+      loadAvailability()
     } finally {
       setSubmitting(false)
     }
@@ -475,11 +530,13 @@ export default function EventDetailPage() {
                 : `${ticketPrice.toLocaleString()} FCFA${bi(' / personne', ' / person')}`
             }
           />
-          {maxTickets > 0 && !soldOut && (
+          {maxTickets > 0 && !soldOut && remaining !== Infinity && (
             <DetailRow
               icon="👥"
               label={bi('Disponibilité', 'Availability')}
-              value={`${remaining} ${bi('places restantes', 'spots remaining')}`}
+              value={daySoldOut
+                ? `${bi('Complet', 'Sold out')}${multiDay && selectedDay ? ` — ${dayLabel(selectedDay)}` : ''}`
+                : `${remaining} ${bi('places restantes', 'spots remaining')}${multiDay && selectedDay ? ` — ${dayLabel(selectedDay)}` : ''}`}
             />
           )}
           {event.organizer_name && (
@@ -521,14 +578,43 @@ export default function EventDetailPage() {
           </div>
         )}
 
+        {/* Day picker — multi-day events sell seats per day. Past days are
+            not offered; a full day shows "Complet" and can't be picked. */}
+        {multiDay && reservable && futureDays.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm p-3">
+            <p className="text-xs font-semibold text-ink-secondary mb-2">
+              🗓️ {bi('Choisissez votre jour', 'Pick your day')}
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {futureDays.map(d => (
+                <button
+                  key={d.date}
+                  type="button"
+                  disabled={d.soldOut}
+                  onClick={() => chooseDay(d.date)}
+                  className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors disabled:opacity-50 ${
+                    d.date === selectedDay
+                      ? 'bg-brand text-white border-brand'
+                      : 'bg-white text-ink-primary border-divider hover:bg-surface-muted'
+                  }`}
+                >
+                  {dayLabel(d.date)}
+                  {d.soldOut && <span className="block text-[10px] font-normal">{bi('Complet', 'Sold out')}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Tier picker — only when the event has tiers AND we can still
             sell. Per-tier qty stepper, total at the bottom, modal opens
-            once at least one tier is selected. */}
+            once at least one tier is selected. Remaining is for the
+            selected day. */}
         {hasTiers && reservable && (
           <div className="space-y-2">
             {tiers.map(t => {
               const displayName = locale === 'en' && t.name_en ? t.name_en : t.name
-              const remaining = t.max_quantity > 0 ? Math.max(0, t.max_quantity - t.sold_count) : null
+              const remaining = t.max_quantity > 0 ? tierLeft(t.id) : null
               const tierSoldOut = remaining === 0
               const qty = tierQty[t.id] ?? 0
               const canInc = !tierSoldOut && (remaining === null || qty < remaining) && qty < 10
@@ -583,7 +669,7 @@ export default function EventDetailPage() {
         {onlineReservable && (
           <button
             onClick={() => openReserve(false)}
-            disabled={!meLoaded || (me != null && hasTiers && tierTotalQty === 0)}
+            disabled={!meLoaded || daySoldOut || (me != null && hasTiers && tierTotalQty === 0)}
             className="block w-full bg-brand hover:bg-brand-dark disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
             {/* Signed-out visitors get an explicit label — the tap opens the
@@ -614,7 +700,7 @@ export default function EventDetailPage() {
         {onlinePayReservable && (
           <button
             onClick={() => openReserve(true)}
-            disabled={!meLoaded || (me != null && hasTiers && (tierTotalQty === 0 || multiTierPay))}
+            disabled={!meLoaded || daySoldOut || (me != null && hasTiers && (tierTotalQty === 0 || multiTierPay))}
             className="block w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
             {me
@@ -795,7 +881,9 @@ export default function EventDetailPage() {
                     ? <>💰 {bi('Réserver et payer', 'Reserve and pay')}</>
                     : <>📋 {bi('Réserver', 'Reserve')}</>}
                 </h3>
-                <p className="text-xs text-ink-tertiary mb-4">{event.title} · {dateStr}</p>
+                <p className="text-xs text-ink-tertiary mb-4">
+                  {event.title} · {multiDay && selectedDay ? formatEventDay(selectedDay, locale, 'detail') : dateStr}
+                </p>
 
                 {/* Tier events: the quantities were picked in the tier
                     steppers and are what gets submitted, so show them

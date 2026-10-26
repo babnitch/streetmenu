@@ -209,16 +209,21 @@ async function main(): Promise<void> {
     assertEq(active.kind, 'active', 'a plain tier is active')
     assertEq(active.kind === 'active' ? active.remaining : 'n/a', null, 'unlimited stock reports null remaining')
 
-    const limited = tierAvailability(tier({ max_quantity: 10, sold_count: 3 }), now)
+    // Capacity is per day: it comes from the third argument (seats held on
+    // the chosen day), never from the all-days sold_count counter.
+    const limited = tierAvailability(tier({ max_quantity: 10 }), now, 3)
     assertEq(limited.kind, 'active', 'a partly sold tier is still active')
-    assertEq(limited.kind === 'active' ? limited.remaining : -1, 7, 'remaining is max minus sold')
+    assertEq(limited.kind === 'active' ? limited.remaining : -1, 7, 'remaining is max minus sold that day')
 
     assertEq(tierAvailability(tier({ is_active: false }), now).kind, 'inactive', 'soft-deleted → inactive')
-    assertEq(tierAvailability(tier({ is_active: false, max_quantity: 1, sold_count: 5 }), now).kind, 'inactive',
+    assertEq(tierAvailability(tier({ is_active: false, max_quantity: 1 }), now, 5).kind, 'inactive',
       'inactive is checked before sold_out')
 
-    assertEq(tierAvailability(tier({ max_quantity: 5, sold_count: 5 }), now).kind, 'sold_out', 'sold to the cap → sold_out')
-    assertEq(tierAvailability(tier({ max_quantity: 5, sold_count: 9 }), now).kind, 'sold_out', 'oversold → sold_out')
+    assertEq(tierAvailability(tier({ max_quantity: 5 }), now, 5).kind, 'sold_out', 'sold to the cap that day → sold_out')
+    assertEq(tierAvailability(tier({ max_quantity: 5 }), now, 9).kind, 'sold_out', 'oversold that day → sold_out')
+    const counterOnly = tierAvailability(tier({ max_quantity: 5, sold_count: 9 }), now)
+    assertEq(counterOnly.kind, 'active', 'the all-days sold_count alone never marks a tier sold out')
+    assertEq(counterOnly.kind === 'active' ? counterOnly.remaining : -1, null, 'and without a day there is no remaining')
 
     const upcoming = tierAvailability(tier({ sales_start: '2026-07-01T00:00:00Z' }), now)
     assertEq(upcoming.kind, 'upcoming', 'a future sales_start → upcoming')

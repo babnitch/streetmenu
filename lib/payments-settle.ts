@@ -24,7 +24,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
-import { releaseSeats } from '@/lib/eventSeats'
+import { releaseSeats, reservationOverflow } from '@/lib/eventSeats'
 import type { PawaPayCorrespondent } from '@/lib/pawapay'
 
 export type SettleVia = 'webhook' | 'status_poll' | 'reconcile'
@@ -182,6 +182,20 @@ async function settleReservation(
         correspondent: outcome.correspondent, event_id: won.event_id,
       },
     })
+    // A payment that settles after its seat hold expired (event_payment_hold)
+    // was not counted in between, so it can push a day or tier over capacity.
+    // The customer paid: they are confirmed regardless. The overflow is
+    // flagged for the admin (audit + Admin → Messages "Oversold").
+    const overflow = await reservationOverflow(id)
+    if (overflow.length > 0) {
+      console.error('[payment] OVERSOLD reservation=%s event=%s deposit=%s overflow=%j', id, won.event_id, depositId, overflow)
+      await writeAudit({
+        action:     'event_reservation_oversold',
+        targetType: 'event_reservation',
+        targetId:   id,
+        metadata:   { event_id: won.event_id, deposit_id: depositId, via, quantity: won.quantity, overflow },
+      })
+    }
     await notifyPaidReservation(id, outcome.correspondent)
     return { kind: 'reservation', id, action: 'paid' }
   }
@@ -194,8 +208,8 @@ async function settleReservation(
   // Release the seats held while the MoMo prompt was open — the event total
   // AND the tier's sold_count, so the public picker shows them available
   // again. Only the claim winner gets here, so this runs once per deposit.
-  // (Read-then-write against concurrent bookings is the same as every other
-  // seat counter in the app; there is no atomic counter RPC yet.)
+  // (These all-days counters are for dashboards only; availability is
+  // computed from the reservation rows, where 'failed' already holds nothing.)
   await releaseSeats(won, now)
 
   await writeAudit({

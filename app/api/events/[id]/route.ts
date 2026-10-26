@@ -5,7 +5,7 @@ import { isEventOrganizer } from '@/lib/eventAuth'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 import { notifyEventUpdate, type SignificantChanges } from '@/lib/directMessaging'
 import {
-  EVENT_DATE_COLUMNS, effectiveEndDate, validateEventRange, eventRangeErrorText, normalizeEndDate,
+  EVENT_DATE_COLUMNS, effectiveEndDate, validateEventRange, eventRangeErrorText, normalizeEndDate, eventDays,
 } from '@/lib/eventDate'
 
 export const dynamic = 'force-dynamic'
@@ -98,6 +98,36 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Aucun champ à mettre à jour / Nothing to update' }, { status: 400 })
   }
 
+  // Bookings are per day (event_reservations.event_date). A single-day event
+  // that moves takes its bookings with it (below, after the update). Any other
+  // range change is refused while active bookings sit on a day it would drop.
+  const datesMoved = 'date' in updates || 'end_date' in body
+  const oldDays = eventDays(event)
+  const newDays = datesMoved
+    ? eventDays({ date: merged.date, end_date: (updates.end_date as string | null) ?? null })
+    : oldDays
+  const singleDayMove = datesMoved && oldDays.length === 1 && newDays.length === 1 && oldDays[0] !== newDays[0]
+  if (datesMoved && !singleDayMove) {
+    const { data: held, error: heldErr } = await supabaseAdmin
+      .from('event_reservations')
+      .select('event_date')
+      .eq('event_id', event.id)
+      .in('reservation_status', ['pending', 'confirmed', 'attended'])
+      .not('event_date', 'is', null)
+    if (heldErr) {
+      console.error('[events/PATCH] booked-days check failed:', heldErr.message)
+      return NextResponse.json({ error: 'Erreur — réessayez. / Error — please try again.' }, { status: 500 })
+    }
+    const stranded = Array.from(new Set((held ?? []).map(r => String(r.event_date))))
+      .filter(d => !newDays.includes(d)).sort()
+    if (stranded.length > 0) {
+      return NextResponse.json({
+        error: `Des réservations existent le ${stranded.join(', ')} — gardez ces jours ou annulez-les d'abord. / Bookings exist on ${stranded.join(', ')} — keep those days or cancel them first.`,
+        stranded_days: stranded,
+      }, { status: 409 })
+    }
+  }
+
   const { data: updated, error: updErr } = await supabaseAdmin
     .from('events').update(updates).eq('id', event.id)
     .select(`id, title, ${EVENT_DATE_COLUMNS}, venue`)
@@ -105,6 +135,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (updErr || !updated) {
     console.error('[events/PATCH] update failed:', updErr?.message)
     return NextResponse.json({ error: updErr?.message ?? 'Erreur / Error' }, { status: 500 })
+  }
+
+  if (singleDayMove) {
+    const { error: moveErr } = await supabaseAdmin
+      .from('event_reservations')
+      .update({ event_date: newDays[0], updated_at: new Date().toISOString() })
+      .eq('event_id', event.id)
+      .eq('event_date', oldDays[0])
+    if (moveErr) console.error('[events/PATCH] moving bookings %s → %s failed:', oldDays[0], newDays[0], moveErr.message)
+    else console.log('[events/PATCH] event=%s bookings moved %s → %s', event.id, oldDays[0], newDays[0])
   }
 
   // Significant-change detection — compare against the pre-update snapshot.

@@ -219,6 +219,37 @@ export function isMultiDay(event: EventWhen): boolean {
   return !!range && range.end !== range.start
 }
 
+// Every calendar day of the event, first to last (YYYY-MM-DD). Capacity is
+// per day (supabase-event-day-capacity.sql), so a booking is always for one
+// of these.
+export function eventDays(event: EventWhen): string[] {
+  const range = eventDayRange(event)
+  if (!range) return []
+  const days: string[] = []
+  const d = utcDate(range.start)
+  const end = utcDate(range.end)
+  while (d <= end && days.length < 366) {
+    days.push(d.toISOString().slice(0, 10))
+    d.setUTCDate(d.getUTCDate() + 1)
+  }
+  return days
+}
+
+// The day a booking is for. Single-day events need no choice (their only
+// day); a multi-day event requires one of its days. Returns null when the
+// requested day is missing or outside the event.
+export function resolveBookingDay(event: EventWhen, requested: unknown): string | null {
+  const days = eventDays(event)
+  if (days.length === 1) return days[0]
+  const day = typeof requested === 'string' ? requested.slice(0, 10) : ''
+  return days.includes(day) ? day : null
+}
+
+// One booked day ("mer. 22 oct. 2026"), for confirmations of a multi-day event.
+export function formatEventDay(dayISO: string, lang: 'fr' | 'en', style: EventDateStyle): string {
+  return dateFormatter(lang, style).format(utcDate(dayISO))
+}
+
 function formatDays(range: DayRange, lang: 'fr' | 'en', style: EventDateStyle): string {
   const fmt = dateFormatter(lang, style)
   return range.end === range.start

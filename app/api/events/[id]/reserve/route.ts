@@ -4,10 +4,11 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
-import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay, resolveBookingDay } from '@/lib/eventDate'
 import { tierAvailability, type TicketTier } from '@/lib/tiers'
 import { canReserve, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCodes } from '@/lib/reservationCode'
+import { reserveEventSeats, type SeatRequestRow } from '@/lib/eventSeats'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 import { samePhone } from '@/lib/phone'
 
@@ -26,6 +27,10 @@ export const dynamic = 'force-dynamic'
 //      requested tier; each row carries a snapshot of tier_id +
 //      tier_name + tier_price so the customer/admin history survives
 //      later renames or deactivations.
+//
+//   Both take event_date (YYYY-MM-DD): required for a multi-day event, the
+//   event's only day otherwise. Capacity is per day and per tier, checked
+//   atomically by reserve_event_seats (lib/eventSeats.ts).
 //
 // Free + pay-at-door only. payment_enabled=true events route through
 // /pay (PawaPay) — that handler mirrors this validation.
@@ -120,6 +125,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 403 })
   }
 
+  // ── Which day ────────────────────────────────────────────────────────────
+  const day = resolveBookingDay(event, body.event_date)
+  if (!day) {
+    return NextResponse.json({ error: 'Choisissez un jour de l\'événement / Pick a day of the event' }, { status: 400 })
+  }
+
   // ── Items-shaped vs legacy single-quantity ───────────────────────────────
   type Item = { tier_id: string; quantity: number }
   const rawItems = Array.isArray(body.items) ? body.items : null
@@ -136,10 +147,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const needsApproval = event.requires_confirmation === true
   const initialStatus: 'pending' | 'confirmed' = needsApproval ? 'pending' : 'confirmed'
   const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
-  const sold = Number(event.tickets_sold ?? 0)
 
   // Build the row list to insert. The legacy path is fully isomorphic
-  // with a one-element item list whose tier_id is null.
+  // with a one-element item list whose tier_id is null. Capacity is NOT
+  // checked here — reserve_event_seats does it for the chosen day.
   type RowToInsert = {
     quantity:   number
     total_price: number
@@ -149,8 +160,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     tier_price: number | null
   }
   const rowsToInsert: RowToInsert[] = []
-  // Tracks tier.sold_count bumps per tier_id for the post-insert update.
-  const tierBumps: Map<string, { newSold: number; row: TicketTier }> = new Map()
 
   if (useTiers) {
     const { data: tierRows, error: tierErr } = await supabaseAdmin
@@ -175,14 +184,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           state:   avail.kind,
         }, { status: 409 })
       }
-      const remaining = tier.max_quantity > 0 ? tier.max_quantity - tier.sold_count : Infinity
-      if (item.quantity > remaining) {
-        return NextResponse.json({
-          error: `Plus assez de places pour ${tier.name} / Not enough remaining`,
-          remaining: Math.max(0, remaining),
-          tier_id:   tier.id,
-        }, { status: 409 })
-      }
       const linePrice = tier.price * item.quantity
       rowsToInsert.push({
         quantity:          item.quantity,
@@ -192,17 +193,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         tier_name:         tier.name,
         tier_price:        tier.price,
       })
-      tierBumps.set(tier.id, { newSold: tier.sold_count + item.quantity, row: tier })
     }
   } else {
     const qty = Number(body.quantity)
     const quantity = Number.isFinite(qty) && qty >= 1 && qty <= 10 ? Math.floor(qty) : 1
-    if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
-      return NextResponse.json({
-        error: 'Plus assez de places / Not enough spots remaining',
-        remaining: Math.max(0, event.max_tickets - sold),
-      }, { status: 409 })
-    }
     const ticketPrice = Number(event.ticket_price ?? 0) || 0
     const linePrice = ticketPrice * quantity
     rowsToInsert.push({
@@ -215,18 +209,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
   }
 
-  // ── Insert reservation rows ──────────────────────────────────────────────
   const totalQuantity = rowsToInsert.reduce((s, r) => s + r.quantity, 0)
   const totalPrice    = rowsToInsert.reduce((s, r) => s + r.total_price, 0)
-
-  // Aggregate-capacity gate when using tiers but the event also has a
-  // global max_tickets — both caps must hold.
-  if (useTiers && event.max_tickets && event.max_tickets > 0 && sold + totalQuantity > event.max_tickets) {
-    return NextResponse.json({
-      error: 'Plus assez de places / Not enough spots remaining',
-      remaining: Math.max(0, event.max_tickets - sold),
-    }, { status: 409 })
-  }
 
   // ── Promo code / voucher ───────────────────────────────────────────────────
   // Validated server-side against THIS event (event-scoped or platform-wide
@@ -263,8 +247,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // check people in by it). Multi-tier bookings insert several rows, each
   // with its own code.
   const codes = await generateReservationCodes(rowsToInsert.length)
-  const insertPayload = rowsToInsert.map((r, idx) => ({
-    event_id:           event.id,
+  const seatRows: SeatRequestRow[] = rowsToInsert.map((r, idx) => ({
     customer_id:        customerId,
     customer_name:      custName,
     customer_phone:     custPhone,
@@ -281,33 +264,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     tier_price:         r.tier_price,
   }))
 
-  const { data: inserted, error: insErr } = await supabaseAdmin
-    .from('event_reservations')
-    .insert(insertPayload)
-    .select('id, quantity, total_price, tier_id, tier_name, reservation_code')
-  if (insErr || !inserted || inserted.length === 0) {
-    console.error('[events/reserve] insert failed:', insErr?.message)
-    return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
+  // Atomic per-day capacity check + insert (+ the all-days counters).
+  const booked = await reserveEventSeats(event.id, day, seatRows)
+  if (!booked.ok) {
+    console.log('[events/reserve] refused event=%s day=%s: %s', event.id, day, booked.body.error)
+    return NextResponse.json(booked.body, { status: booked.status })
   }
-  console.log('[reserve] reservation created:', inserted[0].id)
-
-  // Bump global tickets_sold + per-tier sold_count by the RESERVED QUANTITY
-  // (not +1). Race-window same as the legacy code — acceptable at this scale.
-  const nextSold = sold + totalQuantity
-  console.log('[events/reserve] event=%s tickets_sold %d → %d (+%d across %d row(s))',
-    event.id, sold, nextSold, totalQuantity, rowsToInsert.length)
-  await supabaseAdmin
-    .from('events')
-    .update({ tickets_sold: nextSold })
-    .eq('id', event.id)
-  const bumps = Array.from(tierBumps.values())
-  for (const { newSold, row } of bumps) {
-    console.log('[events/reserve] tier=%s sold_count %d → %d', row.id, row.sold_count, newSold)
-    await supabaseAdmin
-      .from('event_ticket_tiers')
-      .update({ sold_count: newSold, updated_at: new Date().toISOString() })
-      .eq('id', row.id)
+  const inserted = booked.rows
+  if (inserted.length === 0) {
+    return NextResponse.json({ error: 'Erreur / Error' }, { status: 500 })
   }
+  console.log('[reserve] reservation created:', inserted[0].id, 'day', day, 'qty', totalQuantity)
 
   // Consume the voucher once the reservation is committed. Isolated in its own
   // try/catch so a consumption failure can NEVER block the confirmation ping
@@ -376,7 +343,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .from('customers').update({ preferred_language: bodyLocale }).eq('id', customerId)
     console.log('[reserve] synced customer=%s preferred_language → %s', customerId, bodyLocale)
   }
-  const whenStr = formatEventWhen(event, custLang, 'message')
+  // Multi-day events: the confirmation names the booked day, not the range.
+  const bookedWhen = (lang: Lang) => isMultiDay(event)
+    ? formatEventDay(day, lang, 'message') + (event.time ? ` · ${event.time}` : '')
+    : formatEventWhen(event, lang, 'message')
+  const whenStr = bookedWhen(custLang)
   // Discount line shown to both parties when a voucher applied.
   const discountLineFor = (lang: 'fr' | 'en') => appliedVoucher && discountTotal > 0
     ? pickLang(
@@ -418,7 +389,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const orgLang = await getLangByPhone(organizerPhone)
     console.log('[notify] customer phone=%s lang=%s, organizer phone=%s lang=%s',
       custPhone, custLang, organizerPhone, orgLang)
-    const orgDateStr = formatEventDates(event, orgLang, 'message')
+    const orgDateStr = isMultiDay(event) ? formatEventDay(day, orgLang, 'message') : formatEventDates(event, orgLang, 'message')
     const organizerHeader = needsApproval
       ? pickLang(
           `📋 *Nouvelle réservation en attente*\nCode #${primaryCode} — répondez "confirmer reservation ${primaryCode}" ou "rejeter reservation ${primaryCode}".`,
@@ -447,6 +418,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     reservation_ids:   inserted.map(r => r.id),
     reservation_code:  primaryCode,
     reservation_codes: inserted.map(r => r.reservation_code),
+    event_date:        day,
     quantity:          totalQuantity,
     original_price:    totalPrice,
     discount_amount:   discountTotal,

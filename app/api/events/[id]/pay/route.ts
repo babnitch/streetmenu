@@ -9,18 +9,22 @@ import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
-import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventWhen } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventWhen, formatEventDay, isMultiDay, resolveBookingDay } from '@/lib/eventDate'
+import { reserveEventSeats, type SeatRequestRow } from '@/lib/eventSeats'
+import { depositFailure } from '@/lib/whatsapp/ordering'
+import { randomUUID } from 'crypto'
 import { samePhone } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/events/[id]/pay
-// Body: { quantity, phoneNumber, customer_name?, customer_phone? }
+// Body: { quantity, phoneNumber, tier_id?, event_date?, voucher_code?, locale? }
 //
-// Mirrors /api/payments/initiate for restaurant orders. Inserts a pending
-// event_reservation row, calls PawaPay createDeposit, stores the deposit
-// id on the reservation, bumps events.tickets_sold so concurrent buyers
-// can't oversell, returns the depositId for client-side polling.
+// Mirrors /api/payments/initiate for restaurant orders. Books a pending
+// event_reservation through reserve_event_seats (per-day, per-tier capacity,
+// atomic — lib/eventSeats.ts) with the deposit id already on it, then calls
+// PawaPay createDeposit and returns the depositId for client-side polling.
+// event_date is required for a multi-day event.
 //
 // Webhook + status poll in /api/payments/{webhook,status/[depositId]}
 // are responsible for flipping payment_status to 'paid' and firing the
@@ -91,18 +95,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .from('event_ticket_tiers').select('*').eq('id', tierIdRaw).eq('event_id', event.id).maybeSingle()
     if (!t) return NextResponse.json({ error: 'Tarif introuvable / Tier not found' }, { status: 404 })
     tier = t as TicketTier
+    // Lifecycle only (sales window, active). Capacity for the chosen day is
+    // checked atomically by reserve_event_seats below.
     const avail = tierAvailability(tier)
     if (avail.kind !== 'active') {
       return NextResponse.json({
         error: `Tarif non disponible / Tier not available`,
         state: avail.kind,
-      }, { status: 409 })
-    }
-    const remaining = tier.max_quantity > 0 ? tier.max_quantity - tier.sold_count : Infinity
-    if (quantity > remaining) {
-      return NextResponse.json({
-        error: 'Plus assez de places pour ce tarif / Not enough remaining for this tier',
-        remaining: Math.max(0, remaining),
       }, { status: 409 })
     }
   }
@@ -114,13 +113,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 400 })
   }
 
-  // Capacity check against the event's global cap (unchanged).
-  const sold = Number(event.tickets_sold ?? 0)
-  if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
-    return NextResponse.json({
-      error: 'Plus assez de places / Not enough spots remaining',
-      remaining: Math.max(0, event.max_tickets - sold),
-    }, { status: 409 })
+  // Which day — required for a multi-day event.
+  const day = resolveBookingDay(event, body.event_date)
+  if (!day) {
+    return NextResponse.json({ error: 'Choisissez un jour de l\'événement / Pick a day of the event' }, { status: 400 })
   }
 
   // Identity always comes from the session's account row. Same shape as
@@ -197,24 +193,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // so confirm it as a free reservation and skip the payment step entirely.
   if (finalTotal <= 0) {
     const freeCode = await generateReservationCode()
-    const { data: freeRes, error: freeErr } = await supabaseAdmin
-      .from('event_reservations')
-      .insert({
-        event_id: event.id, customer_id: customerId, customer_name: custName, customer_phone: custPhone,
-        quantity, total_price: 0, commission_amount: 0,
-        discount_amount: discountAmount, voucher_code: appliedVoucher?.code ?? null,
-        payment_status: 'not_required', reservation_status: 'confirmed', reservation_code: freeCode,
-        tier_id: tier?.id ?? null, tier_name: tier?.name ?? null, tier_price: tier?.price ?? null,
-      })
-      .select('id, reservation_code').single()
-    if (freeErr || !freeRes) {
-      return NextResponse.json({ error: freeErr?.message ?? 'Erreur / Error' }, { status: 500 })
-    }
-    await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
-    if (tier) {
-      await supabaseAdmin.from('event_ticket_tiers')
-        .update({ sold_count: tier.sold_count + quantity, updated_at: new Date().toISOString() }).eq('id', tier.id)
-    }
+    const freeBooked = await reserveEventSeats(event.id, day, [{
+      customer_id: customerId, customer_name: custName, customer_phone: custPhone,
+      quantity, total_price: 0, commission_amount: 0,
+      discount_amount: discountAmount, voucher_code: appliedVoucher?.code ?? null,
+      payment_status: 'not_required', reservation_status: 'confirmed', reservation_code: freeCode,
+      tier_id: tier?.id ?? null, tier_name: tier?.name ?? null, tier_price: tier?.price ?? null,
+    }])
+    if (!freeBooked.ok) return NextResponse.json(freeBooked.body, { status: freeBooked.status })
+    const freeRes = freeBooked.rows[0]
     if (appliedVoucher) {
       try { await consumeVoucherForReservation(appliedVoucher.id, customerId) }
       catch (e) { console.error('[events/pay] voucher error:', (e as Error).message) }
@@ -228,7 +215,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // locale sent with the request → account preference → phone lookup.
       const lang: Lang = requestLocale ?? storedLang ?? await getLangByPhone(custPhone)
       console.log('[events/pay] customer lang=%s (locale=%s stored=%s)', lang, requestLocale ?? '-', storedLang ?? '-')
-      const whenStr = formatEventWhen(event, lang, 'message')
+      const whenStr = isMultiDay(event)
+        ? formatEventDay(day, lang, 'message') + (event.time ? ` · ${event.time}` : '')
+        : formatEventWhen(event, lang, 'message')
       console.log('[reserve] sending WhatsApp to customer:', custPhone)
       await sendWhatsApp(custPhone, [
         pickLang(`✅ *Réservation confirmée!*`, `✅ *Reservation confirmed!*`, lang),
@@ -245,59 +234,43 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     return NextResponse.json({
-      ok: true, reservation_id: freeRes.id, reservation_code: freeRes.reservation_code,
+      ok: true, reservation_id: freeRes.id, reservation_code: freeRes.reservation_code, event_date: day,
       free_after_discount: true, original_price: totalPrice, discount_amount: discountAmount, total_price: 0,
     })
   }
 
-  // Pending reservation FIRST so we have an id to thread into PawaPay's
-  // statementDescription. Bump tickets_sold under the same write so concurrent
-  // callers see the new count immediately.
+  // Pending reservation FIRST, booked through reserve_event_seats (per-day
+  // capacity, atomic) with the deposit id already on it: a callback that
+  // beats our own write — or a request that times out after PawaPay created
+  // the deposit — still finds this row.
   const reservationCode = await generateReservationCode()
-  const { data: reservation, error: insErr } = await supabaseAdmin
-    .from('event_reservations')
-    .insert({
-      event_id:           event.id,
-      customer_id:        customerId,
-      customer_name:      custName,
-      customer_phone:     custPhone,
-      quantity,
-      total_price:        finalTotal,
-      commission_amount:  commissionAmount,
-      discount_amount:    discountAmount,
-      voucher_code:       appliedVoucher?.code ?? null,
-      payment_status:     'pending',
-      reservation_status: 'confirmed',
-      reservation_code:   reservationCode,
-      tier_id:            tier?.id    ?? null,
-      tier_name:          tier?.name  ?? null,
-      tier_price:         tier?.price ?? null,
-    })
-    .select('id, reservation_code')
-    .single()
-
-  if (insErr || !reservation) {
-    console.error('[events/pay] reservation insert failed:', insErr?.message)
-    return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
+  const depositId = randomUUID()
+  const seatRow: SeatRequestRow = {
+    customer_id:        customerId,
+    customer_name:      custName,
+    customer_phone:     custPhone,
+    quantity,
+    total_price:        finalTotal,
+    commission_amount:  commissionAmount,
+    discount_amount:    discountAmount,
+    voucher_code:       appliedVoucher?.code ?? null,
+    payment_status:     'pending',
+    payment_id:         depositId,
+    payment_method:     mno.correspondent,
+    reservation_status: 'confirmed',
+    reservation_code:   reservationCode,
+    tier_id:            tier?.id    ?? null,
+    tier_name:          tier?.name  ?? null,
+    tier_price:         tier?.price ?? null,
   }
-
-  console.log('[events/pay] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + quantity, quantity)
-  await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
-  // Per-tier sold_count bump too, mirroring the free reserve flow so the
-  // public picker's "remaining" stays accurate even before the deposit
-  // settles. The webhook releases this back on FAILED/REJECTED.
-  if (tier) {
-    console.log('[events/pay] tier=%s sold_count %d → %d', tier.id, tier.sold_count, tier.sold_count + quantity)
-    await supabaseAdmin
-      .from('event_ticket_tiers')
-      .update({ sold_count: tier.sold_count + quantity, updated_at: new Date().toISOString() })
-      .eq('id', tier.id)
+  const booked = await reserveEventSeats(event.id, day, [seatRow])
+  if (!booked.ok) {
+    console.log('[events/pay] refused event=%s day=%s: %s', event.id, day, booked.body.error)
+    return NextResponse.json(booked.body, { status: booked.status })
   }
+  const reservation = booked.rows[0]
+  console.log('[events/pay] reservation=%s event=%s day=%s qty=%d deposit=%s', reservation.id, event.id, day, quantity, depositId)
 
-  // Now create the deposit. If PawaPay rejects synchronously we leave the
-  // reservation as 'pending' and report the error — the user can retry, and
-  // the row stays as an artifact for the organizer (matches the existing
-  // restaurant-order behaviour where the row stays pending on init failure).
   let depositResult
   try {
     depositResult = await createDeposit({
@@ -306,20 +279,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       phoneNumber,
       orderId:     reservation.id,
       description: `${event.title} ${reservation.id.slice(0, 6)}`,
+      depositId,
     })
   } catch (e) {
     const msg = (e as Error).message
-    console.error('[events/pay] createDeposit failed:', msg)
+    const f = depositFailure(e)
+    console.error('[events/pay] createDeposit failed reservation=%s definitive=%s: %s', reservation.id, f.definitive, msg)
+    if (f.definitive) {
+      // No prompt will appear: settle as failed so the seats go back now
+      // (no failure WhatsApp on this path — the page shows the error).
+      const { settleDeposit } = await import('@/lib/payments-settle')
+      await settleDeposit(depositId, { status: 'REJECTED', failureReason: f.reason }, 'status_poll')
+    }
+    // Otherwise the outcome is unknown: the reservation keeps its deposit id
+    // and the webhook or reconcile settles it; its hold lapses on its own.
     return NextResponse.json({ error: msg }, { status: 502 })
   }
-
-  await supabaseAdmin
-    .from('event_reservations')
-    .update({
-      payment_id:     depositResult.depositId,
-      payment_method: depositResult.correspondent,
-    })
-    .eq('id', reservation.id)
 
   // Consume the voucher now that payment is under way — mirrors the restaurant
   // order flow (consume at creation, not at settlement).
@@ -351,6 +326,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ok:               true,
     reservation_id:   reservation.id,
     reservation_code: reservation.reservation_code,
+    event_date:       day,
     depositId:        depositResult.depositId,
     status:         depositResult.status,
     mno:            depositResult.correspondent,

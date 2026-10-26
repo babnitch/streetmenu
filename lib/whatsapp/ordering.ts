@@ -21,7 +21,7 @@ import {
 import { validateVoucher, consumeVoucherForOrder, consumeVoucherForReservation, isPercentDiscount } from '@/lib/vouchers'
 import { createDeposit, checkDepositStatus, detectMNO, countryFromCity, isPawaPayTimeout } from '@/lib/pawapay'
 import { randomUUID } from 'crypto'
-import { closeReservation } from '@/lib/eventSeats'
+import { closeReservation, reserveEventSeats, getEventAvailability, type ReserveSeatsResult } from '@/lib/eventSeats'
 import { formatPrepTime } from '@/lib/prepTime'
 import { sendEventMessage } from '@/lib/directMessaging'
 import { generateReservationCode } from '@/lib/reservationCode'
@@ -30,7 +30,7 @@ import {
 } from '@/lib/paymentMode'
 import { samePhone } from '@/lib/phone'
 import { isEventOrganizer } from '@/lib/eventAuth'
-import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, isMultiDay, resolveBookingDay, todayISO } from '@/lib/eventDate'
 
 // Every send from this module is a reply in the WhatsApp bot conversation,
 // so it lands in the message log as 'bot_reply' unless the call site says
@@ -1866,12 +1866,13 @@ export async function handleEventSession(
       await sendWhatsApp(from, blockedStep1)
       return ok()
     }
-    const sold = Number(event.tickets_sold ?? 0)
-    if (event.max_tickets && event.max_tickets > 0 && sold + q > event.max_tickets) {
+    // Early answer only; the insert re-checks atomically (reserve_event_seats).
+    const left = await seatsLeftToday(event)
+    if (q > left) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang(
-        `❌ Plus que ${Math.max(0, event.max_tickets - sold)} places.`,
-        `❌ Only ${Math.max(0, event.max_tickets - sold)} spots left.`,
+        `❌ Plus que ${left} places.`,
+        `❌ Only ${left} spots left.`,
         lang,
       ))
       return ok()
@@ -1907,7 +1908,7 @@ export async function handleEventSession(
         ))
         return ok()
       }
-      return confirmEventReservationWhatsapp({ from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang })
+      return confirmEventReservationWhatsapp({ from, phone, customer, event, q, totalPrice, commissionAmount, ticketPrice, lang })
     }
 
     if (effMode === 'both') {
@@ -1946,7 +1947,7 @@ export async function handleEventSession(
     }
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, tickets_sold, ticket_price`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, ticket_price`)
       .eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -1959,7 +1960,6 @@ export async function handleEventSession(
       await sendWhatsApp(from, blockedStep5)
       return ok()
     }
-    const sold = Number(event.tickets_sold ?? 0)
     const ticketPrice = Number(event.ticket_price ?? 0)
 
     // "oui/yes/ok" → confirm with whatever discount is currently on the session.
@@ -1969,7 +1969,7 @@ export async function handleEventSession(
       const commission = total > 0 ? Math.round(total * commissionRate) : 0
       return confirmEventReservationWhatsapp({
         from, phone, customer, event: event as EventReserveRow, q,
-        totalPrice: total, commissionAmount: commission, sold, ticketPrice, lang,
+        totalPrice: total, commissionAmount: commission, ticketPrice, lang,
         voucherCode: (data?.voucher_code as string) ?? null,
         voucherId:   (data?.voucher_id as string) ?? null,
         discountAmount: discount,
@@ -2020,7 +2020,7 @@ export async function handleEventSession(
     }
 
     const { data: event } = await supabaseAdmin
-      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, city, organizer_id, submitted_by, whatsapp, tickets_sold, max_tickets`).eq('id', eventId).maybeSingle()
+      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, city, organizer_id, submitted_by, whatsapp`).eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
@@ -2044,43 +2044,40 @@ export async function handleEventSession(
       return ok()
     }
 
-    // Insert the pending reservation + bump tickets_sold (race window
-    // mirrors the API path; cleanup happens via the webhook on FAILED).
-    const sold = Number(event.tickets_sold ?? 0)
-    if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
+    // Book the pending reservation through reserve_event_seats (atomic,
+    // per-day capacity, bumps the all-days counters). The deposit id is
+    // stored with the row, before PawaPay is called, so a callback that beats
+    // us — or a request that times out after PawaPay created the deposit —
+    // still finds this reservation.
+    const day = resolveBookingDay(event, null)
+    if (!day) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, pickLang('❌ Complet.', '❌ Sold out.', lang))
+      await sendWhatsApp(from, multiDayWebLink(event.id, event.title, lang))
       return ok()
     }
     const reservationCode = await generateReservationCode()
-    // The deposit id is stored with the row, before PawaPay is called, so a
-    // callback that beats us — or a request that times out after PawaPay
-    // created the deposit — still finds this reservation.
     const depositId = randomUUID()
-    const { data: reservation, error: insErr } = await supabaseAdmin
-      .from('event_reservations')
-      .insert({
-        event_id:           event.id,
-        customer_id:        customer.id,
-        customer_name:      customer.name,
-        customer_phone:     customer.phone,
-        quantity,
-        total_price:        totalPrice,
-        commission_amount:  commissionAmount,
-        payment_status:     'pending',
-        payment_id:         depositId,
-        payment_method:     mno.correspondent,
-        reservation_status: 'confirmed',
-        reservation_code:   reservationCode,
-      }).select('id, reservation_code').single()
-    if (insErr || !reservation) {
-      console.error(`[whatsapp/reserve-pay] insert failed event=${event.id}: ${insErr?.message}`)
-      await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
+    const booked = await reserveEventSeats(event.id, day, [{
+      customer_id:        customer.id,
+      customer_name:      customer.name,
+      customer_phone:     customer.phone,
+      quantity,
+      total_price:        totalPrice,
+      commission_amount:  commissionAmount,
+      payment_status:     'pending',
+      payment_id:         depositId,
+      payment_method:     mno.correspondent,
+      reservation_status: 'confirmed',
+      reservation_code:   reservationCode,
+      tier_id: null, tier_name: null, tier_price: null,
+    }])
+    if (!booked.ok) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, seatRefusalText(booked, lang))
       return ok()
     }
-    console.log('[whatsapp/reserve-pay] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + quantity, quantity)
-    const { error: soldErr } = await supabaseAdmin.from('events').update({ tickets_sold: sold + quantity }).eq('id', event.id)
-    if (soldErr) console.error(`[whatsapp/reserve-pay] tickets_sold update failed event=${event.id}: ${soldErr.message}`)
+    const reservation = booked.rows[0]
+    console.log('[whatsapp/reserve-pay] reservation=%s event=%s day=%s qty=%d', reservation.id, event.id, day, quantity)
 
     let depositResult
     try {
@@ -2176,7 +2173,7 @@ export async function handleEventSession(
     // Reserve → re-pull the event to re-check capacity, then confirm.
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, tickets_sold, max_tickets`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, max_tickets`)
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2189,17 +2186,7 @@ export async function handleEventSession(
       await sendWhatsApp(from, blockedStep3)
       return ok()
     }
-    const sold = Number(event.tickets_sold ?? 0)
-    if (event.max_tickets && event.max_tickets > 0 && sold + quantity > event.max_tickets) {
-      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, pickLang(
-        `❌ Plus que ${Math.max(0, event.max_tickets - sold)} places.`,
-        `❌ Only ${Math.max(0, event.max_tickets - sold)} spots left.`,
-        lang,
-      ))
-      return ok()
-    }
-    return confirmEventReservationWhatsapp({ from, phone, customer, event, q: quantity, totalPrice, commissionAmount, sold, ticketPrice, lang })
+    return confirmEventReservationWhatsapp({ from, phone, customer, event, q: quantity, totalPrice, commissionAmount, ticketPrice, lang })
   }
 
   // Unknown event session shape — quietly clear it.
@@ -2209,6 +2196,34 @@ export async function handleEventSession(
 }
 
 // ── Internal helpers for the event flow ──────────────────────────────────────
+
+// Seats still free today on a single-day event (event-wide cap; the chat flow
+// books without a tier). Infinity when uncapped or unknown — the insert
+// re-checks atomically either way.
+async function seatsLeftToday(event: { id: string; date: string | null; end_date: string | null }): Promise<number> {
+  const day = resolveBookingDay(event, null)
+  if (!day) return Infinity
+  const days = await getEventAvailability(event.id, todayISO())
+  const remaining = days?.find(d => d.date === day)?.remaining
+  return remaining === null || remaining === undefined ? Infinity : remaining
+}
+
+// Multi-day events are booked on the website, where the customer picks a day.
+function multiDayWebLink(eventId: string, title: string, lang: Lang): string {
+  return pickLang(
+    `🗓️ *${title}* dure plusieurs jours : choisissez votre jour et réservez sur le site :\n${BASE_URL}/events/${eventId}`,
+    `🗓️ *${title}* runs over several days: pick your day and book on the website:\n${BASE_URL}/events/${eventId}`,
+    lang,
+  )
+}
+
+// A booking refused by reserve_event_seats, in the customer's language.
+function seatRefusalText(result: Extract<ReserveSeatsResult, { ok: false }>, lang: Lang): string {
+  const left = result.body.remaining
+  if (left === 0) return pickLang('❌ Complet.', '❌ Sold out.', lang)
+  if (typeof left === 'number') return pickLang(`❌ Plus que ${left} places.`, `❌ Only ${left} spots left.`, lang)
+  return pickLang('⚠️ Réservation impossible pour le moment. Réessayez.', '⚠️ Booking not possible right now. Please try again.', lang)
+}
 
 // Minimal event shape the reservation confirmation needs.
 interface EventReserveRow {
@@ -2252,16 +2267,16 @@ async function askEventMomoNumber(
   return ok()
 }
 
-// Inserts a free / pay-at-door event reservation, bumps tickets_sold, confirms
-// to the customer and pings the organizer. Shared by reservation_only and the
-// 'both' → reserve choice.
+// Books a free / pay-at-door event reservation through reserve_event_seats
+// (atomic per-day capacity), confirms to the customer and pings the
+// organizer. Shared by reservation_only and the 'both' → reserve choice.
 async function confirmEventReservationWhatsapp(opts: {
   from: string; phone: string; customer: OrderingCustomer
   event: EventReserveRow; q: number; totalPrice: number; commissionAmount: number
-  sold: number; ticketPrice: number; lang: Lang
+  ticketPrice: number; lang: Lang
   voucherCode?: string | null; voucherId?: string | null; discountAmount?: number
 }): Promise<NextResponse> {
-  const { from, phone, customer, event, q, totalPrice, commissionAmount, sold, ticketPrice, lang } = opts
+  const { from, phone, customer, event, q, totalPrice, commissionAmount, ticketPrice, lang } = opts
   // Last line of defence — every path funnels through here before the insert.
   const blocked = bookingBlock(event, customer, lang)
   if (blocked) {
@@ -2271,31 +2286,35 @@ async function confirmEventReservationWhatsapp(opts: {
   }
   const voucherCode = opts.voucherCode ?? null
   const discountAmount = opts.discountAmount ?? 0
-  const reservationCode = await generateReservationCode()
-  const { data: reservation, error: insErr } = await supabaseAdmin
-    .from('event_reservations')
-    .insert({
-      event_id:           event.id,
-      customer_id:        customer.id,
-      customer_name:      customer.name,
-      customer_phone:     customer.phone,
-      quantity:           q,
-      total_price:        totalPrice,
-      commission_amount:  commissionAmount,
-      discount_amount:    discountAmount,
-      voucher_code:       voucherCode,
-      payment_status:     'not_required',
-      reservation_status: 'confirmed',
-      reservation_code:   reservationCode,
-    })
-    .select('id, reservation_code').single()
-  if (insErr || !reservation) {
-    await sendWhatsApp(from, pickLang(`⚠️ Erreur.`, `⚠️ Error.`, lang))
+  const day = resolveBookingDay(event, null)
+  if (!day) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, multiDayWebLink(event.id, event.title, lang))
     return ok()
   }
+  const reservationCode = await generateReservationCode()
+  const booked = await reserveEventSeats(event.id, day, [{
+    customer_id:        customer.id,
+    customer_name:      customer.name,
+    customer_phone:     customer.phone,
+    quantity:           q,
+    total_price:        totalPrice,
+    commission_amount:  commissionAmount,
+    discount_amount:    discountAmount,
+    voucher_code:       voucherCode,
+    payment_status:     'not_required',
+    reservation_status: 'confirmed',
+    reservation_code:   reservationCode,
+    tier_id: null, tier_name: null, tier_price: null,
+  }])
+  if (!booked.ok) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, seatRefusalText(booked, lang))
+    return ok()
+  }
+  const reservation = booked.rows[0]
   if (opts.voucherId) await consumeVoucherForReservation(opts.voucherId, customer.id)
-  console.log('[whatsapp/reserve] event=%s tickets_sold %d → %d (+%d)', event.id, sold, sold + q, q)
-  await supabaseAdmin.from('events').update({ tickets_sold: sold + q }).eq('id', event.id)
+  console.log('[whatsapp/reserve] reservation=%s event=%s day=%s qty=%d', reservation.id, event.id, day, q)
   await writeAudit({
     action:          'event_reservation_created',
     targetType:      'event_reservation',
@@ -2353,9 +2372,12 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
   const priceLine = !event.ticket_price || event.ticket_price <= 0
     ? pickLang(`🎫 Gratuit`, `🎫 Free`, lang)
     : pickLang(`🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / personne`, `🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / person`, lang)
-  const remaining = event.max_tickets && event.max_tickets > 0
-    ? Math.max(0, event.max_tickets - Number(event.tickets_sold ?? 0))
-    : null
+  // Seats left come from the reservations that hold seats (per day). A
+  // multi-day event is booked on the website, so no single number here.
+  const left = event.max_tickets && event.max_tickets > 0 && !isMultiDay(event)
+    ? await seatsLeftToday(event)
+    : Infinity
+  const remaining = left === Infinity ? null : left
   const capacityLine = remaining != null
     ? `👥 ${remaining} ${remaining > 0 ? pickLang('places restantes', 'spots remaining', lang) : pickLang('— ❌ Complet', '— ❌ Sold out', lang)}`
     : ''
@@ -2364,9 +2386,11 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     ? '\n' + `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
     : remaining === 0
       ? '\n' + pickLang(`❌ Cet événement est complet.`, `❌ This event is sold out.`, lang)
-      : '\n' + pickLang(
-          `💡 Envoyez 'reserver' pour réserver, ou 'retour' pour la liste.`,
-          `💡 Send 'reserve' to book, or 'back' for the list.`, lang)
+      : isMultiDay(event)
+        ? '\n' + multiDayWebLink(event.id, event.title, lang)
+        : '\n' + pickLang(
+            `💡 Envoyez 'reserver' pour réserver, ou 'retour' pour la liste.`,
+            `💡 Send 'reserve' to book, or 'back' for the list.`, lang)
 
   const { error: sessErr } = await supabaseAdmin.from('signup_sessions').upsert({
     phone, user_type: 'event_detail', step: 1,
@@ -2444,10 +2468,14 @@ async function startReserveFlow(
     await sendWhatsApp(from, blocked)
     return ok()
   }
-  const sold = Number(event.tickets_sold ?? 0)
-  const remaining = event.max_tickets && event.max_tickets > 0
-    ? Math.max(0, event.max_tickets - sold)
-    : Infinity
+  // Multi-day events are booked per day on the website (day picker); the
+  // chat flow has no day step.
+  if (isMultiDay(event)) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, multiDayWebLink(event.id, event.title, lang))
+    return ok()
+  }
+  const remaining = await seatsLeftToday(event)
   if (remaining === 0) {
     await sendWhatsApp(from, pickLang('❌ Complet.', '❌ Sold out.', lang))
     return ok()

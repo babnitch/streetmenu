@@ -13,7 +13,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { vendorRecipients } from '@/lib/whatsapp/ordering'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
-import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen } from '@/lib/eventDate'
+import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
 
 export async function notifyPaidOrder(
   orderId: string,
@@ -112,7 +112,7 @@ export async function notifyPaidReservation(
 ): Promise<void> {
   const { data: r } = await supabaseAdmin
     .from('event_reservations')
-    .select('id, event_id, customer_name, customer_phone, quantity, total_price, reservation_code')
+    .select('id, event_id, event_date, customer_name, customer_phone, quantity, total_price, reservation_code')
     .eq('id', reservationId)
     .maybeSingle()
   if (!r) {
@@ -131,9 +131,13 @@ export async function notifyPaidReservation(
 
   const total   = Number(r.total_price ?? 0)
   const id4     = r.reservation_code ?? r.id.replace(/-/g, '').slice(-4).toUpperCase()
-  // Format the date in each recipient's language (customer vs organizer).
-  const fmtDate = (l: Lang) => formatEventDates(event, l, 'message')
-  const fmtWhen = (l: Lang) => formatEventWhen(event, l, 'message')
+  // Format the date in each recipient's language (customer vs organizer). A
+  // multi-day ticket is for one day: name that day, not the whole range.
+  const bookedDay = isMultiDay(event) && r.event_date ? String(r.event_date) : null
+  const fmtDate = (l: Lang) => bookedDay ? formatEventDay(bookedDay, l, 'message') : formatEventDates(event, l, 'message')
+  const fmtWhen = (l: Lang) => bookedDay
+    ? formatEventDay(bookedDay, l, 'message') + (event.time ? ` · ${event.time}` : '')
+    : formatEventWhen(event, l, 'message')
   const mno = correspondent ? mnoLabel(correspondent) : 'mobile money'
 
   console.log(`[payment] calling notifyPaidReservation for reservation: ${r.id} event=${event.id}`)
