@@ -198,23 +198,16 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // WhatsApp confirmation to the submitter. Best effort — submission has
-  // already succeeded by this point.
-  {
-    const msg = (lang: 'fr' | 'en') => autoApprove
-      ? pickLang(
-          `✅ *Événement publié!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Tchop & Ndjoka.`,
-          `✅ *Event published!*\n\n🎉 ${event.title}\n\nLive immediately on Tchop & Ndjoka.`,
-          lang,
-        )
-      : pickLang(
-          `✅ *Événement soumis!*\n\n🎉 ${event.title}\n\nIl sera visible après approbation par un admin.`,
-          `✅ *Event submitted!*\n\n🎉 ${event.title}\n\nIt will be visible after admin approval.`,
-          lang,
-        )
-    // Account phone + the extra number.
+  // One message per event (decision D): "publié" when it went live at once
+  // (verified organiser); otherwise nothing now — the approval message
+  // follows. Sent to the account phone + the extra number.
+  if (autoApprove) {
     await notifyOrganizer({ id: event.id, organizer_id: submitter.id, whatsapp: submitter.phone, notify_phone: notifyPhone },
-      msg, { context: 'event_update', relatedId: event.id }, submitter.phone)
+      lang => pickLang(
+        `✅ *Événement publié!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Tchop & Ndjoka.`,
+        `✅ *Event published!*\n\n🎉 ${event.title}\n\nLive immediately on Tchop & Ndjoka.`,
+        lang,
+      ), { context: 'event_update', relatedId: event.id }, submitter.phone)
   }
 
   // Fan-out to subscribers when the event went live immediately (verified

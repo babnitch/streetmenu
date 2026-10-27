@@ -9,7 +9,6 @@ import {
   notifyCustomerOrderConfirmed,
   notifyCustomerOrderPreparing,
   notifyCustomerOrderReady,
-  notifyCustomerOrderDelivered,
   notifyCustomerOrderCancelled,
   pickLang,
   getLangByPhone,
@@ -30,6 +29,7 @@ import {
 } from '@/lib/paymentMode'
 import { samePhone, uniquePhones } from '@/lib/phone'
 import { notifyOrganizer } from '@/lib/eventRecipients'
+import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, isMultiDay, resolveBookingDay, todayISO } from '@/lib/eventDate'
 
@@ -3215,7 +3215,7 @@ export async function handleVendorOrderAction(
     await sendWhatsApp(from,
       pickLang(`🍳 Commande #${upper} — préparation démarrée.`, `🍳 Order #${upper} — preparation started.`, vendorLang) + `\n\n` +
       pickLang(`💡 Envoyez 'pret ${upper}' quand la commande est prête.`, `💡 Send 'ready ${upper}' when the order is ready.`, vendorLang))
-    await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurant.name, custLang)
+    if (await shouldMessageStatus(order.id, 'preparing')) await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'ready') {
     await sendWhatsApp(from,
       pickLang(`🎉 Commande #${upper} prête! Le client est notifié.`, `🎉 Order #${upper} is ready! Customer notified.`, vendorLang) + `\n\n` +
@@ -3224,7 +3224,7 @@ export async function handleVendorOrderAction(
   } else if (target === 'delivered') {
     await sendWhatsApp(from,
       pickLang(`📦 Commande #${upper} récupérée. Terminé!`, `📦 Order #${upper} picked up. Done!`, vendorLang))
-    await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name, custLang)
+    // No customer message: they are at the counter (shouldMessageStatus).
   }
   return ok()
 }

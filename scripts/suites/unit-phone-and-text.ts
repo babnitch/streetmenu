@@ -6,6 +6,7 @@
 
 import { normalizePhone, samePhone, uniquePhones } from '@/lib/phone'
 import { maskCodes } from '@/lib/messageLog'
+import { guessLang } from '@/lib/whatsapp'
 import { blockedByTestGuard } from '@/lib/testGuard'
 import {
   normalizeTypedPhone,
@@ -78,6 +79,11 @@ async function main(): Promise<void> {
     assertEq(maskCodes('verification_code', 'Votre code de vérification : 482913'), 'Votre code de vérification : ••••••', 'customer code masked')
     assertEq(maskCodes('verification_code', 'Code de connexion / Login code: 0042'), 'Code de connexion / Login code: ••••••', 'short code masked')
     assertEq(maskCodes('order_notification', 'Commande #1234 — 2500 FCFA'), 'Commande #1234 — 2500 FCFA', 'other messages untouched')
+  })
+
+  await step('bot language guess for a new number', () => {
+    for (const t of ['hi', 'Hello', 'help', 'register', 'Good morning']) assertEq(guessLang(t), 'en', `"${t}" → en`)
+    for (const t of ['bonjour', 'salut', 'aide', 'menu', 'Je veux commander', 'help merci']) assertEq(guessLang(t), 'fr', `"${t}" → fr`)
   })
 
   await step('test send guard: only the test range when set', () => {

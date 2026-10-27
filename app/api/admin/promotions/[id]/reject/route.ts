@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,19 +46,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     metadata:        { reason },
   })
 
-  const promoterPhone = (promo.customers as unknown as { phone?: string } | null)?.phone
-  if (promoterPhone) {
-    const lang = await getLangByPhone(promoterPhone)
-    await sendWhatsApp(promoterPhone, pickLang(
-      `❌ *Promotion rejetée*\n\n` +
-      (reason ? `Raison: ${reason}\n\n` : '') +
-      `Contactez le support pour plus de détails.`,
-      `❌ *Promotion rejected*\n\n` +
-      (reason ? `Reason: ${reason}\n\n` : '') +
-      `Contact support for details.`,
-      lang,
-    ), { context: 'account_notice', relatedId: params.id }).catch(() => null)
-  }
+  // No WhatsApp message to the promoter (decision D): they see the status
+  // in Account → Promouvoir.
 
   return NextResponse.json({ ok: true })
 }

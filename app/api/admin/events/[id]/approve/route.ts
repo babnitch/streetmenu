@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { pickLang } from '@/lib/whatsapp'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 import { EVENT_DATE_COLUMNS } from '@/lib/eventDate'
@@ -47,7 +47,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .eq('id', event.organizer_id)
       .maybeSingle()
     if (organizer) {
-      const orgLang = organizer.phone ? await getLangByPhone(organizer.phone) : 'fr'
       const nextCount = (organizer.events_approved_count ?? 0) + 1
       const grantAuto = !organizer.event_auto_approve && nextCount >= AUTO_APPROVE_THRESHOLD
       newlyGrantedAuto = grantAuto
@@ -69,21 +68,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           performedByType: session.role,
           metadata:        { threshold: AUTO_APPROVE_THRESHOLD, events_approved_count: nextCount },
         })
-        if (organizer.phone) {
-          await sendWhatsApp(organizer.phone, pickLang(
-            `🎉 *Organisateur vérifié!*\n\n` +
-            `Vos prochains événements seront publiés immédiatement.`,
-            `🎉 *Verified organiser!*\n\n` +
-            `Your next events will publish immediately.`,
-            orgLang,
-          ), { context: 'account_notice', customerId: organizer.id ?? null }).catch(() => null)
-        }
       }
 
-      // Account phone + the event's extra notification number.
+      // One message: the approval, plus — when this approval made them a
+      // verified organiser — that their next events publish at once (no
+      // separate "Organisateur vérifié" message).
       await notifyOrganizer(event, lang => pickLang(
-        `✅ *Événement approuvé!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka.`,
-        `✅ *Event approved!*\n\n🎉 ${event.title}\n\nLive on Tchop & Ndjoka.`,
+        `✅ *Événement approuvé!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka.` +
+          (grantAuto ? `\n\n🎉 Vous êtes organisateur vérifié : vos prochains événements seront publiés immédiatement.` : ''),
+        `✅ *Event approved!*\n\n🎉 ${event.title}\n\nLive on Tchop & Ndjoka.` +
+          (grantAuto ? `\n\n🎉 You're a verified organiser: your next events will publish immediately.` : ''),
         lang,
       ), { context: 'event_update', relatedId: event.id }, organizer.phone ?? null)
     }

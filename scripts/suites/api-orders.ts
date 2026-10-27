@@ -16,7 +16,7 @@ import { teardown } from '../testkit/ledger'
 
 const SUITE = 'api-orders'
 
-interface StatusBody { status?: string; previousStatus?: string; error?: string }
+interface StatusBody { status?: string; previousStatus?: string; error?: string; customerNotified?: boolean }
 
 async function main(): Promise<void> {
   try {
@@ -69,6 +69,25 @@ async function main(): Promise<void> {
       const r = await setStatus(o.id, 'ready', cookies.staff)
       assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 160)})`)
       assertEq(r.body.status, 'ready', 'ready')
+    })
+
+    await step('fewer messages: no "preparing" right after "confirmed", never "delivered"', async () => {
+      const o = await newOrder('pending')
+      const c = await setStatus(o.id, 'confirmed', cookies.owner)
+      assertEq(c.body.customerNotified, true, 'confirmed → customer messaged')
+      // Locally Twilio refuses (dummy credentials); pretend "confirmed" was
+      // delivered, as in production. (A failed one would not silence
+      // "preparing" — the customer must hear something.)
+      await sb.from('message_log').update({ status: 'delivered' } as never)
+        .eq('related_id', o.id).eq('context', 'order_status_update')
+      const p = await setStatus(o.id, 'preparing', cookies.owner)
+      assertEq(p.status, 200, 'preparing → 200')
+      assertEq(p.body.customerNotified, false, 'preparing within 10 min of confirmed → no message')
+      const r = await setStatus(o.id, 'ready', cookies.owner)
+      assertEq(r.body.customerNotified, true, 'ready → customer messaged')
+      const d = await setStatus(o.id, 'delivered', cookies.owner)
+      assertEq(d.status, 200, 'delivered → 200')
+      assertEq(d.body.customerNotified, false, 'delivered → no message (pickup)')
     })
 
     await step('staff cannot confirm or cancel', async () => {

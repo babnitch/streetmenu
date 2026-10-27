@@ -198,7 +198,10 @@ async function main(): Promise<void> {
     })
 
     await step('send guard: a real-looking number gets nothing and leaves no log row', async () => {
-      const cookie = customerCookie(org)
+      // A verified organiser: "Événement publié" goes to both numbers, so the
+      // real-looking extra number really is sent to — and must be refused.
+      const verified = await makeCustomer({ suiteNo: 26, name: 'Verified Organiser', extra: { event_auto_approve: true } })
+      const cookie = customerCookie(verified)
       const real = '+237 699 00 00 09'
       const r = await api<{ event_id?: string }>('/api/events/submit', {
         cookie, body: { title: testName('c3_guard'), date: futureDateISO(20), city: testName('city'), category: 'Autre', ticket_price: 0, organizer_name: 'Asso', notify_phone: real },

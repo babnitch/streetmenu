@@ -1,7 +1,7 @@
-import { cityCentre } from '@/lib/restaurantSignup'
+import { cityCentre, registeredText } from '@/lib/restaurantSignup'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
+import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, guessLang, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import { sendRestaurantMessage } from '@/lib/directMessaging'
@@ -60,6 +60,12 @@ const CUISINE_MAP: Record<string, string> = {
 }
 function parseCuisine(input: string): string | null {
   return CUISINE_MAP[input.toLowerCase().trim()] ?? null
+}
+
+// The account's language when there is one, else the guess.
+async function langFor(phone: string, text: string): Promise<Lang> {
+  const { data } = await supabaseAdmin.from('customers').select('preferred_language').eq('phone', phone).maybeSingle()
+  return data?.preferred_language ? normalizeLang(data.preferred_language) : guessLang(text)
 }
 
 function sessionExpiry(minutes = 60): string {
@@ -463,7 +469,7 @@ export async function POST(req: NextRequest) {
 
   const phone = normalisePhone(from)
   if (!phone) {
-    await sendWhatsApp(from, 'Numéro non reconnu. / Unrecognised number.')
+    await sendWhatsApp(from, pickLang('Numéro non reconnu.', 'Unrecognised number.', guessLang(body)))
     return ok()
   }
 
@@ -491,9 +497,9 @@ export async function POST(req: NextRequest) {
   if (cmd === 'reset' || cmd === 'reinitialiser' || cmd === 'réinitialiser'
       || cmd === 'exit' || cmd === 'quitter' || cmd === 'stop') {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-    await sendWhatsApp(from,
-      '✅ C\'est réinitialisé. Envoyez "aide" pour recommencer.\n' +
-      '✅ All clear. Send "help" to start over.')
+    await sendWhatsApp(from, pickLang(
+      '✅ C\'est réinitialisé. Envoyez "aide" pour recommencer.',
+      '✅ All clear. Send "help" to start over.', await langFor(phone, cmd)))
     return ok()
   }
 
@@ -502,9 +508,9 @@ export async function POST(req: NextRequest) {
   // the customer's language; everything else gets the generic ack here.
   if ((cmd === 'annuler' || cmd === 'cancel') && session?.user_type !== 'ordering') {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-    await sendWhatsApp(from,
-      '❌ Annulé. / Cancelled.\n\n' +
-      'Envoyez "aide" pour recommencer. / Send "help" to start over.')
+    await sendWhatsApp(from, pickLang(
+      '❌ Annulé.\n\nEnvoyez "aide" pour recommencer.',
+      '❌ Cancelled.\n\nSend "help" to start over.', await langFor(phone, cmd)))
     return ok()
   }
 
@@ -628,14 +634,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Brand-new user → start customer signup
+  // Their language is guessed from this first message and kept for the
+  // sign-up (and saved on the account it creates).
+  const newLang = guessLang(body)
   await supabaseAdmin.from('signup_sessions').upsert({
-    phone, user_type: 'customer', step: 1, data: {}, expires_at: sessionExpiry(),
+    phone, user_type: 'customer', step: 1, data: { lang: newLang }, expires_at: sessionExpiry(),
   })
-  await sendWhatsApp(from,
-    '👋 Bienvenue sur *Tchop & Ndjoka*!\n' +
-    'Inscrivez-vous en 2 étapes. / Welcome! Sign up in 2 steps.\n\n' +
-    'Quel est votre *nom*? / What is your *name*?\n\n' +
-    '_Envoyez "annuler" pour annuler. / Send "cancel" to cancel._')
+  await sendWhatsApp(from, pickLang(
+    '👋 Bienvenue sur *Tchop & Ndjoka*!\nInscrivez-vous en 2 étapes.\n\nQuel est votre *prénom*?\n\n_Envoyez "annuler" pour annuler._',
+    '👋 Welcome to *Tchop & Ndjoka*!\nSign up in 2 steps.\n\nWhat is your *first name*?\n\n_Send "cancel" to cancel._', newLang))
   return ok()
 }
 
@@ -712,6 +719,9 @@ async function handleSession(
   mediaUrl:  string,
 ): Promise<NextResponse> {
   const { user_type, step, data } = session
+  // One language per message: the one this flow started in, else the
+  // account's, else French.
+  const L: Lang = data.lang === 'en' || data.lang === 'fr' ? data.lang : await langFor(phone, body)
 
   // ── Ordering session — handed off to lib/whatsapp/ordering.ts ────────────
   if (user_type === 'ordering') {
@@ -720,7 +730,7 @@ async function handleSession(
       .eq('phone', phone).maybeSingle()
     if (!customer) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, '❌ Session expirée. Envoyez "aide". / Session expired. Send "help".')
+      await sendWhatsApp(from, pickLang('❌ Session expirée. Envoyez "aide".', '❌ Session expired. Send "help".', L))
       return ok()
     }
     return handleOrderingSession(
@@ -737,7 +747,7 @@ async function handleSession(
       .eq('phone', phone).maybeSingle()
     if (!customer) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      await sendWhatsApp(from, '❌ Session expirée. Envoyez "aide". / Session expired.')
+      await sendWhatsApp(from, pickLang('❌ Session expirée. Envoyez "aide".', '❌ Session expired. Send "help".', L))
       return ok()
     }
     return handleEventSession(from, phone, cmd, session as unknown as Parameters<typeof handleEventSession>[3], customer as OrderingCustomer)
@@ -750,46 +760,44 @@ async function handleSession(
     if (step === 1) {
       const name = body.trim()
       if (name.length < 2) {
-        await sendWhatsApp(from, 'Merci d\'entrer un prénom valide. / Please enter a valid name.')
+        await sendWhatsApp(from, pickLang('Merci d\'entrer un prénom valide.', 'Please enter a valid name.', L))
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
         step: 2, data: { ...data, name }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
-      await sendWhatsApp(from,
-        `Bonjour *${name}*! 🎉\n\n` +
-        'Dans quelle *ville* êtes-vous? / Which *city* are you in?\n\n' +
-        '1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n' +
-        '_Tapez le nom ou le chiffre. / Type name or number._')
+      await sendWhatsApp(from, pickLang(
+        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Tapez le nom ou le chiffre._`,
+        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Type the name or the number._`, L))
       return ok()
     }
 
     if (step === 2) {
       const city = parseCity(body)
       if (!city) {
-        await sendWhatsApp(from, 'Choisissez / Choose:\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
         return ok()
       }
       const name = data.name ?? 'Ami'
       const { data: newCustomer, error } = await supabaseAdmin
-        .from('customers').insert({ phone, name, city }).select('id').single()
+        .from('customers').insert({ phone, name, city, preferred_language: L }).select('id').single()
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       if (error || !newCustomer) {
         console.error('[whatsapp] customer insert error:', error?.message)
-        await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Please retry.')
+        await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Please retry.', L))
         return ok()
       }
       const { assignWelcomeVoucher } = await import('@/lib/vouchers')
       await assignWelcomeVoucher(newCustomer.id)
-      await sendWhatsApp(from,
-        `✅ *Bienvenue ${name}!* 🍽️\n\n` +
-        `Votre compte est créé. / Your account is created.\n\n` +
-        `🎉 Utilisez le code *BIENVENUE* pour 10% de réduction sur votre première commande!\n` +
-        `Use code *BIENVENUE* for 10% off your first order!\n\n` +
-        `🌍 Restaurants: ${BASE_URL}\n` +
-        `🔑 Mon compte / My account: ${BASE_URL}/account\n\n` +
-        `🏪 Vous avez un restaurant? Envoyez *restaurant*!\n` +
-        `Own a restaurant? Send *restaurant*!`)
+      await sendWhatsApp(from, pickLang(
+        `✅ *Bienvenue ${name}!* 🍽️\n\nVotre compte est créé.\n\n` +
+        `🎉 Utilisez le code *BIENVENUE* pour 10% de réduction sur votre première commande!\n\n` +
+        `🌍 Restaurants: ${BASE_URL}/restaurants\n🔑 Mon compte: ${BASE_URL}/account\n\n` +
+        `🏪 Vous avez un restaurant? Envoyez *restaurant*!`,
+        `✅ *Welcome ${name}!* 🍽️\n\nYour account is created.\n\n` +
+        `🎉 Use code *BIENVENUE* for 10% off your first order!\n\n` +
+        `🌍 Restaurants: ${BASE_URL}/restaurants\n🔑 My account: ${BASE_URL}/account\n\n` +
+        `🏪 Own a restaurant? Send *restaurant*!`, L))
       return ok()
     }
   }
@@ -803,35 +811,33 @@ async function handleSession(
     if (step === 1) {
       const name = body.trim()
       if (name.length < 2) {
-        await sendWhatsApp(from, 'Merci d\'entrer un prénom valide. / Please enter a valid name.')
+        await sendWhatsApp(from, pickLang('Merci d\'entrer un prénom valide.', 'Please enter a valid name.', L))
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
         step: 2, data: { ...data, name }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
-      await sendWhatsApp(from,
-        `Bonjour *${name}*! 🎉\n\n` +
-        'Dans quelle *ville* êtes-vous? / Which *city* are you in?\n\n' +
-        '1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n' +
-        '_Tapez le nom ou le chiffre. / Type name or number._')
+      await sendWhatsApp(from, pickLang(
+        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Tapez le nom ou le chiffre._`,
+        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Type the name or the number._`, L))
       return ok()
     }
 
     if (step === 2) {
       const city = parseCity(body)
       if (!city) {
-        await sendWhatsApp(from, 'Choisissez / Choose:\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
         return ok()
       }
       const name = data.name ?? 'Ami'
       const invitationIds = (data.invitation_ids as unknown as string[] | undefined) ?? []
 
       const { data: newCustomer, error } = await supabaseAdmin
-        .from('customers').insert({ phone, name, city }).select('id, phone, name').single()
+        .from('customers').insert({ phone, name, city, preferred_language: L }).select('id, phone, name').single()
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       if (error || !newCustomer) {
         console.error('[whatsapp] invite-accept customer insert error:', error?.message)
-        await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Please retry.')
+        await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Please retry.', L))
         return ok()
       }
 
@@ -866,16 +872,14 @@ async function handleSession(
     if (step === 1) {
       const restaurantName = body.trim()
       if (restaurantName.length < 2) {
-        await sendWhatsApp(from, 'Merci d\'entrer un nom valide. / Please enter a valid name.')
+        await sendWhatsApp(from, pickLang('Merci d\'entrer un nom valide.', 'Please enter a valid name.', L))
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
         step: 2, data: { ...data, restaurant_name: restaurantName }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
-      await sendWhatsApp(from,
-        `*${restaurantName}* — super! 👍\n\n` +
-        'Dans quelle *ville*? / Which *city*?\n\n' +
-        '1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé')
+      await sendWhatsApp(from, `*${restaurantName}* — ${pickLang('super', 'great', L)}! 👍\n\n` +
+        pickLang('Dans quelle *ville*?', 'Which *city*?', L) + '\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé')
       return ok()
     }
 
@@ -883,15 +887,13 @@ async function handleSession(
     if (step === 2) {
       const city = parseCity(body)
       if (!city) {
-        await sendWhatsApp(from, 'Choisissez / Choose:\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
         step: 3, data: { ...data, city }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
-      await sendWhatsApp(from,
-        'Dans quel *quartier*? / Which *neighborhood*?\n' +
-        '_Ex: Bastos, Plateau, Cocody, Médina…_')
+      await sendWhatsApp(from, pickLang('Dans quel *quartier*?', 'Which *neighbourhood*?', L) + '\n_Ex: Bastos, Plateau, Cocody, Médina…_')
       return ok()
     }
 
@@ -899,17 +901,15 @@ async function handleSession(
     if (step === 3) {
       const neighborhood = body.trim()
       if (neighborhood.length < 2) {
-        await sendWhatsApp(from, 'Merci d\'entrer un quartier valide. / Please enter a valid neighborhood.')
+        await sendWhatsApp(from, pickLang('Merci d\'entrer un quartier valide.', 'Please enter a valid neighbourhood.', L))
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
         step: 4, data: { ...data, neighborhood }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
-      await sendWhatsApp(from,
-        'Type de *cuisine*? / *Cuisine* type?\n\n' +
-        '1️⃣ Camerounaise\n2️⃣ Sénégalaise\n3️⃣ Ivoirienne\n' +
-        '4️⃣ Fast-food\n5️⃣ Grillades\n6️⃣ Autre\n\n' +
-        '_Tapez le nom ou le chiffre. / Type name or number._')
+      await sendWhatsApp(from, pickLang(
+        'Type de *cuisine*?\n\n1️⃣ Camerounaise\n2️⃣ Sénégalaise\n3️⃣ Ivoirienne\n4️⃣ Fast-food\n5️⃣ Grillades\n6️⃣ Autre\n\n_Tapez le nom ou le chiffre._',
+        '*Food* type?\n\n1️⃣ Cameroonian\n2️⃣ Senegalese\n3️⃣ Ivorian\n4️⃣ Fast food\n5️⃣ Grills\n6️⃣ Other\n\n_Type the number._', L))
       return ok()
     }
 
@@ -917,19 +917,17 @@ async function handleSession(
     if (step === 4) {
       const cuisine = parseCuisine(body)
       if (!cuisine) {
-        await sendWhatsApp(from,
-          'Choisissez / Choose:\n' +
-          '1 Camerounaise  2 Sénégalaise  3 Ivoirienne\n4 Fast-food  5 Grillades  6 Autre')
+        await sendWhatsApp(from, pickLang(
+          'Choisissez :\n1 Camerounaise  2 Sénégalaise  3 Ivoirienne\n4 Fast-food  5 Grillades  6 Autre',
+          'Choose:\n1 Cameroonian  2 Senegalese  3 Ivorian\n4 Fast food  5 Grills  6 Other', L))
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
         step: 5, data: { ...data, cuisine_type: cuisine }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
-      await sendWhatsApp(from,
-        '📸 Envoyez une *photo de votre restaurant*!\n' +
-        'Send a *photo of your restaurant*!\n\n' +
-        '_Envoyez "passer" ou "skip" pour ignorer cette étape._\n' +
-        '_Send "passer" or "skip" to skip this step._')
+      await sendWhatsApp(from, pickLang(
+        '📸 Envoyez une *photo de votre restaurant*!\n\n_Envoyez "passer" pour ignorer cette étape._',
+        '📸 Send a *photo of your restaurant*!\n\n_Send "skip" to skip this step._', L))
       return ok()
     }
 
@@ -940,24 +938,19 @@ async function handleSession(
 
       if (!skip) {
         if (!hasPhoto) {
-          await sendWhatsApp(from,
-            'Envoyez une photo, ou "passer" pour ignorer. / Send a photo, or "passer" to skip.')
+          await sendWhatsApp(from, pickLang('Envoyez une photo, ou "passer" pour ignorer.', 'Send a photo, or "skip" to skip.', L))
           return ok()
         }
         console.log(`[whatsapp] Step 5 photo detected for ${phone}`)
         const media = await downloadTwilioMedia(mediaUrl)
         if (!media) {
           // Don't drop the session — let them retry with another photo or skip.
-          await sendWhatsApp(from,
-            '⚠️ Impossible de télécharger la photo. Réessayez ou envoyez "passer".\n' +
-            'Could not download the photo. Retry or send "skip".')
+          await sendWhatsApp(from, pickLang('⚠️ Impossible de télécharger la photo. Réessayez ou envoyez "passer".', '⚠️ Could not download the photo. Retry or send "skip".', L))
           return ok()
         }
         imageUrl = await uploadToStorage('restaurant-images', media.buffer, media.contentType)
         if (!imageUrl) {
-          await sendWhatsApp(from,
-            '⚠️ Impossible d\'enregistrer la photo. Réessayez ou envoyez "passer".\n' +
-            'Could not save the photo. Retry or send "skip".')
+          await sendWhatsApp(from, pickLang('⚠️ Impossible d\'enregistrer la photo. Réessayez ou envoyez "passer".', '⚠️ Could not save the photo. Retry or send "skip".', L))
           return ok()
         }
         console.log(`[whatsapp] Step 5 URL saved to session data: ${imageUrl}`)
@@ -990,18 +983,11 @@ async function handleSession(
 
       if (error || !newRestaurant) {
         console.error('[whatsapp] restaurant insert error:', error?.message)
-        await sendWhatsApp(from, '❌ Erreur. Réessayez. / Error. Please retry.')
+        await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Please retry.', L))
         return ok()
       }
 
-      await sendWhatsApp(from,
-        `✅ *${restaurantName}* est enregistré! 🎉\n` +
-        `En attente d'approbation (24h). / Pending approval (24h).\n\n` +
-        `Votre page / Your page:\n${BASE_URL}/restaurant/${newRestaurant.id}\n\n` +
-        `Envoyez *aide* pour les commandes disponibles.\n` +
-        `Send *help* for available commands.\n\n` +
-        `_Vous pourrez changer la photo plus tard en envoyant "photo restaurant"._\n` +
-        `_You can update the photo later by sending "photo restaurant"._`)
+      await sendWhatsApp(from, registeredText(restaurantName, `${BASE_URL}/restaurant/${newRestaurant.id}`, L))
       return ok()
     }
   }
@@ -1090,7 +1076,7 @@ async function handleSession(
 
   // Unknown session state
   await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-  await sendWhatsApp(from, 'Session expirée. Envoyez "aide". / Session expired. Send "help".')
+  await sendWhatsApp(from, pickLang('Session expirée. Envoyez "aide".', 'Session expired. Send "help".', L))
   return ok()
 }
 
@@ -2478,7 +2464,7 @@ async function handleCustomer(
   if (cmd === 'restaurant' || cmd === 'inscription' || cmd === 'register') {
     await supabaseAdmin.from('signup_sessions').upsert({
       phone, user_type: 'vendor', step: 1,
-      data: { customer_id: customer.id }, expires_at: sessionExpiry(),
+      data: { customer_id: customer.id, lang }, expires_at: sessionExpiry(),
     })
     await sendWhatsApp(from, pickLang(
       `🏪 *Inscription restaurant*\n\n` +

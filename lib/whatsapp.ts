@@ -35,6 +35,13 @@ export function pickLang(fr: string, en: string, lang: Lang | null | undefined):
 
 // Convenience normaliser for things read out of the DB (column may be null
 // for legacy rows that predate the column).
+// Language for a number with no saved preference yet (a new user on the
+// bot): guessed from what they wrote — English words → English, else French.
+export function guessLang(text: string): Lang {
+  return /\b(hi|hello|hey|help|register|start|english|good (morning|afternoon|evening)|cancel|reset|exit|skip|thanks?|please)\b/i.test(text)
+    && !/[àâçéèêëîïôûùüÿœ]|\b(bonjour|salut|aide|merci|annuler|bonsoir)\b/i.test(text) ? 'en' : 'fr'
+}
+
 export function normalizeLang(value: string | null | undefined): Lang {
   return value === 'en' ? 'en' : 'fr'
 }

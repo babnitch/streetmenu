@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { notifyOrganizer } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
@@ -9,7 +10,7 @@ import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
-import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventWhen, formatEventDay, isMultiDay, resolveBookingDay } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventWhen, formatEventDates, formatEventDay, isMultiDay, resolveBookingDay } from '@/lib/eventDate'
 import { reserveEventSeats, type SeatRequestRow } from '@/lib/eventSeats'
 import { depositFailure } from '@/lib/whatsapp/ordering'
 import { randomUUID } from 'crypto'
@@ -232,6 +233,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
         .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
     }
+
+    // The organiser hears about it too (account phone + extra number) —
+    // this booking never reaches the payment webhook that normally tells them.
+    await notifyOrganizer(event, orgLang => [
+      pickLang(`🎟 *Nouvelle réservation* — #${freeRes.reservation_code}`, `🎟 *New reservation* — #${freeRes.reservation_code}`, orgLang),
+      ``,
+      `🎉 ${event.title}`,
+      `📅 ${isMultiDay(event) ? formatEventDay(day, orgLang, 'message') : formatEventDates(event, orgLang, 'message')}`,
+      `👤 ${custName}`,
+      `📱 ${custPhone}`,
+      pickLang(`🎟 ${quantity} place(s)`, `🎟 ${quantity} ticket(s)`, orgLang),
+      appliedVoucher ? `🎫 ${appliedVoucher.code}: -${discountAmount.toLocaleString()} FCFA` : '',
+    ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }, organizerPhone)
 
     return NextResponse.json({
       ok: true, reservation_id: freeRes.id, reservation_code: freeRes.reservation_code, event_date: day,

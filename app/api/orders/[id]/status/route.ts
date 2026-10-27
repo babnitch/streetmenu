@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -167,7 +168,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   let customerNotified = false
-  if (order.customer_phone) {
+  if (order.customer_phone && await shouldMessageStatus(order.id, targetStatus)) {
     try {
       const { getLangByPhone } = await import('@/lib/whatsapp')
       const lang = await getLangByPhone(order.customer_phone)
