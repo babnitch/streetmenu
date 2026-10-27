@@ -15,6 +15,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
+import { formatPhoneDisplay } from '@/lib/phoneValidation'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
 const EVENT_EDIT_CATEGORIES = [
@@ -26,6 +27,7 @@ export interface MyEventsPanelEvent {
   end_date: string | null; end_time: string | null
   description?: string | null; neighborhood?: string | null; category?: string | null
   venue: string | null; city: string | null; cover_photo: string | null
+  notify_phone?: string | null
   ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
   payment_enabled: boolean; payment_mode?: string | null; whatsapp_payment_enabled?: boolean
   organizer_name: string | null; event_status: string | null
@@ -58,6 +60,7 @@ interface EventEditForm {
   ticket_price: string; max_tickets: string
   payment_mode: PaymentMode; whatsapp_payment_enabled: boolean
   cover_photo: string
+  notify_phone: string
 }
 
 export default function MyEventsPanel({
@@ -265,6 +268,7 @@ export default function MyEventsPanel({
       payment_mode: (selected.payment_mode as PaymentMode) ?? 'reservation_only',
       whatsapp_payment_enabled: !!selected.whatsapp_payment_enabled,
       cover_photo:  selected.cover_photo ?? '',
+      notify_phone: selected.notify_phone ? formatPhoneDisplay(selected.notify_phone) : '',
     })
     setEditError(null)
     setEditing(true)
@@ -323,6 +327,7 @@ export default function MyEventsPanel({
           payment_mode: editForm.payment_mode,
           whatsapp_payment_enabled: editForm.whatsapp_payment_enabled,
           cover_photo:  editForm.cover_photo || null,
+          notify_phone: editForm.notify_phone.trim(),
         }),
       })
       const d = await res.json().catch(() => ({}))
@@ -834,6 +839,13 @@ export default function MyEventsPanel({
                     <input type="file" accept="image/*" onChange={handleEditPhoto} className="text-xs flex-1" />
                     {editPhotoUploading && <span className="text-xs text-ink-tertiary">…</span>}
                   </div>
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-ink-secondary">{bi('Autre numéro pour les notifications (facultatif)', 'Extra notification number (optional)')}</span>
+                  <input value={editForm.notify_phone} onChange={e => setEdit('notify_phone', e.target.value)} inputMode="tel" placeholder="6 70 00 00 00"
+                    className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  <span className="block text-[11px] text-ink-tertiary mt-1">{bi('En plus du numéro de votre compte.', 'In addition to your account number.')}</span>
                 </label>
 
                 {editError && <p className="text-sm text-rose-600 font-medium">{editError}</p>}

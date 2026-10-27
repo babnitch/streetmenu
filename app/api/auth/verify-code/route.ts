@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   const { data: customer } = await supabaseAdmin
     .from('customers')
-    .select('id, phone, name, status, deleted_at')
+    .select('id, phone, name, status, deleted_at, default_mode')
     .eq('phone', phone)
     .maybeSingle()
 
@@ -57,6 +57,8 @@ export async function POST(req: NextRequest) {
   const linked = await linkGuestData(customer.id, customer.phone)
   const res = NextResponse.json({
     customer: { id: customer.id, phone: customer.phone, name: customer.name },
+    // The mode this account opens in (Client / Pro), applied by /login.
+    default_mode: customer.default_mode === 'pro' ? 'pro' : 'client',
     isNewAccount: false,
     linkedOrders: linked,
   })

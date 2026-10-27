@@ -15,7 +15,7 @@
 // The suite's code sends go to +999 numbers and count against the live
 // platform's daily cap only until teardown deletes them.
 
-import { sb, BASE } from '../testkit/env'
+import { sb, BASE, testName } from '../testkit/env'
 import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import { api, customerCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeOrder } from '../testkit/fixtures'
@@ -201,6 +201,66 @@ async function main(): Promise<void> {
       assert((vouchers ?? []).length >= 1, 'BIENVENUE welcome voucher given')
       const bad = await api('/api/auth/complete-signup', { body: { signupPass: 'forged', name: 'X' } })
       assertEq(bad.status, 401, 'a forged pass → 401')
+    })
+
+    await step('Pro sign-up path: business name required, account opens in Pro', async () => {
+      const phone = '+999280097'
+      await plantCode(phone, '333444')
+      const v = await api<VerifyBody>('/api/auth/verify-code', { body: { phone, code: '333444' } })
+      assertEq(v.body.needsName, true, 'new number → needsName')
+      const noBiz = await api('/api/auth/complete-signup', { body: { signupPass: v.body.signupPass, name: 'Pro', pro: true } })
+      assertEq(noBiz.status, 400, 'Pro path without a business name → 400')
+      const done = await api<VerifyBody & { default_mode?: string }>('/api/auth/complete-signup', {
+        body: { signupPass: v.body.signupPass, name: 'Paul', pro: true, pro_name: 'Maquis Paul' },
+      })
+      assertEq(done.status, 200, `HTTP 200 (${JSON.stringify(done.body).slice(0, 120)})`)
+      track('customers', done.body.customer?.id)
+      assertEq(done.body.default_mode, 'pro', 'answer says Pro')
+      const { data: c } = await sb.from('customers').select('pro_name, default_mode').eq('phone', phone).single()
+      assertEq((c as { pro_name: string }).pro_name, 'Maquis Paul', 'business name saved as pro_name')
+      assertEq((c as { default_mode: string }).default_mode, 'pro', 'default_mode = pro on the account')
+      // A later login reports it.
+      await plantCode(phone, '555666')
+      const again = await api<{ default_mode?: string }>('/api/auth/verify-code', { body: { phone, code: '555666' } })
+      assertEq(again.body.default_mode, 'pro', 'next login opens in Pro')
+    })
+
+    await step('mode switch in Mon compte is saved on the account', async () => {
+      const p = await makeCustomer({ suiteNo: 28, name: 'Mode Switch' })
+      assertEq((await api('/api/customer/mode', { method: 'PATCH', body: { mode: 'pro' } })).status, 401, 'no session → 401')
+      const cookie = customerCookie(p)
+      assertEq((await api('/api/customer/mode', { method: 'PATCH', cookie, body: { mode: 'boss' } })).status, 400, 'bad mode → 400')
+      assertEq((await api('/api/customer/mode', { method: 'PATCH', cookie, body: { mode: 'pro' } })).status, 200, 'pro → 200')
+      const { data } = await sb.from('customers').select('default_mode').eq('id', p.id).single()
+      assertEq((data as { default_mode: string }).default_mode, 'pro', 'saved')
+    })
+
+    await step('Ajouter un restaurant (web): owner = account, city-centre pin, one per number', async () => {
+      const owner = await makeCustomer({ suiteNo: 28, name: 'Resto Owner' })
+      const cookie = customerCookie(owner)
+      const body = { name: testName('c3_resto'), city: 'Dakar', neighborhood: 'Plateau', cuisine_type: 'Grillades' }
+      assertEq((await api('/api/restaurants/submit', { body })).status, 401, 'logged out → 401')
+      assertEq((await api('/api/restaurants/submit', { cookie, body: { ...body, city: 'Paris' } })).status, 400, 'unknown city → 400')
+      assertEq((await api('/api/restaurants/submit', { cookie, body: { ...body, cuisine_type: 'Pizza' } })).status, 400, 'unknown food type → 400')
+      const r = await api<{ restaurant?: { id: string } }>('/api/restaurants/submit', { cookie, body: { ...body, lat: 48.85, lng: 2.35 } })
+      assertEq(r.status, 200, `HTTP 200 (${r.raw.slice(0, 120)})`)
+      track('restaurants', r.body.restaurant?.id)
+      const { data: row } = await sb.from('restaurants')
+        .select('customer_id, whatsapp, status, is_active, lat, lng, cuisine_type').eq('id', r.body.restaurant?.id ?? '').single()
+      const x = row as { customer_id: string; whatsapp: string; status: string; is_active: boolean; lat: number; lng: number; cuisine_type: string }
+      assertEq(x.customer_id, owner.id, 'owner = the account')
+      assertEq(x.whatsapp, owner.phone, 'WhatsApp = the account phone')
+      assertEq(x.status, 'pending', 'pending approval')
+      assertEq(x.is_active, false, 'not live yet')
+      assertEq([x.lat, x.lng], [14.6937, -17.4441], 'a position far from Dakar is ignored → city centre')
+      const { data: team } = await sb.from('restaurant_team').select('role, status').eq('restaurant_id', r.body.restaurant?.id ?? '').eq('customer_id', owner.id)
+      assertEq((team as Array<{ role: string }> | null)?.[0]?.role, 'owner', 'owner team row')
+      const second = await api('/api/restaurants/submit', { cookie, body: { ...body, name: testName('c3_resto2') } })
+      assertEq(second.status, 409, 'a second restaurant on the same number → 409')
+      const old = await api('/api/restaurants/signup', { body: { ...body, name: testName('c3_old_signup'), whatsapp: '+999280096', owner_name: 'x' } })
+      assert(old.status >= 400, `the old public, ownerless signup is gone (HTTP ${old.status})`)
+      const { data: none } = await sb.from('restaurants').select('id').eq('name', testName('c3_old_signup'))
+      assertEq((none ?? []).length, 0, 'nothing created by it')
     })
 
     await step('/api/auth/me ends the session of a suspended account', async () => {

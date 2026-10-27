@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { organizerPhones } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
@@ -21,19 +22,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, organizer_id, is_active')
+    .select('id, title, organizer_id, is_active, whatsapp, notify_phone')
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
 
   // Capture submitter before the delete so we can ping them — the ON DELETE
   // SET NULL on organizer_id would lose the link otherwise.
-  let organizerPhone: string | null = null
-  if (event.organizer_id) {
-    const { data: o } = await supabaseAdmin
-      .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
-    organizerPhone = o?.phone ?? null
-  }
+  // Account phone + the event's extra notification number, read now.
+  const organizerNumbers = await organizerPhones(event)
 
   const { error: delErr } = await supabaseAdmin.from('events').delete().eq('id', event.id)
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
@@ -48,9 +45,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     metadata:        { reason },
   })
 
-  if (organizerPhone) {
-    const lang = await getLangByPhone(organizerPhone)
-    await sendWhatsApp(organizerPhone, pickLang(
+  for (const phone of organizerNumbers) {
+    const lang = await getLangByPhone(phone)
+    await sendWhatsApp(phone, pickLang(
       `❌ *Événement non approuvé*\n\n🎉 ${event.title}${reason ? `\n📝 Raison: ${reason}` : ''}\n\n` +
       `Contactez le support pour plus d'infos.`,
       `❌ *Event not approved*\n\n🎉 ${event.title}${reason ? `\n📝 Reason: ${reason}` : ''}\n\n` +

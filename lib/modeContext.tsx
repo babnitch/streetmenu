@@ -67,6 +67,13 @@ interface ModeContextValue {
 }
 
 const STORAGE_KEY = 'tn_mode'
+
+// Called by /login right before its full-page redirect: the account's mode
+// (customers.default_mode, or Pro for the Pro sign-up path) becomes this
+// browser's mode, so the app opens in it.
+export function persistMode(m: Mode): void {
+  try { localStorage.setItem(STORAGE_KEY, m) } catch {}
+}
 // Client is the safe default: it's the only mode a logged-out visitor can be
 // in, and it means a vendor who has never touched the switcher is never
 // dropped into Pro mode without choosing it. (It used to

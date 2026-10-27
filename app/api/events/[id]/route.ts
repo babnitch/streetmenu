@@ -8,6 +8,8 @@ import {
   EVENT_DATE_COLUMNS, effectiveEndDate, validateEventRange, eventRangeErrorText, normalizeEndDate, eventDays,
 } from '@/lib/eventDate'
 import { hasActiveTiers } from '@/lib/eventSeats'
+import { samePhone } from '@/lib/phone'
+import { normalizeTypedPhone, detectCountry, getCountryFromCity } from '@/lib/phoneValidation'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,6 +50,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ('neighborhood' in body) updates.neighborhood = body.neighborhood || null
   if (typeof body.category === 'string' && body.category)    updates.category = body.category
   if ('cover_photo' in body)  updates.cover_photo  = body.cover_photo || null
+
+  // Extra notification number (C3): '' clears it; otherwise typed any way and
+  // normalised with the organiser's country. The same as the organiser's own
+  // phone → stored as NULL (it would only duplicate).
+  if ('notify_phone' in body) {
+    const raw = typeof body.notify_phone === 'string' ? body.notify_phone.trim() : ''
+    if (!raw) {
+      updates.notify_phone = null
+    } else {
+      const { data: org } = event.organizer_id
+        ? await supabaseAdmin.from('customers').select('phone, city').eq('id', event.organizer_id).maybeSingle()
+        : { data: null }
+      const r = normalizeTypedPhone(raw, (org?.phone ? detectCountry(org.phone) : null) ?? getCountryFromCity(org?.city ?? null))
+      if (!r.ok) return NextResponse.json({ error: r.error, field: 'notify_phone' }, { status: 400 })
+      updates.notify_phone = org?.phone && samePhone(r.phone, org.phone) ? null : r.phone
+    }
+  }
 
   // Price + capacity — normalise like the submit route (0/null = free).
   let newPrice: number | null = event.ticket_price

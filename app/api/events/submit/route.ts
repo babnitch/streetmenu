@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { pickLang } from '@/lib/whatsapp'
+import { notifyOrganizer } from '@/lib/eventRecipients'
+import { samePhone } from '@/lib/phone'
+import { normalizeTypedPhone, detectCountry, getCountryFromCity } from '@/lib/phoneValidation'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
@@ -13,7 +16,8 @@ export const dynamic = 'force-dynamic'
 // POST /api/events/submit
 // Body: full event payload (title, description, date, time, end_date, end_time, venue, city,
 // neighborhood, category, price/ticket_price, max_tickets, payment_enabled,
-// cover_photo URL, whatsapp, organizer_name).
+// cover_photo URL, organizer_name, notify_phone?). The WhatsApp contact is the
+// account phone; notify_phone is an optional extra number for notifications.
 //
 // Trust gate: when the submitter's customers.event_auto_approve is TRUE,
 // the event lands with is_active=true + auto_approved=true. Otherwise
@@ -31,7 +35,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   console.log('[events/submit] received from customer=%s: title=%s date=%s city=%s category=%s price=%s',
     session.id, body?.title, body?.date, body?.city, body?.category, body?.ticket_price ?? body?.price)
-  if (!body?.title || !body?.date || !body?.city || !body?.category || !body?.whatsapp) {
+  if (!body?.title || !body?.date || !body?.city || !body?.category) {
     return NextResponse.json({
       error: 'Champs requis manquants / Missing required fields',
     }, { status: 400 })
@@ -52,13 +56,25 @@ export async function POST(req: NextRequest) {
   // Trust read — used to decide auto_approved + is_active.
   const { data: submitter } = await supabaseAdmin
     .from('customers')
-    .select('id, name, phone, event_auto_approve, events_submitted_count')
+    .select('id, name, phone, city, event_auto_approve, events_submitted_count')
     .eq('id', session.id)
     .maybeSingle()
   if (!submitter) {
     return NextResponse.json({ error: 'Compte introuvable / Account not found' }, { status: 404 })
   }
   const autoApprove = !!submitter.event_auto_approve
+
+  // Contact numbers (C3): the event's WhatsApp contact is the organiser's
+  // own account phone (verified at login, not typed). An optional extra
+  // number also gets the event's notifications — typed any way, normalised
+  // with the account's country; NULL when blank or the same as the account.
+  let notifyPhone: string | null = null
+  const rawExtra = typeof body?.notify_phone === 'string' ? body.notify_phone.trim() : ''
+  if (rawExtra) {
+    const r = normalizeTypedPhone(rawExtra, detectCountry(submitter.phone) ?? getCountryFromCity(submitter.city))
+    if (!r.ok) return NextResponse.json({ error: r.error, field: 'notify_phone' }, { status: 400 })
+    notifyPhone = samePhone(r.phone, submitter.phone) ? null : r.phone
+  }
 
   // Price + capacity normalisation. ticket_price 0 (or null) means free.
   // payment_enabled is ignored for free events; coerce to false so the
@@ -104,7 +120,8 @@ export async function POST(req: NextRequest) {
     whatsapp_payment_enabled: whatsappPaymentEnabled,
     requires_confirmation: requiresConfirmation,
     cover_photo:     body.cover_photo || null,
-    whatsapp:        body.whatsapp,
+    whatsapp:        submitter.phone,
+    notify_phone:    notifyPhone,
     organizer_name:  body.organizer_name || submitter.name,
     organizer_id:    submitter.id,
     is_active:       autoApprove,
@@ -183,9 +200,8 @@ export async function POST(req: NextRequest) {
 
   // WhatsApp confirmation to the submitter. Best effort — submission has
   // already succeeded by this point.
-  if (submitter.phone) {
-    const lang = await getLangByPhone(submitter.phone)
-    const msg = autoApprove
+  {
+    const msg = (lang: 'fr' | 'en') => autoApprove
       ? pickLang(
           `✅ *Événement publié!*\n\n🎉 ${event.title}\n\nVisible immédiatement sur Tchop & Ndjoka.`,
           `✅ *Event published!*\n\n🎉 ${event.title}\n\nLive immediately on Tchop & Ndjoka.`,
@@ -196,9 +212,9 @@ export async function POST(req: NextRequest) {
           `✅ *Event submitted!*\n\n🎉 ${event.title}\n\nIt will be visible after admin approval.`,
           lang,
         )
-    await sendWhatsApp(submitter.phone, msg, {
-      context: 'event_update', relatedId: event.id, customerId: submitter.id ?? null,
-    }).catch(() => null)
+    // Account phone + the extra number.
+    await notifyOrganizer({ id: event.id, organizer_id: submitter.id, whatsapp: submitter.phone, notify_phone: notifyPhone },
+      msg, { context: 'event_update', relatedId: event.id }, submitter.phone)
   }
 
   // Fan-out to subscribers when the event went live immediately (verified

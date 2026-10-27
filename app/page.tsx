@@ -350,7 +350,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-surface">
 
-      <TopNav cta={{ label: t('nav.join'), href: '/join' }} />
+      <TopNav cta={{ label: t('nav.join'), href: '/pro/restaurants/new' }} />
 
       {/* Pending-orders banner for vendors browsing the home page. Tap
           to go straight to the dashboard. Hidden when there's nothing
@@ -583,7 +583,7 @@ export default function HomePage() {
               </button>
             ) : (
               <Link
-                href="/join"
+                href="/pro/restaurants/new"
                 className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold text-sm transition-colors"
               >
                 {t('list.joinBtn')}

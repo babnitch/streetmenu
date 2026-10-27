@@ -10,7 +10,11 @@ import { SUSPENDED_TEXT } from '@/lib/authCodes'
 export const dynamic = 'force-dynamic'
 
 // POST /api/auth/complete-signup
-// Body: { signupPass, name, locale?, city? }
+// Body: { signupPass, name, locale?, city?, pro?: boolean, pro_name? }
+//
+// pro: the Pro sign-up path (/login?intent=pro) — the business / association
+// name is saved as the Pro profile name and the account opens in Pro mode
+// (customers.default_mode = 'pro') on every device.
 //
 // Last step for a NEW number: verify-code proved the phone and returned a
 // 15-minute sign-up pass; this creates the account with the first name only
@@ -37,21 +41,35 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
   const city = sanitizeText(body?.city, 40)
+  const pro = body?.pro === true
+  const proName = pro ? sanitizeText(body?.pro_name, 80) : ''
+  if (pro && !proName) {
+    return NextResponse.json({
+      error: lang === 'en' ? 'Enter your business or association name.' : 'Saisissez le nom de votre entreprise ou association.',
+    }, { status: 400 })
+  }
 
   const { data: existing } = await supabaseAdmin
-    .from('customers').select('id, phone, name, status, deleted_at').eq('phone', phone).maybeSingle()
+    .from('customers').select('id, phone, name, status, deleted_at, default_mode').eq('phone', phone).maybeSingle()
   if (existing) {
     if (existing.status === 'suspended' || existing.status === 'deleted' || existing.deleted_at) {
       return NextResponse.json({ error: SUSPENDED_TEXT(lang) }, { status: 403 })
     }
     await linkGuestData(existing.id, existing.phone)
-    const res = NextResponse.json({ customer: { id: existing.id, phone: existing.phone, name: existing.name }, isNewAccount: false })
+    const res = NextResponse.json({
+      customer: { id: existing.id, phone: existing.phone, name: existing.name },
+      isNewAccount: false,
+      default_mode: existing.default_mode === 'pro' ? 'pro' : 'client',
+    })
     return setCustomerSession(res, existing)
   }
 
   const { data: created, error } = await supabaseAdmin
     .from('customers')
-    .insert({ phone, name, city, preferred_language: lang })
+    .insert({
+      phone, name, city, preferred_language: lang,
+      ...(pro ? { pro_name: proName, default_mode: 'pro' } : {}),
+    })
     .select('id, phone, name')
     .single()
   if (error || !created) {
@@ -73,6 +91,7 @@ export async function POST(req: NextRequest) {
     customer: created,
     isNewAccount: true,
     welcomeVoucherCode: 'BIENVENUE',
+    default_mode: pro ? 'pro' : 'client',
     linkedOrders: linked,
   })
   return setCustomerSession(res, created)

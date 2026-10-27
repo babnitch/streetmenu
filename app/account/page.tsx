@@ -971,7 +971,7 @@ export default function AccountPage() {
                         <QuickCard icon="➕" label={bi('Créer un événement', 'Create an event')}
                           onClick={() => router.push('/events/submit')} />
                         <QuickCard icon="🏪" label={bi('Ajouter un restaurant', 'Add a restaurant')}
-                          onClick={() => router.push('/pro')} />
+                          onClick={() => router.push('/pro/restaurants/new')} />
                       </div>
                     ) : effectiveMode === 'client' ? (
                       <div className="grid grid-cols-3 gap-3 mb-6">
@@ -1474,14 +1474,14 @@ export default function AccountPage() {
                       </div>
                     )}
 
-                    {/* Register a new restaurant via WhatsApp */}
+                    {/* Register a new restaurant (web form) */}
                     {!accountDeletedAt && myRestaurants.length === 0 && (
                       <div className="pt-4 border-t border-divider">
                         <p className="text-xs text-ink-tertiary mb-3">{bi('Inscrire un restaurant', 'Register a restaurant')}</p>
-                        <a href="https://wa.me/your-number?text=restaurant" target="_blank" rel="noopener noreferrer"
+                        <Link href="/pro/restaurants/new"
                           className="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
-                          🏪 {t('account.registerRest')} via WhatsApp
-                        </a>
+                          🏪 {bi('Ajouter un restaurant', 'Add a restaurant')}
+                        </Link>
                       </div>
                     )}
 

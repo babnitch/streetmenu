@@ -18,9 +18,8 @@ export const runtime  = 'nodejs'
 //
 // Returns: { url, blur_hash, bytes, kind }
 //
-// Login required: without it anyone could fill our storage buckets. The
-// guest /join form loses its photo until it moves behind login; the
-// restaurant signup itself still goes through without one.
+// Login required: without it anyone could fill our storage buckets. Every
+// form that uploads (including "Ajouter un restaurant") is behind login.
 export async function POST(req: NextRequest) {
   if (!getSessionFromRequest(req)) {
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })

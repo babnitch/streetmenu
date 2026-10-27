@@ -31,6 +31,12 @@ export default function ModeToggle({ variant = 'compact' }: { variant?: 'banner'
   async function switchTo(next: Mode) {
     if (next === mode) return
     setMode(next)
+    // Saved on the account too, so the next login (any device) opens in it.
+    fetch('/api/customer/mode', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: next }),
+    }).catch(() => { /* the browser keeps the choice either way */ })
 
     if (next === 'client') {
       if (pathname !== '/') router.push('/')

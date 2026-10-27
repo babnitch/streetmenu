@@ -8,9 +8,8 @@ import Image from 'next/image'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
-import { loginHref } from '@/lib/lastPhone'
-import PhoneInput from '@/components/PhoneInput'
-import { getCountryFromCity } from '@/lib/phoneValidation'
+import { proLoginHref } from '@/lib/lastPhone'
+import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
@@ -49,7 +48,13 @@ export default function SubmitEventPage() {
       .then(r => r.json())
       .then(d => {
         const name = typeof d?.profile?.pro_name === 'string' ? d.profile.pro_name : ''
-        if (!cancelled && name) setForm(f => (f.organizer_name ? f : { ...f, organizer_name: name }))
+        const extra = typeof d?.profile?.pro_notify_phone === 'string' ? formatPhoneDisplay(d.profile.pro_notify_phone) : ''
+        if (cancelled) return
+        setForm(f => ({
+          ...f,
+          organizer_name: f.organizer_name || name,
+          notify_phone:   f.notify_phone || extra,
+        }))
       })
       .catch(() => { /* the field stays empty */ })
     return () => { cancelled = true }
@@ -71,7 +76,7 @@ export default function SubmitEventPage() {
     neighborhood: '',
     category: '',
     price: '',
-    whatsapp: '',
+    notify_phone: '',
     organizer_name: '',
     max_tickets: '',
     payment_mode: 'reservation_only' as PaymentMode,
@@ -156,7 +161,7 @@ export default function SubmitEventPage() {
     e.preventDefault()
     setError('')
 
-    if (!form.title || !form.date || !form.city || !form.category || !form.whatsapp || !form.organizer_name) {
+    if (!form.title || !form.date || !form.city || !form.category || !form.organizer_name) {
       setError(t('evt.errorRequired'))
       return
     }
@@ -240,7 +245,7 @@ export default function SubmitEventPage() {
         whatsapp_payment_enabled: !!form.whatsapp_payment_enabled,
         requires_confirmation: !!form.requires_confirmation,
         cover_photo:     cover_photo || null,
-        whatsapp:        form.whatsapp,
+        notify_phone:    form.notify_phone.trim(),
         organizer_name:  form.organizer_name,
         tiers:           tierPayload,
       }
@@ -292,7 +297,7 @@ export default function SubmitEventPage() {
           )}
         </p>
         <Link
-          href={loginHref('/events/submit')}
+          href={proLoginHref('/events/submit')}
           className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
           {bi('Se connecter', 'Log in')}
@@ -674,13 +679,19 @@ export default function SubmitEventPage() {
             <input className={INPUT} value={form.organizer_name} onChange={e => set('organizer_name', e.target.value)} placeholder="ex: Association Culturelle Mboa" />
           </Field>
 
-          {/* WhatsApp */}
+          {/* Contact numbers (C3): the account phone, and an optional extra
+              number that also gets this event's notifications (pre-filled
+              from the Pro profile; typed any way, normalised by the server). */}
           <Field label={t('evt.whatsappLbl')}>
-            <PhoneInput
-              value={form.whatsapp}
-              onChange={(full) => set('whatsapp', full)}
-              defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined}
-            />
+            <p className={`${INPUT} bg-surface-muted text-ink-secondary`}>{me?.phone ? formatPhoneDisplay(me.phone) : '—'}</p>
+            <span className="block text-[11px] text-ink-tertiary mt-1">{bi('Le numéro de votre compte.', 'Your account number.')}</span>
+          </Field>
+          <Field label={bi('Autre numéro pour les notifications (facultatif)', 'Extra notification number (optional)')}>
+            <input className={INPUT} value={form.notify_phone} inputMode="tel" placeholder="6 70 00 00 00"
+              onChange={e => set('notify_phone', e.target.value)} />
+            <span className="block text-[11px] text-ink-tertiary mt-1">
+              {bi('Reçoit aussi les réservations, validations et annulations.', 'Also gets bookings, approvals and cancellations.')}
+            </span>
           </Field>
 
           {error && (

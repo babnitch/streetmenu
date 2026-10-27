@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { notifyOrganizer } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
@@ -385,32 +386,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
     .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
 
-  if (organizerPhone) {
-    const orgLang = await getLangByPhone(organizerPhone)
-    console.log('[notify] customer phone=%s lang=%s, organizer phone=%s lang=%s',
-      custPhone, custLang, organizerPhone, orgLang)
-    const orgDateStr = isMultiDay(event) ? formatEventDay(day, orgLang, 'message') : formatEventDates(event, orgLang, 'message')
-    const organizerHeader = needsApproval
-      ? pickLang(
-          `📋 *Nouvelle réservation en attente*\nCode #${primaryCode} — répondez "confirmer reservation ${primaryCode}" ou "rejeter reservation ${primaryCode}".`,
-          `📋 *New reservation pending*\nCode #${primaryCode} — reply "confirm reservation ${primaryCode}" or "reject reservation ${primaryCode}".`,
-          orgLang,
-        )
-      : pickLang(`🎟 *Nouvelle réservation* — #${primaryCode}`, `🎟 *New reservation* — #${primaryCode}`, orgLang)
-    await sendWhatsApp(organizerPhone, [
-      organizerHeader,
-      ``,
-      `🎉 ${event.title}`,
-      `📅 ${orgDateStr}`,
-      `👤 ${custName}`,
-      `📱 ${custPhone}`,
-      ...tierLinesFor(orgLang),
-      codeLineFor(orgLang),
-      discountLineFor(orgLang),
-      finalTotal > 0 ? `💰 ${finalTotal.toLocaleString()} FCFA` : '',
-    ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id })
-      .catch(e => console.warn('[events/reserve] organizer ping failed:', (e as Error).message))
-  }
+  // Organiser side: account phone + the event's extra notification number.
+  const organizerHeader = (orgLang: Lang) => needsApproval
+    ? pickLang(
+        `📋 *Nouvelle réservation en attente*\nCode #${primaryCode} — répondez "confirmer reservation ${primaryCode}" ou "rejeter reservation ${primaryCode}".`,
+        `📋 *New reservation pending*\nCode #${primaryCode} — reply "confirm reservation ${primaryCode}" or "reject reservation ${primaryCode}".`,
+        orgLang,
+      )
+    : pickLang(`🎟 *Nouvelle réservation* — #${primaryCode}`, `🎟 *New reservation* — #${primaryCode}`, orgLang)
+  await notifyOrganizer(event, orgLang => [
+    organizerHeader(orgLang),
+    ``,
+    `🎉 ${event.title}`,
+    `📅 ${isMultiDay(event) ? formatEventDay(day, orgLang, 'message') : formatEventDates(event, orgLang, 'message')}`,
+    `👤 ${custName}`,
+    `📱 ${custPhone}`,
+    ...tierLinesFor(orgLang),
+    codeLineFor(orgLang),
+    discountLineFor(orgLang),
+    finalTotal > 0 ? `💰 ${finalTotal.toLocaleString()} FCFA` : '',
+  ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }, organizerPhone)
 
   return NextResponse.json({
     ok: true,

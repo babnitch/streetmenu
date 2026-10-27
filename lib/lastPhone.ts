@@ -38,3 +38,9 @@ export function safeReturnPath(raw: string | null | undefined): string | null {
 export function loginHref(returnTo: string): string {
   return `/login?return=${encodeURIComponent(returnTo)}`
 }
+
+// The same gate on the Pro path (/login?intent=pro): "Créer un compte Pro",
+// "Ajouter mon restaurant", "Organiser un événement", the Pro pages.
+export function proLoginHref(returnTo: string): string {
+  return `/login?intent=pro&return=${encodeURIComponent(returnTo)}`
+}

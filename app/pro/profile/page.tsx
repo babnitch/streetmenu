@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import TopNav from '@/components/TopNav'
-import { loginHref } from '@/lib/lastPhone'
+import { proLoginHref } from '@/lib/lastPhone'
 import { useBi, pickBi, useLanguage } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
 import { formatPhoneDisplay, detectCountry } from '@/lib/phoneValidation'
@@ -84,7 +84,7 @@ export default function ProProfilePage() {
             {sessionRole ? (
               <p className="text-sm text-ink-secondary">{bi('Réservé aux comptes clients.', 'For customer accounts only.')}</p>
             ) : (
-              <Link href={loginHref('/pro/profile')}
+              <Link href={proLoginHref('/pro/profile')}
                 className="inline-block bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">
                 🔐 {bi('Se connecter', 'Log in')}
               </Link>

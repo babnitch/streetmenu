@@ -1,3 +1,4 @@
+import { cityCentre } from '@/lib/restaurantSignup'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
@@ -967,8 +968,9 @@ async function handleSession(
           whatsapp:     phone,
           customer_id:  customerId,
           is_active:    false,
-          lat:          0,
-          lng:          0,
+          // City centre until the owner places the pin (was 0,0, in the sea).
+          lat:          cityCentre(city)?.lat ?? 0,
+          lng:          cityCentre(city)?.lng ?? 0,
         })
         .select('id').single()
 

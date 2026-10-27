@@ -29,6 +29,7 @@ import {
   normalizeMode, modeFromLegacy, effectiveWhatsAppMode, type PaymentMode,
 } from '@/lib/paymentMode'
 import { samePhone, uniquePhones } from '@/lib/phone'
+import { notifyOrganizer } from '@/lib/eventRecipients'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, isMultiDay, resolveBookingDay, todayISO } from '@/lib/eventDate'
 
@@ -1108,26 +1109,16 @@ export async function handleOrderCommand(
     const cancelCodeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
     await sendWhatsApp(from, pickLang(`✅ Réservation${cancelCodeStr} annulée.`, `✅ Reservation${cancelCodeStr} cancelled.`, lang))
 
-    // Organizer ping — reuse the customer-cancel pathway from the API.
-    let organizerPhone: string | null = null
-    if (ev.organizer_id) {
-      const { data: o } = await supabaseAdmin.from('customers').select('phone').eq('id', ev.organizer_id).maybeSingle()
-      organizerPhone = o?.phone ?? null
-    }
-    if (!organizerPhone && ev.whatsapp) organizerPhone = ev.whatsapp
-    if (organizerPhone) {
-      const orgLang = await getLangByPhone(organizerPhone)
-      const dateStr = formatEventDates(ev, orgLang, 'message')
-      await sendWhatsApp(organizerPhone, [
-        pickLang(`❌ *Réservation${cancelCodeStr} annulée*`, `❌ *Reservation${cancelCodeStr} cancelled*`, orgLang),
-        ``,
-        `🎉 ${ev.title}`,
-        `📅 ${dateStr}`,
-        `👤 ${r.customer_name}`,
-        `📱 ${r.customer_phone}`,
-        `🎟 ${r.quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
-      ].join('\n'), { context: 'event_reservation', relatedId: ev.id }).catch(() => null)
-    }
+    // Organizer ping — account phone + the event's extra number.
+    await notifyOrganizer(ev, orgLang => [
+      pickLang(`❌ *Réservation${cancelCodeStr} annulée*`, `❌ *Reservation${cancelCodeStr} cancelled*`, orgLang),
+      ``,
+      `🎉 ${ev.title}`,
+      `📅 ${formatEventDates(ev, orgLang, 'message')}`,
+      `👤 ${r.customer_name}`,
+      `📱 ${r.customer_phone}`,
+      `🎟 ${r.quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
+    ].join('\n'), { context: 'event_reservation', relatedId: ev.id })
     return ok()
   }
 
@@ -2511,28 +2502,19 @@ async function pingOrganizer(
   total:    number,
   reservationCode?: string,
 ): Promise<void> {
-  let organizerPhone: string | null = null
-  if (event.organizer_id) {
-    const { data: o } = await supabaseAdmin.from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
-    organizerPhone = o?.phone ?? null
-  }
-  if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
-  if (!organizerPhone) return
-  const orgLang = await getLangByPhone(organizerPhone)
-  // Format the date in the ORGANIZER's language — don't inherit the customer's.
-  const dateStr = formatEventDates(event, orgLang, 'message')
-  await sendWhatsApp(organizerPhone, [
+  // Account phone + the event's extra number, each in its own language.
+  await notifyOrganizer(event, orgLang => [
     reservationCode
       ? pickLang(`🔔 *Nouvelle réservation!* — #${reservationCode}`, `🔔 *New reservation!* — #${reservationCode}`, orgLang)
       : pickLang(`🔔 *Nouvelle réservation!*`, `🔔 *New reservation!*`, orgLang),
     ``,
     `🎉 ${event.title}`,
-    `📅 ${dateStr}`,
+    `📅 ${formatEventDates(event, orgLang, 'message')}`,
     `👤 ${customer.name}`,
     `📱 ${customer.phone}`,
     `🎟 ${quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
     total > 0 ? `💰 ${total.toLocaleString()} FCFA` : '',
-  ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }).catch(() => null)
+  ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id })
 }
 
 // ── Public: continue an in-progress ordering session ─────────────────────────

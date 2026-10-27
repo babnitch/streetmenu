@@ -14,12 +14,13 @@
 // a baseline run of the two originals left 21 behind (§4 hazard 4). The
 // ledger's phone-keyed teardown removes them now.
 
-import { sb } from '../testkit/env'
+import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, adminCookie, customerCookie } from '../testkit/session'
 import { vendorRecipients } from '@/lib/whatsapp/ordering'
-import { makeCustomer, makeRestaurant, makeOrder, addTeamMember } from '../testkit/fixtures'
-import { teardown } from '../testkit/ledger'
+import { organizerPhones } from '@/lib/eventRecipients'
+import { makeCustomer, makeRestaurant, makeOrder, addTeamMember, makeEvent, futureDateISO } from '../testkit/fixtures'
+import { teardown, track } from '../testkit/ledger'
 
 const SUITE = 'api-notifications'
 
@@ -158,6 +159,54 @@ async function main(): Promise<void> {
     await step('approve without a session → 401', async () => {
       const r = await api(`/api/restaurants/${pendingRest.id}/approve`, { method: 'POST' })
       assertEq(r.status, 401, 'HTTP 401 for unauthenticated')
+    })
+
+    // ── C3: organiser recipients and contact numbers ───────────────────────
+    const org = await makeCustomer({ suiteNo: 26, name: 'Organiser C3' })
+    const extra = await makeCustomer({ suiteNo: 26, name: 'Extra Number' })
+
+    await step('organiser recipients: account phone + the extra number, deduplicated', async () => {
+      const ev = await makeEvent({ organizerId: org.id, label: 'c3_recipients', extra: { notify_phone: extra.phone } })
+      assertEq(await organizerPhones({ id: ev.id }), [org.phone, extra.phone], 'both numbers, account first')
+      await sb.from('events').update({ notify_phone: null } as never).eq('id', ev.id)
+      assertEq(await organizerPhones({ id: ev.id }), [org.phone], 'no extra number → account only')
+      const legacy = await makeEvent({ label: 'c3_legacy', extra: { organizer_id: null } })
+      const { data: l } = await sb.from('events').select('whatsapp').eq('id', legacy.id).single()
+      assertEq(await organizerPhones({ id: legacy.id }), [(l as { whatsapp: string }).whatsapp], 'no organiser account → the event contact')
+    })
+
+    await step('event submit: contact = account phone, extra number normalised', async () => {
+      const cookie = customerCookie(org)
+      const base = { title: testName('c3_submit'), date: futureDateISO(20), city: testName('city'), category: 'Autre', ticket_price: 0, organizer_name: 'Asso' }
+      const bad = await api<{ field?: string }>('/api/events/submit', { cookie, body: { ...base, notify_phone: '12' } })
+      assertEq(bad.status, 400, 'unusable extra number → 400')
+      assertEq(bad.body.field, 'notify_phone', 'error names the field')
+      const r = await api<{ event_id?: string }>('/api/events/submit', {
+        cookie, body: { ...base, whatsapp: '+15555550100', notify_phone: '0699 00 00 02' },
+      })
+      assertEq(r.status, 200, `HTTP 200 (${r.raw.slice(0, 120)})`)
+      track('events', r.body.event_id)
+      const { data: ev } = await sb.from('events').select('whatsapp, notify_phone').eq('id', r.body.event_id ?? '').single()
+      assertEq((ev as { whatsapp: string }).whatsapp, org.phone, 'contact is the account phone (a typed one is ignored)')
+      assertEq((ev as { notify_phone: string }).notify_phone, '+237699000002', 'extra number normalised with the account country')
+      const same = await api<{ event_id?: string }>('/api/events/submit', {
+        cookie, body: { ...base, title: testName('c3_submit_same'), notify_phone: org.phone },
+      })
+      track('events', same.body.event_id)
+      const { data: ev2 } = await sb.from('events').select('notify_phone').eq('id', same.body.event_id ?? '').single()
+      assertEq((ev2 as { notify_phone: string | null }).notify_phone, null, 'the account number as "extra" → stored as none')
+    })
+
+    await step('event edit: the extra number can be changed and cleared', async () => {
+      const ev = await makeEvent({ organizerId: org.id, label: 'c3_edit' })
+      const cookie = customerCookie(org)
+      const set = await api(`/api/events/${ev.id}`, { method: 'PATCH', cookie, body: { notify_phone: '+237 699 00 00 03' } })
+      assertEq(set.status, 200, 'PATCH → 200')
+      let { data } = await sb.from('events').select('notify_phone').eq('id', ev.id).single()
+      assertEq((data as { notify_phone: string }).notify_phone, '+237699000003', 'saved normalised')
+      await api(`/api/events/${ev.id}`, { method: 'PATCH', cookie, body: { notify_phone: '' } })
+      ;({ data } = await sb.from('events').select('notify_phone').eq('id', ev.id).single())
+      assertEq((data as { notify_phone: string | null }).notify_phone, null, "'' clears it")
     })
   } finally {
     const r = await teardown()

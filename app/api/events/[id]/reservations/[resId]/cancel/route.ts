@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { notifyOrganizer } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
@@ -126,30 +127,17 @@ export async function POST(
   const fmtDate = (l: Lang) => formatEventDates(event, l, 'message')
   const codeStr = r.reservation_code ? ` #${r.reservation_code}` : ''
   if (isOwner) {
-    let organizerPhone: string | null = null
-    if (event.organizer_id) {
-      const { data: o } = await supabaseAdmin
-        .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
-      organizerPhone = o?.phone ?? null
-    }
-    if (!organizerPhone) {
-      const { data: ev2 } = await supabaseAdmin
-        .from('events').select('whatsapp').eq('id', event.id).maybeSingle()
-      organizerPhone = ev2?.whatsapp ?? null
-    }
-    if (organizerPhone) {
-      const orgLang = await getLangByPhone(organizerPhone)
-      await sendWhatsApp(organizerPhone, [
-        pickLang(`❌ *Réservation${codeStr} annulée*`, `❌ *Reservation${codeStr} cancelled*`, orgLang),
-        ``,
-        `🎉 ${event.title}`,
-        `📅 ${fmtDate(orgLang)}`,
-        `👤 ${r.customer_name}`,
-        `📱 ${r.customer_phone}`,
-        pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
-        reason ? `📝 ${reason}` : '',
-      ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }).catch(() => null)
-    }
+    // Organiser side: account phone + the event's extra notification number.
+    await notifyOrganizer(event, orgLang => [
+      pickLang(`❌ *Réservation${codeStr} annulée*`, `❌ *Reservation${codeStr} cancelled*`, orgLang),
+      ``,
+      `🎉 ${event.title}`,
+      `📅 ${fmtDate(orgLang)}`,
+      `👤 ${r.customer_name}`,
+      `📱 ${r.customer_phone}`,
+      pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
+      reason ? `📝 ${reason}` : '',
+    ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id })
   } else {
     // Organizer / admin cancelling. Tell the customer.
     if (r.customer_phone) {

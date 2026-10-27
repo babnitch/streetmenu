@@ -12,6 +12,7 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { vendorRecipients, prepTimeLine } from '@/lib/whatsapp/ordering'
+import { notifyOrganizer } from '@/lib/eventRecipients'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
 
@@ -181,25 +182,9 @@ export async function notifyPaidReservation(
   }
 
   // ── Organizer ping ─────────────────────────────────────────────────────────
-  // Organizer customer account wins; fall back to events.whatsapp. Unlike
-  // restaurants we don't have a "team" of organizers — a single inbox is
-  // the right shape for the way Tchop & Ndjoka runs events today.
-  let organizerPhone: string | null = null
-  if (event.organizer_id) {
-    const { data: o } = await supabaseAdmin
-      .from('customers').select('phone').eq('id', event.organizer_id).maybeSingle()
-    organizerPhone = o?.phone ?? null
-  }
-  if (!organizerPhone && event.whatsapp) organizerPhone = event.whatsapp
-
-  if (!organizerPhone) {
-    console.warn(`[payment] notifyPaidReservation: no organizer recipient for event ${event.id}`)
-    return
-  }
-
-  console.log(`[payment] sending reservation organizer notification: event=${event.id} to=${organizerPhone}`)
-  const orgLang = await getLangByPhone(organizerPhone)
-  const sentOrg = await sendWhatsApp(organizerPhone, [
+  // The organiser's account phone (else events.whatsapp) plus the event's
+  // extra notification number — lib/eventRecipients.ts.
+  const sentOrg = await notifyOrganizer(event, orgLang => [
     pickLang(`💰 *PAIEMENT REÇU*`, `💰 *PAYMENT RECEIVED*`, orgLang),
     ``,
     pickLang(`🎟 Réservation #${id4}`, `🎟 Reservation #${id4}`, orgLang),
@@ -211,5 +196,5 @@ export async function notifyPaidReservation(
     `💳 ${mno}`,
     `💰 ${total.toLocaleString()} FCFA`,
   ].join('\n'), { context: 'payment_confirmation', relatedId: r.id })
-  console.log(`[payment] reservation organizer result: ok=${sentOrg.ok} sid=${sentOrg.sid ?? '-'} twilioStatus=${sentOrg.twilioStatus ?? '-'}${sentOrg.error ? ` error=${sentOrg.error.slice(0, 200)}` : ''}`)
+  if (sentOrg === 0) console.warn(`[payment] notifyPaidReservation: no organizer message accepted for event ${event.id}`)
 }

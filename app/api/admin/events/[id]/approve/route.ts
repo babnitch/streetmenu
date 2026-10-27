@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { notifyOrganizer } from '@/lib/eventRecipients'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 import { EVENT_DATE_COLUMNS } from '@/lib/eventDate'
 
@@ -79,13 +80,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         }
       }
 
-      if (organizer.phone) {
-        await sendWhatsApp(organizer.phone, pickLang(
-          `✅ *Événement approuvé!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka.`,
-          `✅ *Event approved!*\n\n🎉 ${event.title}\n\nLive on Tchop & Ndjoka.`,
-          orgLang,
-        ), { context: 'event_update', relatedId: event.id, customerId: organizer.id ?? null }).catch(() => null)
-      }
+      // Account phone + the event's extra notification number.
+      await notifyOrganizer(event, lang => pickLang(
+        `✅ *Événement approuvé!*\n\n🎉 ${event.title}\n\nVisible sur Tchop & Ndjoka.`,
+        `✅ *Event approved!*\n\n🎉 ${event.title}\n\nLive on Tchop & Ndjoka.`,
+        lang,
+      ), { context: 'event_update', relatedId: event.id }, organizer.phone ?? null)
     }
   }
 

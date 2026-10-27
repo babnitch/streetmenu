@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import TopNav from '@/components/TopNav'
-import { loginHref } from '@/lib/lastPhone'
+import { proLoginHref } from '@/lib/lastPhone'
 import MyEventsPanel, { type MyEventsPanelEvent, type MyEventsPanelTrust } from '@/components/pro/MyEventsPanel'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
@@ -45,7 +45,7 @@ export default function ProEventsPage() {
             {sessionRole ? (
               <p className="text-sm text-ink-secondary">{bi('Réservé aux comptes clients.', 'For customer accounts only.')}</p>
             ) : (
-              <Link href={loginHref('/pro/events')}
+              <Link href={proLoginHref('/pro/events')}
                 className="inline-block bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">
                 🔐 {bi('Se connecter', 'Log in')}
               </Link>

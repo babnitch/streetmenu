@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import TopNav from '@/components/TopNav'
-import { loginHref } from '@/lib/lastPhone'
+import { proLoginHref } from '@/lib/lastPhone'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useMode, type DashboardTab, type TeamRole } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel, type RestaurantTool } from '@/lib/navConfig'
@@ -65,7 +65,7 @@ export default function ProRestaurantsPage() {
             {sessionRole ? (
               <p className="text-sm text-ink-secondary">{bi('Réservé aux comptes clients.', 'For customer accounts only.')}</p>
             ) : (
-              <Link href={loginHref('/pro/restaurants')}
+              <Link href={proLoginHref('/pro/restaurants')}
                 className="inline-block bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">
                 🔐 {bi('Se connecter', 'Log in')}
               </Link>
@@ -75,7 +75,7 @@ export default function ProRestaurantsPage() {
           <>
             <div className="flex items-center justify-between gap-3 mb-4">
               <h1 className="text-xl font-bold text-ink-primary">🏪 {bi('Mes restaurants', 'My restaurants')}</h1>
-              <Link href="/join"
+              <Link href="/pro/restaurants/new"
                 className="bg-brand hover:bg-brand-dark text-white text-xs font-semibold px-3.5 py-2 rounded-full transition-colors">
                 ➕ {bi('Ajouter un restaurant', 'Add a restaurant')}
               </Link>
@@ -90,7 +90,7 @@ export default function ProRestaurantsPage() {
                     'Get orders and bookings on WhatsApp, paid by Mobile Money.',
                   )}
                 </p>
-                <Link href="/join"
+                <Link href="/pro/restaurants/new"
                   className="inline-block bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">
                   ➕ {bi('Ajouter un restaurant', 'Add a restaurant')}
                 </Link>

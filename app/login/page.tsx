@@ -11,10 +11,16 @@ import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import { readSavedPhone, saveLastPhone, safeReturnPath } from '@/lib/lastPhone'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
+import { persistMode } from '@/lib/modeContext'
 
-type Step = 'checking' | 'phone' | 'code' | 'name'
+type Step = 'checking' | 'phone' | 'code' | 'name' | 'choose'
 type Channel = 'whatsapp' | 'sms'
+type ProChoice = 'restaurant' | 'event'
 const CODE_LENGTH = 6
+// The two Pro forms the Pro path lands on.
+const PRO_FORMS: Record<ProChoice, string> = { restaurant: '/pro/restaurants/new', event: '/events/submit' }
+const proChoiceFor = (path: string | null): ProChoice | null =>
+  path?.startsWith(PRO_FORMS.restaurant) ? 'restaurant' : path?.startsWith(PRO_FORMS.event) ? 'event' : null
 
 // /login — "Connexion ou inscription / Log in or sign up". One screen for
 // everyone (L2):
@@ -22,7 +28,14 @@ const CODE_LENGTH = 6
 //   2. code by WhatsApp (or SMS);
 //   3. a NEW number is asked only for a first name, then the account exists.
 // Afterwards the visitor goes back to ?return= (a same-site path: the cart,
-// "Ajouter mon restaurant", an event booking…), else to Mon compte.
+// "Ajouter mon restaurant", an event booking…), else to Mon compte, in the
+// account's saved mode (customers.default_mode).
+//
+// Pro path (?intent=pro, or "Créer un compte Pro" below the buttons): same
+// account model. A new number also gives a business / association name and
+// picks "Ajouter un restaurant" or "Organiser un événement"; the account then
+// opens in Pro (saved on the account) on that form. An existing account just
+// logs in and lands in Pro on the chosen form; its saved mode is unchanged.
 export default function LoginPage() {
   const bi = useBi()
   const { locale } = useLanguage()
@@ -30,6 +43,9 @@ export default function LoginPage() {
 
   const [step, setStep] = useState<Step>('checking')
   const [returnTo, setReturnTo] = useState<string | null>(null)
+  const [pro, setPro] = useState(false)
+  const [proName, setProName] = useState('')
+  const [choice, setChoice] = useState<ProChoice | null>(null)
   const [fullPhone, setFullPhone] = useState('')
   const [localDigits, setLocalDigits] = useState('')
   const [country, setCountry] = useState('CM')
@@ -43,15 +59,21 @@ export default function LoginPage() {
 
   // Return target, remembered number, and "already logged in?".
   useEffect(() => {
-    const ret = safeReturnPath(new URLSearchParams(window.location.search).get('return'))
+    const q = new URLSearchParams(window.location.search)
+    const ret = safeReturnPath(q.get('return'))
     setReturnTo(ret)
+    setPro(q.get('intent') === 'pro')
+    setChoice(proChoiceFor(ret))
     const saved = readSavedPhone()
     if (saved.phone) setFullPhone(saved.phone)
     if (saved.country) setCountry(saved.country)
     fetch('/api/auth/me', { cache: 'no-store' })
       .then(r => r.json())
       .then(d => {
-        if (d?.user?.role === 'customer') window.location.replace(ret ?? '/account')
+        if (d?.user?.role === 'customer') {
+          if (q.get('intent') === 'pro') persistMode('pro')
+          window.location.replace(ret ?? (q.get('intent') === 'pro' ? '/pro' : '/account'))
+        }
         else if (d?.user) window.location.replace('/account')
         else setStep('phone')
       })
@@ -94,10 +116,25 @@ export default function LoginPage() {
     }
   }
 
-  function done(d: { customer?: { phone: string }; isNewAccount?: boolean }) {
+  function done(d: { customer?: { phone: string }; isNewAccount?: boolean; default_mode?: string }) {
     if (d.customer?.phone) saveLastPhone(d.customer.phone, country)
-    // A full load, so every part of the app sees the new session.
+    // Full loads below, so every part of the app sees the new session.
+    if (pro) {
+      persistMode('pro')
+      const dest = d.isNewAccount && choice ? PRO_FORMS[choice] : returnTo
+      if (dest) { window.location.href = dest; return }
+      setStep('choose')          // existing account, no form chosen yet
+      return
+    }
+    persistMode(d.default_mode === 'pro' ? 'pro' : 'client')
     window.location.href = returnTo ?? (d.isNewAccount ? '/account?tab=vouchers&welcome=1' : '/account')
+  }
+
+  function startPro() {
+    setPro(true)
+    const u = new URL(window.location.href)
+    u.searchParams.set('intent', 'pro')
+    window.history.replaceState({}, '', u)
   }
 
   async function verify(value?: string) {
@@ -128,14 +165,17 @@ export default function LoginPage() {
 
   async function createAccount(e: React.FormEvent) {
     e.preventDefault()
-    if (!firstName.trim() || !signupPass) return
+    if (!firstName.trim() || !signupPass || (pro && (!proName.trim() || !choice))) return
     setError('')
     setBusy('name')
     try {
       const r = await fetch('/api/auth/complete-signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signupPass, name: firstName.trim(), locale, city }),
+        body: JSON.stringify({
+          signupPass, name: firstName.trim(), locale, city,
+          ...(pro ? { pro: true, pro_name: proName.trim() } : {}),
+        }),
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) {
@@ -164,7 +204,9 @@ export default function LoginPage() {
           <div className={card}>
             <div className="text-center mb-5">
               <div className="text-5xl mb-3" aria-hidden="true">👋</div>
-              <h1 className="text-xl font-bold text-ink-primary">{bi('Connexion ou inscription', 'Log in or sign up')}</h1>
+              <h1 className="text-xl font-bold text-ink-primary">
+                {pro ? bi('Espace Pro — connexion ou inscription', 'Pro — log in or sign up') : bi('Connexion ou inscription', 'Log in or sign up')}
+              </h1>
               <p className="text-sm text-ink-secondary mt-1">
                 {bi('Un code vous sera envoyé pour vérifier votre numéro.', 'We\'ll send you a code to check your number.')}
               </p>
@@ -193,6 +235,12 @@ export default function LoginPage() {
             <p className="text-[11px] text-ink-tertiary text-center mt-4">
               {bi('Pas encore de compte ? Il sera créé après le code.', 'No account yet? It is created after the code.')}
             </p>
+            {!pro && (
+              <button type="button" onClick={startPro}
+                className="block w-full text-center text-sm font-semibold text-brand-darker hover:text-brand-dark mt-3">
+                {bi('Vous êtes un professionnel ? Créer un compte Pro', 'Are you a business? Create a Pro account')} →
+              </button>
+            )}
           </div>
         )}
 
@@ -234,12 +282,41 @@ export default function LoginPage() {
               <input value={firstName} onChange={e => setFirstName(e.target.value)} autoFocus autoComplete="given-name" maxLength={60}
                 placeholder={bi('Votre prénom', 'Your first name')}
                 className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand" />
+              {pro && (
+                <>
+                  <input value={proName} onChange={e => setProName(e.target.value)} maxLength={80} autoComplete="organization"
+                    placeholder={bi('Nom de votre entreprise ou association', 'Your business or association name')}
+                    className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand" />
+                  <div className="grid grid-cols-2 gap-2" role="group" aria-label={bi('Que voulez-vous faire ?', 'What would you like to do?')}>
+                    {(['restaurant', 'event'] as const).map(c => (
+                      <button key={c} type="button" onClick={() => setChoice(c)} aria-pressed={choice === c}
+                        className={`rounded-2xl border px-3 py-3 text-sm font-semibold transition-colors ${choice === c ? 'border-brand bg-brand-light text-brand-darker' : 'border-divider text-ink-secondary'}`}>
+                        {c === 'restaurant' ? bi('🏪 Ajouter un restaurant', '🏪 Add a restaurant') : bi('🎉 Organiser un événement', '🎉 Organise an event')}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <p className="text-[11px] text-ink-tertiary">{bi('Le reste est facultatif, à compléter plus tard dans Mon compte.', 'Everything else is optional, later in My account.')}</p>
               {error && <p className="text-xs text-danger" role="alert">{error}</p>}
-              <button type="submit" disabled={!!busy || !firstName.trim()} className={primary}>
+              <button type="submit" disabled={!!busy || !firstName.trim() || (pro && (!proName.trim() || !choice))} className={primary}>
                 {busy === 'name' ? '…' : bi('Créer mon compte', 'Create my account')}
               </button>
             </form>
+          </div>
+        )}
+
+        {step === 'choose' && (
+          <div className={card}>
+            <div className="text-center mb-5">
+              <div className="text-5xl mb-3" aria-hidden="true">🧰</div>
+              <h1 className="text-xl font-bold text-ink-primary">{bi('Que voulez-vous faire ?', 'What would you like to do?')}</h1>
+            </div>
+            <div className="space-y-3">
+              <a href={PRO_FORMS.restaurant} className={`${primary} block text-center`}>{bi('🏪 Ajouter un restaurant', '🏪 Add a restaurant')}</a>
+              <a href={PRO_FORMS.event} className={`${primary} block text-center`}>{bi('🎉 Organiser un événement', '🎉 Organise an event')}</a>
+              <a href="/pro" className="block text-center text-sm text-ink-secondary hover:text-ink-primary py-2">{bi('Aller à l\'Espace Pro', 'Go to Pro home')}</a>
+            </div>
           </div>
         )}
 

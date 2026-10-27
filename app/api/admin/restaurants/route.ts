@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 //
 // Admin-authored restaurant, created already-live (this is the "add a venue
 // we onboarded offline" path, not the public signup queue — that's
-// /api/restaurants/signup, which forces status='pending').
+// /api/restaurants/submit, which forces status='pending').
 //
 // Replaces a browser-side anon-key INSERT into the restaurants table whose
 // only gate was a localStorage flag.
