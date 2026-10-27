@@ -117,6 +117,16 @@ async function main(): Promise<void> {
     assert(!/count|phone|customer/i.test(r.raw), 'no counts or personal data in the answer')
   })
 
+  await step('events listing: city-checked, no personal data', async () => {
+    assertEq((await api('/api/events/listing?city=Paris')).status, 400, 'unknown city → 400')
+    const r = await api<{ events?: Array<{ id: string; days: unknown[]; fromPrice: number | null }>; featuredId?: string | null; today?: string }>(
+      `/api/events/listing?city=${encodeURIComponent('Yaoundé')}`)
+    assertEq(r.status, 200, 'Yaoundé → 200')
+    assert(Array.isArray(r.body.events), 'events list')
+    assert(r.body.featuredId === null || (r.body.events ?? []).some(e => e.id === r.body.featuredId), 'featured is one of the listed events')
+    assert(!/phone|customer_name|whatsapp/i.test(r.raw), 'no phones or names of customers')
+  })
+
   await step('#44 the public pages render', async () => {
     for (const path of ['/', '/restaurants', '/events', `/restaurant/${MERESTO_ID}`, '/login', '/admin/login']) {
       const r = await api(path)

@@ -158,6 +158,8 @@ export interface Event {
   // reservations_open    defaults TRUE  — public reserve flow open.
   requires_confirmation?: boolean
   reservations_open?:     boolean
+  // Admin pick for "À la une" on the Events page (supabase: events.is_featured).
+  is_featured?:           boolean
 }
 
 export interface EventReservation {

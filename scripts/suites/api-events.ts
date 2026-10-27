@@ -1056,6 +1056,17 @@ async function main(): Promise<void> {
       assert((list.body.vouchers ?? []).some(x => x.code === dup), 'and the created code is in it')
     })
 
+    await step('admin "À la une" toggle', async () => {
+      const ev = await makeEvent({ organizerId: organizer.id, label: 'featured_toggle', isActive: true })
+      assertEq((await api(`/api/admin/events/${ev.id}/feature`, { method: 'PATCH', body: { featured: true } })).status, 401, 'no admin → 401')
+      assertEq((await api(`/api/admin/events/${ev.id}/feature`, { method: 'PATCH', cookie: orgCookie, body: { featured: true } })).status, 401, 'organiser → 401')
+      const on = await api(`/api/admin/events/${ev.id}/feature`, { method: 'PATCH', cookie: admin, body: { featured: true } })
+      assertEq(on.status, 200, 'admin → 200')
+      const { data } = await sb.from('events').select('is_featured').eq('id', ev.id).single()
+      assertEq((data as { is_featured: boolean }).is_featured, true, 'is_featured set')
+      assertEq((await api(`/api/admin/events/${ev.id}/feature`, { method: 'PATCH', cookie: admin, body: { featured: 'yes' } })).status, 400, 'bad body → 400')
+    })
+
     // Final safety re-check: nothing in this suite changed the picture.
     await step('🔴 safety postflight: still no subscribers for the test city', async () => {
       await assertNoSubscribers(TEST_CITY, TEST_CATEGORY)

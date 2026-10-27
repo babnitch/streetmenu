@@ -214,7 +214,7 @@ export default function SubmitEventPage() {
         try {
           const fd = new FormData()
           fd.append('file', photo)
-          fd.append('kind', 'event_cover')
+          fd.append('kind', 'event_poster')
           fd.append('pathPrefix', 'events')
           const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
           if (r.ok) {
@@ -352,26 +352,25 @@ export default function SubmitEventPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
 
-          {/* Cover photo */}
+          {/* Poster — shown as a portrait poster on the Events page. */}
           <div>
-            <label className={LABEL}>{t('evt.photoLbl')}</label>
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="relative h-40 bg-brand-light border-2 border-dashed border-brand-badge rounded-2xl flex items-center justify-center cursor-pointer hover:border-brand transition-colors overflow-hidden"
-            >
-              {photoPreview ? (
-                <>
-                  <Image src={photoPreview} alt="preview" fill className="object-cover rounded-2xl" />
-                  <span className="absolute bottom-2 right-2 bg-white/90 text-xs text-ink-secondary px-2 py-1 rounded-lg backdrop-blur-sm">
-                    {t('evt.changePhoto')}
-                  </span>
-                </>
-              ) : (
-                <div className="text-center">
-                  <p className="text-ink-tertiary text-sm">{t('evt.photoHint')}</p>
-                  <p className="text-ink-tertiary text-xs mt-1">{t('evt.photoSize')}</p>
-                </div>
-              )}
+            <label className={LABEL}>{bi('Affiche de l\'événement', 'Event poster')}</label>
+            <div className="flex gap-3 items-start">
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className="relative w-32 aspect-[4/5] flex-shrink-0 border-2 border-dashed border-brand-badge rounded-2xl overflow-hidden hover:border-brand transition-colors">
+                {photoPreview ? (
+                  <Image src={photoPreview} alt="preview" fill className="object-cover" />
+                ) : (
+                  <span className="absolute inset-0 flex items-center justify-center text-3xl bg-brand-light" aria-hidden="true">🖼️</span>
+                )}
+              </button>
+              <div className="text-xs text-ink-tertiary space-y-1 pt-1">
+                <p className="text-sm text-ink-secondary font-semibold">
+                  {photoPreview ? bi('Changer l\'affiche', 'Change the poster') : bi('Ajouter une affiche', 'Add a poster')}
+                </p>
+                <p>{bi('Format conseillé : 1080 × 1350 px (portrait 4:5).', 'Recommended: 1080 × 1350 px (portrait 4:5).')}</p>
+                <p>{bi('Sans affiche, une illustration aux couleurs de Tchop & Ndjoka est utilisée.', 'Without one, a Tchop & Ndjoka illustration is used.')}</p>
+              </div>
             </div>
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
           </div>

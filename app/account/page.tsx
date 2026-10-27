@@ -2495,21 +2495,19 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
 // Lives in localStorage via useDataMode(); flipping it instantly changes
 // what /events, /, and /restaurant/[id] cards render (image vs gradient).
 function LowDataToggle() {
+  const bi = useBi()
   const { isLowData, toggle } = useDataMode()
-  // useBi runs inside the LowDataToggle component (not at module scope)
-  // so the toggle copy updates when the user flips the language.
-  // Importing useBi via the already-imported language helpers up top.
   return (
     <div className="bg-white rounded-2xl shadow-sm p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-ink-primary">
-            📶 {isLowData ? 'Mode économique actif / Low-data mode on' : 'Mode économique / Low-data mode'}
+            📶 {isLowData ? bi('Mode économique actif', 'Low-data mode on') : bi('Mode économique', 'Low-data mode')}
           </p>
           <p className="text-xs text-ink-tertiary mt-0.5">
             {isLowData
-              ? 'Photos remplacées par des dégradés colorés — économise ~90% de données. / Images replaced with gradients — saves ~90% data.'
-              : 'Activez pour économiser de la data sur les pages avec beaucoup d\'images. / Toggle to save data on image-heavy pages.'}
+              ? bi('Photos remplacées par des dégradés colorés — économise ~90% de données.', 'Images replaced with gradients — saves ~90% data.')
+              : bi('Activez pour économiser de la data sur les pages avec beaucoup d\'images.', 'Toggle to save data on image-heavy pages.')}
           </p>
         </div>
         <button
@@ -2518,7 +2516,7 @@ function LowDataToggle() {
             isLowData ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-surface-muted text-ink-secondary hover:bg-divider'
           }`}
         >
-          {isLowData ? 'Désactiver / Turn off' : 'Activer / Turn on'}
+          {isLowData ? bi('Désactiver', 'Turn off') : bi('Activer', 'Turn on')}
         </button>
       </div>
     </div>

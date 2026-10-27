@@ -283,7 +283,7 @@ export default function MyEventsPanel({
     try {
       const fd = new FormData()
       fd.append('file', file)
-      fd.append('kind', 'event_cover')
+      fd.append('kind', 'event_poster')
       fd.append('pathPrefix', 'events')
       const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
       if (r.ok) {
@@ -837,10 +837,11 @@ export default function MyEventsPanel({
                 )}
 
                 <label className="block">
-                  <span className="text-xs font-semibold text-ink-secondary">{bi('Photo de couverture', 'Cover photo')}</span>
+                  <span className="text-xs font-semibold text-ink-secondary">{bi('Affiche de l\'événement', 'Event poster')}</span>
+                  <span className="block text-[11px] text-ink-tertiary">{bi('Format conseillé : 1080 × 1350 px (portrait 4:5).', 'Recommended: 1080 × 1350 px (portrait 4:5).')}</span>
                   <div className="mt-1 flex items-center gap-3">
                     {editForm.cover_photo && (
-                      <Image src={editForm.cover_photo} alt="" width={56} height={56} className="w-14 h-14 rounded-xl object-cover" />
+                      <Image src={editForm.cover_photo} alt="" width={56} height={70} className="w-14 h-[70px] rounded-xl object-cover" />
                     )}
                     <input type="file" accept="image/*" onChange={handleEditPhoto} className="text-xs flex-1" />
                     {editPhotoUploading && <span className="text-xs text-ink-tertiary">…</span>}

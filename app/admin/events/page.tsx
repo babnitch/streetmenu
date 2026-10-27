@@ -119,6 +119,25 @@ export default function AdminEventsPage() {
     }
   }
 
+  // "À la une" admin pick on the Events page.
+  async function toggleFeatured(evt: Event) {
+    const next = !evt.is_featured
+    setSaving(evt.id)
+    try {
+      const res = await fetch(`/api/admin/events/${evt.id}/feature`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featured: next }),
+      })
+      if (res.ok) {
+        setEvents(prev => prev.map(e => e.id === evt.id ? { ...e, is_featured: next } : e))
+        showToast(next ? bi('⭐ Mis à la une', '⭐ Featured') : bi('Retiré de la une', 'No longer featured'))
+      } else {
+        showToast(bi('Erreur', 'Error'), false)
+      }
+    } finally {
+      setSaving(null)
+    }
+  }
+
   async function reject(id: string) {
     const reason = prompt(bi('Raison du rejet (optionnel):', 'Reason for rejection (optional):'), '')
     if (reason === null) return // user cancelled the prompt
@@ -255,6 +274,7 @@ export default function AdminEventsPage() {
               canTogglePayment={canTogglePayment}
               onApprove={() => approve(evt.id)}
               onReject={() => reject(evt.id)}
+              onToggleFeatured={() => toggleFeatured(evt)}
               onSetMode={(m) => setEventMode(evt, m)}
               onToggleWhatsapp={(n) => toggleEventWhatsapp(evt, n)}
               onRevokeAutoApprove={
@@ -288,7 +308,7 @@ export default function AdminEventsPage() {
 
 function EventRow({
   event, aggregate, submitter, saving, canTogglePayment,
-  onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove,
+  onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove, onToggleFeatured,
   approveLabel, rejectLabel, organizerLabel,
   reservationsLabel, ticketsLabel, revenueLabel, commissionLabel, netLabel,
   priceLabel, freeLabel, freeBadgeLabel,
@@ -305,6 +325,7 @@ function EventRow({
   onSetMode: (m: PaymentMode) => void
   onToggleWhatsapp: (n: boolean) => void
   onRevokeAutoApprove?: () => void
+  onToggleFeatured: () => void
   approveLabel: string
   rejectLabel: string
   organizerLabel: string
@@ -496,6 +517,18 @@ function EventRow({
 
       {/* Actions */}
       <div className="border-t border-divider px-4 py-3 flex items-center justify-end gap-2">
+        {!isPending && (
+          <button
+            onClick={onToggleFeatured}
+            disabled={saving}
+            aria-pressed={!!event.is_featured}
+            className={`mr-auto px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors disabled:opacity-50 ${
+              event.is_featured ? 'bg-amber-400 text-ink-primary border-amber-400' : 'bg-white text-ink-secondary border-divider hover:bg-surface-muted'
+            }`}
+          >
+            ⭐ {event.is_featured ? bi('À la une', 'Featured') : bi('Mettre à la une', 'Feature')}
+          </button>
+        )}
         <button
           onClick={onReject}
           disabled={saving}
