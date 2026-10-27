@@ -5,7 +5,6 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { Event } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
@@ -17,7 +16,9 @@ import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, effectiveWebMode, canPayOnline, canReserve } from '@/lib/paymentMode'
-import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd, formatEventDay, isMultiDay, defaultBookingDay } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd, formatEventDay, isMultiDay, defaultBookingDay, eventDays } from '@/lib/eventDate'
+import EventPoster from '@/components/events/EventPoster'
+import { FEW_SEATS_MAX, FEW_SEATS_SHARE } from '@/lib/eventStatus'
 import { localDayISO } from '@/lib/eventCalendar'
 import type { DayAvailability } from '@/lib/eventSeats'
 
@@ -69,10 +70,17 @@ export default function EventDetailPage() {
   // when the endpoint failed — the page then falls back to the event-wide
   // counters, and the booking API still enforces the real limit.
   const [availability, setAvailability] = useState<DayAvailability[] | null>(null)
-  // The day this page books. It is chosen on the Events calendar and arrives
-  // as ?date=; the page never switches it on its own (see defaultBookingDay).
-  const [requestedDay] = useState<string | null>(() =>
+  // The day this page books (multi-day events). Nothing is pre-selected: the
+  // page shows its date list until the visitor taps a day, which puts
+  // ?date= in the address (so Back / "Changer de date" return to the list,
+  // and a login return lands back on that day). Never chosen automatically.
+  const [requestedDay, setRequestedDay] = useState<string | null>(() =>
     typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('date'))
+  useEffect(() => {
+    const onPop = () => setRequestedDay(new URLSearchParams(window.location.search).get('date'))
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const loadAvailability = useCallback(async () => {
     try {
@@ -131,12 +139,30 @@ export default function EventDetailPage() {
     fetchEvent()
   }, [id])
 
-  // Booking day: ?date= when it is a day of the event, else today, else the
-  // first day. A full day stays selected and shows "Épuisé".
+  // Booking day. Multi-day: only a day the visitor picked (?date=) that is
+  // still to come — otherwise none, and the date list shows. Single day: its
+  // day, booked directly.
   useEffect(() => {
     if (!event) return
-    setSelectedDay(defaultBookingDay(event, requestedDay, localDayISO()))
+    const today = localDayISO()
+    if (isMultiDay(event)) {
+      const upcoming = eventDays(event).filter(d => d >= today)
+      setSelectedDay(requestedDay && upcoming.includes(requestedDay) ? requestedDay : null)
+    } else {
+      setSelectedDay(defaultBookingDay(event, null, today))
+    }
   }, [event, requestedDay])
+
+  // Tap a date row → booking for that day; "Changer de date" → the list.
+  const chooseDate = useCallback((day: string | null) => {
+    const url = new URL(window.location.href)
+    if (day) url.searchParams.set('date', day); else url.searchParams.delete('date')
+    window.history.pushState({}, '', url)
+    setRequestedDay(day)
+    setTierQty({})
+    setQuantity(1)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
 
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
@@ -243,6 +269,20 @@ export default function EventDetailPage() {
   const dayLabel = (d: string) => formatEventDay(d, locale, 'compact')
   // "mer. 28 oct." on the buttons of a multi-day event.
   const dayShort = multiDay && selectedDay ? formatEventDay(selectedDay, locale, 'list') : null
+  // The cheapest price still on sale for a day (multi-day date list), and
+  // "Billets dès X FCFA" over the days still to come.
+  const dayFromPrice = (d: DayAvailability): number | null => {
+    if (d.soldOut) return null
+    if (!tiers.length) return ticketPrice
+    const open = tiers.filter(tt => !d.tiers.find(x => x.tier_id === tt.id)?.soldOut)
+    return open.length ? Math.min(...open.map(tt => tt.price)) : null
+  }
+  const ticketsFrom: number | null = (() => {
+    const prices = (availability ? futureDays.map(dayFromPrice) : [tiers.length ? Math.min(...tiers.map(tt => tt.price)) : ticketPrice])
+      .filter((p): p is number => p !== null)
+    return prices.length ? Math.min(...prices) : null
+  })()
+  const showDateList = multiDay && !selectedDay
   const isCancelled  = event.event_status === 'cancelled'
   const isCompleted  = event.event_status === 'completed'
   // Organizer can close the reservation gate independently of event_status —
@@ -474,34 +514,32 @@ export default function EventDetailPage() {
     <div className="min-h-screen bg-surface">
       <TopNav />
 
-      {/* Hero */}
-      <div className="relative h-56 sm:h-72 bg-gradient-to-br from-brand-badge to-brand">
-        {event.cover_photo && (
-          <Image src={event.cover_photo} alt={event.title} fill className="object-cover" priority />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-
-        <div className="absolute top-4 left-4 z-10">
-          <Link
-            href="/events"
-            className="bg-white/90 backdrop-blur-sm text-ink-primary px-3 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-1 hover:bg-white transition-colors"
-          >
-            {t('evt.back')}
-          </Link>
-        </div>
-
-        <div className="absolute bottom-4 left-4 right-4 z-10">
-          <span className="inline-block bg-brand text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
-            {categoryLabel(event.category, locale)}
-          </span>
-          {isPast && (
-            <span className="inline-block ml-2 bg-ink-primary/90 text-white text-xs font-bold px-2.5 py-1 rounded-full mb-2">
-              ⏳ {bi('Passé', 'Past')}
+      {/* Poster header */}
+      <div className="max-w-xl mx-auto px-4 pt-4">
+        <Link href="/events" className="inline-flex items-center gap-1 text-sm font-semibold text-ink-secondary hover:text-ink-primary">
+          {t('evt.back')}
+        </Link>
+        <div className="mt-3 flex gap-4 items-start">
+          <EventPoster src={event.cover_photo} title={event.title} category={event.category}
+            className="w-32 sm:w-40 aspect-[4/5] flex-shrink-0 shadow-card" sizes="160px" priority />
+          <div className="min-w-0 pt-1">
+            <span className="inline-block bg-brand text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full">
+              {categoryLabel(event.category, locale)}
             </span>
-          )}
-          <h1 className="text-white text-2xl font-bold leading-tight drop-shadow-lg">
-            {event.title}
-          </h1>
+            {isPast && (
+              <span className="inline-block ml-2 bg-ink-primary text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full">
+                ⏳ {bi('Passé', 'Past')}
+              </span>
+            )}
+            <h1 className="text-xl sm:text-2xl font-black text-ink-primary leading-tight mt-2">{event.title}</h1>
+            <p className="text-sm text-ink-secondary mt-1">📅 {dateStr}</p>
+            {event.venue && <p className="text-sm text-ink-secondary">📍 {event.venue}</p>}
+            {ticketsFrom !== null && (
+              <p className="text-sm font-bold text-ink-primary mt-1">
+                {ticketsFrom === 0 ? bi('Gratuit', 'Free') : `${bi('Billets dès', 'Tickets from')} ${ticketsFrom.toLocaleString()} FCFA`}
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -535,14 +573,21 @@ export default function EventDetailPage() {
                 : `${remaining} ${bi('places restantes', 'spots remaining')}${multiDay && selectedDay ? ` — ${dayLabel(selectedDay)}` : ''}`}
             />
           )}
-          {event.organizer_name && (
-            <DetailRow icon="👤" label={t('evt.organizer')} value={event.organizer_name} />
-          )}
         </div>
 
-        {event.description && (
+        {(event.description || event.organizer_name) && (
           <div className="bg-white rounded-2xl p-4 shadow-sm">
-            <p className="text-ink-primary text-sm leading-relaxed whitespace-pre-wrap">{event.description}</p>
+            {event.description && (
+              <>
+                <h2 className="text-sm font-bold text-ink-primary mb-1.5">{bi('À propos', 'About')}</h2>
+                <p className="text-ink-primary text-sm leading-relaxed whitespace-pre-wrap">{event.description}</p>
+              </>
+            )}
+            {event.organizer_name && (
+              <p className={`text-sm text-ink-secondary ${event.description ? 'mt-3 pt-3 border-t border-divider' : ''}`}>
+                {bi('Organisé par', 'Organised by')} <span className="font-semibold text-ink-primary">{event.organizer_name}</span>
+              </p>
+            )}
           </div>
         )}
 
@@ -574,8 +619,55 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {/* Booking day — multi-day events sell seats per day. The day is
-            picked on the Events calendar; "Changer de date" goes back there. */}
+        {/* Date list — multi-day events, until a day is chosen. One row per
+            day still to come; a full day is greyed out and can't be tapped. */}
+        {showDateList && !isCancelled && !isPast && (
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <p className="px-4 pt-4 pb-2 text-sm font-bold text-ink-primary">🗓️ {bi('Choisissez une date', 'Pick a date')}</p>
+            <ul className="divide-y divide-divider">
+              {(availability ? futureDays : eventDays(event).filter(d => d >= localDayISO()).map(date => ({ date } as DayAvailability))).map(d => {
+                const full = !!d.soldOut
+                const price = availability ? dayFromPrice(d) : null
+                const few = d.remaining != null && d.capacity > 0 && !full
+                  && (d.remaining <= FEW_SEATS_MAX || d.remaining <= d.capacity * FEW_SEATS_SHARE)
+                const dt = new Date(`${d.date}T00:00:00Z`)
+                const tag = locale === 'en' ? 'en-GB' : 'fr-FR'
+                return (
+                  <li key={d.date}>
+                    <button type="button" disabled={full || !reservable} onClick={() => chooseDate(d.date)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-muted disabled:hover:bg-transparent disabled:opacity-50 disabled:cursor-not-allowed">
+                      <span className="w-12 flex-shrink-0 rounded-xl bg-surface-muted flex flex-col items-center py-1.5">
+                        <span className="text-lg font-black text-ink-primary leading-none">{Number(d.date.slice(8))}</span>
+                        <span className="text-[10px] font-bold text-brand-darker uppercase">
+                          {new Intl.DateTimeFormat(tag, { month: 'short', timeZone: 'UTC' }).format(dt).replace('.', '')}
+                        </span>
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-semibold text-ink-primary capitalize">
+                          {new Intl.DateTimeFormat(tag, { weekday: 'long', timeZone: 'UTC' }).format(dt)}{event.time ? ` · ${event.time.slice(0, 5)}` : ''}
+                        </span>
+                        {price !== null && (
+                          <span className="block text-xs text-ink-secondary">
+                            {price === 0 ? bi('Gratuit', 'Free') : `${bi('Dès', 'From')} ${price.toLocaleString()} FCFA`}
+                          </span>
+                        )}
+                      </span>
+                      <span className={`text-xs font-semibold flex-shrink-0 ${full ? 'text-danger' : few ? 'text-amber-700' : 'text-emerald-700'}`}>
+                        {full ? bi('Épuisé', 'Sold out')
+                          : few ? (locale === 'en' ? `Only ${d.remaining} left` : `Plus que ${d.remaining}`)
+                            : bi('Disponible', 'Available')}
+                      </span>
+                      {!full && <span className="text-ink-tertiary" aria-hidden="true">›</span>}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* Booking day — multi-day events sell seats per day. The day was
+            tapped in the date list; "Changer de date" goes back to it. */}
         {multiDay && reservable && selectedDay && (
           <div className="bg-white rounded-2xl shadow-sm p-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -588,12 +680,13 @@ export default function EventDetailPage() {
                 </span>
               )}
             </div>
-            <Link
-              href={`/events?date=${selectedDay}`}
+            <button
+              type="button"
+              onClick={() => chooseDate(null)}
               className="flex-shrink-0 text-xs font-semibold text-brand hover:text-brand-dark underline underline-offset-2"
             >
               {bi('Changer de date', 'Change date')}
-            </Link>
+            </button>
           </div>
         )}
 
@@ -601,7 +694,7 @@ export default function EventDetailPage() {
             sell. Per-tier qty stepper, total at the bottom, modal opens
             once at least one tier is selected. Remaining is for the
             selected day. */}
-        {hasTiers && reservable && (
+        {hasTiers && reservable && !showDateList && (
           <div className="space-y-2">
             {tiers.map(t => {
               const displayName = locale === 'en' && t.name_en ? t.name_en : t.name
@@ -657,7 +750,7 @@ export default function EventDetailPage() {
         )}
 
         {/* Reserve button — only for events the in-app flow can handle. */}
-        {onlineReservable && (
+        {onlineReservable && !showDateList && (
           <button
             onClick={() => openReserve(false)}
             disabled={!meLoaded || daySoldOut || (me != null && hasTiers && tierTotalQty === 0)}
@@ -704,7 +797,7 @@ export default function EventDetailPage() {
 
         {/* Paid online reservation — PawaPay flow. One deposit buys one
             tier, so the button is disabled while several are selected. */}
-        {onlinePayReservable && (
+        {onlinePayReservable && !showDateList && (
           <button
             onClick={() => openReserve(true)}
             disabled={!meLoaded || daySoldOut || (me != null && hasTiers && (tierTotalQty === 0 || multiTierPay))}
