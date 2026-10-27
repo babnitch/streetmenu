@@ -111,3 +111,22 @@ export function setAdminSession(res: NextResponse, payload: SessionPayload): Nex
   })
   return res
 }
+
+// ── Code ticket ─────────────────────────────────────────────────────────────
+// Returned with a login code so the login screen can ask, for a few minutes,
+// whether the code went out by SMS instead (WhatsApp fallback) — without
+// being able to ask about any other number.
+export function signCodeTicket(phone: string): string {
+  return jwt.sign({ phone, purpose: 'code_ticket', since: new Date().toISOString() }, SECRET, { expiresIn: '15m' })
+}
+
+export function verifyCodeTicket(token: unknown): { phone: string; since: string } | null {
+  if (typeof token !== 'string' || !token) return null
+  try {
+    const p = jwt.verify(token, SECRET) as { phone?: unknown; purpose?: unknown; since?: unknown }
+    return p.purpose === 'code_ticket' && typeof p.phone === 'string' && typeof p.since === 'string'
+      ? { phone: p.phone, since: p.since } : null
+  } catch {
+    return null
+  }
+}

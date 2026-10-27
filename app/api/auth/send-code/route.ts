@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, normalizeLang, type Lang } from '@/lib/whatsapp'
+import { signCodeTicket } from '@/lib/auth'
 import { sendSMS } from '@/lib/sms'
 import { clientIP } from '@/lib/rateLimit'
 import {
@@ -87,11 +88,11 @@ export async function POST(req: NextRequest) {
       console.error('[send-code] SMS send failed:', r.error)
       return NextResponse.json({ error: sendFailedText(siteLang) }, { status: 502 })
     }
-    return NextResponse.json({ sent: true, channel: 'sms', fallback: false })
+    return NextResponse.json({ ticket: signCodeTicket(phone), sent: true, channel: 'sms', fallback: false })
   }
 
   const r = await sendWhatsApp(phone, msg, { context: 'verification_code' })
-  if (r.ok) return NextResponse.json({ sent: true, channel: 'whatsapp', fallback: false })
+  if (r.ok) return NextResponse.json({ ticket: signCodeTicket(phone), sent: true, channel: 'whatsapp', fallback: false })
 
   await markCodeSendFailed(claim.sendId, failed(r))
   if (r.errorCode === TWILIO_DAILY_CAP) {
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest) {
     console.error('[send-code] SMS fallback also failed:', s.error)
     return NextResponse.json({ error: sendFailedText(siteLang) }, { status: 502 })
   }
-  return NextResponse.json({ sent: true, channel: 'sms', fallback: true })
+  return NextResponse.json({ ticket: signCodeTicket(phone), sent: true, channel: 'sms', fallback: true })
 }
 
 function sendFailedText(lang: Lang): string {

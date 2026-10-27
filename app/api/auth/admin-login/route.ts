@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { clientIP } from '@/lib/rateLimit'
+import { signCodeTicket } from '@/lib/auth'
 import { normalizeEmail, adminLock, recordAttempt, sendAdminCode } from '@/lib/adminLogin'
 
 export const dynamic = 'force-dynamic'
@@ -75,5 +76,5 @@ export async function POST(req: NextRequest) {
   if (!sent.ok) {
     return NextResponse.json({ error: sent.error, retry_after: sent.retryAfter }, { status: sent.status })
   }
-  return NextResponse.json({ step: 'code', challenge: sent.challengeId, channel: sent.channel, sentTo: sent.maskedPhone })
+  return NextResponse.json({ step: 'code', challenge: sent.challengeId, channel: sent.channel, sentTo: sent.maskedPhone, ticket: signCodeTicket(admin.phone) })
 }

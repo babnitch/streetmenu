@@ -2,7 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useCodeChannel } from '@/lib/useCodeChannel'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import OtpInput from '@/components/OtpInput'
@@ -49,6 +50,11 @@ export default function LoginPage() {
   const [localDigits, setLocalDigits] = useState('')
   const [country, setCountry] = useState('CM')
   const [sentTo, setSentTo] = useState<{ channel: Channel } | null>(null)
+  // WhatsApp may fail after the fact (outside the 24 h window): the server
+  // then sends the code by SMS, and the ticket lets us notice.
+  const [ticket, setTicket] = useState<string | null>(null)
+  const onSms = useCallback(() => setSentTo({ channel: 'sms' }), [])
+  useCodeChannel(ticket, step === 'code' && sentTo?.channel === 'whatsapp', onSms)
   const [code, setCode] = useState('')
   const [firstName, setFirstName] = useState('')
   const [signupPass, setSignupPass] = useState<string | null>(null)
@@ -110,6 +116,7 @@ export default function LoginPage() {
         return
       }
       setSentTo({ channel: d.channel === 'sms' ? 'sms' : 'whatsapp' })
+      setTicket(typeof d.ticket === 'string' ? d.ticket : null)
       setCode('')
       setCooldown(30)
       setStep('code')

@@ -2,7 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useCodeChannel } from '@/lib/useCodeChannel'
 import OtpInput from '@/components/OtpInput'
 import { useBi, useLanguage, pickBi } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
@@ -35,6 +36,9 @@ export default function AdminEmailLoginPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [clientName, setClientName] = useState<string | null>(null)
+  const [ticket, setTicket] = useState<string | null>(null)
+  const onSms = useCallback(() => setChannel('sms'), [])
+  useCodeChannel(ticket, step === 'code' && channel === 'whatsapp', onSms)
 
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
@@ -60,6 +64,7 @@ export default function AdminEmailLoginPage() {
       setChallenge(d.challenge)
       setSentTo(d.sentTo ?? '')
       setChannel(d.channel === 'sms' ? 'sms' : 'whatsapp')
+      setTicket(typeof d.ticket === 'string' ? d.ticket : null)
       setCode('')
       setStep('code')
     } catch {

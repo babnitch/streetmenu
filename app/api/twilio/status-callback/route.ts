@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { normalizeLogNumber, type MessageStatus } from '@/lib/messageLog'
 import { requeueFromStatusCallback } from '@/lib/messageRetry'
+import { smsFallbackForLog } from '@/lib/smsFallback'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -161,6 +162,9 @@ export async function POST(req: NextRequest) {
     // callback doesn't count as another failed attempt.
     if ((status === 'failed' || status === 'undelivered') && current !== status && !error) {
       await requeueFromStatusCallback(existing.id as string, errorCode)
+      // Outside the 24 h window / not in the sandbox: one SMS instead, for
+      // login codes and the key confirmations only (lib/smsFallback.ts).
+      await smsFallbackForLog(existing.id as string, errorCode)
     }
   } catch (e) {
     // Swallow: Twilio must not retry because our DB hiccuped.
