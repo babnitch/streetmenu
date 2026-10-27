@@ -13,20 +13,15 @@
 // enforced server-side in lib/subscriptions.ts getBroadcastEligibility; the
 // composer lives in Account and only renders for eligible senders.
 //
-// ── Two deliberate differences from what ships today ──────────────────────
-//
-//  1. The restaurant set has FOUR entries. The live BottomNav renders a
-//     fifth, "Mes événements" → /account?tab=events. Event organizing is an
-//     Account feature, not a mode, so it is not modelled here.
-//  2. The desktop TopNav additionally renders Vouchers, Settings and the
-//     public Restaurants/Events links while in restaurant mode. Those are
-//     not modelled here either.
-//
-// Both resolve when the nav bars are rewired to read from this module.
+// Pro mode is open to every logged-in customer. Its restaurant destinations
+// (Orders, Menu) carry `requiresRestaurant` and only show for a restaurant
+// team member; someone without a restaurant gets the Pro home (/pro) in
+// their place. The desktop TopNav still appends Vouchers and Settings for
+// restaurant owners/managers outside this module (see its legacy extras).
 
 import type { DashboardTab, TeamRole, RoleRankShape } from './modeContext'
 
-export type NavMode   = 'client' | 'restaurant'
+export type NavMode   = 'client' | 'pro'
 /** Behaviour the renderer owns, rather than a route change. */
 export type NavAction = 'openSearch'
 /** Count the renderer supplies; the config only names which one. */
@@ -34,7 +29,7 @@ export type NavBadge  = 'pendingOrders' | 'cartCount'
 
 export type NavKey =
   | 'restaurants' | 'events' | 'search' | 'cart' | 'account'
-  | 'orders' | 'menu'
+  | 'orders' | 'menu' | 'proHome' | 'myEvents'
 
 export interface NavDestination {
   key:     NavKey
@@ -59,6 +54,10 @@ export interface NavDestination {
    *  staff < manager < owner ladder. Absent = visible to every tier.
    *  Resolve with `meetsRole()`, never by equality. */
   minRole?: TeamRole
+
+  /** true: only for a restaurant team member (hasRestaurantRole).
+   *  false: only for someone WITHOUT a restaurant. Absent: everyone. */
+  requiresRestaurant?: boolean
 
   badgeKey?: NavBadge
 
@@ -137,12 +136,13 @@ const CLIENT_NAV: readonly NavDestination[] = [
   },
 ] as const
 
-const RESTAURANT_NAV: readonly NavDestination[] = [
+const PRO_NAV: readonly NavDestination[] = [
   {
     key: 'orders', icon: '📦',
     labelFr: 'Commandes', labelEn: 'Orders',
     href: '/dashboard', dashboardTab: 'orders',
     badgeKey: 'pendingOrders',
+    requiresRestaurant: true,
     // Catches every dashboard tab except Menu, so a freshly-loaded
     // /dashboard still highlights something.
     match: (p, tab) => p.startsWith('/dashboard') && tab !== 'menu',
@@ -153,13 +153,22 @@ const RESTAURANT_NAV: readonly NavDestination[] = [
     href: '/dashboard', dashboardTab: 'menu',
     // Manager or owner. Staff get a view-only surface later, not the editor.
     minRole: 'manager',
+    requiresRestaurant: true,
     match: (p, tab) => p.startsWith('/dashboard') && tab === 'menu',
   },
   {
-    key: 'search', icon: '🔍',
-    labelFr: 'Recherche', labelEn: 'Search',
-    actionKey: 'openSearch',
-    match: () => false,
+    // No restaurant yet: the Pro home, where one is added.
+    key: 'proHome', icon: '🧰',
+    labelFr: 'Espace Pro', labelEn: 'Pro home',
+    href: '/pro',
+    requiresRestaurant: false,
+    match: p => p === '/pro',
+  },
+  {
+    key: 'myEvents', icon: '🎉',
+    labelFr: 'Mes événements', labelEn: 'My events',
+    href: '/account?tab=events',
+    match: () => false,     // /account is shared with Account; see the renderer
   },
   {
     key: 'account', icon: '👤',
@@ -170,15 +179,17 @@ const RESTAURANT_NAV: readonly NavDestination[] = [
 ] as const
 
 export const NAV: Record<NavMode, readonly NavDestination[]> = {
-  client:     CLIENT_NAV,
-  restaurant: RESTAURANT_NAV,
+  client: CLIENT_NAV,
+  pro:    PRO_NAV,
 }
 
-/** The destinations a viewer in `mode` holding `topRole` should see, in
- *  render order. Pass the mode already resolved through the
- *  hasRestaurantRole gate (ModeContext exposes it as `effectiveMode`). */
-export function navFor(mode: NavMode, topRole: TeamRole | null): NavDestination[] {
-  return NAV[mode].filter(d => meetsRole(topRole, d.minRole))
+/** The destinations a viewer in `mode` should see, in render order. Pass the
+ *  mode already resolved (ModeContext's `effectiveMode`), the viewer's
+ *  highest team role and whether they are on a restaurant team. */
+export function navFor(mode: NavMode, topRole: TeamRole | null, hasRestaurant = false): NavDestination[] {
+  return NAV[mode].filter(d =>
+    meetsRole(topRole, d.minRole)
+    && (d.requiresRestaurant === undefined || d.requiresRestaurant === hasRestaurant))
 }
 
 /** Locale-picked label, so callers don't repeat the ternary. */

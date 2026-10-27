@@ -174,7 +174,7 @@ interface TeamMember {
 export default function AccountPage() {
   const bi = useBi()
   const { t, locale } = useLanguage()
-  const { mode, resetMode, hasRestaurantRole, setDashboardTab, adminTab, setAdminTab } = useMode()
+  const { effectiveMode, resetMode, hasRestaurantRole, setDashboardTab, adminTab, setAdminTab } = useMode()
   const router = useRouter()
 
   // Login form state
@@ -752,11 +752,10 @@ export default function AccountPage() {
   const activeRest = myRestaurants.find(r => r.id === activeRestId)
 
   // ── Mobile profile helpers ────────────────────────────────────────────
-  // Restaurant mode is only honoured for sessions that actually hold a team
-  // role; everyone else is permanently in client mode and never sees the
-  // switcher. Mirrors the gate in TopNav/BottomNav/ModeToggle.
-  const effectiveMode: 'client' | 'restaurant' =
-    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
+  // effectiveMode comes from ModeContext: 'pro' for any logged-in customer
+  // who switched to it. The restaurant tiles and rows additionally need a
+  // restaurant (inRestaurantPro).
+  const inRestaurantPro = effectiveMode === 'pro' && hasRestaurantRole
 
   // Role driving the restaurant-mode tiles. Mirrors the dashboard's
   // `effectiveRole` (app/dashboard/page.tsx:124) including its 'admin'
@@ -1438,7 +1437,18 @@ export default function AccountPage() {
                     {/* Quick access. Client mode is the customer's own
                         stuff; restaurant mode swaps in the three dashboard
                         surfaces a vendor opens most. */}
-                    {effectiveMode === 'client' ? (
+                    {effectiveMode === 'pro' && !hasRestaurantRole ? (
+                      // Pro without a restaurant: the organiser's shortcuts
+                      // and the way to add a restaurant.
+                      <div className="grid grid-cols-3 gap-3 mb-6">
+                        <QuickCard icon="🎉" label={bi('Mes événements', 'My events')}
+                          onClick={() => openMobileSection('events')} />
+                        <QuickCard icon="➕" label={bi('Créer un événement', 'Create an event')}
+                          onClick={() => router.push('/events/submit')} />
+                        <QuickCard icon="🏪" label={bi('Ajouter un restaurant', 'Add a restaurant')}
+                          onClick={() => router.push('/pro')} />
+                      </div>
+                    ) : effectiveMode === 'client' ? (
                       <div className="grid grid-cols-3 gap-3 mb-6">
                         <QuickCard
                           icon="📦"
@@ -1524,7 +1534,7 @@ export default function AccountPage() {
                       />
 
                       {/* ── Restaurant-mode rows ───────────────────────── */}
-                      {effectiveMode === 'restaurant' && (
+                      {inRestaurantPro && (
                         <MenuRow
                           icon="🏪"
                           label={bi('Mon restaurant', 'My restaurant')}
@@ -1537,7 +1547,7 @@ export default function AccountPage() {
                           so this opens the section in place rather than
                           bouncing the user through /dashboard. Owner-only,
                           matching the panel's own gate. */}
-                      {effectiveMode === 'restaurant' && activeRest?.teamRole === 'owner' && (
+                      {inRestaurantPro && activeRest?.teamRole === 'owner' && (
                         <MenuRow
                           icon="👥"
                           label={t('account.teamTab')}
@@ -1550,7 +1560,7 @@ export default function AccountPage() {
                           mode. A publisher with no restaurant never sees
                           that mode, so they keep them in client mode —
                           otherwise they'd lose the only way in. */}
-                      {canPromote && (effectiveMode === 'restaurant' || !hasRestaurantRole) && (
+                      {canPromote && (inRestaurantPro || !hasRestaurantRole) && (
                         <MenuRow
                           icon="📣"
                           label={bi('Promouvoir', 'Promote')}
@@ -1558,7 +1568,7 @@ export default function AccountPage() {
                           onClick={() => setMobileSection('promote')}
                         />
                       )}
-                      {canBroadcast && (effectiveMode === 'restaurant' || !hasRestaurantRole) && (
+                      {canBroadcast && (inRestaurantPro || !hasRestaurantRole) && (
                         <MenuRow
                           icon="📢"
                           label={bi('Diffuser', 'Broadcast')}
@@ -1577,11 +1587,9 @@ export default function AccountPage() {
                       <MenuLowDataRow />
                       <MenuLanguageRow />
 
-                      {/* Mode switcher — vendors only. The ONE switcher:
-                          components/ModeToggle.tsx, same component the
-                          desktop profile tab renders as a banner. It
-                          navigates to the mode's home rather than flipping
-                          in place, and returns null without a team role. */}
+                      {/* Client ⇄ Pro switcher (components/ModeToggle.tsx,
+                          the same component as the desktop banner and the
+                          header pill). Every logged-in customer gets it. */}
                       <ModeToggle variant="row" />
 
                       <SignOutRow label={t('account.signOut')} onClick={handleSignOut} />
@@ -2655,8 +2663,8 @@ function TabBtn({
 // Roles on the profile card. Restaurant roles REPLACE the plain "Client"
 // badge (a restaurateur is not also labelled a client), while the publisher
 // badge is additive — it stacks on whatever the primary role is:
-//   Client · 📢 Éditeur          — customer who publishes events
-//   Restaurateur · ✅ Éditeur vérifié
+//   Client · 📢 Organisateur d'événements — customer who publishes events
+//   Restaurateur · ✅ Organisateur vérifié
 //   Client                       — plain customer
 function ProfileRoleBadges({
   restaurants,
@@ -3624,7 +3632,7 @@ function MyEventsPanel({
         {trust && (
           trust.event_auto_approve ? (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              ✅ {bi('Éditeur vérifié', 'Verified publisher')}
+              ✅ {bi('Organisateur vérifié', 'Verified organiser')}
             </span>
           ) : (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">

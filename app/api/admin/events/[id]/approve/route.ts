@@ -70,9 +70,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         })
         if (organizer.phone) {
           await sendWhatsApp(organizer.phone, pickLang(
-            `🎉 *Éditeur vérifié!*\n\n` +
+            `🎉 *Organisateur vérifié!*\n\n` +
             `Vos prochains événements seront publiés immédiatement.`,
-            `🎉 *Verified publisher!*\n\n` +
+            `🎉 *Verified organiser!*\n\n` +
             `Your next events will publish immediately.`,
             orgLang,
           ), { context: 'account_notice', customerId: organizer.id ?? null }).catch(() => null)

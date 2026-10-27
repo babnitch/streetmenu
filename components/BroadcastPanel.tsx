@@ -281,7 +281,7 @@ export default function BroadcastPanel() {
                 }}
                 className="w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm"
               >
-                <option value="publisher">🎉 {bi('Éditeur', 'Publisher')}</option>
+                <option value="publisher">🎉 {bi('Organisateur d\'événements', 'Event organiser')}</option>
                 {eligibility.asRestaurants.map(r => (
                   <option key={r.id} value={r.id}>🏪 {r.name}</option>
                 ))}

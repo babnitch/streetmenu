@@ -6,14 +6,16 @@ import {
   isAdminRole, isAdminTab, adminCanFor, firstVisibleAdminTab, type AdminSubTab,
 } from './adminNav'
 
-// ModeContext tracks whether a user with a restaurant_team role is currently
-// browsing as a customer ("client") or managing their restaurant ("restaurant").
+// ModeContext tracks whether a logged-in user is browsing as a customer
+// ("client") or working as a professional ("pro": their restaurants and the
+// events they organise).
 //
-// `hasRestaurantRole` is the gate for rendering the mode switcher at all — a
-// pure customer (no team membership) never sees it, and an admin session also
-// keeps it hidden (admins navigate via /account admin tabs, not the switcher).
+// `canEnterPro` gates the switcher: any logged-in customer may enter Pro,
+// with or without a restaurant. Admins never do (they navigate via the
+// /account admin tabs). `hasRestaurantRole` is separate — it drives the
+// restaurant destinations (Orders, Menu) and the pending-orders polling.
 
-export type Mode     = 'client' | 'restaurant'
+export type Mode     = 'client' | 'pro'
 export type TeamRole = 'owner' | 'manager' | 'staff'
 export type DashboardTab = 'orders' | 'menu' | 'validate' | 'vouchers' | 'team' | 'settings'
 
@@ -24,12 +26,11 @@ interface ModeContextValue {
    *  probe. Called on sign-out so a logged-out visitor can't retain
    *  restaurant mode or a stale hasRestaurantRole. */
   resetMode: () => void
-  /** THE canonical resolved mode — "restaurant" only when the session
-   *  actually holds a team role. Consumers should read this instead of
-   *  re-deriving `hasRestaurantRole && mode === 'restaurant'`, which is
-   *  currently duplicated in BottomNav, TopNav, the account page and
-   *  ModeToggle. Those four are rewired in a follow-up. */
+  /** THE canonical resolved mode — "pro" only when the session may enter
+   *  Pro (logged in, not an admin). Read this, never `mode` directly. */
   effectiveMode: Mode
+  /** Logged in as a customer (not an admin): may switch to Pro. */
+  canEnterPro: boolean
   hasRestaurantRole: boolean
   /** Highest role held across any of the user's restaurants (owner beats
    *  manager beats staff). `null` when the user isn't on any team. The
@@ -66,9 +67,9 @@ interface ModeContextValue {
 }
 
 const STORAGE_KEY = 'tn_mode'
-// Client is the safe default: it's the only mode a visitor with no team
-// role can be in, and it means a vendor who has never touched the switcher
-// is never dropped into restaurant mode without choosing it. (It used to
+// Client is the safe default: it's the only mode a logged-out visitor can be
+// in, and it means a vendor who has never touched the switcher is never
+// dropped into Pro mode without choosing it. (It used to
 // default to 'restaurant' on the theory that vendors care about orders
 // first — but that also caught every customer who later joined a team, and
 // every user whose stored mode a CLIENT_VERSION bump had cleared.)
@@ -90,6 +91,7 @@ const ModeContext = createContext<ModeContextValue>({
   setMode: () => {},
   resetMode: () => {},
   effectiveMode: 'client',
+  canEnterPro: false,
   hasRestaurantRole: false,
   topRole: null,
   loading: true,
@@ -117,7 +119,12 @@ export function ModeProvider({ children }: { children: ReactNode }) {
     runClientVersionGuard()
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored === 'client' || stored === 'restaurant') setModeState(stored)
+      if (stored === 'client' || stored === 'pro') setModeState(stored)
+      // Saved before the rename: restaurant mode is now Pro mode.
+      else if (stored === 'restaurant') {
+        setModeState('pro')
+        localStorage.setItem(STORAGE_KEY, 'pro')
+      }
     } catch {}
   }, [])
 
@@ -257,14 +264,14 @@ export function ModeProvider({ children }: { children: ReactNode }) {
     void probe()
   }, [probe])
 
-  // The one place this is derived. See the note on ModeContextValue.
-  const effectiveMode: Mode =
-    hasRestaurantRole && mode === 'restaurant' ? 'restaurant' : 'client'
+  // The one place these are derived. See the notes on ModeContextValue.
+  const canEnterPro = !!sessionRole && !isAdminRole(sessionRole)
+  const effectiveMode: Mode = canEnterPro && mode === 'pro' ? 'pro' : 'client'
 
   return (
     <ModeContext.Provider
       value={{
-        mode, setMode, resetMode, effectiveMode,
+        mode, setMode, resetMode, effectiveMode, canEnterPro,
         hasRestaurantRole, topRole, loading,
         dashboardTab, setDashboardTab,
         sessionRole, adminTab, setAdminTab,

@@ -13,11 +13,12 @@ import SearchOverlay from './SearchOverlay'
 // comes from lib/navConfig.ts, the single source both this bar and the
 // desktop TopNav render from, so the two can no longer drift:
 //
-//   client      🏠 Restaurants · 🎉 Événements · 🔍 Recherche · 🛒 Panier · 👤 Compte
-//   restaurant  📦 Commandes   · 🍽️ Menu       · 🔍 Recherche · 👤 Compte
+//   client  🏠 Restaurants · 🎉 Événements · 🔍 Recherche · 🛒 Panier · 👤 Compte
+//   pro     📦 Commandes · 🍽️ Menu · 🎉 Mes événements · 👤 Compte   (with a restaurant)
+//           🧰 Espace Pro · 🎉 Mes événements · 👤 Compte            (without)
 //
-// Menu carries minRole 'manager', so staff no longer see it here — the
-// desktop nav and the dashboard's own strip already gated it that way.
+// Menu carries minRole 'manager', so staff don't see it here — the
+// desktop nav and the dashboard's own strip gate it the same way.
 //
 // Dashboard tabs are switched through ModeContext, never a ?tab= query:
 // Next.js treats /dashboard?tab=a and /dashboard?tab=b as the same route
@@ -88,7 +89,7 @@ export default function BottomNav() {
   // right tab set instead of flashing through the client variant.
   if (!authProbed || modeLoading) return null
 
-  const tabs = navFor(effectiveMode, topRole)
+  const tabs = navFor(effectiveMode, topRole, hasRestaurantRole)
 
   // Flip the dashboard tab through context and route there if needed.
   // Navigating while already on /dashboard would be a same-route no-op.
@@ -111,8 +112,7 @@ export default function BottomNav() {
         aria-label="Bottom navigation"
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-divider"
       >
-        {/* Column count follows the destination list — client has 5,
-            restaurant 4 (and 3 for staff, who don't get Menu). */}
+        {/* Column count follows the destination list (3 to 5). */}
         <div
           className="grid"
           style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}

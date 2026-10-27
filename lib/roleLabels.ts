@@ -55,8 +55,8 @@ export interface PublisherTrust {
   event_auto_approve?:     boolean | null
 }
 
-export const PUBLISHER_LABEL:          BiLabel = ['📢 Éditeur', '📢 Publisher']
-export const VERIFIED_PUBLISHER_LABEL: BiLabel = ['✅ Éditeur vérifié', '✅ Verified Publisher']
+export const PUBLISHER_LABEL:          BiLabel = ['📢 Organisateur d\'événements', '📢 Event organiser']
+export const VERIFIED_PUBLISHER_LABEL: BiLabel = ['✅ Organisateur vérifié', '✅ Verified organiser']
 
 // Returns the badge to show alongside the account's primary role, or null
 // when the account has never submitted an event.

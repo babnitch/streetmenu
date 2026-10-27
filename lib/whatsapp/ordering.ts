@@ -1742,7 +1742,7 @@ export async function handleOrderCommand(
       .eq('id', customer.id)
       .maybeSingle()
     const trustLine = trust?.event_auto_approve
-      ? pickLang(`✅ *Éditeur vérifié* — publication immédiate.`, `✅ *Verified publisher* — instant publishing.`, lang)
+      ? pickLang(`✅ *Organisateur vérifié* — publication immédiate.`, `✅ *Verified organiser* — instant publishing.`, lang)
       : pickLang(
           `🛡 ${trust?.events_approved_count ?? 0}/3 approuvés pour la publication automatique.`,
           `🛡 ${trust?.events_approved_count ?? 0}/3 approved for auto-publish.`,

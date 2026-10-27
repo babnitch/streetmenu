@@ -7,6 +7,7 @@ import { useCart } from '@/lib/cartContext'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
+import ModeToggle from './ModeToggle'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
@@ -111,7 +112,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
   const isDashboard = pathname.startsWith('/dashboard')
   // Map icon only makes sense on the two map-bearing client-mode surfaces.
-  // In restaurant mode the TopNav shows operations links instead.
+  // In Pro mode the TopNav shows operations links instead.
   const showMapBtn  = effectiveMode === 'client'
                     && (pathname === '/' || pathname === '/events')
   const isOwner   = topRole === 'owner'
@@ -122,7 +123,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // form below (the overlay is mobile-only), so `openSearch` entries are
   // filtered out here.
   const destinations: NavDestination[] =
-    navFor(effectiveMode, topRole).filter(d => !d.actionKey)
+    navFor(effectiveMode, topRole, hasRestaurantRole).filter(d => !d.actionKey)
 
   // ── Legacy extras — TEMPORARY ───────────────────────────────────────────
   // Vouchers and Settings are not in navConfig yet, so they're appended
@@ -202,6 +203,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             separate commit, so this bar is otherwise left alone. */}
         {!isAdmin && <CityDropdown />}
         <div className="flex items-center gap-2">
+          {/* Client ⇄ Pro for every logged-in customer (null otherwise). */}
+          <ModeToggle variant="header" />
           {authChecked && me === null && <LanguageToggle />}
           <Link
             href="/account"
@@ -317,7 +320,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             home page seeds its own search input. On pages other than /,
             this is a jump-to-results shortcut. Hidden on mobile; the
             home page search input + BottomNav Search tab cover mobile.
-            Also hidden in restaurant mode — vendors manage their own
+            Also hidden in Pro mode — vendors manage their own
             restaurant and don't discover other venues from here. */}
         {effectiveMode === 'client' && (
           <form
@@ -376,12 +379,12 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           })}
 
           {/* Legacy extras — TEMPORARY, see the note above. */}
-          {effectiveMode === 'restaurant' && (isOwner || isManager) && (
+          {effectiveMode === 'pro' && hasRestaurantRole && (isOwner || isManager) && (
             <TopNavButton onClick={() => goToDashTab('vouchers')} active={isDashVouchers}>
               🎫 {bi('Bons', 'Vouchers')}
             </TopNavButton>
           )}
-          {effectiveMode === 'restaurant' && isOwner && (
+          {effectiveMode === 'pro' && hasRestaurantRole && isOwner && (
             <TopNavButton onClick={() => goToDashTab('settings')} active={isDashSettings}>
               ⚙️ {bi('Paramètres', 'Settings')}
             </TopNavButton>
@@ -430,6 +433,9 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               📶
             </button>
           )}
+
+          {/* Client ⇄ Pro for every logged-in customer (null otherwise). */}
+          <ModeToggle variant="header" />
 
           {/* Language toggle — last in the cluster, visible on every page
               and every breakpoint. Secondary copy lives in /account. */}
