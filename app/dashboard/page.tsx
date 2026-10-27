@@ -563,8 +563,13 @@ export default function DashboardPage() {
         <div className="text-center">
           <div className="text-5xl mb-4">🏪</div>
           <h2 className="text-xl font-bold text-ink-primary mb-2">{t('dash.noRest')}</h2>
-          <p className="text-ink-secondary mb-4">{t('dash.noRestSub')}</p>
-          <Link href="/restaurants" className="text-brand underline">{t('dash.backToMap')}</Link>
+          <p className="text-ink-secondary mb-4 max-w-xs mx-auto">
+            {bi('Recevez commandes et réservations sur WhatsApp, payées par Mobile Money.', 'Get orders and bookings on WhatsApp, paid by Mobile Money.')}
+          </p>
+          <Link href="/pro/restaurants/new" className="inline-block bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">
+            🏪 {bi('Ajouter un restaurant', 'Add a restaurant')}
+          </Link>
+          <Link href="/pro" className="block mt-3 text-sm text-brand underline">{bi('Espace Pro', 'Pro home')}</Link>
         </div>
       </div>
     )

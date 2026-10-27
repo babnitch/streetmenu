@@ -401,7 +401,10 @@ export default function MyEventsPanel({
         <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
           <p className="font-bold text-ink-primary">{selected.title}</p>
           <p className="text-xs text-ink-tertiary mt-0.5">{dateStr}{selected.venue ? ` · ${selected.venue}` : ''}</p>
-          <div className="grid grid-cols-3 gap-3 mt-3 text-center">
+          {selected.reservations_count === 0 && Number(selected.revenue) === 0 ? (
+            <p className="text-sm text-ink-tertiary mt-3">{bi('Pas encore de réservation.', 'No bookings yet.')}</p>
+          ) : (
+          <div className={`grid ${Number(selected.revenue) > 0 ? 'grid-cols-3' : 'grid-cols-2'} gap-3 mt-3 text-center`}>
             <div>
               <p className="text-xs text-ink-tertiary">{bi('Réservations', 'Reservations')}</p>
               <p className="text-lg font-bold text-ink-primary">{selected.reservations_count}</p>
@@ -412,11 +415,14 @@ export default function MyEventsPanel({
                 {selected.tickets_count}{selected.max_tickets && selected.max_tickets > 0 ? `/${selected.max_tickets}` : ''}
               </p>
             </div>
-            <div>
-              <p className="text-xs text-ink-tertiary">{bi('Recettes brutes', 'Gross')}</p>
-              <p className="text-lg font-bold text-brand">{Number(selected.revenue).toLocaleString()} FCFA</p>
-            </div>
+            {Number(selected.revenue) > 0 && (
+              <div>
+                <p className="text-xs text-ink-tertiary">{bi('Recettes brutes', 'Gross')}</p>
+                <p className="text-lg font-bold text-brand">{Number(selected.revenue).toLocaleString()} FCFA</p>
+              </div>
+            )}
           </div>
+          )}
           {/* Commission breakdown — only when there's actual revenue to split.
               The 10% line is informational; the organizer's payout is the
               net figure. */}
@@ -923,11 +929,11 @@ export default function MyEventsPanel({
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
               ✅ {bi('Organisateur vérifié', 'Verified organiser')}
             </span>
-          ) : (
+          ) : trust.events_approved_count > 0 ? (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
               {trust.events_approved_count}/3 {bi('événements approuvés', 'events approved')}
             </span>
-          )
+          ) : null
         )}
       </div>
       <Link
@@ -965,9 +971,15 @@ export default function MyEventsPanel({
               )}
             </div>
             <div className="flex items-center gap-4 text-xs text-ink-secondary">
-              <span>🎟 {e.tickets_count}{e.max_tickets && e.max_tickets > 0 ? `/${e.max_tickets}` : ''} {bi('places', 'tickets')}</span>
-              <span>📋 {e.reservations_count} {bi('réservations', 'reservations')}</span>
-              {ticketPrice > 0 && (
+              {e.reservations_count === 0 ? (
+                <span className="text-ink-tertiary">{bi('Pas encore de réservation', 'No bookings yet')}</span>
+              ) : (
+                <>
+                  <span>🎟 {e.tickets_count}{e.max_tickets && e.max_tickets > 0 ? `/${e.max_tickets}` : ''} {bi('places', 'tickets')}</span>
+                  <span>📋 {e.reservations_count} {bi('réservations', 'reservations')}</span>
+                </>
+              )}
+              {ticketPrice > 0 && Number(e.revenue) > 0 && (
                 <span className="text-brand font-semibold">
                   💰 {Number(e.revenue).toLocaleString()} FCFA
                 </span>
@@ -1032,6 +1044,8 @@ function OrganizerSubscribersCard({ events }: { events: MyEventsPanelEvent[] }) 
   if (!loading && rows.length === 0) return null
 
   const total = rows.reduce((n, r) => n + r.recipients, 0)
+  // No subscriber yet → no "0 abonné" card.
+  if (!loading && total === 0) return null
 
   return (
     <div className="bg-white rounded-2xl shadow-sm p-4">

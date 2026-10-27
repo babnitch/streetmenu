@@ -1732,13 +1732,16 @@ export async function handleOrderCommand(
       .select('events_approved_count, event_auto_approve')
       .eq('id', customer.id)
       .maybeSingle()
+    // No "0/3" line before the first approval.
     const trustLine = trust?.event_auto_approve
       ? pickLang(`✅ *Organisateur vérifié* — publication immédiate.`, `✅ *Verified organiser* — instant publishing.`, lang)
-      : pickLang(
-          `🛡 ${trust?.events_approved_count ?? 0}/3 approuvés pour la publication automatique.`,
-          `🛡 ${trust?.events_approved_count ?? 0}/3 approved for auto-publish.`,
-          lang,
-        )
+      : (trust?.events_approved_count ?? 0) > 0
+        ? pickLang(
+            `🛡 ${trust?.events_approved_count}/3 approuvés pour la publication automatique.`,
+            `🛡 ${trust?.events_approved_count}/3 approved for auto-publish.`,
+            lang,
+          )
+        : ''
 
     const lines = data.map((e, i) => {
       const dateStr = formatEventDates(e, lang, 'compact')
@@ -1751,7 +1754,7 @@ export async function handleOrderCommand(
             : pickLang('✅ Publié', '✅ Published', lang)
       return `${i + 1}. *${e.title}* (${dateStr})\n   ${statusLabel}`
     })
-    await sendWhatsApp(from, `${pickLang('📢 *Vos événements:*', '📢 *Your events:*', lang)}\n\n${trustLine}\n\n${lines.join('\n\n')}`)
+    await sendWhatsApp(from, `${pickLang('📢 *Vos événements:*', '📢 *Your events:*', lang)}\n\n${trustLine ? `${trustLine}\n\n` : ''}${lines.join('\n\n')}`)
     return ok()
   }
 

@@ -315,6 +315,19 @@ export default function HomePage() {
   // Computed open-count for the header line.
   const openCount = filtered.filter(isOpenNow).length
 
+  // Empty states: a cuisine or a filter pill that would show no restaurant
+  // in this city is not offered (the active one stays, so it can be cleared).
+  const offer = useMemo(() => {
+    const inCity = restaurants.filter(r => r.city === city)
+    return {
+      cuisines: new Set(CUISINE_CATEGORIES.filter(cat => inCity.some(r => matchesCuisineCategory(r, cat.id))).map(c => c.id)),
+      open:  inCity.some(r => isOpenNow(r)),
+      promo: inCity.some(r => promoRestaurantIds.has(r.id)),
+      top:   inCity.some(r => { const x = ratingSummary[r.id]; return !!x && x.count > 0 && x.average >= TOP_RATED_MIN }),
+      quick: inCity.some(r => r.prep_time_max != null && r.prep_time_max <= QUICK_PREP_MAX),
+    }
+  }, [restaurants, city, isOpenNow, promoRestaurantIds, ratingSummary])
+
   const anyFilterOn = !!cuisine || openOnly || promoOnly || topRated || quickPrep || sort !== 'default' || !!query.trim()
   const clearFilters = () => {
     setCuisine(null); setOpenOnly(false); setPromoOnly(false)
@@ -402,7 +415,7 @@ export default function HomePage() {
           role="group"
           aria-label={bi('Types de cuisine', 'Cuisine types')}
         >
-          {CUISINE_CATEGORIES.map(cat => {
+          {CUISINE_CATEGORIES.filter(cat => cuisine === cat.id || offer.cuisines.has(cat.id)).map(cat => {
             const active = cuisine === cat.id
             return (
               <button
@@ -437,18 +450,26 @@ export default function HomePage() {
       <div className="md:hidden border-b border-divider">
         <div className="flex gap-2 overflow-x-auto px-4 py-2.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <SortPill value={sort} onChange={chooseSort} />
-          <FilterPill active={openOnly}  onClick={() => setOpenOnly(v => !v)}>
-            🟢 {bi('Ouvert', 'Open now')}
-          </FilterPill>
-          <FilterPill active={promoOnly} onClick={() => setPromoOnly(v => !v)}>
-            💰 {bi('Promo', 'Deals')}
-          </FilterPill>
-          <FilterPill active={topRated}  onClick={() => setTopRated(v => !v)}>
-            ⭐ {bi('Mieux notés', 'Top rated')}
-          </FilterPill>
-          <FilterPill active={quickPrep} onClick={() => setQuickPrep(v => !v)}>
-            🕐 {bi('Moins de 30 min', 'Under 30 min')}
-          </FilterPill>
+          {(openOnly || offer.open) && (
+            <FilterPill active={openOnly}  onClick={() => setOpenOnly(v => !v)}>
+              🟢 {bi('Ouvert', 'Open now')}
+            </FilterPill>
+          )}
+          {(promoOnly || offer.promo) && (
+            <FilterPill active={promoOnly} onClick={() => setPromoOnly(v => !v)}>
+              💰 {bi('Promo', 'Deals')}
+            </FilterPill>
+          )}
+          {(topRated || offer.top) && (
+            <FilterPill active={topRated}  onClick={() => setTopRated(v => !v)}>
+              ⭐ {bi('Mieux notés', 'Top rated')}
+            </FilterPill>
+          )}
+          {(quickPrep || offer.quick) && (
+            <FilterPill active={quickPrep} onClick={() => setQuickPrep(v => !v)}>
+              🕐 {bi('Moins de 30 min', 'Under 30 min')}
+            </FilterPill>
+          )}
         </div>
 
         {/* Active free-text query — mobile has no visible search field

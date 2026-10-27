@@ -165,8 +165,8 @@ async function handleInvitationReply(
 ): Promise<NextResponse | null> {
   const pending = await loadPendingInvitationsForPhone(phone)
   if (!pending.length) {
-    await sendWhatsApp(from,
-      'Aucune invitation en attente pour votre numéro. / No pending invitation for your number.')
+    await sendWhatsApp(from, pickLang(
+      'Aucune invitation en attente pour votre numéro.', 'No pending invitation for your number.', await getLangByPhone(phone)))
     return ok()
   }
 
@@ -201,14 +201,15 @@ async function handleInvitationReply(
       }
       const ownerPhone = (owner?.customers as unknown as { phone?: string } | null)?.phone
       if (ownerPhone) {
-        await sendWhatsApp(ownerPhone,
-          `❌ ${phone} a décliné l'invitation (${inv.restaurants?.name ?? 'restaurant'}).\n` +
-          `${phone} declined the invitation.`,
+        await sendWhatsApp(ownerPhone, pickLang(
+          `❌ ${phone} a décliné l'invitation (${inv.restaurants?.name ?? 'restaurant'}).`,
+          `❌ ${phone} declined the invitation (${inv.restaurants?.name ?? 'restaurant'}).`,
+          await getLangByPhone(ownerPhone)),
           { context: 'team_invitation', relatedId: inv.restaurant_id })
       }
     }
 
-    await sendWhatsApp(from, 'OK, invitation déclinée. / Invitation declined.')
+    await sendWhatsApp(from, pickLang('OK, invitation déclinée.', 'OK, invitation declined.', await getLangByPhone(phone)))
     return ok()
   }
 
@@ -222,14 +223,14 @@ async function handleInvitationReply(
   if (!customer || customer.status !== 'active') {
     const started = await startInviteAcceptSignup(phone, pending.map(p => p.id))
     if (!started) {
-      await sendWhatsApp(from,
-        `❌ Une erreur est survenue. Réessayez dans un instant.\n` +
-        `❌ Something went wrong. Please try again shortly.`)
+      await sendWhatsApp(from, pickLang(
+        `❌ Une erreur est survenue. Réessayez dans un instant.`,
+        `❌ Something went wrong. Please try again shortly.`, await getLangByPhone(phone)))
       return ok()
     }
-    await sendWhatsApp(from,
-      `🎉 Super! Finalisons votre inscription.\nQuel est votre prénom?\n\n` +
-      `Let's finish your registration.\nWhat's your first name?`)
+    await sendWhatsApp(from, pickLang(
+      `🎉 Super! Finalisons votre inscription.\nQuel est votre prénom?`,
+      `🎉 Great! Let's finish your registration.\nWhat's your first name?`, await getLangByPhone(phone)))
     return ok()
   }
 
@@ -287,20 +288,31 @@ async function acceptInvitationsForCustomer(
     }
     const ownerPhone = (owner?.customers as unknown as { phone?: string } | null)?.phone
     if (ownerPhone) {
-      await sendWhatsApp(ownerPhone,
-        `✅ ${customerPhone} a accepté l'invitation (${inv.restaurants?.name ?? 'restaurant'})!\n` +
-        `${customerPhone} accepted the invitation!`,
+      await sendWhatsApp(ownerPhone, pickLang(
+        `✅ ${customerPhone} a accepté l'invitation (${inv.restaurants?.name ?? 'restaurant'}) !`,
+        `✅ ${customerPhone} accepted the invitation (${inv.restaurants?.name ?? 'restaurant'})!`,
+        await getLangByPhone(ownerPhone)),
         { context: 'team_invitation', relatedId: inv.restaurant_id })
     }
 
     // Welcome the invitee.
-    await sendWhatsApp(customerPhone,
-      `✅ Vous êtes maintenant *${inv.role}* chez *${inv.restaurants?.name ?? 'restaurant'}*, ${customerName}!\n` +
-      `Envoyez *aide* pour les commandes.\n\n` +
-      `You are now *${inv.role}* at *${inv.restaurants?.name ?? 'restaurant'}*!\n` +
-      `Send *help* for commands.`,
+    const welcomeLang = await getLangByPhone(customerPhone)
+    await sendWhatsApp(customerPhone, pickLang(
+      `✅ Vous êtes maintenant *${teamRoleName(inv.role, 'fr')}* chez *${inv.restaurants?.name ?? 'restaurant'}*, ${customerName} !\n` +
+      `Envoyez *aide* pour les commandes.`,
+      `✅ You are now *${teamRoleName(inv.role, 'en')}* at *${inv.restaurants?.name ?? 'restaurant'}*, ${customerName}!\n` +
+      `Send *help* for commands.`, welcomeLang),
       { context: 'team_invitation', relatedId: inv.restaurant_id, customerId })
   }
+}
+
+// A team role in the recipient's language.
+function teamRoleName(role: string, lang: Lang): string {
+  const names: Record<string, [string, string]> = {
+    owner: ['propriétaire', 'owner'], manager: ['gérant', 'manager'], staff: ['employé', 'staff'],
+  }
+  const n = names[role]
+  return n ? (lang === 'en' ? n[1] : n[0]) : role
 }
 
 function categoryPrompt(lang: Lang): string {
@@ -1596,11 +1608,11 @@ async function handleVendor(
         added_by: ownerCustomer?.id ?? null, status: 'active',
       }, { onConflict: 'restaurant_id,customer_id' })
 
-      await sendWhatsApp(newMember.phone,
-        `✅ *${ownerCustomer?.name ?? 'Le restaurateur'}* vous a ajouté comme *${memberRole}* chez *${restaurant.name}*!\n` +
-        `Connectez-vous pour voir votre restaurant.\n\n` +
-        `*${ownerCustomer?.name ?? 'The Restaurant Owner'}* added you as *${memberRole}* at *${restaurant.name}*.\n` +
-        `Log in to see your restaurant.`)
+      await sendWhatsApp(newMember.phone, pickLang(
+        `✅ *${ownerCustomer?.name ?? 'Le restaurateur'}* vous a ajouté comme *${teamRoleName(memberRole, 'fr')}* chez *${restaurant.name}* !\n` +
+        `Connectez-vous pour voir votre restaurant.`,
+        `✅ *${ownerCustomer?.name ?? 'The restaurant owner'}* added you as *${teamRoleName(memberRole, 'en')}* at *${restaurant.name}*.\n` +
+        `Log in to see your restaurant.`, await getLangByPhone(newMember.phone)))
 
       await sendWhatsApp(from, pickLang(
         `✅ ${newMember.name} ajouté comme *${memberRole}*.`,
@@ -1662,13 +1674,14 @@ async function handleVendor(
       },
     })
 
-    await sendWhatsApp(memberPhone,
-      `👋 *${ownerCustomer?.name ?? 'Quelqu\'un'}* vous invite comme *${memberRole}* chez *${restaurant.name}* sur Tchop & Ndjoka!\n\n` +
+    // The invitee may have no account yet: their language, else French.
+    await sendWhatsApp(memberPhone, pickLang(
+      `👋 *${ownerCustomer?.name ?? 'Quelqu\'un'}* vous invite comme *${teamRoleName(memberRole, 'fr')}* chez *${restaurant.name}* sur Tchop & Ndjoka !\n\n` +
       `Envoyez *accepter* pour rejoindre. Vous serez inscrit automatiquement.\n` +
-      `Envoyez *refuser* pour décliner.\n\n` +
-      `*${ownerCustomer?.name ?? 'Someone'}* invites you as *${memberRole}* at *${restaurant.name}* on Tchop & Ndjoka!\n` +
+      `Envoyez *refuser* pour décliner.`,
+      `👋 *${ownerCustomer?.name ?? 'Someone'}* invites you as *${teamRoleName(memberRole, 'en')}* at *${restaurant.name}* on Tchop & Ndjoka!\n\n` +
       `Send *accept* to join — you'll be registered automatically.\n` +
-      `Send *decline* to decline.`)
+      `Send *decline* to decline.`, await getLangByPhone(memberPhone)))
 
     await sendWhatsApp(from, pickLang(
       `📨 Invitation envoyée à ${memberPhone}. En attente d'acceptation.`,
@@ -1782,8 +1795,9 @@ async function handleVendor(
       .update({ status: 'removed' })
       .eq('restaurant_id', restaurant.id).eq('customer_id', memberCustomer.id)
 
-    await sendWhatsApp(memberCustomer.phone,
-      `👋 Vous avez été retiré de *${restaurant.name}*.\nYou have been removed from *${restaurant.name}*.`)
+    await sendWhatsApp(memberCustomer.phone, pickLang(
+      `👋 Vous avez été retiré de *${restaurant.name}*.`,
+      `👋 You have been removed from *${restaurant.name}*.`, await getLangByPhone(memberCustomer.phone)))
     await sendWhatsApp(from, pickLang(
       `✅ ${memberCustomer.name} retiré de l'équipe.`,
       `✅ ${memberCustomer.name} removed from team.`, lang))
