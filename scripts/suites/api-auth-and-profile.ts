@@ -49,6 +49,15 @@ async function main(): Promise<void> {
     // Never inserted — the "unknown phone" side of every assertion below.
     const unknownPhone = '+999280099'
 
+    await step('image upload needs a login', async () => {
+      const anon = await api('/api/upload/image', { method: 'POST', body: {} })
+      assertEq(anon.status, 401, 'no session → 401')
+      // Logged in, the gate lets the request through to form parsing (a JSON
+      // body is not multipart → 400). No file is stored.
+      const signed = await api('/api/upload/image', { method: 'POST', cookie: customerCookie(known), body: {} })
+      assertEq(signed.status, 400, `logged in → past the gate (400 not multipart, got ${signed.status})`)
+    })
+
     await step('check-phone finds the customer across every equivalent format', async () => {
       const variants = [
         known.phone,                                    // exact

@@ -38,3 +38,19 @@ export function normalizePhone(raw: string | null | undefined): string {
   }
   return s
 }
+
+// Recipient lists: the same person is often stored in two shapes (the
+// restaurant's whatsapp column as "237…", their account as "+237…"). Returns
+// each number once, normalised; when two entries are the same phone, the
+// longer form (the one with the dial code) is kept.
+export function uniquePhones(phones: Array<string | null | undefined>): string[] {
+  const out: string[] = []
+  for (const raw of phones) {
+    const p = normalizePhone(raw)
+    if (!p) continue
+    const i = out.findIndex(x => samePhone(x, p))
+    if (i === -1) out.push(p)
+    else if (p.length > out[i].length) out[i] = p
+  }
+  return out
+}

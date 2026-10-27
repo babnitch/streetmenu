@@ -1,34 +1,77 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { getSessionFromRequest } from '@/lib/auth'
 import { notifyCustomerOrderPlaced, getLangByPhone } from '@/lib/whatsapp'
 import { notifyVendorsOfNewOrder, prepTimeLine } from '@/lib/whatsapp/ordering'
 
 export const dynamic = 'force-dynamic'
 
-// Called by the web order page after a successful orders insert. Sends:
-//   1. A customer confirmation to orders.customer_phone (whether logged-in or
-//      guest — we trust whatever phone is on the row).
-//   2. A vendor fan-out to restaurants.whatsapp plus active owner/manager
-//      rows in restaurant_team — same recipient logic and message format as
-//      WhatsApp-initiated orders.
+// A guest order (no customer account) can only be announced shortly after it
+// was placed. Logged-in orders are tied to the session instead.
+const GUEST_WINDOW_MS = 15 * 60 * 1000
+
+// Called by the web order page after a pay-at-pickup order is inserted.
+// Sends, once per order:
+//   1. "Order received" to orders.customer_phone;
+//   2. the "new order" fan-out to restaurants.whatsapp plus active
+//      owner/manager rows in restaurant_team (same recipients and format as
+//      WhatsApp orders).
+//
+// Who may call it:
+//   - the order's own customer (session), or an admin;
+//   - for a guest order, anyone within GUEST_WINDOW_MS of its creation.
+// Paid orders are refused: the payment settlement sends their messages.
+// orders.notified_at is claimed atomically before sending, so a repeat call
+// (double click, replay, someone with the order id) sends nothing.
 //
 // Both sides are awaited in parallel so the Vercel response lifecycle can't
 // cut short the Twilio fetches. Failures are logged, never thrown — the
 // order is valid regardless of WhatsApp delivery.
 export async function POST(req: NextRequest) {
   try {
-    const { orderId } = await req.json()
-    if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 })
+    const session = getSessionFromRequest(req)
+    const { orderId } = await req.json().catch(() => ({}))
+    if (!orderId || typeof orderId !== 'string') return NextResponse.json({ error: 'orderId required' }, { status: 400 })
     console.log(`[notify-order] received orderId=${orderId}`)
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, customer_name, customer_phone, items, total_price, created_at, restaurant_id')
+      .select('id, customer_id, customer_name, customer_phone, items, total_price, created_at, restaurant_id, order_type, notified_at')
       .eq('id', orderId)
-      .single()
+      .maybeSingle()
 
     if (orderErr || !order) {
       return NextResponse.json({ error: 'order not found' }, { status: 404 })
+    }
+
+    const isAdmin = !!session && ['super_admin', 'admin'].includes(session.role)
+    const allowed = isAdmin || (order.customer_id
+      ? session?.role === 'customer' && session.id === order.customer_id
+      : Date.now() - new Date(order.created_at as string).getTime() < GUEST_WINDOW_MS)
+    if (!allowed) {
+      return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
+    }
+
+    if (order.order_type === 'paid_order') {
+      return NextResponse.json({
+        error: 'Commande payée : notifiée au paiement / Paid order: notified on payment',
+      }, { status: 409 })
+    }
+
+    // Claim the send. Only the call that flips notified_at from NULL sends.
+    const { data: claimed, error: claimErr } = await supabaseAdmin
+      .from('orders')
+      .update({ notified_at: new Date().toISOString() })
+      .eq('id', order.id)
+      .is('notified_at', null)
+      .select('id')
+    if (claimErr) {
+      console.error('[notify-order] claim failed:', claimErr.message)
+      return NextResponse.json({ error: 'internal error' }, { status: 500 })
+    }
+    if (!claimed || claimed.length === 0) {
+      console.log(`[notify-order] already sent orderId=${orderId}`)
+      return NextResponse.json({ ok: true, alreadySent: true })
     }
 
     const { data: restaurant, error: restErr } = await supabaseAdmin

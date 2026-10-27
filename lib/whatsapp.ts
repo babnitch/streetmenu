@@ -269,7 +269,7 @@ export async function notifyCustomerOrderPlaced(
   const itemLines = items.map(i => `${itemBullet}${i.quantity}× ${i.name} — ${Number(i.price).toLocaleString()} FCFA`).join('\n')
 
   const msg = [
-    pickLang(`✅ *Commande confirmée!*`, `✅ *Order confirmed!*`, lang),
+    pickLang(`📥 *Commande reçue!*`, `📥 *Order received!*`, lang),
     ``,
     pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
     `🏪 ${restaurantName}`,
@@ -281,8 +281,8 @@ export async function notifyCustomerOrderPlaced(
     ...(prepLine ? [``, prepLine] : []),
     ``,
     pickLang(
-      `Le restaurant a été notifié et prépare votre commande!`,
-      `The restaurant has been notified and is preparing your order!`,
+      `Le restaurant a été notifié. Vous recevrez un message dès qu'il confirme votre commande.`,
+      `The restaurant has been notified. You'll get a message as soon as it confirms your order.`,
       lang,
     ),
     ``,

@@ -28,7 +28,7 @@ import { generateReservationCode } from '@/lib/reservationCode'
 import {
   normalizeMode, modeFromLegacy, effectiveWhatsAppMode, type PaymentMode,
 } from '@/lib/paymentMode'
-import { samePhone } from '@/lib/phone'
+import { samePhone, uniquePhones } from '@/lib/phone'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, isMultiDay, resolveBookingDay, todayISO } from '@/lib/eventDate'
 
@@ -350,11 +350,11 @@ function buildSummaryMessage(restaurantName: string, items: CartItem[], total: n
 // exact same recipient resolution and message format as WhatsApp-initiated
 // orders. Single source of truth for "who gets pinged when an order lands."
 export async function vendorRecipients(restaurantId: string): Promise<string[]> {
-  const phones = new Set<string>()
+  const phones: Array<string | null | undefined> = []
 
   const { data: rest } = await supabaseAdmin
     .from('restaurants').select('whatsapp').eq('id', restaurantId).maybeSingle()
-  if (rest?.whatsapp) phones.add(rest.whatsapp)
+  phones.push(rest?.whatsapp)
 
   // Name the FK — restaurant_team has two into customers (customer_id,
   // added_by), and the bare embed was failing with PGRST201, silently
@@ -374,9 +374,10 @@ export async function vendorRecipients(restaurantId: string): Promise<string[]> 
 
   for (const m of team ?? []) {
     const c = m.customers as unknown as { phone: string } | null
-    if (c?.phone) phones.add(c.phone)
+    phones.push(c?.phone)
   }
-  return Array.from(phones)
+  // Same person stored as "237…" and "+237…" → one message, not two.
+  return uniquePhones(phones)
 }
 
 // Item shape accepted by the notifier. Matches CartItem's relevant subset, so
@@ -2831,6 +2832,9 @@ async function finalizeRestaurantWhatsappOrder(opts: {
       discount_amount: discount > 0 ? discount : null,
       order_type:      paid ? 'paid_order' : 'reservation',
       payment_status:  paid ? 'pending'    : 'not_required',
+      // The bot announces this order itself (below), so the web
+      // /api/whatsapp/notify-order route must never send it again.
+      notified_at:     new Date().toISOString(),
     })
     .select('id')
     .single()
@@ -2905,7 +2909,7 @@ async function finalizeRestaurantWhatsappOrder(opts: {
   const id4 = last4(newOrder.id)
   const custLang = normalizeLang(customer.preferred_language)
   const confirmLines = [
-    pickLang(`✅ *Commande confirmée!*`, `✅ *Order confirmed!*`, custLang),
+    pickLang(`📥 *Commande reçue!*`, `📥 *Order received!*`, custLang),
     pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, custLang),
     `🏪 ${data.restaurant_name}`,
   ]

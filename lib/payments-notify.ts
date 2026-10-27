@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
-import { vendorRecipients } from '@/lib/whatsapp/ordering'
+import { vendorRecipients, prepTimeLine } from '@/lib/whatsapp/ordering'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
 
@@ -21,7 +21,7 @@ export async function notifyPaidOrder(
 ): Promise<void> {
   const { data: order } = await supabaseAdmin
     .from('orders')
-    .select('id, restaurant_id, customer_phone, customer_name, total_price')
+    .select('id, restaurant_id, customer_phone, customer_name, total_price, items')
     .eq('id', orderId)
     .maybeSingle()
   if (!order) {
@@ -37,6 +37,13 @@ export async function notifyPaidOrder(
   const restName = restaurant?.name ?? '—'
   const id4 = order.id.replace(/-/g, '').slice(-4).toUpperCase()
   const total = Number(order.total_price)
+  // Paid orders get ONE message per side, so it carries the item list too
+  // (the web page no longer calls /api/whatsapp/notify-order after paying).
+  const items = (Array.isArray(order.items) ? order.items : []) as Array<{ name: string; quantity: number; price: number }>
+  const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} — ${(Number(i.quantity) * Number(i.price)).toLocaleString()} FCFA`)
+  const itemsBlock = (lang: Lang) => itemLines.length
+    ? [``, pickLang(`🍽️ *Articles:*`, `🍽️ *Items:*`, lang), ...itemLines]
+    : []
 
   console.log(`[payment] calling notifyPaidOrder for order: ${order.id} restaurant=${order.restaurant_id}`)
 
@@ -44,12 +51,16 @@ export async function notifyPaidOrder(
   if (order.customer_phone) {
     console.log(`[payment] sending customer confirmation: order=${order.id} to=${order.customer_phone}`)
     const lang = await getLangByPhone(order.customer_phone)
+    const prepLine = await prepTimeLine(order.restaurant_id, '🕐', lang)
     const r = await sendWhatsApp(order.customer_phone, [
       pickLang(`✅ *Paiement confirmé!*`, `✅ *Payment confirmed!*`, lang),
       ``,
       pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
       `🏪 ${restName}`,
-      `💰 ${total.toLocaleString()} FCFA`,
+      ...itemsBlock(lang),
+      ``,
+      pickLang(`💰 *Total payé: ${total.toLocaleString()} FCFA*`, `💰 *Total paid: ${total.toLocaleString()} FCFA*`, lang),
+      ...(prepLine ? [prepLine] : []),
       ``,
       pickLang(
         `Votre commande est confirmée et le restaurant prépare votre repas.`,
@@ -75,13 +86,15 @@ export async function notifyPaidOrder(
   const results = await Promise.allSettled(recipients.map(async p => {
     const lang = await getLangByPhone(p)
     const msg = [
-      pickLang(`💰 *PAIEMENT REÇU*`, `💰 *PAYMENT RECEIVED*`, lang),
+      pickLang(`🔔 *NOUVELLE COMMANDE — PAYÉE*`, `🔔 *NEW ORDER — PAID*`, lang),
       ``,
       pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
       `👤 ${order.customer_name}`,
       `📱 ${order.customer_phone}`,
+      ...itemsBlock(lang),
+      ``,
       `💳 ${mno}`,
-      `💰 ${total.toLocaleString()} FCFA`,
+      pickLang(`💰 *Total payé: ${total.toLocaleString()} FCFA*`, `💰 *Total paid: ${total.toLocaleString()} FCFA*`, lang),
       ``,
       pickLang(`La commande est payée — préparez-la!`, `Order is paid — prepare it!`, lang),
       pickLang(`Répondez "ok ${id4}" pour confirmer`, `Reply "ok ${id4}" to confirm`, lang),

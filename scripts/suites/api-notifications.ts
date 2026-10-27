@@ -16,7 +16,8 @@
 
 import { sb } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
-import { api, adminCookie } from '../testkit/session'
+import { api, adminCookie, customerCookie } from '../testkit/session'
+import { vendorRecipients } from '@/lib/whatsapp/ordering'
 import { makeCustomer, makeRestaurant, makeOrder, addTeamMember } from '../testkit/fixtures'
 import { teardown } from '../testkit/ledger'
 
@@ -25,12 +26,19 @@ const SUITE = 'api-notifications'
 async function main(): Promise<void> {
   try {
     // ── #26 notify-order ───────────────────────────────────────────────────
-    // Restaurant carries the owner's phone directly AND an active owner team
-    // row on the same number, so the deduper must collapse to one recipient.
+    // Restaurant carries the owner's phone directly — stored WITHOUT the "+",
+    // as hand-typed numbers often are — AND an active owner team row on the
+    // same number, so the deduper must collapse to one recipient.
     const customer = await makeCustomer({ suiteNo: 26, name: 'Web Customer' })
     const owner    = await makeCustomer({ suiteNo: 26, name: 'Web Owner' })
-    const rest     = await makeRestaurant({ ownerId: owner.id, label: 'notify_order', whatsapp: owner.phone })
+    const rest     = await makeRestaurant({ ownerId: owner.id, label: 'notify_order', whatsapp: owner.phone.replace(/^\+/, '') })
     await addTeamMember(rest.id, owner.id, 'owner')
+    const custCookie = customerCookie(customer)
+
+    await step('vendor recipients: "237…" and "+237…" for the same owner → one number', async () => {
+      const r = await vendorRecipients(rest.id)
+      assertEq(r, [owner.phone], `one recipient, normalised (got ${JSON.stringify(r)})`)
+    })
 
     const order = await makeOrder(rest.id, customer, {
       status: 'pending',
@@ -41,9 +49,16 @@ async function main(): Promise<void> {
       total: 7000,
     })
 
+    await step('notify-order: no session on a customer order → 403, other customer → 403', async () => {
+      assertEq((await api('/api/whatsapp/notify-order', { body: { orderId: order.id } })).status, 403, 'anonymous → 403')
+      const other = await makeCustomer({ suiteNo: 26, name: 'Other Customer' })
+      const r = await api('/api/whatsapp/notify-order', { cookie: customerCookie(other), body: { orderId: order.id } })
+      assertEq(r.status, 403, 'someone else → 403')
+    })
+
     await step('notify-order for a valid order → ok, both sides attempted', async () => {
       const r = await api<{ ok?: boolean; customerNotified?: boolean; vendorFanoutStatus?: string }>(
-        '/api/whatsapp/notify-order', { body: { orderId: order.id } },
+        '/api/whatsapp/notify-order', { cookie: custCookie, body: { orderId: order.id } },
       )
       assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 200)})`)
       assertEq(r.body.ok, true, 'ok=true')
@@ -52,6 +67,38 @@ async function main(): Promise<void> {
       // returns rather than throwing — so this is delivery-independent.
       assertEq(r.body.customerNotified, true, 'customerNotified=true (customer_phone present)')
       assertEq(r.body.vendorFanoutStatus, 'fulfilled', 'vendor fan-out fulfilled (not rejected)')
+    })
+
+    await step('notify-order a second time → nothing sent again', async () => {
+      const { data: row } = await sb.from('orders').select('notified_at').eq('id', order.id).single()
+      assert(!!(row as { notified_at?: string | null } | null)?.notified_at, 'orders.notified_at set by the first call')
+      const r = await api<{ ok?: boolean; alreadySent?: boolean; customerNotified?: boolean }>(
+        '/api/whatsapp/notify-order', { cookie: custCookie, body: { orderId: order.id } },
+      )
+      assertEq(r.status, 200, 'HTTP 200')
+      assertEq(r.body.alreadySent, true, 'alreadySent=true')
+      assertEq(r.body.customerNotified, undefined, 'no send attempted')
+      // One customer message + one restaurant message, in total, across both calls.
+      const { data: logs } = await sb.from('message_log').select('to_number')
+        .eq('related_id', order.id).eq('context', 'order_notification')
+      assertEq((logs ?? []).length, 2, `2 messages logged for the order (got ${(logs ?? []).length})`)
+    })
+
+    await step('notify-order on a paid order → 409 (the payment sends its messages)', async () => {
+      const paid = await makeOrder(rest.id, customer, { extra: { order_type: 'paid_order', payment_status: 'paid' } })
+      const r = await api('/api/whatsapp/notify-order', { cookie: custCookie, body: { orderId: paid.id } })
+      assertEq(r.status, 409, `HTTP 409 (body ${r.raw.slice(0, 160)})`)
+    })
+
+    await step('guest order: allowed just after placing, refused once stale', async () => {
+      const fresh = await makeOrder(rest.id, customer, { extra: { customer_id: null } })
+      const ok = await api<{ ok?: boolean }>('/api/whatsapp/notify-order', { body: { orderId: fresh.id } })
+      assertEq(ok.status, 200, `fresh guest order → 200 (body ${ok.raw.slice(0, 160)})`)
+      const stale = await makeOrder(rest.id, customer, {
+        extra: { customer_id: null, created_at: new Date(Date.now() - 60 * 60_000).toISOString() },
+      })
+      const no = await api('/api/whatsapp/notify-order', { body: { orderId: stale.id } })
+      assertEq(no.status, 403, 'guest order older than 15 min → 403')
     })
 
     await step('notify-order with missing orderId → 400', async () => {

@@ -18,12 +18,13 @@ export const runtime  = 'nodejs'
 //
 // Returns: { url, blur_hash, bytes, kind }
 //
-// Login-required by default — the only public-facing form that needs
-// uploads is /join (vendor signup) and that route is invoked from a
-// guest session, so the endpoint accepts anon callers too. Image hosts
-// are public buckets anyway.
+// Login required: without it anyone could fill our storage buckets. The
+// guest /join form loses its photo until it moves behind login; the
+// restaurant signup itself still goes through without one.
 export async function POST(req: NextRequest) {
-  void getSessionFromRequest(req)  // currently informational — every upload is open
+  if (!getSessionFromRequest(req)) {
+    return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
+  }
 
   let form: FormData
   try {

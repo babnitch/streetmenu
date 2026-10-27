@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
+import { uniquePhones } from '@/lib/phone'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,8 +32,7 @@ function buildWelcomeMessage(restaurantName: string, lang: Lang): string {
 // than importing the ordering module's broader fan-out helper (which includes
 // managers and is scoped to a different use case).
 async function ownerRecipients(restaurantId: string, directWhatsapp: string | null): Promise<string[]> {
-  const phones = new Set<string>()
-  if (directWhatsapp) phones.add(directWhatsapp)
+  const phones: Array<string | null | undefined> = [directWhatsapp]
 
   // Name the FK — restaurant_team has two into customers (customer_id,
   // added_by) and a bare embed fails with PGRST201. A failure here must not
@@ -50,9 +50,10 @@ async function ownerRecipients(restaurantId: string, directWhatsapp: string | nu
 
   for (const m of team ?? []) {
     const c = m.customers as unknown as { phone: string } | null
-    if (c?.phone) phones.add(c.phone)
+    phones.push(c?.phone)
   }
-  return Array.from(phones)
+  // Same person stored as "237…" and "+237…" → one welcome, not two.
+  return uniquePhones(phones)
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {

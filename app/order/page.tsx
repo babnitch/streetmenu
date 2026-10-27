@@ -324,6 +324,7 @@ export default function OrderPage() {
   }
 
   // Reservation path: insert row, fire vendor notification, jump to success.
+  // notify-order sends at most once per order (orders.notified_at).
   async function handleReservation(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
@@ -402,22 +403,8 @@ export default function OrderPage() {
         console.log('[order] poll result:', { phase: d.phase, rawStatus: d.rawStatus })
         if (d.phase === 'paid') {
           stopPolling()
-          // Awaited so we don't tear down the page mid-Twilio-fetch. The
-          // status endpoint also fires the short "payment received" receipt
-          // server-side; this route adds the full itemised order summary
-          // (customer-order-placed + vendor-new-order).
-          console.log('[order] payment paid — POSTing /api/whatsapp/notify-order', { orderId: orderRowId })
-          try {
-            const notifyRes = await fetch('/api/whatsapp/notify-order', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ orderId: orderRowId }),
-            })
-            const notifyJson = await notifyRes.json().catch(() => null)
-            console.log('[order] notify-order response', { ok: notifyRes.ok, status: notifyRes.status, body: notifyJson })
-          } catch (err) {
-            console.warn('[order] notify-order failed (paid):', err)
-          }
+          // The server sends both WhatsApp messages (customer + restaurant)
+          // when it settles the payment — nothing to send from here.
           setPayPhase('paid')
           setOrderId(orderRowId)
           setSuccess(true)

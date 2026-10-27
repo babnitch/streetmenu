@@ -4,7 +4,7 @@
 // the set of shapes that must all be treated as the same number. Doing it
 // here is instant and needs neither a server nor a customer row.
 
-import { normalizePhone, samePhone } from '@/lib/phone'
+import { normalizePhone, samePhone, uniquePhones } from '@/lib/phone'
 import {
   validateLocalPhone,
   composeFullPhone,
@@ -54,6 +54,13 @@ async function main(): Promise<void> {
     assert(!samePhone('', ''), 'two empties never match')
     assert(!samePhone('12345', '12345'), 'fewer than 6 significant digits never matches')
     assert(samePhone('123456', '123456'), 'exactly 6 digits is the shortest match')
+  })
+
+  await step('uniquePhones — one entry per person, normalised', () => {
+    assertEq(uniquePhones(['237670000000', '+237670000000']), ['+237670000000'], '"237…" and "+237…" → one')
+    assertEq(uniquePhones(['670000000', '+237670000000']), ['+237670000000'], 'national + full → keeps the full form')
+    assertEq(uniquePhones(['+237670000000', '+41791234567', null, '', undefined]), ['+237670000000', '+41791234567'], 'different people kept, blanks dropped')
+    assertEq(uniquePhones(['whatsapp:+237 670 00 00 00']), ['+237670000000'], 'Twilio prefix and spaces stripped')
   })
 
   await step('validateLocalPhone — strict platform countries', () => {
