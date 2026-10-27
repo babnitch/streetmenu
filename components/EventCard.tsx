@@ -6,15 +6,29 @@ import Image from 'next/image'
 import { Event } from '@/types'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useDataMode } from '@/lib/dataMode'
-import { formatEventWhen } from '@/lib/eventDate'
+import { formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
+
+// Seat status of the card's day, from GET /api/events/availability.
+export interface CardDayStatus { soldOut: boolean; otherDaysAvailable: boolean }
 
 // The event card on the Events tab. A promoted card (promotionId set) fires
 // an impression once it is half on screen and a click when opened.
-export default function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices, isPast }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[]; isPast?: boolean }) {
+//
+// bookingDay is the calendar day the card is shown for. A multi-day event's
+// link carries it (?date=) so its page books that day; dayStatus marks the
+// card "Épuisé" when that day is full.
+export default function EventCard({ event, viewLabel, freeLabel, categoryDisplay, likes, promotionId, tierPrices, isPast, bookingDay, today, dayStatus }: { event: Event; viewLabel: string; freeLabel: string; categoryDisplay: string; likes?: number; promotionId?: string; tierPrices?: number[]; isPast?: boolean; bookingDay?: string | null; today?: string | null; dayStatus?: CardDayStatus }) {
   const bi = useBi()
   const { locale } = useLanguage()
   const { isLowData } = useDataMode()
   const whenStr = formatEventWhen(event, locale, 'card')
+  const multiDay = isMultiDay(event)
+  const href = multiDay && bookingDay ? `/events/${event.id}?date=${bookingDay}` : `/events/${event.id}`
+  const soldOutLabel = !isPast && dayStatus?.soldOut
+    ? (bookingDay && bookingDay !== today
+        ? `${bi('Épuisé le', 'Sold out on')} ${formatEventDay(bookingDay, locale, 'compact')}`
+        : bi("Épuisé aujourd'hui", 'Sold out today'))
+    : null
   const cardRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!promotionId) return
@@ -117,8 +131,16 @@ export default function EventCard({ event, viewLabel, freeLabel, categoryDisplay
             {bi('Sponsorisé', 'Sponsored')}
           </p>
         )}
+        {soldOutLabel && (
+          <div className="mt-2 leading-tight">
+            <p className="text-[11px] font-bold text-rose-700">🔴 {soldOutLabel}</p>
+            {multiDay && dayStatus?.otherDaysAvailable && (
+              <p className="text-[10px] text-ink-tertiary">{bi('Autres dates disponibles', 'Other dates available')}</p>
+            )}
+          </div>
+        )}
         <Link
-          href={`/events/${event.id}`}
+          href={href}
           onClick={() => {
             if (promotionId) import('@/lib/promoTracking').then(m => m.fireClick(promotionId))
           }}

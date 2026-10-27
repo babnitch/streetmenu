@@ -6,6 +6,7 @@ import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
+import { capacityFromTiers } from '@/lib/eventCapacity'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,9 +67,16 @@ export async function POST(req: NextRequest) {
   const ticketPrice = rawTicketPrice != null && rawTicketPrice !== ''
     ? Math.max(0, Math.round(Number(rawTicketPrice)))
     : null
-  const maxTickets = body.max_tickets != null && body.max_tickets !== ''
-    ? Math.max(0, parseInt(String(body.max_tickets), 10))
-    : 0
+  // Capacity is per day. With tiers it is the sum of their max per day
+  // (capacityFromTiers); without, the organiser's number.
+  const tierMaxes = (Array.isArray(body?.tiers) ? body.tiers : [])
+    .filter((t: { name?: unknown }) => String(t?.name ?? '').trim().length > 0)
+    .map((t: { max_quantity?: unknown }) => Math.max(0, Math.round(Number(t?.max_quantity ?? 0)) || 0))
+  const maxTickets = tierMaxes.length > 0
+    ? capacityFromTiers(tierMaxes)
+    : body.max_tickets != null && body.max_tickets !== ''
+      ? Math.max(0, parseInt(String(body.max_tickets), 10))
+      : 0
   // Payment mode — defaults to reservation_only. Free events are forced to
   // reservation_only + WhatsApp payment off (there's nothing to pay for).
   const isPaid = !!(ticketPrice && ticketPrice > 0)

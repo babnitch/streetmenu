@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { getPublicTiersForEvent, getAllTiersForEvent } from '@/lib/tiers'
+import { syncCapacityFromTiers } from '@/lib/eventSeats'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,6 +74,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     performedByType: session.role,
     metadata:        { tier_id: data.id, name, price, max_quantity },
   })
+  // With tiers, the event's capacity per day is the sum of their max.
+  const capacity = await syncCapacityFromTiers(event.id)
 
-  return NextResponse.json({ ok: true, tier: data })
+  return NextResponse.json({ ok: true, tier: data, max_tickets: capacity })
 }

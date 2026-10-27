@@ -16,7 +16,8 @@ import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, effectiveWebMode, canPayOnline, canReserve } from '@/lib/paymentMode'
-import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd, formatEventDay, isMultiDay, todayISO } from '@/lib/eventDate'
+import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd, formatEventDay, isMultiDay, defaultBookingDay } from '@/lib/eventDate'
+import { localDayISO } from '@/lib/eventCalendar'
 import type { DayAvailability } from '@/lib/eventSeats'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
@@ -67,6 +68,10 @@ export default function EventDetailPage() {
   // when the endpoint failed — the page then falls back to the event-wide
   // counters, and the booking API still enforces the real limit.
   const [availability, setAvailability] = useState<DayAvailability[] | null>(null)
+  // The day this page books. It is chosen on the Events calendar and arrives
+  // as ?date=; the page never switches it on its own (see defaultBookingDay).
+  const [requestedDay] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('date'))
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const loadAvailability = useCallback(async () => {
     try {
@@ -125,18 +130,12 @@ export default function EventDetailPage() {
     fetchEvent()
   }, [id])
 
-  // Default day: today when it is a bookable day with room, else the first
-  // future day with room, else the first future day.
+  // Booking day: ?date= when it is a day of the event, else today, else the
+  // first day. A full day stays selected and shows "Épuisé".
   useEffect(() => {
-    if (!availability) return
-    const future = availability.filter(d => !d.past)
-    if (selectedDay && future.some(d => d.date === selectedDay)) return
-    const today = todayISO()
-    const pick = future.find(d => d.date === today && !d.soldOut)
-      ?? future.find(d => !d.soldOut)
-      ?? future[0]
-    setSelectedDay(pick?.date ?? null)
-  }, [availability, selectedDay])
+    if (!event) return
+    setSelectedDay(defaultBookingDay(event, requestedDay, localDayISO()))
+  }, [event, requestedDay])
 
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
@@ -241,12 +240,8 @@ export default function EventDetailPage() {
     return t ? t.remaining : null
   }
   const dayLabel = (d: string) => formatEventDay(d, locale, 'compact')
-  function chooseDay(d: string) {
-    if (d === selectedDay) return
-    setSelectedDay(d)
-    setTierQty({})
-    setQuantity(1)
-  }
+  // "mer. 28 oct." on the buttons of a multi-day event.
+  const dayShort = multiDay && selectedDay ? formatEventDay(selectedDay, locale, 'list') : null
   const isCancelled  = event.event_status === 'cancelled'
   const isCompleted  = event.event_status === 'completed'
   // Organizer can close the reservation gate independently of event_status —
@@ -343,7 +338,7 @@ export default function EventDetailPage() {
   // session cookie is set. The resume flag rides along INSIDE the return path,
   // so the booking form reopens on arrival.
   const loginHref = (intent: 'reserve' | 'pay') =>
-    `/account?return=${encodeURIComponent(`/events/${event.id}?reserve=${intent === 'pay' ? 'pay' : '1'}`)}`
+    `/account?return=${encodeURIComponent(`/events/${event.id}?${multiDay && selectedDay ? `date=${selectedDay}&` : ''}reserve=${intent === 'pay' ? 'pay' : '1'}`)}`
 
   function openReserve(pay: boolean) {
     // Booking requires an account (the API returns 401 otherwise). Anyone can
@@ -535,7 +530,7 @@ export default function EventDetailPage() {
               icon="👥"
               label={bi('Disponibilité', 'Availability')}
               value={daySoldOut
-                ? `${bi('Complet', 'Sold out')}${multiDay && selectedDay ? ` — ${dayLabel(selectedDay)}` : ''}`
+                ? `${bi('Épuisé', 'Sold out')}${multiDay && selectedDay ? ` — ${dayLabel(selectedDay)}` : ''}`
                 : `${remaining} ${bi('places restantes', 'spots remaining')}${multiDay && selectedDay ? ` — ${dayLabel(selectedDay)}` : ''}`}
             />
           )}
@@ -569,7 +564,7 @@ export default function EventDetailPage() {
         )}
         {!isCancelled && !isPast && !isCompleted && soldOut && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center text-sm font-semibold text-amber-700">
-            {bi('🎟 Complet', '🎟 Sold out')}
+            {bi('🎟 Épuisé', '🎟 Sold out')}
           </div>
         )}
         {!isCancelled && !isPast && !isCompleted && !soldOut && reservationsClosed && (
@@ -578,31 +573,26 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {/* Day picker — multi-day events sell seats per day. Past days are
-            not offered; a full day shows "Complet" and can't be picked. */}
-        {multiDay && reservable && futureDays.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm p-3">
-            <p className="text-xs font-semibold text-ink-secondary mb-2">
-              🗓️ {bi('Choisissez votre jour', 'Pick your day')}
-            </p>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {futureDays.map(d => (
-                <button
-                  key={d.date}
-                  type="button"
-                  disabled={d.soldOut}
-                  onClick={() => chooseDay(d.date)}
-                  className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors disabled:opacity-50 ${
-                    d.date === selectedDay
-                      ? 'bg-brand text-white border-brand'
-                      : 'bg-white text-ink-primary border-divider hover:bg-surface-muted'
-                  }`}
-                >
-                  {dayLabel(d.date)}
-                  {d.soldOut && <span className="block text-[10px] font-normal">{bi('Complet', 'Sold out')}</span>}
-                </button>
-              ))}
+        {/* Booking day — multi-day events sell seats per day. The day is
+            picked on the Events calendar; "Changer de date" goes back there. */}
+        {multiDay && reservable && selectedDay && (
+          <div className="bg-white rounded-2xl shadow-sm p-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink-primary">
+                📅 {bi('Réservation pour', 'Booking for')} {formatEventDay(selectedDay, locale, 'detail')}
+              </p>
+              {daySoldOut && (
+                <span className="inline-block mt-1 text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full">
+                  🔴 {bi('Épuisé', 'Sold out')}
+                </span>
+              )}
             </div>
+            <Link
+              href={`/events?date=${selectedDay}`}
+              className="flex-shrink-0 text-xs font-semibold text-brand hover:text-brand-dark underline underline-offset-2"
+            >
+              {bi('Changer de date', 'Change date')}
+            </Link>
           </div>
         )}
 
@@ -615,7 +605,7 @@ export default function EventDetailPage() {
             {tiers.map(t => {
               const displayName = locale === 'en' && t.name_en ? t.name_en : t.name
               const remaining = t.max_quantity > 0 ? tierLeft(t.id) : null
-              const tierSoldOut = remaining === 0
+              const tierSoldOut = remaining === 0 || daySoldOut
               const qty = tierQty[t.id] ?? 0
               const canInc = !tierSoldOut && (remaining === null || qty < remaining) && qty < 10
               return (
@@ -628,7 +618,7 @@ export default function EventDetailPage() {
                       )}
                       <p className="text-xs text-ink-tertiary mt-1">
                         {tierSoldOut
-                          ? bi('🔴 Épuisé', '🔴 Sold out')
+                          ? (multiDay ? bi('🔴 Épuisé ce jour', '🔴 Sold out this day') : bi('🔴 Épuisé', '🔴 Sold out'))
                           : remaining !== null
                             ? `👥 ${remaining}/${t.max_quantity} ${bi('restants', 'left')}`
                             : `👥 ${bi('Places disponibles', 'Available')}`}
@@ -676,6 +666,22 @@ export default function EventDetailPage() {
                 login prompt rather than the booking form. */}
             {!me ? (
               <>🔐 {bi('Connectez-vous pour réserver', 'Log in to reserve')}</>
+            ) : daySoldOut ? (
+              <>🔴 {multiDay ? bi('Épuisé ce jour', 'Sold out this day') : bi('Épuisé', 'Sold out')}</>
+            ) : dayShort ? (
+              <>
+                📋 {bi('Réserver pour le', 'Reserve for')} {dayShort}
+                {(hasTiers ? tierTotalPrice > 0 : !isFree) && (
+                  <span className="block text-xs font-normal opacity-90 mt-0.5">
+                    {hasTiers
+                      ? `${tierTotalPrice.toLocaleString()} FCFA`
+                      : `${bi('Paiement sur place', 'Pay at the door')} · ${ticketPrice.toLocaleString()} FCFA${bi(' / personne', ' / person')}`}
+                  </span>
+                )}
+                {hasTiers && tierTotalQty === 0 && (
+                  <span className="block text-xs font-normal opacity-90 mt-0.5">{bi('Sélectionnez un tarif', 'Pick a tier')}</span>
+                )}
+              </>
             ) : hasTiers ? (
               tierTotalQty === 0
                 ? bi('Sélectionnez un tarif', 'Pick a tier')
@@ -704,7 +710,7 @@ export default function EventDetailPage() {
             className="block w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-center py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card"
           >
             {me
-              ? <>💰 {bi('Réserver et payer', 'Reserve and pay')}</>
+              ? <>💰 {bi('Réserver et payer', 'Reserve and pay')}{dayShort ? ` — ${dayShort}` : ''}</>
               : <>🔐 {bi('Connectez-vous pour payer', 'Log in to pay')}</>}
             <span className="block text-xs font-normal opacity-90 mt-0.5">
               {hasTiers

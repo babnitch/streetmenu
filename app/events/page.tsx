@@ -12,13 +12,13 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { useCity } from '@/lib/cityContext'
 import { MAX_PROMOS_PER_PAGE } from '@/lib/promotions'
-import { isPastEvent, formatEventDates, formatEventWhen } from '@/lib/eventDate'
+import { isPastEvent, formatEventDates, formatEventWhen, formatEventDay, defaultBookingDay } from '@/lib/eventDate'
 import {
-  addDays, eventDaySet, eventsOnDays, localDayISO, nextEventDay, pastEvents, selectionDays,
+  addDays, eventDaySet, eventsOnDays, isPickableDay, localDayISO, nextEventDay, pastEvents, selectionDays, upcomingAfter,
   type DaySelection,
 } from '@/lib/eventCalendar'
 import TopNav from '@/components/TopNav'
-import EventCard, { EventCardSkeleton } from '@/components/EventCard'
+import EventCard, { EventCardSkeleton, type CardDayStatus } from '@/components/EventCard'
 import DayStrip from '@/components/DayStrip'
 import MonthPicker from '@/components/MonthPicker'
 
@@ -68,10 +68,12 @@ export default function EventsPage() {
   const [calendarOpen, setCalendarOpen] = useState(false)
   const calendarButtonRef = useRef<HTMLButtonElement>(null)
   const listHeadingRef = useRef<HTMLHeadingElement>(null)
+  // ?date= (from an event page's "Changer de date") opens on that day.
   useEffect(() => {
     const day = localDayISO()
     setToday(day)
-    setSelection({ kind: 'day', day })
+    const asked = new URLSearchParams(window.location.search).get('date') ?? ''
+    setSelection({ kind: 'day', day: /^\d{4}-\d{2}-\d{2}$/.test(asked) && isPickableDay(asked, day) ? asked : day })
   }, [])
 
   // Subscription state
@@ -261,6 +263,21 @@ export default function EventsPage() {
     ? null
     : nextEventDay(eventDays, coveredDays[coveredDays.length - 1])
 
+  // The list is never empty: a day with nothing shows the next events after it.
+  const upcoming = useMemo(() => {
+    if (!today || selection.kind === 'past' || listEvents.length > 0) return []
+    return upcomingAfter(filtered, selection.day, 6)
+  }, [filtered, listEvents.length, selection, today])
+
+  // The day each card books (multi-day events sell seats per day): the
+  // selected day, or for a "next" card its first day after it.
+  const selectedDay = selection.kind === 'day' ? selection.day : null
+  const cardDay = useCallback(
+    (e: Event) => (today ? defaultBookingDay(e, selectedDay, today) : null),
+    [today, selectedDay],
+  )
+
+
   // "Aujourd'hui · dim. 13 sept." — heads the list and the map.
   const selectionHeading = (() => {
     if (!today) return ''
@@ -310,6 +327,33 @@ export default function EventsPage() {
     }
     return rows
   }, [filtered, eventPromos])
+
+  // "Épuisé" per card for its day — one request for every card on screen.
+  const [dayStatus, setDayStatus] = useState<Record<string, CardDayStatus>>({})
+  const statusQuery = useMemo(() => {
+    if (!today || selection.kind === 'past') return ''
+    const pairs = new Set<string>()
+    for (const e of listEvents) { const d = cardDay(e); if (d) pairs.add(`${e.id}:${d}`) }
+    for (const u of upcoming) pairs.add(`${u.event.id}:${u.day}`)
+    for (const f of featured) { const d = cardDay(f.event); if (d) pairs.add(`${f.event.id}:${d}`) }
+    return Array.from(pairs).sort().slice(0, 60).join(',')
+  }, [listEvents, upcoming, featured, cardDay, selection.kind, today])
+  useEffect(() => {
+    if (!statusQuery) return
+    let cancelled = false
+    fetch(`/api/events/availability?q=${statusQuery}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled || !d?.status) return
+        const next: Record<string, CardDayStatus> = {}
+        for (const [id, v] of Object.entries(d.status as Record<string, CardDayStatus & { date: string }>)) {
+          next[`${id}:${v.date}`] = { soldOut: v.soldOut, otherDaysAvailable: v.otherDaysAvailable }
+        }
+        setDayStatus(prev => ({ ...prev, ...next }))
+      })
+      .catch(() => { /* cards just show no badge */ })
+    return () => { cancelled = true }
+  }, [statusQuery])
 
   const cityData = CITY_CENTERS[city] ?? CITY_CENTERS['Yaoundé']
 
@@ -413,6 +457,9 @@ export default function EventsPage() {
                   likes={likesSummary[event.id]}
                   promotionId={promotionId}
                   tierPrices={tierPrices[event.id]}
+                  bookingDay={cardDay(event)}
+                  today={today}
+                  dayStatus={(() => { const d = cardDay(event); return d ? dayStatus[`${event.id}:${d}`] : undefined })()}
                 />
               ))}
             </div>
@@ -456,18 +503,24 @@ export default function EventsPage() {
 
             {listEvents.length > 0 ? (
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                {listEvents.map(e => (
-                  <EventCard
-                    key={e.id}
-                    event={e}
-                    viewLabel={t('evt.viewDetail')}
-                    freeLabel={t('evt.free')}
-                    categoryDisplay={categoryLabel(e.category, locale)}
-                    likes={likesSummary[e.id]}
-                    tierPrices={tierPrices[e.id]}
-                    isPast={selection.kind === 'past'}
-                  />
-                ))}
+                {listEvents.map(e => {
+                  const day = selection.kind === 'past' ? null : cardDay(e)
+                  return (
+                    <EventCard
+                      key={e.id}
+                      event={e}
+                      viewLabel={t('evt.viewDetail')}
+                      freeLabel={t('evt.free')}
+                      categoryDisplay={categoryLabel(e.category, locale)}
+                      likes={likesSummary[e.id]}
+                      tierPrices={tierPrices[e.id]}
+                      isPast={selection.kind === 'past'}
+                      bookingDay={day}
+                      today={today}
+                      dayStatus={day ? dayStatus[`${e.id}:${day}`] : undefined}
+                    />
+                  )
+                })}
               </div>
             ) : (
               <div className="flex flex-col items-center text-center py-12 px-4">
@@ -477,9 +530,9 @@ export default function EventsPage() {
                 <p className="text-base font-bold text-ink-primary">
                   {selection.kind === 'past'
                     ? bi('Aucun événement passé', 'No past events')
-                    : bi('Rien de prévu ce jour', 'Nothing planned this day')}
+                    : `${bi('Aucun événement le', 'No events on')} ${formatEventDay(selection.day, locale, 'list')}`}
                 </p>
-                {nextDay && (
+                {nextDay && upcoming.length === 0 && (
                   <button
                     type="button"
                     onClick={() => setSelection({ kind: 'day', day: nextDay })}
@@ -489,6 +542,31 @@ export default function EventsPage() {
                   </button>
                 )}
               </div>
+            )}
+
+            {/* Never an empty list: the next events after the selected day. */}
+            {upcoming.length > 0 && (
+              <section className="mt-2" aria-labelledby="events-next-heading">
+                <h3 id="events-next-heading" className="text-sm font-bold text-ink-primary mb-3">
+                  {bi('Prochains événements', 'Next events')}
+                </h3>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                  {upcoming.map(({ event: e, day }) => (
+                    <EventCard
+                      key={`next-${e.id}`}
+                      event={e}
+                      viewLabel={t('evt.viewDetail')}
+                      freeLabel={t('evt.free')}
+                      categoryDisplay={categoryLabel(e.category, locale)}
+                      likes={likesSummary[e.id]}
+                      tierPrices={tierPrices[e.id]}
+                      bookingDay={day}
+                      today={today}
+                      dayStatus={dayStatus[`${e.id}:${day}`]}
+                    />
+                  ))}
+                </div>
+              </section>
             )}
 
             {/* Past events — a quiet way in, below the list */}

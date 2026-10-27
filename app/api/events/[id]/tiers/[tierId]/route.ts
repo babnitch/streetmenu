@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
+import { syncCapacityFromTiers } from '@/lib/eventSeats'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,8 +67,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     previousData:    { name: tier.name, price: tier.price, max_quantity: tier.max_quantity, is_active: tier.is_active },
     metadata:        { tier_id: tier.id, ...updates },
   })
+  const capacity = await syncCapacityFromTiers(tier.event_id)
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, max_tickets: capacity })
 }
 
 // DELETE /api/events/[id]/tiers/[tierId]
@@ -94,6 +96,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     previousData:    { is_active: tier.is_active },
     metadata:        { tier_id: tier.id, sold_count: tier.sold_count },
   })
+  // Last tier gone → null: the capacity stays as it was, editable by hand.
+  const capacity = await syncCapacityFromTiers(tier.event_id)
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, max_tickets: capacity })
 }

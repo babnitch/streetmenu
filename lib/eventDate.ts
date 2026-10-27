@@ -245,6 +245,19 @@ export function resolveBookingDay(event: EventWhen, requested: unknown): string 
   return days.includes(day) ? day : null
 }
 
+// The day an event page books for. The Events calendar passes the day the
+// visitor picked (?date=); a shared link has none. Order: the requested day
+// when it is a bookable day of the event, else today when the event runs
+// today, else the first day when it hasn't started. Null once it has ended.
+// Never moves to another day because one is sold out — the visitor chooses.
+export function defaultBookingDay(event: EventWhen, requested: string | null | undefined, today: string): string | null {
+  const days = eventDays(event).filter(d => d >= today)
+  if (days.length === 0) return null
+  const want = typeof requested === 'string' ? requested.slice(0, 10) : ''
+  if (days.includes(want)) return want
+  return days[0]      // today when the event runs today, else its first day
+}
+
 // One booked day ("mer. 22 oct. 2026"), for confirmations of a multi-day event.
 export function formatEventDay(dayISO: string, lang: 'fr' | 'en', style: EventDateStyle): string {
   return dateFormatter(lang, style).format(utcDate(dayISO))

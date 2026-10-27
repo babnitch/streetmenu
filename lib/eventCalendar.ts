@@ -157,3 +157,19 @@ export function pastEvents<T extends EventWhen>(events: T[], now: Date = new Dat
     .filter(event => isPastEvent(event, now))
     .sort((a, b) => (eventDayRange(b)?.end ?? '').localeCompare(eventDayRange(a)?.end ?? ''))
 }
+
+// "Prochains événements": when the selected day has nothing, the next events
+// after it — each with the first of its days after `after` (the day its card
+// books), soonest first, at most `limit`. Finished events never show.
+export function upcomingAfter<T extends EventWhen>(events: T[], after: string, limit: number, now: Date = new Date()): Array<{ event: T; day: string }> {
+  const rows: Array<{ event: T; day: string }> = []
+  for (const event of events) {
+    if (isPastEvent(event, now)) continue
+    const range = eventDayRange(event)
+    if (!range || range.end <= after) continue
+    rows.push({ event, day: range.start > after ? range.start : addDays(after, 1) })
+  }
+  return rows
+    .sort((a, b) => a.day.localeCompare(b.day) || bySoonestStart(a.event, b.event))
+    .slice(0, limit)
+}

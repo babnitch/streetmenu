@@ -31,7 +31,11 @@ interface TierDraft {
 // Lists every tier (including inactive — sold-out historical rows stay
 // visible), supports add + inline edit + soft-deactivate. Deactivate is
 // the only "delete" path because sold reservations reference the tier_id.
-export default function EventTiersPanel({ eventId }: { eventId: string }) {
+//
+// Capacity is per day: on a multi-day event a tier's max is "max par jour".
+// onTiersLoaded hands the parent the active tiers' max after every load, so
+// it can show the event's capacity (their sum) without its own request.
+export default function EventTiersPanel({ eventId, multiDay = false, onTiersLoaded }: { eventId: string; multiDay?: boolean; onTiersLoaded?: (activeMaxPerDay: number[]) => void }) {
   const bi = useBi()
   const { locale } = useLanguage()
   const [tiers, setTiers] = useState<Tier[]>([])
@@ -52,11 +56,14 @@ export default function EventTiersPanel({ eventId }: { eventId: string }) {
         fetch(`/api/events/${eventId}/availability`, { cache: 'no-store' }).catch(() => null),
       ])
       const d = await r.json()
-      if (Array.isArray(d?.tiers)) setTiers(d.tiers)
+      if (Array.isArray(d?.tiers)) {
+        setTiers(d.tiers)
+        onTiersLoaded?.((d.tiers as Tier[]).filter(t => t.is_active).map(t => Number(t.max_quantity ?? 0)))
+      }
       const av = a ? await a.json().catch(() => null) : null
       setDays(Array.isArray(av?.days) ? av.days : null)
     } finally { setLoading(false) }
-  }, [eventId])
+  }, [eventId, onTiersLoaded])
 
   useEffect(() => { load() }, [load])
 
@@ -203,7 +210,7 @@ export default function EventTiersPanel({ eventId }: { eventId: string }) {
                       placeholder={bi('Prix FCFA', 'Price FCFA')} />
                     <input type="number" min="0" className="bg-white border border-divider rounded-lg px-2 py-1 text-sm"
                       value={draft.max_quantity} onChange={e => setDraft(p => ({ ...p, max_quantity: e.target.value }))}
-                      placeholder={bi('Quantité max', 'Max qty')} />
+                      placeholder={multiDay ? bi('Max par jour', 'Max per day') : bi('Quantité max', 'Max qty')} />
                   </div>
                   <input className="w-full bg-white border border-divider rounded-lg px-2 py-1 text-sm"
                     value={draft.description} onChange={e => setDraft(p => ({ ...p, description: e.target.value }))}
@@ -276,7 +283,7 @@ export default function EventTiersPanel({ eventId }: { eventId: string }) {
                   placeholder={bi('Prix FCFA', 'Price FCFA')} />
                 <input type="number" min="0" className="bg-white border border-divider rounded-lg px-2 py-1 text-sm"
                   value={draft.max_quantity} onChange={e => setDraft(p => ({ ...p, max_quantity: e.target.value }))}
-                  placeholder={bi('Quantité max', 'Max qty')} />
+                  placeholder={multiDay ? bi('Max par jour', 'Max per day') : bi('Quantité max', 'Max qty')} />
               </div>
               <input className="w-full bg-white border border-divider rounded-lg px-2 py-1 text-sm"
                 value={draft.description} onChange={e => setDraft(p => ({ ...p, description: e.target.value }))}

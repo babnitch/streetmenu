@@ -11,7 +11,8 @@ import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
-import { validateEventRange, EVENT_RANGE_ERRORS } from '@/lib/eventDate'
+import { validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
+import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
 
@@ -126,6 +127,14 @@ export default function SubmitEventPage() {
     setPhoto(file)
     setPhotoPreview(URL.createObjectURL(file))
   }
+
+  // Capacity is per day: the number of days the form's dates cover, and the
+  // seats per day (sum of the tiers' max when tiers are on).
+  const dayCount = form.date ? eventDays({ date: form.date, end_date: form.end_date || null }).length : 0
+  const tierCapacity = capacityFromTiers(
+    tiers.filter(t => t.name.trim()).map(t => Number.parseInt(t.max_quantity, 10) || 0),
+  )
+  const perDayCapacity = useTiers ? tierCapacity : Number.parseInt(form.max_tickets, 10) || 0
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -499,7 +508,9 @@ export default function SubmitEventPage() {
                       className={INPUT}
                       value={tier.max_quantity}
                       onChange={e => updateTier(idx, 'max_quantity', e.target.value)}
-                      placeholder={bi('Quantité (0 = illimité)', 'Qty (0 = unlimited)')}
+                      placeholder={dayCount > 1
+                        ? bi('Max par jour (0 = illimité)', 'Max per day (0 = unlimited)')
+                        : bi('Quantité (0 = illimité)', 'Qty (0 = unlimited)')}
                     />
                   </div>
                   <input
@@ -525,15 +536,29 @@ export default function SubmitEventPage() {
               (matches API behaviour). Online payment toggle is hidden for
               free events; the insert forces it off anyway. */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label={bi('Capacité (0 = illimité)', 'Capacity (0 = unlimited)')}>
-              <input
-                type="number"
-                min="0"
-                className={INPUT}
-                value={form.max_tickets}
-                onChange={e => set('max_tickets', e.target.value)}
-                placeholder="0"
-              />
+            {/* Capacity is per day. With tiers it is the sum of their max
+                per day, shown read-only (the server computes the same). */}
+            <Field label={dayCount > 1
+              ? bi('Places par jour (0 = illimité)', 'Seats per day (0 = unlimited)')
+              : bi('Capacité (0 = illimité)', 'Capacity (0 = unlimited)')}>
+              {useTiers ? (
+                <div className={`${INPUT} bg-surface-muted text-ink-secondary`} aria-readonly="true">
+                  {tierCapacity > 0 ? tierCapacity : bi('Illimité', 'Unlimited')}
+                  <span className="block text-[10px] text-ink-tertiary">{bi('Somme des tarifs', 'Sum of the tiers')}</span>
+                </div>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  className={INPUT}
+                  value={form.max_tickets}
+                  onChange={e => set('max_tickets', e.target.value)}
+                  placeholder="0"
+                />
+              )}
+              {capacityTotalLine(dayCount, perDayCapacity, locale) && (
+                <p className="text-[11px] text-ink-tertiary mt-1">{capacityTotalLine(dayCount, perDayCapacity, locale)}</p>
+              )}
             </Field>
             <Field label={bi('Réservations', 'Reservations')}>
               <div className="text-xs text-ink-tertiary pt-2">

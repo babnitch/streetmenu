@@ -189,6 +189,60 @@ async function main(): Promise<void> {
       const shrink = await api(`/api/events/${multi.id}`, { method: 'PATCH', cookie: orgCookie, body: { end_date: d2 } })
       assertEq(shrink.status, 409, 'range change stranding day 3 bookings → 409')
     })
+
+    await step('Events list status: sold out on one day, other days still open', async () => {
+      const ev = await makeEvent({ organizerId: organizer.id, label: 'day_cap_card', isActive: true, date: d1, endDate: d2, maxTickets: 1 })
+      assertEq((await reserve(ev.id, { event_date: d1, quantity: 1 }, 4)).status, 200, 'day 1 filled')
+      const r = await api<{ status?: Record<string, { date: string; soldOut: boolean; otherDaysAvailable: boolean }> }>(
+        `/api/events/availability?q=${ev.id}:${d1},${multi.id}:${d3},not-an-id:${d1}`)
+      assertEq(r.status, 200, 'HTTP 200')
+      const st = r.body.status ?? {}
+      assertEq(st[ev.id]?.soldOut, true, 'day 1 → soldOut')
+      assertEq(st[ev.id]?.otherDaysAvailable, true, 'day 2 still has room → otherDaysAvailable')
+      assertEq(st[multi.id]?.date, d3, 'each event answered for its own day')
+      assertEq(Object.keys(st).length, 2, 'a malformed pair is ignored')
+    })
+
+    await step('with tiers, capacity per day = sum of the tiers\' max (kept in sync)', async () => {
+      const ev = await makeEvent({ organizerId: organizer.id, label: 'day_cap_sync', isActive: true, date: d1, endDate: d2, maxTickets: 9 })
+      const cap = async () => ((await sb.from('events').select('max_tickets').eq('id', ev.id).single()).data as { max_tickets: number }).max_tickets
+      const addTier = (name: string, max: number) => api<{ tier?: { id: string } }>(`/api/events/${ev.id}/tiers`, {
+        method: 'POST', cookie: orgCookie, body: { name: testName(name), price: 0, max_quantity: max },
+      })
+      const a = await addTier('a', 2)
+      assertEq(a.status, 200, `tier A created (body ${a.raw.slice(0, 120)})`)
+      assertEq(await cap(), 2, 'first tier (max 2) → capacity 2')
+      const b = await addTier('b', 3)
+      assertEq(await cap(), 5, 'second tier (max 3) → capacity 5')
+      const bId = b.body.tier?.id as string
+      await api(`/api/events/${ev.id}/tiers/${bId}`, { method: 'PATCH', cookie: orgCookie, body: { max_quantity: 4 } })
+      assertEq(await cap(), 6, 'tier B max 3 → 4 → capacity 6')
+
+      const set = await api(`/api/events/${ev.id}/settings`, { method: 'PATCH', cookie: orgCookie, body: { max_tickets: 20 } })
+      assertEq(set.status, 409, 'capacity typed by hand with tiers → 409')
+      await api(`/api/events/${ev.id}`, { method: 'PATCH', cookie: orgCookie, body: { max_tickets: 20 } })
+      assertEq(await cap(), 6, 'event edit ignores a typed capacity when tiers exist')
+
+      const u = await addTier('unlimited', 0)
+      assertEq(await cap(), 0, 'a tier without a max → unlimited (0)')
+      await api(`/api/events/${ev.id}/tiers/${u.body.tier?.id}`, { method: 'DELETE', cookie: orgCookie })
+      assertEq(await cap(), 6, 'removing it → back to 6')
+    })
+
+    await step('submitting an event with tiers stores their sum as the capacity', async () => {
+      const r = await api<{ event_id?: string }>('/api/events/submit', {
+        method: 'POST', cookie: orgCookie, body: {
+          title: testName('day_cap_submit'), date: d1, end_date: d3, city: testName('city'), category: 'Autre',
+          whatsapp: organizer.phone, ticket_price: 0, max_tickets: 50,
+          tiers: [{ name: 'A', price: 0, max_quantity: 2 }, { name: 'B', price: 0, max_quantity: 1 }],
+        },
+      })
+      assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 160)})`)
+      const id = r.body.event_id as string
+      track('events', id)
+      const { data } = await sb.from('events').select('max_tickets').eq('id', id).single()
+      assertEq((data as { max_tickets: number } | null)?.max_tickets, 3, 'max_tickets = 2 + 1 (the typed 50 is ignored)')
+    })
   } catch (e) {
     assert(false, 'suite crashed', (e as Error).stack)
   } finally {

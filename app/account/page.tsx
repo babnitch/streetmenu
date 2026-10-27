@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -32,7 +32,8 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
-import { isPastEvent, formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validateEventRange, EVENT_RANGE_ERRORS } from '@/lib/eventDate'
+import { isPastEvent, formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
+import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
 const EVENT_EDIT_CATEGORIES = [
@@ -2811,8 +2812,27 @@ function MyEventsPanel({
   // Track in-flight to disable the buttons while a PATCH is mid-air.
   const [savingSettings, setSavingSettings] = useState(false)
   const [capacityDraft, setCapacityDraft] = useState<string>('')
+  // Active tiers' max per day, from EventTiersPanel. With tiers the event's
+  // capacity is their sum (the server keeps max_tickets in sync), so the
+  // capacity fields turn read-only. null until the panel has loaded.
+  const [tierMaxes, setTierMaxes] = useState<number[] | null>(null)
+  const tierMaxesRef = useRef<string | null>(null)
+  const onTiersLoaded = useCallback((maxes: number[]) => {
+    const key = maxes.join(',')
+    const changed = tierMaxesRef.current !== null && tierMaxesRef.current !== key
+    tierMaxesRef.current = key
+    setTierMaxes(maxes)
+    if (changed) onChanged()            // capacity moved with the tiers → refresh stats
+  }, [onChanged])
+  useEffect(() => { tierMaxesRef.current = null; setTierMaxes(null) }, [selectedId])
 
   const selected = selectedId ? events.find(e => e.id === selectedId) ?? null : null
+  const selectedHasTiers = !!tierMaxes && tierMaxes.length > 0
+  const selectedDayCount = selected ? eventDays(selected).length : 0
+  const selectedPerDay = selectedHasTiers ? capacityFromTiers(tierMaxes!) : Number(selected?.max_tickets ?? 0)
+  const editDayCount = editForm?.date
+    ? eventDays({ date: editForm.date, end_date: editForm.end_date || null }).length
+    : selectedDayCount
 
   async function openEvent(eventId: string) {
     setSelectedId(eventId)
@@ -3150,7 +3170,7 @@ function MyEventsPanel({
         {/* Ticket tiers panel — self-contained CRUD for the event's
             tiered pricing. Renders empty state when the event still
             uses the legacy single price. */}
-        <EventTiersPanel eventId={selected.id} />
+        <EventTiersPanel eventId={selected.id} multiDay={selectedDayCount > 1} onTiersLoaded={onTiersLoaded} />
 
         {/* Promo codes — organizer creates event-scoped vouchers. */}
         <EventVouchersPanel eventId={selected.id} />
@@ -3209,8 +3229,14 @@ function MyEventsPanel({
           </div>
           <div className="pt-3 border-t border-divider">
             <p className="text-sm font-semibold text-ink-primary mb-1.5">
-              🎟 {bi('Capacité', 'Capacity')}
+              🎟 {selectedDayCount > 1 ? bi('Places par jour', 'Seats per day') : bi('Capacité', 'Capacity')}
             </p>
+            {selectedHasTiers ? (
+              <p className="text-sm text-ink-primary">
+                {selectedPerDay > 0 ? selectedPerDay : bi('Illimité', 'Unlimited')}
+                <span className="text-xs text-ink-tertiary"> · {bi('somme des tarifs (max par jour)', "sum of the tiers' max per day")}</span>
+              </p>
+            ) : (
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -3228,9 +3254,15 @@ function MyEventsPanel({
                 💾 {bi('Mettre à jour', 'Update')}
               </button>
             </div>
-            <p className="text-xs text-ink-tertiary mt-1">
-              {bi('0 = illimité.', '0 = unlimited.')} {bi('Actuel:', 'Current:')} {selected.max_tickets ?? 0}
-            </p>
+            )}
+            {!selectedHasTiers && (
+              <p className="text-xs text-ink-tertiary mt-1">
+                {bi('0 = illimité.', '0 = unlimited.')} {bi('Actuel:', 'Current:')} {selected.max_tickets ?? 0}
+              </p>
+            )}
+            {capacityTotalLine(selectedDayCount, selectedPerDay, locale) && (
+              <p className="text-xs text-ink-tertiary mt-1">{capacityTotalLine(selectedDayCount, selectedPerDay, locale)}</p>
+            )}
           </div>
         </div>
 
@@ -3458,10 +3490,24 @@ function MyEventsPanel({
                       className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
                   </label>
                   <label className="block">
-                    <span className="text-xs font-semibold text-ink-secondary">{bi('Places max', 'Max tickets')}</span>
-                    <input type="number" min={0} value={editForm.max_tickets} onChange={e => setEdit('max_tickets', e.target.value)}
-                      placeholder={bi('0 = illimité', '0 = unlimited')}
-                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                    <span className="text-xs font-semibold text-ink-secondary">
+                      {editDayCount > 1 ? bi('Places par jour', 'Seats per day') : bi('Places max', 'Max tickets')}
+                    </span>
+                    {selectedHasTiers ? (
+                      <span className="mt-1 block w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm text-ink-secondary">
+                        {selectedPerDay > 0 ? selectedPerDay : bi('Illimité', 'Unlimited')}
+                        <span className="block text-[10px] text-ink-tertiary">{bi('Somme des tarifs', 'Sum of the tiers')}</span>
+                      </span>
+                    ) : (
+                      <input type="number" min={0} value={editForm.max_tickets} onChange={e => setEdit('max_tickets', e.target.value)}
+                        placeholder={bi('0 = illimité', '0 = unlimited')}
+                        className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                    )}
+                    {capacityTotalLine(editDayCount, selectedHasTiers ? selectedPerDay : Number(editForm.max_tickets || 0), locale) && (
+                      <span className="block text-[11px] text-ink-tertiary mt-1">
+                        {capacityTotalLine(editDayCount, selectedHasTiers ? selectedPerDay : Number(editForm.max_tickets || 0), locale)}
+                      </span>
+                    )}
                   </label>
                 </div>
 

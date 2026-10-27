@@ -2221,7 +2221,7 @@ function multiDayWebLink(eventId: string, title: string, lang: Lang): string {
 // A booking refused by reserve_event_seats, in the customer's language.
 function seatRefusalText(result: Extract<ReserveSeatsResult, { ok: false }>, lang: Lang): string {
   const left = result.body.remaining
-  if (left === 0) return pickLang('❌ Complet.', '❌ Sold out.', lang)
+  if (left === 0) return pickLang('❌ Épuisé.', '❌ Sold out.', lang)
   if (typeof left === 'number') return pickLang(`❌ Plus que ${left} places.`, `❌ Only ${left} spots left.`, lang)
   return pickLang('⚠️ Réservation impossible pour le moment. Réessayez.', '⚠️ Booking not possible right now. Please try again.', lang)
 }
@@ -2380,13 +2380,13 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     : Infinity
   const remaining = left === Infinity ? null : left
   const capacityLine = remaining != null
-    ? `👥 ${remaining} ${remaining > 0 ? pickLang('places restantes', 'spots remaining', lang) : pickLang('— ❌ Complet', '— ❌ Sold out', lang)}`
+    ? `👥 ${remaining} ${remaining > 0 ? pickLang('places restantes', 'spots remaining', lang) : pickLang('— ❌ Épuisé', '— ❌ Sold out', lang)}`
     : ''
   const past = isPastEvent(event)
   const tail = past
     ? '\n' + `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
     : remaining === 0
-      ? '\n' + pickLang(`❌ Cet événement est complet.`, `❌ This event is sold out.`, lang)
+      ? '\n' + pickLang(`❌ Cet événement est épuisé.`, `❌ This event is sold out.`, lang)
       : isMultiDay(event)
         ? '\n' + multiDayWebLink(event.id, event.title, lang)
         : '\n' + pickLang(
@@ -2478,7 +2478,7 @@ async function startReserveFlow(
   }
   const remaining = await seatsLeftToday(event)
   if (remaining === 0) {
-    await sendWhatsApp(from, pickLang('❌ Complet.', '❌ Sold out.', lang))
+    await sendWhatsApp(from, pickLang('❌ Épuisé.', '❌ Sold out.', lang))
     return ok()
   }
 

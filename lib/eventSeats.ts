@@ -12,6 +12,7 @@
 // only one caller can win, and only the winner releases.
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { capacityFromTiers } from '@/lib/eventCapacity'
 
 export interface SeatHolder {
   event_id: string
@@ -219,4 +220,28 @@ export async function reservationOverflow(reservationId: string): Promise<Array<
     return []
   }
   return (data ?? []) as Array<{ day: string; tier_id: string | null; capacity: number; sold: number }>
+}
+
+// Events with tiers: capacity = sum of the ACTIVE tiers' max per day
+// (capacityFromTiers). Called after every tier change; returns the new
+// capacity, or null when the event has no active tier (capacity is then
+// entered by hand and left alone).
+export async function syncCapacityFromTiers(eventId: string): Promise<number | null> {
+  const { data: tiers, error } = await supabaseAdmin
+    .from('event_ticket_tiers').select('max_quantity').eq('event_id', eventId).eq('is_active', true)
+  if (error) {
+    console.error('[seats] capacity sync: tier read failed event=%s: %s', eventId, error.message)
+    return null
+  }
+  if (!tiers || tiers.length === 0) return null
+  const capacity = capacityFromTiers(tiers.map(t => Number(t.max_quantity ?? 0)))
+  const { error: upErr } = await supabaseAdmin.from('events').update({ max_tickets: capacity }).eq('id', eventId)
+  if (upErr) console.error('[seats] capacity sync: update failed event=%s: %s', eventId, upErr.message)
+  return capacity
+}
+
+export async function hasActiveTiers(eventId: string): Promise<boolean> {
+  const { count } = await supabaseAdmin
+    .from('event_ticket_tiers').select('id', { count: 'exact', head: true }).eq('event_id', eventId).eq('is_active', true)
+  return (count ?? 0) > 0
 }

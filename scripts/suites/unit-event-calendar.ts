@@ -7,7 +7,8 @@
 // Reference day: 2026-09-13, a Sunday. The week after it runs Monday 14 →
 // Sunday 20 September 2026.
 
-import { type EventWhen } from '@/lib/eventDate'
+import { type EventWhen, defaultBookingDay } from '@/lib/eventDate'
+import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import {
   HORIZON_DAYS,
   STRIP_DAYS,
@@ -24,6 +25,7 @@ import {
   pastEvents,
   selectionDays,
   stripDays,
+  upcomingAfter,
   weekdayIndex,
 } from '@/lib/eventCalendar'
 import { assert, assertEq, step, finish } from '../testkit/assert'
@@ -192,6 +194,41 @@ async function main(): Promise<void> {
     ]
     assertEq(ids(pastEvents(events, NOW)), ['ended-sep-12', 'ended-sep-05', 'ended-aug-30'],
       'ordered by the day they ended; running and upcoming events are left out')
+  })
+
+  await step('upcomingAfter: "Prochains événements" after an empty day', () => {
+    const events = [
+      ev('later',    '2026-09-25'),
+      ev('soon',     '2026-09-16'),
+      ev('festival', '2026-09-12', '2026-09-20'),     // running, covers days after the 15th
+      ev('ended',    '2026-09-10'),
+      ev('same-day', '2026-09-15'),                   // on the selected day → not "next"
+    ]
+    const rows = upcomingAfter(events, '2026-09-15', 6, NOW)
+    assertEq(rows.map(r => `${r.event.id}@${r.day}`), ['festival@2026-09-16', 'soon@2026-09-16', 'later@2026-09-25'],
+      'soonest first, each with its first day after the selected one; ended and same-day left out')
+    assertEq(upcomingAfter(events, '2026-09-15', 1, NOW).length, 1, 'limit applies')
+  })
+
+  await step('defaultBookingDay: the day an event page books', () => {
+    const fest = ev('fest', '2026-09-12', '2026-09-16')
+    assertEq(defaultBookingDay(fest, '2026-09-15', '2026-09-13'), '2026-09-15', '?date= inside the event → that day')
+    assertEq(defaultBookingDay(fest, null, '2026-09-13'), '2026-09-13', 'no ?date=, running → today')
+    assertEq(defaultBookingDay(fest, '2026-09-12', '2026-09-13'), '2026-09-13', 'a past ?date= → today')
+    assertEq(defaultBookingDay(fest, '2026-09-30', '2026-09-13'), '2026-09-13', '?date= outside the event → today')
+    assertEq(defaultBookingDay(ev('future', '2026-09-20', '2026-09-22'), null, '2026-09-13'), '2026-09-20', 'not started → its first day')
+    assertEq(defaultBookingDay(ev('done', '2026-09-01', '2026-09-03'), null, '2026-09-13'), null, 'ended → null')
+    assertEq(defaultBookingDay(ev('single', '2026-09-20'), '2026-09-21', '2026-09-13'), '2026-09-20', 'single day → its day')
+  })
+
+  await step('capacityFromTiers / capacityTotalLine: capacity is per day', () => {
+    assertEq(capacityFromTiers([3, 2]), 5, 'sum of the tiers\' max per day')
+    assertEq(capacityFromTiers([3, 0]), 0, 'a tier without a max → unlimited (0)')
+    assertEq(capacityFromTiers([]), 0, 'no tiers → 0')
+    assertEq(capacityTotalLine(3, 3, 'fr'), '3 jours × 3 places = 9 places au total', 'FR total line')
+    assertEq(capacityTotalLine(3, 1, 'en'), '3 days × 1 seat = 3 seats in total', 'EN total line, singular')
+    assertEq(capacityTotalLine(1, 3, 'fr'), null, 'single day → no line')
+    assertEq(capacityTotalLine(3, 0, 'fr'), null, 'unlimited → no line')
   })
 
   finish(SUITE)

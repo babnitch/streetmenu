@@ -7,6 +7,7 @@ import { notifyEventUpdate, type SignificantChanges } from '@/lib/directMessagin
 import {
   EVENT_DATE_COLUMNS, effectiveEndDate, validateEventRange, eventRangeErrorText, normalizeEndDate, eventDays,
 } from '@/lib/eventDate'
+import { hasActiveTiers } from '@/lib/eventSeats'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,7 +57,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     updates.ticket_price = newPrice
     updates.price = newPrice // legacy display column kept in sync
   }
-  if ('max_tickets' in body) {
+  // With tiers, capacity is the sum of their max per day (kept in sync by
+  // the tier routes) — a typed value is ignored.
+  if ('max_tickets' in body && !(await hasActiveTiers(event.id))) {
     updates.max_tickets = body.max_tickets != null && body.max_tickets !== ''
       ? Math.max(0, parseInt(String(body.max_tickets), 10)) : 0
   }

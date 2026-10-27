@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
+import { hasActiveTiers } from '@/lib/eventSeats'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +34,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
   if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
+  }
+
+  // With tiers, capacity is the sum of their max per day — not set by hand.
+  if ('max_tickets' in updates && await hasActiveTiers(event.id)) {
+    return NextResponse.json({
+      error: 'Capacité = somme des tarifs. Modifiez le max par jour des tarifs. / Capacity is the sum of the tiers. Change the tiers\' max per day.',
+    }, { status: 409 })
   }
 
   await supabaseAdmin.from('events').update(updates).eq('id', event.id)
