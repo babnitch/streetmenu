@@ -114,10 +114,10 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   }, [hasRestaurantRole])
 
   const isDashboard = pathname.startsWith('/dashboard')
-  // Map icon only makes sense on the two map-bearing client-mode surfaces.
+  // Map icon only on the restaurant list (the one map-bearing page).
   // In Pro mode the TopNav shows operations links instead.
   const showMapBtn  = effectiveMode === 'client'
-                    && (pathname === '/restaurants' || pathname === '/events')
+                    && pathname === '/restaurants'
 
   // Nav row. Same source as the mobile BottomNav — see lib/navConfig.ts.
   // This bar renders the ROUTE destinations only: Search stays the inline

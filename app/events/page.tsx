@@ -2,797 +2,357 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import dynamicImport from 'next/dynamic'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import { Event } from '@/types'
-import { useLanguage, useBi } from '@/lib/languageContext'
-import { categoryLabel } from '@/lib/categoryLabels'
-import { useCity } from '@/lib/cityContext'
-import { MAX_PROMOS_PER_PAGE } from '@/lib/promotions'
-import { isPastEvent, formatEventDates, formatEventWhen, formatEventDay, defaultBookingDay } from '@/lib/eventDate'
-import {
-  addDays, eventDaySet, eventsOnDays, isPickableDay, localDayISO, nextEventDay, pastEvents, selectionDays, upcomingAfter,
-  type DaySelection,
-} from '@/lib/eventCalendar'
 import TopNav from '@/components/TopNav'
-import EventCard, { EventCardSkeleton, type CardDayStatus } from '@/components/EventCard'
-import DayStrip from '@/components/DayStrip'
+import CityDropdown from '@/components/CityDropdown'
+import SearchOverlay from '@/components/SearchOverlay'
 import MonthPicker from '@/components/MonthPicker'
+import EventPoster from '@/components/events/EventPoster'
+import SubscribeButton from '@/components/events/SubscribeButton'
+import { useBi, useLanguage } from '@/lib/languageContext'
+import { useCity } from '@/lib/cityContext'
+import { categoryLabel } from '@/lib/categoryLabels'
+import { addDays, localDayISO, weekdayIndex } from '@/lib/eventCalendar'
+import { eventDays as rangeDays, formatEventDates, formatEventDay } from '@/lib/eventDate'
+import { eventStatus, statusText, type ListingDay } from '@/lib/eventStatus'
 
-const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
-
-// City → Mapbox center + zoom. Kept in sync with app/page.tsx.
-const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> = {
-  'Yaoundé': { center: [11.5021, 3.848],    zoom: 13 },
-  'Abidjan': { center: [-4.0083, 5.36],      zoom: 13 },
-  'Dakar':   { center: [-17.4441, 14.6937],  zoom: 13 },
-  'Lomé':    { center: [1.2123, 6.1375],     zoom: 13 },
+interface ListingEvent {
+  id: string; title: string; category: string | null; venue: string | null; neighborhood: string | null
+  cover_photo: string | null; organizer_name: string | null
+  date: string; time: string | null; end_date: string | null; end_time: string | null
+  days: ListingDay[]; fromPrice: number | null; recentSeats7d: number
 }
+interface Promoted { promotion_id: string; event_id: string; placement: string }
+type When = { kind: 'all' } | { kind: 'today' } | { kind: 'weekend' } | { kind: 'week' } | { kind: 'date'; day: string }
 
-const CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-]
+// The event's upcoming days: from the listing (with seats), else its dates.
+const upcomingDays = (e: ListingEvent, today: string): string[] =>
+  e.days.length ? e.days.map(d => d.date) : rangeDays(e).filter(d => d >= today)
 
-interface MySubscription {
-  id: string
-  city: string
-  categories: string[] | null
-  is_active: boolean
-}
-
+// /events — "Sortir" (Ticketcorner-style, E2):
+//   dark band (search, city, subscribe) · À LA UNE (one big poster) ·
+//   Cette semaine (swipeable posters) · Tous les événements (Quand,
+//   Catégorie, Gratuit, Ville; rows with a date block and one status line).
+// Never empty: nothing matches → "Aucun événement …" + Prochains événements.
+// Rows open the event page with no day chosen (multi-day → its date list).
 export default function EventsPage() {
-  const { t, locale } = useLanguage()
   const bi = useBi()
-  const router = useRouter()
+  const { locale } = useLanguage()
   const { city } = useCity()
-  const [events, setEvents] = useState<Event[]>([])
-  // Per-event tier prices keyed by event_id. Empty array (or missing key)
-  // means the event has no tiers — the card falls back to event.price.
-  const [tierPrices, setTierPrices] = useState<Record<string, number[]>>({})
-  const [likesSummary, setLikesSummary] = useState<Record<string, number>>({})
-  const [loading, setLoading] = useState(true)
-  const [selectedCategory, setSelectedCategory] = useState('all')
-  const [showMap, setShowMap] = useState(false)
-  const [mapSelected, setMapSelected] = useState<Event | null>(null)
+  const [today, setToday] = useState<string>('')
+  const [data, setData] = useState<{ events: ListingEvent[]; featuredId: string | null; promoted: Promoted[] } | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [when, setWhen] = useState<When>({ kind: 'all' })
+  const [category, setCategory] = useState<string | null>(null)
+  const [freeOnly, setFreeOnly] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef<HTMLButtonElement>(null)
 
-  // ── Calendar ──────────────────────────────────────────────────────────────
-  // "Today" is the phone's local date, read after mount: the server renders in
-  // UTC, so reading it during render would mismatch the client. The strip shows
-  // skeleton pills until it is set. The page always lands on Today — it never
-  // jumps ahead on its own; an empty day offers "Prochain événement →" instead.
-  const [today, setToday] = useState<string | null>(null)
-  const [selection, setSelection] = useState<DaySelection>({ kind: 'day', day: '' })
-  const [calendarOpen, setCalendarOpen] = useState(false)
-  const calendarButtonRef = useRef<HTMLButtonElement>(null)
-  const listHeadingRef = useRef<HTMLHeadingElement>(null)
-  // ?date= (from an event page's "Changer de date") opens on that day.
-  useEffect(() => {
-    const day = localDayISO()
-    setToday(day)
-    const asked = new URLSearchParams(window.location.search).get('date') ?? ''
-    setSelection({ kind: 'day', day: /^\d{4}-\d{2}-\d{2}$/.test(asked) && isPickableDay(asked, day) ? asked : day })
-  }, [])
+  useEffect(() => { setToday(localDayISO()) }, [])
 
-  // Subscription state
-  const [mySubs, setMySubs] = useState<MySubscription[]>([])
-  const [subModalOpen, setSubModalOpen] = useState(false)
-  const [subCategories, setSubCategories] = useState<Set<string>>(new Set(CATEGORIES))
-  const [subSaving, setSubSaving] = useState(false)
-  const [subToast, setSubToast] = useState<string | null>(null)
-
-  const currentSub = mySubs.find(s => s.city === city && s.is_active)
-
-  const loadSubscriptions = useCallback(async () => {
-    try {
-      const res = await fetch('/api/subscriptions/my', { cache: 'no-store' })
-      const d = await res.json()
-      if (Array.isArray(d?.subscriptions)) setMySubs(d.subscriptions)
-    } catch { /* anon user — empty */ }
-  }, [])
-
-  useEffect(() => { loadSubscriptions() }, [loadSubscriptions])
-
-  function openSubModal() {
-    if (currentSub) {
-      setSubCategories(new Set(currentSub.categories ?? CATEGORIES))
-    } else {
-      setSubCategories(new Set(CATEGORIES))
-    }
-    setSubModalOpen(true)
-  }
-
-  function toggleSubCategory(cat: string) {
-    setSubCategories(prev => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
-    })
-  }
-
-  async function saveSubscription() {
-    setSubSaving(true)
-    try {
-      const isAll = subCategories.size === CATEGORIES.length
-      const res = await fetch('/api/subscriptions/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          city,
-          categories: isAll ? null : Array.from(subCategories),
-        }),
-      })
-      const d = await res.json()
-      if (!res.ok) {
-        if (res.status === 401) {
-          setSubToast(bi('Connectez-vous pour vous abonner', 'Log in to subscribe'))
-          setSubModalOpen(false)
-          setTimeout(() => router.push('/account'), 1200)
-          return
-        }
-        throw new Error(d?.error ?? 'Error')
-      }
-      setSubToast(bi(
-        '🔔 Vous recevrez les nouveaux événements par WhatsApp!',
-        '🔔 You\'ll receive new events via WhatsApp!',
-      ))
-      setSubModalOpen(false)
-      await loadSubscriptions()
-    } catch (e) {
-      setSubToast((e as Error).message)
-    } finally {
-      setSubSaving(false)
-      setTimeout(() => setSubToast(null), 3500)
-    }
-  }
-
-  async function unsubscribeFromCity() {
-    if (!currentSub) return
-    setSubSaving(true)
-    try {
-      const res = await fetch('/api/subscriptions/unsubscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ city }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d?.error ?? 'Error')
-      }
-      setSubToast(bi('🔕 Désabonné', '🔕 Unsubscribed'))
-      setSubModalOpen(false)
-      await loadSubscriptions()
-    } catch (e) {
-      setSubToast((e as Error).message)
-    } finally {
-      setSubSaving(false)
-      setTimeout(() => setSubToast(null), 3500)
-    }
-  }
-
-  useEffect(() => {
-    async function fetchEvents() {
-      const { data } = await supabase
-        .from('events')
-        .select('*')
-        .eq('is_active', true)
-        .order('date', { ascending: true })
-      if (data) setEvents(data)
-      setLoading(false)
-
-      // Like counts. Best-effort follow-up so the grid paints first; failure
-      // just hides the ❤️ N line on each card.
-      if (data && data.length > 0) {
-        // Tier prices for cards that should show a range. One query for the
-        // whole grid; group on the client.
-        try {
-          const ids = data.map(e => e.id)
-          const { data: tRows } = await supabase
-            .from('event_ticket_tiers')
-            .select('event_id, price, is_active')
-            .in('event_id', ids)
-            .eq('is_active', true)
-          if (tRows) {
-            const map: Record<string, number[]> = {}
-            for (const r of tRows) {
-              const k = r.event_id as string
-              ;(map[k] ??= []).push(Number(r.price ?? 0))
-            }
-            setTierPrices(map)
-          }
-        } catch { /* card falls back to event.price */ }
-
-        try {
-          const idList = data.map(e => e.id).join(',')
-          const res = await fetch(`/api/events/likes-summary?ids=${idList}`, { cache: 'no-store' })
-          const d = await res.json()
-          if (d?.summary && typeof d.summary === 'object') setLikesSummary(d.summary)
-        } catch { /* card just hides the line */ }
-      }
-    }
-    fetchEvents()
-  }, [])
-
-  // TopNav map button dispatches this event; we toggle the overlay.
-  useEffect(() => {
-    const onToggle = () => setShowMap(prev => !prev)
-    window.addEventListener('nt-toggle-map', onToggle)
-    return () => window.removeEventListener('nt-toggle-map', onToggle)
-  }, [])
-
-  // City + category narrow everything below: the day list, the dots and "À la une".
-  const filtered = useMemo(() => events.filter(e => {
-    const cityMatch = e.city === city
-    const catMatch = selectedCategory === 'all' || e.category === selectedCategory
-    return cityMatch && catMatch
-  }), [events, city, selectedCategory])
-
-  // Days with at least one event, from today on — the dots in the strip and picker.
-  const eventDays = useMemo(
-    () => (today ? eventDaySet(filtered, today) : new Set<string>()),
-    [filtered, today],
-  )
-
-  // Finished events, most recently ended first — reached through the quiet
-  // "Voir les événements passés" link below the list.
-  const pastList = useMemo(() => pastEvents(filtered), [filtered])
-
-  // The days the selection covers, and what the list shows for it: the
-  // selected day's events, or the finished ones.
-  const coveredDays = today ? selectionDays(selection) : []
-  const listEvents = useMemo(() => {
-    if (!today) return []
-    return selection.kind === 'past'
-      ? pastList
-      : eventsOnDays(filtered, selectionDays(selection))
-  }, [filtered, pastList, selection, today])
-
-  // Switches the list from the link at the bottom and brings its heading into
-  // view, since the content changes above where the link was tapped.
-  function showList(next: DaySelection) {
-    setSelection(next)
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    requestAnimationFrame(() => listHeadingRef.current?.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' }))
-  }
-
-  // Where "Prochain événement →" jumps when the selection is empty.
-  const nextDay = selection.kind === 'past' || coveredDays.length === 0
-    ? null
-    : nextEventDay(eventDays, coveredDays[coveredDays.length - 1])
-
-  // The list is never empty: a day with nothing shows the next events after it.
-  const upcoming = useMemo(() => {
-    if (!today || selection.kind === 'past' || listEvents.length > 0) return []
-    return upcomingAfter(filtered, selection.day, 6)
-  }, [filtered, listEvents.length, selection, today])
-
-  // The day each card books (multi-day events sell seats per day): the
-  // selected day, or for a "next" card its first day after it.
-  const selectedDay = selection.kind === 'day' ? selection.day : null
-  const cardDay = useCallback(
-    (e: Event) => (today ? defaultBookingDay(e, selectedDay, today) : null),
-    [today, selectedDay],
-  )
-
-
-  // "Aujourd'hui · dim. 13 sept." — heads the list and the map.
-  const selectionHeading = (() => {
-    if (!today) return ''
-    if (selection.kind === 'past') return bi('Événements passés', 'Past events')
-    const dates = formatEventDates({ date: coveredDays[0], end_date: coveredDays[coveredDays.length - 1] }, locale, 'list')
-    if (selection.day === today) return `${bi("Aujourd'hui", 'Today')} · ${dates}`
-    if (selection.day === addDays(today, 1)) return `${bi('Demain', 'Tomorrow')} · ${dates}`
-    return dates
-  })()
-
-  // Active event promotions for this city → the "À la une" row below.
-  const [eventPromos, setEventPromos] = useState<Array<{ id: string; target_id: string; placement: 'top_list' | 'feed_card' | 'banner' }>>([])
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch(`/api/promotions/active?city=${encodeURIComponent(city)}&type=event`, { cache: 'no-store' })
-        const d = await res.json()
-        if (!cancelled && Array.isArray(d?.promotions)) {
-          setEventPromos(d.promotions.map((p: { id: string; target_id: string; placement: 'top_list' | 'feed_card' | 'banner' }) => ({
-            id: p.id, target_id: p.target_id, placement: p.placement,
-          })))
-        }
-      } catch { /* render un-promoted on failure */ }
-    })()
+    setData(null)
+    fetch(`/api/events/listing?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setData({ events: d?.events ?? [], featuredId: d?.featuredId ?? null, promoted: d?.promoted ?? [] }) })
+      .catch(() => { if (!cancelled) setData({ events: [], featuredId: null, promoted: [] }) })
     return () => { cancelled = true }
   }, [city])
 
-  // "À la une": up to MAX_PROMOS_PER_PAGE promoted events, shown whatever day is
-  // selected so a paid placement keeps its exposure. top_list before
-  // feed_card, each event once, and only upcoming events in the current
-  // city/category — a paid slot must never resurrect a finished event.
-  const featured = useMemo(() => {
-    // Plain record (not `new Map(...)`): `Map` in this file is the Mapbox component.
-    const upcomingById: Record<string, Event> = {}
-    for (const e of filtered) if (!isPastEvent(e)) upcomingById[e.id] = e
-    const ordered = [
-      ...eventPromos.filter(p => p.placement === 'top_list'),
-      ...eventPromos.filter(p => p.placement === 'feed_card'),
-    ]
-    const rows: Array<{ event: Event; promotionId: string }> = []
-    for (const promo of ordered) {
-      const event = upcomingById[promo.target_id]
-      if (!event || rows.some(r => r.event.id === event.id)) continue
-      rows.push({ event, promotionId: promo.id })
-      if (rows.length === MAX_PROMOS_PER_PAGE) break
+  const events = useMemo(() => data?.events ?? [], [data])
+  const promotedBy = useMemo(() => {
+    const m: Record<string, Promoted> = {}
+    for (const p of data?.promoted ?? []) if (!m[p.event_id]) m[p.event_id] = p
+    return m
+  }, [data])
+
+  // The days a "Quand" choice covers (inclusive), or null = no date filter.
+  const range = useMemo((): string[] | null => {
+    if (!today || when.kind === 'all') return null
+    if (when.kind === 'today') return [today]
+    if (when.kind === 'date') return [when.day]
+    if (when.kind === 'week') return Array.from({ length: 7 }, (_, i) => addDays(today, i))
+    const wd = weekdayIndex(today)              // 0 = Monday … 6 = Sunday
+    if (wd === 6) return [today]
+    if (wd === 5) return [today, addDays(today, 1)]
+    const sat = addDays(today, 5 - wd)
+    return [sat, addDays(sat, 1)]
+  }, [when, today])
+
+  const categories = useMemo(
+    () => Array.from(new Set(events.map(e => e.category).filter(Boolean) as string[])),
+    [events],
+  )
+
+  // Base filters (Catégorie, Gratuit), then Quand; each row keeps the day it
+  // is shown for (the first matching day).
+  const base = useMemo(() => events.filter(e =>
+    (!category || e.category === category) && (!freeOnly || e.fromPrice === 0)), [events, category, freeOnly])
+  const rows = useMemo(() => base.flatMap(e => {
+    const days = upcomingDays(e, today)
+    const shown = range ? days.find(d => range.includes(d)) : days[0]
+    return shown ? [{ e, shown }] : []
+  }).sort((a, b) => a.shown.localeCompare(b.shown)), [base, range, today])
+
+  // Never empty: the next events after the range (else any upcoming one).
+  const nextUp = useMemo(() => {
+    if (rows.length > 0) return []
+    const after = range ? range[range.length - 1] : ''
+    const pool = (base.length ? base : events).flatMap(e => {
+      const d = upcomingDays(e, today).find(x => x > after)
+      return d ? [{ e, shown: d }] : []
+    })
+    return pool.sort((a, b) => a.shown.localeCompare(b.shown)).slice(0, 6)
+  }, [rows.length, range, base, events, today])
+
+  // Cette semaine: a day in the next 7 days; paid promotions first.
+  const week = useMemo(() => {
+    if (!today) return []
+    const end = addDays(today, 6)
+    return events
+      .map(e => ({ e, first: upcomingDays(e, today).find(d => d <= end) }))
+      .filter((x): x is { e: ListingEvent; first: string } => !!x.first)
+      .sort((a, b) => (promotedBy[b.e.id] ? 1 : 0) - (promotedBy[a.e.id] ? 1 : 0) || a.first.localeCompare(b.first))
+      .slice(0, 10)
+  }, [events, today, promotedBy])
+
+  const featured = events.find(e => e.id === data?.featuredId) ?? null
+  const allDays = useMemo(() => new Set(events.flatMap(e => upcomingDays(e, today))), [events, today])
+
+  const priceText = (p: number | null) => p === null ? null : p === 0 ? bi('Gratuit', 'Free') : `${bi('Dès', 'From')} ${p.toLocaleString()} FCFA`
+  const whenLabel = (): string => {
+    switch (when.kind) {
+      case 'today':   return bi("aujourd'hui", 'today')
+      case 'weekend': return bi('ce week-end', 'this weekend')
+      case 'week':    return bi('cette semaine', 'this week')
+      case 'date':    return `${bi('le', 'on')} ${formatEventDay(when.day, locale, 'list')}`
+      default:        return ''
     }
-    return rows
-  }, [filtered, eventPromos])
-
-  // "Épuisé" per card for its day — one request for every card on screen.
-  const [dayStatus, setDayStatus] = useState<Record<string, CardDayStatus>>({})
-  const statusQuery = useMemo(() => {
-    if (!today || selection.kind === 'past') return ''
-    const pairs = new Set<string>()
-    for (const e of listEvents) { const d = cardDay(e); if (d) pairs.add(`${e.id}:${d}`) }
-    for (const u of upcoming) pairs.add(`${u.event.id}:${u.day}`)
-    for (const f of featured) { const d = cardDay(f.event); if (d) pairs.add(`${f.event.id}:${d}`) }
-    return Array.from(pairs).sort().slice(0, 60).join(',')
-  }, [listEvents, upcoming, featured, cardDay, selection.kind, today])
-  useEffect(() => {
-    if (!statusQuery) return
-    let cancelled = false
-    fetch(`/api/events/availability?q=${statusQuery}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(d => {
-        if (cancelled || !d?.status) return
-        const next: Record<string, CardDayStatus> = {}
-        for (const [id, v] of Object.entries(d.status as Record<string, CardDayStatus & { date: string }>)) {
-          next[`${id}:${v.date}`] = { soldOut: v.soldOut, otherDaysAvailable: v.otherDaysAvailable }
-        }
-        setDayStatus(prev => ({ ...prev, ...next }))
-      })
-      .catch(() => { /* cards just show no badge */ })
-    return () => { cancelled = true }
-  }, [statusQuery])
-
-  const cityData = CITY_CENTERS[city] ?? CITY_CENTERS['Yaoundé']
-
-  // Pins follow the selection: the events the list is showing, where they
-  // have coordinates. Events without lat/lng stay in the list only.
-  const mapMarkers = listEvents
-    .filter(e => typeof e.lat === 'number' && typeof e.lng === 'number')
-    .map(e => ({ id: e.id, name: e.title, lat: e.lat as number, lng: e.lng as number }))
-
-  const handleMapSelect = useCallback((m: { id: string }) => {
-    setMapSelected(events.find(e => e.id === m.id) ?? null)
-  }, [events])
+  }
 
   return (
     <div className="min-h-screen bg-surface">
-
-      {/* No top-bar CTA here: Publish lives in the page (title row on md+,
-          floating button below md), so every width shows exactly one. */}
       <TopNav />
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} desktop />
 
-      {/* City selection lives in the TopNav CityDropdown now — filtering
-          reads from useCity() above. */}
-
-      {/* Category filter */}
-      <div className="bg-white border-b border-divider">
-        <div className="max-w-5xl mx-auto px-4 py-2.5 flex gap-2 overflow-x-auto scrollbar-hide">
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-              selectedCategory === 'all'
-                ? 'bg-ink-primary text-white'
-                : 'bg-surface-muted text-ink-secondary hover:bg-divider'
-            }`}
-          >
-            {t('evt.allCategories')}
+      {/* Dark band */}
+      <section className="bg-ink-primary text-white">
+        <div className="max-w-3xl mx-auto px-4 pt-5 pb-6">
+          <p className="text-sm text-white/80">
+            {bi(`Sorties à ${city} : concerts, culture, sport, ateliers`, `Going out in ${city}: concerts, culture, sport, workshops`)}
+          </p>
+          <button type="button" onClick={() => setSearchOpen(true)}
+            className="mt-3 w-full flex items-center gap-3 bg-white text-left rounded-2xl px-4 py-3.5 shadow-sm">
+            <span aria-hidden="true">🔍</span>
+            <span className="text-sm text-ink-tertiary">{bi('Rechercher un événement, un artiste, un lieu', 'Search an event, an artist, a place')}</span>
           </button>
-          {CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                selectedCategory === cat
-                  ? 'bg-ink-primary text-white'
-                  : 'bg-surface-muted text-ink-secondary hover:bg-divider'
-              }`}
-            >
-              {categoryLabel(cat, locale)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Main */}
-      <main className="max-w-5xl mx-auto px-4 py-5 pb-32">
-
-        {/* Page title */}
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-ink-primary">{t('evt.title')}</h1>
-            <p className="text-sm text-ink-tertiary">{t('evt.sub')}</p>
-          </div>
-          <div className="flex-shrink-0 flex items-center gap-2">
-            {/* Publish, desktop only (md+) — there is room beside Subscribe.
-                Below md the floating button publishes instead, so the phone
-                title row holds only Subscribe and never overflows. */}
-            <Link
-              href="/events/submit"
-              className="hidden md:inline-flex items-center text-xs font-semibold px-3 py-2 rounded-xl border border-brand text-brand bg-white hover:bg-brand-light transition-colors whitespace-nowrap"
-            >
-              {t('evt.submitBtn')}
-            </Link>
-            <button
-              onClick={openSubModal}
-              className={`text-xs font-semibold px-3 py-2 rounded-xl transition-colors whitespace-nowrap ${
-                currentSub
-                  ? 'bg-surface-muted text-ink-primary hover:bg-divider'
-                  : 'bg-brand text-white hover:bg-brand-dark'
-              }`}
-            >
-              {currentSub
-                ? bi('🔕 Gérer mon abonnement', '🔕 Manage subscription')
-                : bi('🔔 S\'abonner', '🔔 Subscribe')}
-            </button>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <div className="bg-white rounded-full"><CityDropdown /></div>
+            <SubscribeButton />
           </div>
         </div>
+      </section>
 
-        {/* À la une — promoted events, whatever day is selected */}
-        {!loading && featured.length > 0 && (
-          <section className="mb-5" aria-labelledby="events-featured-heading">
-            <h2 id="events-featured-heading" className="text-sm font-bold text-ink-primary mb-3">
-              ⭐ {bi('À la une', 'Featured')}
-            </h2>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {featured.map(({ event, promotionId }) => (
-                <EventCard
-                  key={`featured-${promotionId}`}
-                  event={event}
-                  viewLabel={t('evt.viewDetail')}
-                  freeLabel={t('evt.free')}
-                  categoryDisplay={categoryLabel(event.category, locale)}
-                  likes={likesSummary[event.id]}
-                  promotionId={promotionId}
-                  tierPrices={tierPrices[event.id]}
-                  bookingDay={cardDay(event)}
-                  today={today}
-                  dayStatus={(() => { const d = cardDay(event); return d ? dayStatus[`${event.id}:${d}`] : undefined })()}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Skeletons — until the events AND the phone's date are known */}
-        {(loading || !today) && (
+      <main className="max-w-3xl mx-auto px-4 pt-5 pb-28 md:pb-12">
+        {!data || !today ? (
+          <div className="space-y-3" aria-hidden="true">
+            <div className="h-72 rounded-2xl bg-surface-muted animate-pulse" />
+            <div className="h-20 rounded-2xl bg-surface-muted animate-pulse" />
+            <div className="h-20 rounded-2xl bg-surface-muted animate-pulse" />
+          </div>
+        ) : (
           <>
-            <div className="flex gap-2 mb-5 overflow-hidden" aria-hidden="true">
-              {Array.from({ length: 7 }).map((_, i) => (
-                <div key={i} className="h-[4.25rem] w-14 flex-shrink-0 rounded-2xl bg-surface-muted animate-pulse" />
-              ))}
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {Array.from({ length: 6 }).map((_, i) => <EventCardSkeleton key={i} />)}
-            </div>
-          </>
-        )}
-
-        {/* Day strip + the selected day's events */}
-        {!loading && today && filtered.length > 0 && (
-          <>
-            <DayStrip
-              today={today}
-              selection={selection}
-              eventDays={eventDays}
-              onSelect={setSelection}
-              onOpenCalendar={() => setCalendarOpen(true)}
-              calendarButtonRef={calendarButtonRef}
-            />
-
-            <h2 ref={listHeadingRef} className="mt-5 mb-3 scroll-mt-20 text-sm font-bold text-ink-primary flex items-center gap-2">
-              {selectionHeading}
-              {selection.kind === 'past' && listEvents.length > 0 && (
-                <span className="text-xs font-semibold bg-surface-muted text-ink-tertiary px-2 py-0.5 rounded-full">
-                  {listEvents.length}
-                </span>
-              )}
-            </h2>
-
-            {listEvents.length > 0 ? (
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                {listEvents.map(e => {
-                  const day = selection.kind === 'past' ? null : cardDay(e)
-                  return (
-                    <EventCard
-                      key={e.id}
-                      event={e}
-                      viewLabel={t('evt.viewDetail')}
-                      freeLabel={t('evt.free')}
-                      categoryDisplay={categoryLabel(e.category, locale)}
-                      likes={likesSummary[e.id]}
-                      tierPrices={tierPrices[e.id]}
-                      isPast={selection.kind === 'past'}
-                      bookingDay={day}
-                      today={today}
-                      dayStatus={day ? dayStatus[`${e.id}:${day}`] : undefined}
-                    />
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center text-center py-12 px-4">
-                <div className="w-16 h-16 bg-brand-light rounded-3xl flex items-center justify-center text-3xl mb-4" aria-hidden="true">
-                  🗓️
-                </div>
-                <p className="text-base font-bold text-ink-primary">
-                  {selection.kind === 'past'
-                    ? bi('Aucun événement passé', 'No past events')
-                    : `${bi('Aucun événement le', 'No events on')} ${formatEventDay(selection.day, locale, 'list')}`}
-                </p>
-                {nextDay && upcoming.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelection({ kind: 'day', day: nextDay })}
-                    className="mt-3 text-sm font-semibold text-brand hover:text-brand-dark rounded-lg px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                  >
-                    {bi('Prochain événement :', 'Next event:')} {formatEventDates({ date: nextDay, end_date: null }, locale, 'list')} →
-                  </button>
-                )}
-              </div>
+            {/* À LA UNE */}
+            {featured && (
+              <section aria-labelledby="featured-heading" className="mb-7">
+                <h2 id="featured-heading" className="text-xs font-bold tracking-widest text-ink-tertiary mb-2">{bi('À LA UNE', 'FEATURED')}</h2>
+                <PromoLink promo={promotedBy[featured.id]} href={`/events/${featured.id}`}
+                  className="block relative rounded-2xl overflow-hidden shadow-card">
+                  <EventPoster src={featured.cover_photo} title={featured.title} category={featured.category}
+                    className="aspect-[4/5] sm:aspect-[16/10] w-full" rounded="rounded-none" sizes="(max-width: 768px) 100vw, 768px" priority />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent p-4 pt-16 text-white">
+                    {promotedBy[featured.id] && <span className="text-[10px] font-semibold opacity-80">{bi('Sponsorisé', 'Sponsored')}</span>}
+                    <p className="text-xl font-black leading-tight">{featured.title}</p>
+                    <p className="text-sm opacity-90 mt-1">📅 {formatEventDates(featured, locale, 'card')}</p>
+                    {featured.venue && <p className="text-sm opacity-90">📍 {featured.venue}</p>}
+                    {priceText(featured.fromPrice) && <p className="text-sm font-bold mt-1">{priceText(featured.fromPrice)}</p>}
+                  </div>
+                </PromoLink>
+              </section>
             )}
 
-            {/* Never an empty list: the next events after the selected day. */}
-            {upcoming.length > 0 && (
-              <section className="mt-2" aria-labelledby="events-next-heading">
-                <h3 id="events-next-heading" className="text-sm font-bold text-ink-primary mb-3">
-                  {bi('Prochains événements', 'Next events')}
-                </h3>
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                  {upcoming.map(({ event: e, day }) => (
-                    <EventCard
-                      key={`next-${e.id}`}
-                      event={e}
-                      viewLabel={t('evt.viewDetail')}
-                      freeLabel={t('evt.free')}
-                      categoryDisplay={categoryLabel(e.category, locale)}
-                      likes={likesSummary[e.id]}
-                      tierPrices={tierPrices[e.id]}
-                      bookingDay={day}
-                      today={today}
-                      dayStatus={dayStatus[`${e.id}:${day}`]}
-                    />
+            {/* Cette semaine */}
+            {week.length > 0 && (
+              <section aria-labelledby="week-heading" className="mb-7">
+                <h2 id="week-heading" className="text-base font-bold text-ink-primary mb-3">{bi('Cette semaine', 'This week')}</h2>
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {week.map(({ e }) => (
+                    <PromoLink key={e.id} promo={promotedBy[e.id]} href={`/events/${e.id}`} className="flex-shrink-0 w-36 snap-start">
+                      <EventPoster src={e.cover_photo} title={e.title} category={e.category} className="aspect-[4/5] w-full shadow-sm" sizes="144px" />
+                      <p className="mt-1.5 text-sm font-semibold text-ink-primary leading-tight line-clamp-2">{e.title}</p>
+                      <p className="text-xs text-ink-tertiary">
+                        {promotedBy[e.id] ? `${bi('Sponsorisé', 'Sponsored')} · ` : ''}{priceText(e.fromPrice) ?? ''}
+                      </p>
+                    </PromoLink>
                   ))}
                 </div>
               </section>
             )}
 
-            {/* Past events — a quiet way in, below the list */}
-            {pastList.length > 0 && (
-              <div className="mt-10 text-center">
-                <button
-                  type="button"
-                  onClick={() => showList(selection.kind === 'past' ? { kind: 'day', day: today } : { kind: 'past' })}
-                  className="text-xs font-semibold text-ink-tertiary underline underline-offset-2 hover:text-ink-secondary rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                >
-                  {selection.kind === 'past'
-                    ? bi('Revenir aux événements à venir', 'Back to upcoming events')
-                    : `${bi('Voir les événements passés', 'See past events')} (${pastList.length})`}
+            {/* Tous les événements */}
+            <section aria-labelledby="all-heading">
+              <h2 id="all-heading" className="text-base font-bold text-ink-primary mb-3">{bi('Tous les événements', 'All events')}</h2>
+              <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {([
+                  ['today', bi("Aujourd'hui", 'Today')],
+                  ['weekend', bi('Ce week-end', 'This weekend')],
+                  ['week', bi('Cette semaine', 'This week')],
+                ] as const).map(([k, l]) => (
+                  <Chip key={k} active={when.kind === k} onClick={() => setWhen(when.kind === k ? { kind: 'all' } : { kind: k })}>{l}</Chip>
+                ))}
+                <button ref={pickerRef} type="button" onClick={() => setPickerOpen(true)} className={chipCls(when.kind === 'date')}>
+                  📅 {when.kind === 'date' ? formatEventDay(when.day, locale, 'compact') : bi('Choisir une date', 'Pick a date')}
                 </button>
+                {categories.length > 1 && (
+                  <select value={category ?? ''} onChange={e => setCategory(e.target.value || null)}
+                    aria-label={bi('Catégorie', 'Category')} className={chipCls(!!category)}>
+                    <option value="">{bi('Catégorie', 'Category')}</option>
+                    {categories.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+                  </select>
+                )}
+                {(freeOnly || events.some(e => e.fromPrice === 0)) && (
+                  <Chip active={freeOnly} onClick={() => setFreeOnly(v => !v)}>{bi('Gratuit', 'Free')}</Chip>
+                )}
               </div>
-            )}
+
+              {rows.length > 0 ? (
+                <ul className="mt-2 space-y-2">
+                  {rows.map(({ e, shown }) => <EventRow key={e.id} e={e} shown={shown} today={today} priceText={priceText} />)}
+                </ul>
+              ) : (
+                <div className="mt-4">
+                  <p className="text-sm font-semibold text-ink-primary">
+                    {events.length === 0
+                      ? bi(`Pas encore d'événement à ${city}.`, `No events in ${city} yet.`)
+                      : when.kind === 'all'
+                        ? bi('Aucun événement pour ces critères.', 'No events match.')
+                        : bi(`Aucun événement ${whenLabel()}.`, `No events ${whenLabel()}.`)}
+                  </p>
+                  {nextUp.length > 0 && (
+                    <>
+                      <h3 className="text-sm font-bold text-ink-primary mt-4 mb-2">{bi('Prochains événements', 'Next events')}</h3>
+                      <ul className="space-y-2">
+                        {nextUp.map(({ e, shown }) => <EventRow key={e.id} e={e} shown={shown} today={today} priceText={priceText} />)}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <p className="text-center mt-10">
+              <Link href="/events/submit" className="text-sm font-semibold text-brand-darker hover:underline">
+                📢 {bi('Organiser un événement', 'Organise an event')} →
+              </Link>
+            </p>
           </>
         )}
-
-        {/* Empty state — no events at all in this city (and category) */}
-        {!loading && today && filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center px-4">
-            <div className="w-20 h-20 bg-brand-light rounded-3xl flex items-center justify-center text-4xl mb-5">
-              🎉
-            </div>
-            <h2 className="text-xl font-bold text-ink-primary mb-2">{t('evt.emptyTitle')}</h2>
-            <p className="text-ink-secondary text-sm mb-6 max-w-xs">{t('evt.emptySub')}</p>
-            <Link
-              href="/events/submit"
-              className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
-            >
-              {t('evt.submitBtn')}
-            </Link>
-          </div>
-        )}
-
       </main>
 
-      {/* Floating Publish button — bottom-20 clears the 56px BottomNav.
-          Shown below md, exactly where the TopNav's desktop bar (and its
-          Publish button) is hidden, so every width has one Publish button. */}
-      <div className="md:hidden fixed bottom-20 right-4 z-30">
-        <Link
-          href="/events/submit"
-          className="bg-brand hover:bg-brand-dark text-white px-5 py-3 rounded-full shadow-card flex items-center gap-2 text-sm font-semibold transition-colors"
-        >
-          {t('evt.submitBtn')}
-        </Link>
-      </div>
-
-      {/* Map overlay — triggered by the TopNav 🗺 button via the
-          nt-toggle-map custom event. Drops a pin for each event the list is
-          showing (the selected day's) that has coordinates. */}
-      {showMap && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-surface">
-          <div className="h-14 flex-shrink-0 bg-surface border-b border-divider flex items-center justify-between gap-3 px-4">
-            <span className="min-w-0 truncate font-semibold text-ink-primary text-sm">
-              {bi('Événements à', 'Events in')} {city}{selectionHeading ? ` · ${selectionHeading}` : ''}
-            </span>
-            <button
-              onClick={() => { setShowMap(false); setMapSelected(null) }}
-              className="bg-surface-muted hover:bg-divider text-ink-primary px-4 py-1.5 rounded-full text-sm font-semibold transition-colors"
-            >
-              {t('list.closeMap')}
-            </button>
-          </div>
-
-          <div className="flex-1 relative overflow-hidden">
-            <Map
-              restaurants={mapMarkers}
-              onSelectRestaurant={handleMapSelect}
-              selectedId={mapSelected?.id ?? null}
-              center={cityData.center}
-              zoom={cityData.zoom}
-            />
-
-            {mapMarkers.length === 0 && (
-              <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
-                <div className="pointer-events-auto bg-white/95 backdrop-blur-sm border border-divider rounded-full px-4 py-2 text-xs font-semibold text-ink-secondary shadow-card">
-                  {bi('Aucun événement géolocalisé', 'No events with a location yet')}
-                </div>
-              </div>
-            )}
-
-            {mapSelected && (
-              <>
-                <div
-                  className="absolute inset-0 bg-black/30 md:hidden"
-                  onClick={() => setMapSelected(null)}
-                />
-                <div className="absolute bottom-0 left-0 right-0 z-10 md:top-0 md:right-auto md:w-80 bg-surface rounded-t-3xl md:rounded-none md:border-r md:border-divider shadow-2xl overflow-hidden">
-                  <div className="md:hidden w-10 h-1 bg-divider rounded-full mx-auto mt-3 mb-1" />
-                  <div className="p-4">
-                    <p className="font-bold text-ink-primary text-base leading-tight mb-1">{mapSelected.title}</p>
-                    <p className="text-xs text-brand font-medium mb-0.5">
-                      📅 {formatEventWhen(mapSelected, locale, 'card')}
-                    </p>
-                    {mapSelected.venue && (
-                      <p className="text-xs text-ink-tertiary truncate mb-3">
-                        📍 {mapSelected.venue}{mapSelected.neighborhood ? `, ${mapSelected.neighborhood}` : ''}
-                      </p>
-                    )}
-                    <button
-                      onClick={() => router.push(`/events/${mapSelected.id}`)}
-                      className="w-full bg-brand hover:bg-brand-dark text-white text-center py-2 rounded-xl text-sm font-semibold transition-colors"
-                    >
-                      {t('evt.viewDetail')}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Month picker — mounted only while open, so it always starts on the
-          selected day's month and returns focus to the 📅 button on close. */}
-      {calendarOpen && today && (
+      {pickerOpen && today && (
         <MonthPicker
           today={today}
-          selectedDay={selection.kind === 'day' ? selection.day : null}
-          eventDays={eventDays}
-          onPick={day => { setSelection({ kind: 'day', day }); setCalendarOpen(false) }}
-          onClose={() => setCalendarOpen(false)}
-          returnFocusRef={calendarButtonRef}
+          selectedDay={when.kind === 'date' ? when.day : null}
+          eventDays={allDays}
+          onPick={day => { setWhen({ kind: 'date', day }); setPickerOpen(false) }}
+          onClose={() => setPickerOpen(false)}
+          returnFocusRef={pickerRef}
         />
       )}
-
-      {/* Subscription modal */}
-      {subModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/40" onClick={() => setSubModalOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-card max-w-md w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-5">
-              <h3 className="text-lg font-bold text-ink-primary mb-1">
-                {currentSub
-                  ? bi('🔕 Gérer mon abonnement', '🔕 Manage subscription')
-                  : bi('🔔 S\'abonner aux notifications', '🔔 Subscribe to notifications')}
-              </h3>
-              <p className="text-sm text-ink-tertiary mb-4">
-                {bi(
-                  `Recevez les nouveaux événements à ${city} par WhatsApp.`,
-                  `Get new events in ${city} on WhatsApp.`,
-                )}
-              </p>
-
-              <div className="mb-4">
-                <div className="text-xs font-semibold text-ink-secondary mb-2">
-                  {bi('Ville', 'City')}
-                </div>
-                <div className="bg-surface-muted px-3 py-2 rounded-xl text-sm text-ink-primary">
-                  📍 {city}
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-semibold text-ink-secondary">
-                    {bi('Catégories', 'Categories')}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSubCategories(prev =>
-                      prev.size === CATEGORIES.length ? new Set() : new Set(CATEGORIES),
-                    )}
-                    className="text-xs font-semibold text-brand hover:text-brand-dark"
-                  >
-                    {subCategories.size === CATEGORIES.length
-                      ? bi('Tout désélectionner', 'Deselect all')
-                      : bi('Tout sélectionner', 'Select all')}
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  {CATEGORIES.map(cat => (
-                    <label key={cat} className="flex items-center gap-2 cursor-pointer text-sm">
-                      <input
-                        type="checkbox"
-                        checked={subCategories.has(cat)}
-                        onChange={() => toggleSubCategory(cat)}
-                        className="w-4 h-4 rounded border-divider text-brand"
-                      />
-                      <span className="text-ink-primary">{categoryLabel(cat, locale)}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={saveSubscription}
-                  disabled={subSaving || subCategories.size === 0}
-                  className="w-full bg-brand hover:bg-brand-dark disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
-                >
-                  {subSaving
-                    ? '…'
-                    : currentSub
-                      ? bi('💾 Mettre à jour', '💾 Update')
-                      : bi('✅ S\'abonner', '✅ Subscribe')}
-                </button>
-                {currentSub && (
-                  <button
-                    onClick={unsubscribeFromCity}
-                    disabled={subSaving}
-                    className="w-full bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-600 font-semibold py-2.5 rounded-xl text-sm transition-colors"
-                  >
-                    {bi('🔕 Se désabonner', '🔕 Unsubscribe')}
-                  </button>
-                )}
-                <button
-                  onClick={() => setSubModalOpen(false)}
-                  className="w-full text-ink-tertiary hover:text-ink-primary font-medium py-2 text-sm transition-colors"
-                >
-                  {bi('Annuler', 'Cancel')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {subToast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-ink-primary text-white text-sm font-semibold px-4 py-2.5 rounded-full shadow-card max-w-[90vw] text-center">
-          {subToast}
-        </div>
-      )}
-
     </div>
+  )
+}
+
+const chipCls = (active: boolean) =>
+  `flex-shrink-0 text-xs font-semibold px-3 py-2 rounded-full border whitespace-nowrap transition-colors ${
+    active ? 'bg-ink-primary text-white border-ink-primary' : 'bg-white text-ink-secondary border-divider'
+  }`
+
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return <button type="button" aria-pressed={active} onClick={onClick} className={chipCls(active)}>{children}</button>
+}
+
+// A row: big date block, then name, place, price and one status line.
+function EventRow({ e, shown, today, priceText }: {
+  e: ListingEvent; shown: string; today: string; priceText: (p: number | null) => string | null
+}) {
+  const bi = useBi()
+  const { locale } = useLanguage()
+  const days = upcomingDays(e, today)
+  const multi = days.length > 1 || (!!e.end_date && e.end_date !== e.date)
+  const d = new Date(`${shown}T00:00:00Z`)
+  const tag = locale === 'en' ? 'en-GB' : 'fr-FR'
+  const month = new Intl.DateTimeFormat(tag, { month: 'short', timeZone: 'UTC' }).format(d).replace('.', '').toUpperCase()
+  const weekday = new Intl.DateTimeFormat(tag, { weekday: 'short', timeZone: 'UTC' }).format(d)
+  const status = statusText(eventStatus(e.days, shown, e.recentSeats7d), today, locale, iso => formatEventDay(iso, locale, 'compact'))
+  const statusTone = status && /Épuisé|Sold out/.test(status) ? 'text-danger' : 'text-amber-700'
+
+  return (
+    <li>
+      <Link href={`/events/${e.id}`} className="flex gap-3 bg-white rounded-2xl border border-divider p-3 hover:shadow-sm transition-shadow">
+        <div className="w-16 flex-shrink-0 rounded-xl bg-surface-muted flex flex-col items-center justify-center text-center py-2">
+          {multi ? (
+            <>
+              <span className="text-[11px] font-bold text-ink-primary leading-tight px-1">
+                {formatEventDates({ date: days[0] ?? e.date, end_date: days[days.length - 1] ?? e.end_date }, locale, 'compact')}
+              </span>
+              <span className="text-[10px] text-ink-tertiary mt-0.5">{days.length} {bi('dates', 'dates')}</span>
+            </>
+          ) : (
+            <>
+              <span className="text-xl font-black text-ink-primary leading-none">{Number(shown.slice(8))}</span>
+              <span className="text-[10px] font-bold text-brand-darker">{month}</span>
+              <span className="text-[10px] text-ink-tertiary">{weekday}{e.time ? ` · ${e.time.slice(0, 5)}` : ''}</span>
+            </>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-ink-primary leading-tight line-clamp-2">{e.title}</p>
+          {(e.venue || e.neighborhood) && (
+            <p className="text-xs text-ink-tertiary truncate mt-0.5">📍 {[e.venue, e.neighborhood].filter(Boolean).join(', ')}</p>
+          )}
+          {priceText(e.fromPrice) && <p className="text-xs font-semibold text-ink-primary mt-0.5">{priceText(e.fromPrice)}</p>}
+          {status && <p className={`text-xs font-semibold mt-0.5 ${statusTone}`}>{status}</p>}
+        </div>
+      </Link>
+    </li>
+  )
+}
+
+// A link that, when it is a paid promotion, reports the impression once and
+// the click (same tracking as the old cards).
+function PromoLink({ promo, href, className, children }: {
+  promo?: Promoted; href: string; className?: string; children: React.ReactNode
+}) {
+  const ref = useRef<HTMLAnchorElement>(null)
+  useEffect(() => {
+    if (!promo || typeof IntersectionObserver === 'undefined' || !ref.current) return
+    const el = ref.current
+    const io = new IntersectionObserver(entries => {
+      if (entries.some(x => x.isIntersecting)) {
+        import('@/lib/promoTracking').then(m => m.fireImpression(promo.promotion_id))
+        io.disconnect()
+      }
+    }, { threshold: 0.5 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [promo])
+  return (
+    <Link ref={ref} href={href} className={className}
+      onClick={() => { if (promo) import('@/lib/promoTracking').then(m => m.fireClick(promo.promotion_id)) }}>
+      {children}
+    </Link>
   )
 }
