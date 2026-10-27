@@ -1,94 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { setSessionCookie, SessionPayload } from '@/lib/auth'
-import { normalizePhone } from '@/lib/phone'
-import { assignWelcomeVoucher } from '@/lib/vouchers'
-import { rateLimit, rateLimitedResponse } from '@/lib/rateLimit'
+import { setCustomerSession, signSignupPass } from '@/lib/auth'
+import { normalizeLang, type Lang } from '@/lib/whatsapp'
 import { sanitizeText } from '@/lib/sanitize'
+import { normalizeLoginPhone, checkCode, checkRefusalText, claimRefusalText, SUSPENDED_TEXT, CODE_LENGTH } from '@/lib/authCodes'
+import { linkGuestData } from '@/lib/guestLink'
 
 export const dynamic = 'force-dynamic'
 
+// POST /api/auth/verify-code
+// Body: { phone, country?, code, locale? }
+//
+// The code is checked in the database (auth_code_check): a wrong code costs
+// one of its attempts; at the limit it dies.
+//
+// Right code:
+//   - known number   → logged in (30-day session); guest orders placed with
+//                      this number are attached to the account.
+//   - new number     → { needsName: true, signupPass }: the login screen asks
+//                      ONLY for a first name and finishes with
+//                      /api/auth/complete-signup. No account exists until then.
+//   - suspended      → refused.
 export async function POST(req: NextRequest) {
-  const body  = await req.json()
-  const phone: string = normalizePhone(body.phone)
-  const code:  string = sanitizeText(body.code, 8).trim()
-  const name:  string = sanitizeText(body.name, 60)
-  const city:  string = sanitizeText(body.city, 40)
+  const body = await req.json().catch(() => ({}))
+  const lang: Lang = normalizeLang(body?.locale)
 
-  if (!phone || !code) {
-    return NextResponse.json({ error: 'Phone and code required' }, { status: 400 })
+  const norm = normalizeLoginPhone(body?.phone, body?.country)
+  if (!norm.ok) return NextResponse.json({ error: norm.error }, { status: 400 })
+  const phone = norm.phone
+  const code = sanitizeText(body?.code, 12).replace(/\D/g, '')
+  if (code.length !== CODE_LENGTH) {
+    return NextResponse.json({
+      error: lang === 'en' ? `Enter the ${CODE_LENGTH}-digit code.` : `Saisissez le code à ${CODE_LENGTH} chiffres.`,
+    }, { status: 400 })
   }
 
-  // 10 attempts per phone per hour — caps both a script and a
-  // typo-prone user without locking out a legitimate retry.
-  const limited = rateLimit({ key: `verify-code:${phone}`, max: 10, windowMs: 3600_000 })
-  if (limited) return rateLimitedResponse(limited)
-
-  // Find matching, unused, non-expired code
-  const { data: record } = await supabaseAdmin
-    .from('verification_codes')
-    .select('id, expires_at, used')
-    .eq('phone', phone)
-    .eq('code', code)
-    .maybeSingle()
-
-  if (!record) {
-    return NextResponse.json({ error: 'Code incorrect / Incorrect code' }, { status: 400 })
-  }
-  if (record.used) {
-    return NextResponse.json({ error: 'Code déjà utilisé / Code already used' }, { status: 400 })
-  }
-  if (new Date(record.expires_at) < new Date()) {
-    return NextResponse.json({ error: 'Code expiré / Code expired' }, { status: 400 })
+  const check = await checkCode(phone, code)
+  if (!check) return NextResponse.json({ error: claimRefusalText('error', 0, lang) }, { status: 500 })
+  if (check.result !== 'ok') {
+    return NextResponse.json({ error: checkRefusalText(check, lang), result: check.result }, { status: 400 })
   }
 
-  // Consume the code
-  await supabaseAdmin.from('verification_codes').update({ used: true }).eq('id', record.id)
-
-  // Get or create customer. Capture the pre-fetch state so we can tell the
-  // client whether this verification minted a new account (used to gate
-  // the welcome-voucher banner).
-  let { data: customer } = await supabaseAdmin
+  const { data: customer } = await supabaseAdmin
     .from('customers')
-    .select('id, phone, name, city')
+    .select('id, phone, name, status, deleted_at')
     .eq('phone', phone)
     .maybeSingle()
-  const previousCustomer = customer
 
   if (!customer) {
-    if (!name || !city) {
-      return NextResponse.json(
-        { error: 'Nom et ville requis pour les nouveaux comptes / Name and city required for new accounts' },
-        { status: 400 }
-      )
-    }
-
-    const { data: created, error: createErr } = await supabaseAdmin
-      .from('customers')
-      .insert({ phone, name, city })
-      .select('id, phone, name, city')
-      .single()
-
-    if (createErr || !created) {
-      console.error('[verify-code] create customer error:', createErr?.message)
-      return NextResponse.json({ error: 'Failed to create account' }, { status: 500 })
-    }
-
-    customer = created
-    await assignWelcomeVoucher(customer.id)
+    return NextResponse.json({ needsName: true, signupPass: signSignupPass(phone) })
+  }
+  if (customer.status === 'suspended' || customer.status === 'deleted' || customer.deleted_at) {
+    return NextResponse.json({ error: SUSPENDED_TEXT(lang) }, { status: 403 })
   }
 
-  // Treat first-time verification as a new account from the client's POV
-  // so /account can show the welcome-voucher banner exactly once.
-  const isNewAccount = previousCustomer === null
-
-  const rememberMe = Boolean(body.rememberMe)
-  const payload: SessionPayload = {
-    id:    customer.id,
-    phone: customer.phone,
-    name:  customer.name,
-    role:  'customer',
-  }
-  const res = NextResponse.json({ customer, isNewAccount, welcomeVoucherCode: isNewAccount ? 'BIENVENUE' : null })
-  return setSessionCookie(res, payload, rememberMe)
+  const linked = await linkGuestData(customer.id, customer.phone)
+  const res = NextResponse.json({
+    customer: { id: customer.id, phone: customer.phone, name: customer.name },
+    isNewAccount: false,
+    linkedOrders: linked,
+  })
+  return setCustomerSession(res, customer)
 }

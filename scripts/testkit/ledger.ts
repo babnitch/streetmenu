@@ -108,6 +108,7 @@ export const DELETE_ORDER: string[] = [
   'event_subscriptions',
   'signup_sessions',
   'verification_codes',
+  'auth_code_sends',
   'message_retry_queue',
   'message_log',
   'audit_log',
@@ -240,6 +241,7 @@ async function deletePhoneKeyed(report: TeardownReport): Promise<void> {
   const phoneTables: Array<[string, string]> = [
     ['signup_sessions',    'phone'],
     ['verification_codes', 'phone'],
+    ['auth_code_sends',    'phone'],
     ['message_log',        'to_number'],
   ]
   for (const [table, col] of phoneTables) {

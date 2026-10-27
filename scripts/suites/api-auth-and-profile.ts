@@ -1,32 +1,21 @@
-// TEST-PLAN.md §1c #28 (check-phone / send-code) and #37 partial (customer
-// history: orders linked to the session's customer_id).
+// TEST-PLAN.md §1c #28 (login / sign-up) and #37 partial (customer history:
+// orders linked to the session's customer_id).
 //
-// Ported from:
-//   scripts/test-check-phone.ts
-//   scripts/test-order-page-session.ts
+// Login is one step for everyone (L1): send-code to any valid number, then
+// verify-code; a NEW number gets a sign-up pass and complete-signup asks only
+// for a first name. Limits and code attempts live in the database
+// (supabase-auth-login-limits.sql).
 //
-// Two deliberate changes, both ruled on before porting:
+// Delivery: the local server runs with dummy Twilio credentials, so a send
+// fails at Twilio and the route answers 502 after logging the attempts. What
+// does not depend on delivery — the code row, the send log, the limits — is
+// asserted hard. Codes for verify are written straight into
+// verification_codes, so no message is ever needed.
 //
-// 1. send-code's happy path is a warn(), not an assert. The original expected
-//    HTTP 200 + sent:true. app/api/auth/send-code/route.ts:99 now returns 502
-//    when BOTH WhatsApp and the SMS fallback fail, which is what happens on
-//    any machine without working Twilio credentials — and §3 rules out making
-//    the suite depend on live Twilio. The 502 is correct behaviour (nothing
-//    was delivered, so saying "sent" would be a lie), and the expectation was
-//    written before the SMS fallback existed. Everything about that call that
-//    does NOT depend on delivery — no duplicate customer row, the
-//    verification_codes row, the needsRegistration branch — stays a hard
-//    assertion, because the code row is written before the send is attempted.
-//
-// 2. The original grabbed a REAL restaurant with
-//    `select('id').eq('is_active',true).limit(1)` and inserted orders against
-//    it. That is a live-data write from a regression suite; it now creates its
-//    own restaurant. Its "/order bundle contains /api/auth/me" greps are also
-//    gone — they scanned minified JS to prove a deploy was live, which is not
-//    a behaviour assertion and breaks on any bundling change. The /order → 200
-//    check is kept.
+// The suite's code sends go to +999 numbers and count against the live
+// platform's daily cap only until teardown deletes them.
 
-import { sb } from '../testkit/env'
+import { sb, BASE } from '../testkit/env'
 import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import { api, customerCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeOrder } from '../testkit/fixtures'
@@ -34,8 +23,28 @@ import { teardown, track } from '../testkit/ledger'
 
 const SUITE = 'api-auth-and-profile'
 
-interface CheckPhoneBody { exists?: boolean; name?: string | null; normalizedPhone?: string }
-interface SendCodeBody { sent?: boolean; needsRegistration?: boolean; channel?: string; error?: string }
+interface SendCodeBody { sent?: boolean; channel?: string; error?: string; reason?: string; retry_after?: number }
+interface VerifyBody {
+  error?: string; result?: string; needsName?: boolean; signupPass?: string
+  customer?: { id: string; phone: string; name: string }; isNewAccount?: boolean; linkedOrders?: number
+}
+
+// Puts a known code in place for `phone`, the way send-code would.
+async function plantCode(phone: string, code: string): Promise<void> {
+  await sb.from('verification_codes').delete().eq('phone', phone)
+  const { error } = await sb.from('verification_codes').insert({
+    phone, code, expires_at: new Date(Date.now() + 10 * 60_000).toISOString(), used: false,
+  } as never)
+  if (error) throw new Error(`plant code: ${error.message}`)
+}
+
+// POST returning the Set-Cookie header too (api() does not expose headers).
+async function postWithCookie(path: string, body: unknown): Promise<{ status: number; body: VerifyBody; setCookie: string }> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  return { status: res.status, body: await res.json().catch(() => ({})), setCookie: res.headers.get('set-cookie') ?? '' }
+}
 
 async function countCustomers(phone: string): Promise<number> {
   const { count } = await sb.from('customers').select('*', { count: 'exact', head: true }).eq('phone', phone)
@@ -79,72 +88,123 @@ async function main(): Promise<void> {
       assertEq(signed.status, 400, `logged in → past the gate (400 not multipart, got ${signed.status})`)
     })
 
-    await step('check-phone finds the customer across every equivalent format', async () => {
-      const variants = [
-        known.phone,                                    // exact
-        known.phone.replace('+', ''),                   // missing +
-        known.phone.replace(/^(\+\d{3})(\d{3})(\d+)$/, '$1 $2 $3'),   // spaces
-        known.phone.replace(/^(\+\d{3})(\d{3})(\d+)$/, '$1-$2-$3'),   // dashes
-        `  ${known.phone}  `,                           // surrounding whitespace
-        `00${known.phone.slice(1)}`,                    // 00 international prefix
-        `00 ${known.phone.slice(1, 4)} ${known.phone.slice(4)}`,      // 00 with spaces
-      ]
-      for (const v of variants) {
-        const r = await api<CheckPhoneBody>(`/api/auth/check-phone?phone=${encodeURIComponent(v)}`)
-        assertEq(r.status, 200, `${JSON.stringify(v)} → HTTP 200`)
-        assertEq(r.body.exists, true, `${JSON.stringify(v)} → exists=true`)
-        assertEq(r.body.name, known.name, `${JSON.stringify(v)} → name matches`)
-        assertEq(r.body.normalizedPhone, known.phone, `${JSON.stringify(v)} → normalized to E.164`)
-      }
+    await step('check-phone is gone (no account lookup by strangers)', async () => {
+      const r = await api(`/api/auth/check-phone?phone=${encodeURIComponent(known.phone)}`)
+      assertEq(r.status, 404, 'HTTP 404')
     })
 
-    await step('check-phone returns exists:false for an unknown phone', async () => {
-      const r = await api<CheckPhoneBody>(`/api/auth/check-phone?phone=${encodeURIComponent(unknownPhone)}`)
-      assertEq(r.status, 200, 'HTTP 200')
-      assertEq(r.body.exists, false, 'exists=false')
-      assertEq(r.body.name, null, 'name=null')
+    await step('send-code: an unusable number → 400 with a FR/EN error', async () => {
+      const r = await api<SendCodeBody>('/api/auth/send-code', { body: { phone: '12', country: 'CM' } })
+      assertEq(r.status, 400, 'HTTP 400')
+      assert(/Numéro invalide/.test(r.body.error ?? ''), 'error explains the format')
     })
 
-    await step('check-phone rejects empty input', async () => {
-      const r = await api('/api/auth/check-phone?phone=')
-      assertEq(r.status, 400, 'HTTP 400 for empty phone')
-    })
-
-    await step('send-code for an existing customer creates no duplicate', async () => {
-      // Deliberately messy input: send-code must normalize it the same way
-      // check-phone does and find the existing row rather than insert one.
+    await step('send-code for an existing customer: one 6-digit code, logged, no duplicate', async () => {
       const messy = known.phone.replace(/^(\+\d{3})(\d{3})(\d+)$/, '$1 $2 $3')
       const r = await api<SendCodeBody>('/api/auth/send-code', { body: { phone: messy } })
-
-      if (r.status === 200) {
-        assertEq(r.body.sent, true, 'sent=true')
-        assertEq(r.body.needsRegistration, undefined, 'no needsRegistration flag for a known customer')
-      } else {
-        // Delivery-dependent, not a code defect — see the header note.
-        warn(`send-code returned ${r.status}, not 200`,
-          `no channel could deliver in this environment (${(r.body as SendCodeBody)?.error ?? r.raw.slice(0, 80)}). ` +
-          'Correct per route.ts:99; asserting 200 would require live Twilio, which §3 excludes.')
+      if (r.status !== 200) {
+        warn(`send-code returned ${r.status}, not 200`, 'no channel can deliver with dummy Twilio credentials — expected locally')
       }
-
-      // Delivery-independent, so these stay hard.
+      const { data: codes } = await sb.from('verification_codes').select('code, used').eq('phone', known.phone)
+      assertEq((codes ?? []).length, 1, 'exactly one fresh code')
+      assert(/^\d{6}$/.test((codes as Array<{ code: string }>)[0]?.code ?? ''), 'the code has 6 digits')
+      const { data: log } = await sb.from('auth_code_sends').select('status, channel').eq('phone', known.phone)
+      assert((log ?? []).length >= 1, `the attempt is logged in auth_code_sends (${(log ?? []).length} row(s))`)
       assertEq(await countCustomers(known.phone), 1, 'still exactly 1 customer row (no dup)')
     })
 
-    await step('send-code for an unknown customer → needsRegistration, no row created', async () => {
-      // This branch returns at route.ts:47, before any send is attempted, so
-      // it is unaffected by Twilio.
-      const r = await api<SendCodeBody>('/api/auth/send-code', { body: { phone: unknownPhone } })
-      assertEq(r.status, 200, 'HTTP 200')
-      assertEq(r.body.needsRegistration, true, 'needsRegistration=true')
-      assertEq(await countCustomers(unknownPhone), 0, 'no customer row created yet')
+    await step('send-code again at once → 429, wait 30 s (limit in the database)', async () => {
+      const r = await api<SendCodeBody>('/api/auth/send-code', { body: { phone: known.phone } })
+      assertEq(r.status, 429, 'HTTP 429')
+      assertEq(r.body.reason, 'resend_cooldown', 'reason resend_cooldown')
+      assert((r.body.retry_after ?? 0) > 0 && (r.body.retry_after ?? 0) <= 30, `retry_after in (0, 30] (${r.body.retry_after})`)
+      const { data } = await sb.from('auth_code_sends').select('status, reason').eq('phone', known.phone).eq('status', 'blocked')
+      assertEq((data ?? []).length, 1, 'the blocked attempt is logged too')
     })
 
-    await step('a fresh verification code is issued for the known customer', async () => {
-      // The code row is inserted before the send is attempted, so this holds
-      // whether or not delivery succeeded.
-      const { data } = await sb.from('verification_codes').select('phone, used').eq('phone', known.phone)
-      assertEq((data ?? []).length, 1, 'exactly one fresh code issued')
-      assertEq((data as Array<{ used: boolean }>)[0]?.used, false, 'fresh code not yet used')
+    await step('send-code for an unknown number: no account is created yet', async () => {
+      await api<SendCodeBody>('/api/auth/send-code', { body: { phone: unknownPhone } })
+      assertEq(await countCustomers(unknownPhone), 0, 'no customer row created by sending a code')
+    })
+
+    await step('a suspended account gets no code', async () => {
+      const sus = await makeCustomer({ suiteNo: 28, name: 'Suspended', status: 'suspended' })
+      const r = await api<SendCodeBody>('/api/auth/send-code', { body: { phone: sus.phone, locale: 'en' } })
+      assertEq(r.status, 403, 'HTTP 403')
+      assert(/suspended/i.test(r.body.error ?? ''), 'English error for locale en')
+      const { data } = await sb.from('verification_codes').select('id').eq('phone', sus.phone)
+      assertEq((data ?? []).length, 0, 'no code written')
+    })
+
+    await step('verify-code: wrong codes count down, then the code dies', async () => {
+      const p = await makeCustomer({ suiteNo: 28, name: 'Wrong Codes' })
+      await plantCode(p.phone, '123456')
+      const first = await api<VerifyBody>('/api/auth/verify-code', { body: { phone: p.phone, code: '000000' } })
+      assertEq(first.status, 400, 'wrong → 400')
+      assertEq(first.body.result, 'wrong', 'result wrong')
+      assert(/4/.test(first.body.error ?? ''), `says 4 attempts left (${first.body.error})`)
+      for (let i = 0; i < 4; i++) await api('/api/auth/verify-code', { body: { phone: p.phone, code: '000000' } })
+      const right = await api<VerifyBody>('/api/auth/verify-code', { body: { phone: p.phone, code: '123456' } })
+      assertEq(right.status, 400, 'the right code after 5 wrong ones → still refused')
+      assertEq(right.body.result, 'locked', 'result locked')
+    })
+
+    await step('verify-code for a known number: 30-day session, guest orders attached', async () => {
+      const p = await makeCustomer({ suiteNo: 28, name: 'Returning' })
+      const rest = await makeRestaurant({ label: 'guest_link' })
+      // A guest order placed with the same number, typed with spaces.
+      const { data: g } = await sb.from('orders').insert({
+        restaurant_id: rest.id, customer_id: null, customer_name: 'Guest', items: [], total_price: 1000, status: 'pending',
+        customer_phone: p.phone.replace(/^(\+\d{3})(\d{3})(\d+)$/, '$1 $2 $3'),
+      } as never).select('id').single()
+      track('orders', (g as { id: string }).id)
+      await plantCode(p.phone, '654321')
+      const r = await postWithCookie('/api/auth/verify-code', { phone: p.phone, code: '654321' })
+      assertEq(r.status, 200, `HTTP 200 (${JSON.stringify(r.body).slice(0, 120)})`)
+      assertEq(r.body.customer?.id, p.id, 'logged in to the existing account')
+      assertEq(r.body.isNewAccount, false, 'not a new account')
+      assert(/Max-Age=2592000/i.test(r.setCookie), 'session cookie lasts 30 days')
+      assertEq(r.body.linkedOrders, 1, 'one guest order attached')
+      const { data: o } = await sb.from('orders').select('customer_id').eq('id', (g as { id: string }).id).single()
+      assertEq((o as { customer_id: string | null }).customer_id, p.id, 'the guest order now belongs to the account')
+    })
+
+    await step('new number: code → first name only → account + BIENVENUE, site language kept', async () => {
+      const phone = '+999280098'
+      await plantCode(phone, '111222')
+      const v = await api<VerifyBody>('/api/auth/verify-code', { body: { phone, code: '111222', locale: 'en' } })
+      assertEq(v.status, 200, 'HTTP 200')
+      assertEq(v.body.needsName, true, 'needsName')
+      assert(!!v.body.signupPass, 'a sign-up pass is returned')
+      assertEq(await countCustomers(phone), 0, 'no account before the first name')
+
+      // The pass is not a session.
+      const me = await api<{ user: unknown }>('/api/auth/me', { cookie: `sm_session=${v.body.signupPass}` })
+      assertEq(me.body.user, null, 'a sign-up pass used as a cookie is not a login')
+
+      const noName = await api<VerifyBody>('/api/auth/complete-signup', { body: { signupPass: v.body.signupPass, name: '  ' } })
+      assertEq(noName.status, 400, 'no first name → 400')
+      const done = await postWithCookie('/api/auth/complete-signup', { signupPass: v.body.signupPass, name: 'Amina', locale: 'en' })
+      assertEq(done.status, 200, `HTTP 200 (${JSON.stringify(done.body).slice(0, 120)})`)
+      track('customers', done.body.customer?.id)
+      assertEq(done.body.isNewAccount, true, 'isNewAccount')
+      assert(/Max-Age=2592000/i.test(done.setCookie), 'logged in for 30 days')
+      const { data: c } = await sb.from('customers').select('name, preferred_language').eq('phone', phone).single()
+      assertEq((c as { name: string }).name, 'Amina', 'first name saved')
+      assertEq((c as { preferred_language: string }).preferred_language, 'en', 'site language saved')
+      const { data: vouchers } = await sb.from('customer_vouchers').select('id').eq('customer_id', done.body.customer?.id ?? '')
+      assert((vouchers ?? []).length >= 1, 'BIENVENUE welcome voucher given')
+      const bad = await api('/api/auth/complete-signup', { body: { signupPass: 'forged', name: 'X' } })
+      assertEq(bad.status, 401, 'a forged pass → 401')
+    })
+
+    await step('/api/auth/me ends the session of a suspended account', async () => {
+      const p = await makeCustomer({ suiteNo: 28, name: 'Later Suspended' })
+      const cookie = customerCookie(p)
+      assertEq(((await api<{ user: { id: string } | null }>('/api/auth/me', { cookie })).body.user)?.id, p.id, 'logged in')
+      await sb.from('customers').update({ status: 'suspended' } as never).eq('id', p.id)
+      const after = await api<{ user: unknown }>('/api/auth/me', { cookie })
+      assertEq(after.body.user, null, 'suspended → user null')
     })
 
     // ── #37 partial: session identity and customer history ─────────────────

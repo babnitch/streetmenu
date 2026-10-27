@@ -65,6 +65,7 @@ const TARGETS: SweepTarget[] = [
 
   { table: 'signup_sessions',   note: 'sessions for a +999 phone', match: PHONE('phone') },
   { table: 'verification_codes', note: 'codes sent to a +999 phone', match: PHONE('phone') },
+  { table: 'auth_code_sends',    note: 'login-code sends to a +999 phone', match: PHONE('phone') },
   { table: 'message_log',       note: 'messages addressed to a +999 phone', match: PHONE('to_number') },
 
   { table: 'customers', note: '+999 test customers — deleted last, everything above FKs to them', match: PHONE('phone') },

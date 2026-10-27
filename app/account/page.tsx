@@ -192,9 +192,6 @@ export default function AccountPage() {
   // "sent via WhatsApp / SMS" line and the resend). Set from the send-code
   // response, so an auto-fallback from WhatsApp to SMS is reflected too.
   const [sentChannel, setSentChannel] = useState<Channel>('whatsapp')
-  // Channel chosen at the phone step, carried into the register step so a
-  // new user who picked SMS still gets SMS after filling name/city.
-  const [pendingChannel, setPendingChannel] = useState<Channel>('whatsapp')
   const [verifying,   setVerifying]   = useState(false)
   const [loggingIn,   setLoggingIn]   = useState(false)
   const [error,       setError]       = useState('')
@@ -329,10 +326,7 @@ export default function AccountPage() {
     setResending(true)
     try {
       // Resend on whichever channel the code was last sent to.
-      const sent = await requestCode(phone.trim(), sentChannel, {
-        ...(name.trim() ? { name: name.trim() } : {}),
-        ...(city        ? { city }               : {}),
-      })
+      const sent = await requestCode(phone.trim(), sentChannel)
       if (!sent.ok) {
         showToast(sent.error || bi('Erreur', 'Error'), false)
         return
@@ -545,9 +539,9 @@ export default function AccountPage() {
     if (customerTab === 'profile' && !profile) loadProfile()
   }, [customerTab, activeRestId, profile])
 
-  // Name of the known customer when check-phone confirms existence.
-  // Lets the OTP screen greet them by name without exposing their details.
-  const [knownName, setKnownName] = useState<string | null>(null)
+  // Sign-up pass for a NEW number: verify-code returns it after a right code;
+  // the register step then asks only for a first name (complete-signup).
+  const [signupPass, setSignupPass] = useState<string | null>(null)
 
   // Low-level send-code request. Threads the chosen channel and records
   // which channel the server actually used (an auto-fallback flips it to
@@ -555,74 +549,79 @@ export default function AccountPage() {
   async function requestCode(
     cleaned: string,
     channel: Channel,
-    extra: Record<string, string> = {},
   ): Promise<{ ok: boolean; error?: string; channel: Channel; fallback: boolean }> {
     const res  = await fetch('/api/auth/send-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: cleaned, channel, ...extra }),
+      body: JSON.stringify({ phone: cleaned, country: phoneCountry, channel, locale }),
     })
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
     const used: Channel = data.channel === 'sms' ? 'sms' : channel
     if (res.ok) setSentChannel(used)
     return { ok: res.ok, error: data.error, channel: used, fallback: !!data.fallback }
   }
 
-  // ── Customer login: check phone, then send OTP ──
-  // Two-phase flow so a customer who registered via WhatsApp goes straight to
-  // code entry instead of being asked for name/city again. `channel` is
-  // chosen by which button the user clicked (WhatsApp primary, SMS link).
+  // ── Log in or sign up: one step ──
+  // A code goes to any valid number; whether it is new is only known after
+  // the code (verify-code), so nobody can look up who has an account.
   async function handleSendCode(e: React.FormEvent | undefined, channel: Channel = 'whatsapp') {
     e?.preventDefault()
     setError('')
     const cleaned = phone.trim()
-    console.log('[login-flow] submit, cleaned phone =', JSON.stringify(cleaned), 'channel =', channel)
     if (!cleaned) return
     if (channel === 'sms') setSmsSending(true); else setSending(true)
     try {
-      console.log('[login-flow] calling check-phone…')
-      const checkRes = await fetch(
-        `/api/auth/check-phone?phone=${encodeURIComponent(cleaned)}`
-      )
-      const check = await checkRes.json()
-      console.log('[login-flow] check-phone status =', checkRes.status, 'body =', check)
-      if (!checkRes.ok) { setError(check.error || bi('Erreur', 'Error')); return }
-
-      if (check.exists) {
-        console.log('[login-flow] existing customer — skipping register form, sending code')
-        setKnownName(check.name ?? null)
-        const sent = await requestCode(cleaned, channel)
-        if (!sent.ok) { setError(sent.error || bi('Erreur', 'Error')); return }
-        if (sent.fallback) showToast(bi('WhatsApp indisponible — code envoyé par SMS', 'WhatsApp unavailable — code sent via SMS'))
-        setResendCount(0)
-        setResendCooldown(30)
-        setStep('otp')
-        return
-      }
-
-      console.log('[login-flow] new customer — showing register form')
-      setKnownName(null)
-      // Remember the chosen channel so the register step's send matches it.
-      setPendingChannel(channel)
-      setStep('register')
+      const sent = await requestCode(cleaned, channel)
+      if (!sent.ok) { setError(sent.error || bi('Erreur', 'Error')); return }
+      if (sent.fallback) showToast(bi('WhatsApp indisponible — code envoyé par SMS', 'WhatsApp unavailable — code sent via SMS'))
+      setResendCount(0)
+      setResendCooldown(30)
+      setOtp('')
+      setStep('otp')
     } finally {
       if (channel === 'sms') setSmsSending(false); else setSending(false)
     }
   }
 
-  // ── Register (new customer) ──
+  // After a session is set (verify-code for a known number, complete-signup
+  // for a new one).
+  function finishLogin(data: { customer: { id: string; phone: string; name: string }; isNewAccount?: boolean; welcomeVoucherCode?: string | null }) {
+    saveLastPhone(phone, phoneCountry)
+    const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
+    // Login gate return — send the user back to where they came from
+    // (e.g. /events/submit) now that the session cookie is set.
+    const ret = safeReturnUrl()
+    if (ret) {
+      window.location.href = ret
+      return
+    }
+    setUser(u)
+    setStep('dashboard')
+    setDashView('customer')
+    if (data.isNewAccount && data.welcomeVoucherCode) {
+      setWelcomeVoucherCode(data.welcomeVoucherCode)
+      // Land on the Vouchers tab so the new BIENVENUE claim is right there.
+      setCustomerTab('vouchers')
+    }
+    loadCustomerData(u.id)
+    loadMyRestaurants()
+  }
+
+  // ── New number: first name only, then the account is created ──
   async function handleRegisterSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!name.trim() || !city) return
+    if (!name.trim() || !signupPass) return
     setSending(true)
     try {
-      const sent = await requestCode(phone.trim(), pendingChannel, { name: name.trim(), city })
-      if (!sent.ok) { setError(sent.error || bi('Erreur', 'Error')); return }
-      if (sent.fallback) showToast(bi('WhatsApp indisponible — code envoyé par SMS', 'WhatsApp unavailable — code sent via SMS'))
-      setResendCount(0)
-      setResendCooldown(30)
-      setStep('otp')
+      const res = await fetch('/api/auth/complete-signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signupPass, name: name.trim(), locale, city: city || undefined }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
+      finishLogin(data)
     } finally {
       setSending(false)
     }
@@ -634,43 +633,23 @@ export default function AccountPage() {
   // last digit lands. Manual submit (the button) falls back to state.
   async function verifyOtp(code?: string) {
     const codeToUse = (code ?? otp).trim()
-    if (verifying || codeToUse.length < 4) return
+    if (verifying || codeToUse.length < 6) return
     setError('')
     setVerifying(true)
     try {
       const res  = await fetch('/api/auth/verify-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: phone.trim(),
-          code:  codeToUse,
-          rememberMe,
-          ...(name.trim() ? { name: name.trim() } : {}),
-          ...(city        ? { city }               : {}),
-        }),
+        body: JSON.stringify({ phone: phone.trim(), country: phoneCountry, code: codeToUse, locale }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
-      // Login succeeded — always remember the number for next time.
-      saveLastPhone(phone, phoneCountry)
-      const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
-      // Login gate return — send the user back to where they came from
-      // (e.g. /events/submit) now that the session cookie is set.
-      const ret = safeReturnUrl()
-      if (ret) {
-        window.location.href = ret
+      if (data.needsName && data.signupPass) {
+        setSignupPass(data.signupPass)
+        setStep('register')
         return
       }
-      setUser(u)
-      setStep('dashboard')
-      setDashView('customer')
-      if (data.isNewAccount && data.welcomeVoucherCode) {
-        setWelcomeVoucherCode(data.welcomeVoucherCode)
-        // Land on the Vouchers tab so the new BIENVENUE claim is right there.
-        setCustomerTab('vouchers')
-      }
-      loadCustomerData(u.id)
-      loadMyRestaurants()
+      finishLogin(data)
     } finally {
       setVerifying(false)
     }
@@ -1066,10 +1045,6 @@ export default function AccountPage() {
                   />
                   <p className="text-xs text-ink-tertiary mt-1">{t('account.whatsappHint')}</p>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
-                  <span className="text-sm text-ink-secondary">{t('account.rememberMe')}</span>
-                </label>
                 {error && <p className="text-xs text-danger">{error}</p>}
                 {/* Primary: WhatsApp (free). */}
                 <button
@@ -1145,23 +1120,12 @@ export default function AccountPage() {
                 <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder={t('account.namePh')}
                   className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand" />
               </div>
-              <div>
-                <label className="block text-xs text-ink-secondary mb-1">{bi('Ville', 'City')}</label>
-                <select value={city} onChange={e => setCity(e.target.value)}
-                  className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand bg-white">
-                  <option value="">{bi('Choisir', 'Select…')}</option>
-                  <option value="Yaoundé">Yaoundé</option>
-                  <option value="Abidjan">Abidjan</option>
-                  <option value="Dakar">Dakar</option>
-                  <option value="Lomé">Lomé</option>
-                </select>
-              </div>
               {error && <p className="text-xs text-danger">{error}</p>}
-              <button type="submit" disabled={sending || !name.trim() || !city}
+              <button type="submit" disabled={sending || !name.trim()}
                 className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors">
-                {sending ? t('account.sending') : t('account.sendOtp')}
+                {sending ? t('account.sending') : bi('Créer mon compte', 'Create my account')}
               </button>
-              <button type="button" onClick={() => { setStep('login'); setError('') }}
+              <button type="button" onClick={() => { setStep('login'); setError(''); setSignupPass(null) }}
                 className="w-full text-ink-tertiary text-sm py-2 hover:text-ink-secondary transition-colors">
                 {t('account.changePhone')}
               </button>
@@ -1175,9 +1139,6 @@ export default function AccountPage() {
             <div className="text-center mb-6">
               <div className="text-5xl mb-3">💬</div>
               <h1 className="text-xl font-bold text-ink-primary">{t('account.otpLbl')}</h1>
-              {knownName && (
-                <p className="text-sm text-ink-primary font-semibold mt-1">👋 {knownName}</p>
-              )}
               <p className="text-sm text-ink-secondary mt-1">{phone}</p>
               {/* Confirm which channel actually delivered the code. */}
               <p className="text-xs text-brand-darker font-medium mt-1">
@@ -1190,12 +1151,12 @@ export default function AccountPage() {
               value={otp}
               onChange={setOtp}
               onComplete={verifyOtp}
-              length={4}
+              length={6}
               autoFocus
               disabled={verifying}
             />
             {error && <p className="text-xs text-danger mb-3">{error}</p>}
-            <button onClick={() => verifyOtp()} disabled={verifying || otp.length < 4}
+            <button onClick={() => verifyOtp()} disabled={verifying || otp.length < 6}
               className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3">
               {verifying ? t('account.verifying') : t('account.verify')}
             </button>

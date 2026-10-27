@@ -224,11 +224,14 @@ export type TypedPhoneResult = { ok: true; phone: string } | { ok: false; error:
 export const TYPED_PHONE_ERROR =
   'Numéro invalide. Exemple : 6 70 00 00 00 ou +237 670 00 00 00 / Invalid number. Example: 6 70 00 00 00 or +237 670 00 00 00'
 
-function validInternational(full: string): string | null {
+// `explicit`: the number was typed in international form ("+…" / "00…").
+// Such a number with a dial code we don't list is accepted on the 8-15 digit
+// envelope; a bare number never is (it would rather be a local number).
+function validInternational(full: string, explicit = false): string | null {
   const digits = full.replace(/\D/g, '')
   if (digits.length < 6 || digits.length > 15) return null
   const { country, local } = splitIntoCountryAndLocal(digits)
-  if (!country) return null
+  if (!country) return explicit && digits.length >= 8 ? `+${digits}` : null
   return validateLocalPhone(local, country.iso).ok ? `+${digits}` : null
 }
 
@@ -240,7 +243,7 @@ export function normalizeTypedPhone(raw: string | null | undefined, fallback: Co
   // Explicit international: "+237…" or "00237…".
   if (s.startsWith('+') || s.replace(/[\s.\-()]/g, '').startsWith('00')) {
     const digits = s.replace(/\D/g, '').replace(/^00/, '')
-    const phone = validInternational(digits)
+    const phone = validInternational(digits, true)
     return phone ? { ok: true, phone } : fail
   }
 

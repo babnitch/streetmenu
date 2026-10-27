@@ -1,107 +1,121 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { sendWhatsApp } from '@/lib/whatsapp'
+import { sendWhatsApp, normalizeLang, type Lang } from '@/lib/whatsapp'
 import { sendSMS } from '@/lib/sms'
-import { normalizePhone } from '@/lib/phone'
-import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
-import { sanitizeText } from '@/lib/sanitize'
+import { clientIP } from '@/lib/rateLimit'
+import {
+  generateCode, normalizeLoginPhone, claimCodeSend, markCodeSendFailed, claimRefusalText,
+  SUSPENDED_TEXT, CODE_TTL_MS,
+} from '@/lib/authCodes'
 
 type Channel = 'whatsapp' | 'sms'
 
 export const dynamic = 'force-dynamic'
 
-function generateCode(): string {
-  return String(Math.floor(1000 + Math.random() * 9000))
-}
+// Twilio's own trial cap (50 messages / 24 h). An SMS fallback would only
+// burn credit on top, so it is not attempted.
+const TWILIO_DAILY_CAP = '63038'
 
+// POST /api/auth/send-code
+// Body: { phone, country?: ISO (default CM), channel?: 'whatsapp' | 'sms', locale?: 'fr' | 'en' }
+//
+// One step for log in AND sign up: a code goes to any valid number, known or
+// not, and the answer never says which (no account lookup by strangers).
+// verify-code tells a new number apart afterwards and asks for a first name.
+//
+// Limits (all in the database, lib/authCodes.ts): 30 s between sends per
+// phone, per phone per hour, per IP per hour, and the platform's daily cap.
+// A suspended account gets no code.
+//
+// WhatsApp first; on a WhatsApp failure the code goes by SMS instead —
+// except when the failure is a daily cap (ours never sends, Twilio's 63038
+// is not retried by SMS).
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const phone: string = normalizePhone(body.phone)
-  const name: string  = sanitizeText(body.name, 60)
-  const city: string  = sanitizeText(body.city, 40)
-  // Which channel to deliver the code on. Defaults to WhatsApp (free); the
-  // login page also offers SMS explicitly for users without WhatsApp.
-  const channel: Channel = body.channel === 'sms' ? 'sms' : 'whatsapp'
+  const body = await req.json().catch(() => ({}))
+  const channel: Channel = body?.channel === 'sms' ? 'sms' : 'whatsapp'
+  const siteLang: Lang = normalizeLang(body?.locale)
 
-  if (!phone) {
-    return NextResponse.json({ error: 'Phone required' }, { status: 400 })
-  }
+  const norm = normalizeLoginPhone(body?.phone, body?.country)
+  if (!norm.ok) return NextResponse.json({ error: norm.error }, { status: 400 })
+  const phone = norm.phone
 
-  // Per-phone (primary) + per-IP (secondary) rate limit. The phone
-  // cap prevents brute-forcing OTPs against a victim; the IP cap
-  // catches a script cycling through phones.
-  const phoneLimited = rateLimit({ key: `send-code:phone:${phone}`, max: 5, windowMs: 3600_000 })
-  if (phoneLimited) return rateLimitedResponse(phoneLimited)
-  const ipLimited    = rateLimit({ key: `send-code:ip:${clientIP(req)}`, max: 20, windowMs: 3600_000 })
-  if (ipLimited)    return rateLimitedResponse(ipLimited)
-
-  // Check if customer already exists (normalized lookup matches stored format)
   const { data: existing } = await supabaseAdmin
     .from('customers')
-    .select('id')
+    .select('id, status, deleted_at, preferred_language')
     .eq('phone', phone)
     .maybeSingle()
+  if (existing && (existing.status === 'suspended' || existing.status === 'deleted' || existing.deleted_at)) {
+    return NextResponse.json({ error: SUSPENDED_TEXT(siteLang) }, { status: 403 })
+  }
+  // The code message speaks the account's language, else the site's.
+  const lang: Lang = existing?.preferred_language ? normalizeLang(existing.preferred_language) : siteLang
 
-  // New customer but missing registration fields
-  if (!existing && (!name || !city)) {
-    return NextResponse.json({ needsRegistration: true })
+  const ip = clientIP(req)
+  const claim = await claimCodeSend(phone, ip, channel)
+  if (!claim.ok) {
+    return NextResponse.json({
+      error: claimRefusalText(claim.reason, claim.retryAfter, siteLang),
+      reason: claim.reason,
+      retry_after: claim.retryAfter,
+    }, { status: claim.reason === 'error' ? 500 : 429 })
   }
 
-  // Generate 4-digit code
-  const code      = generateCode()
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
-
-  // Replace any previous codes for this phone
+  const code = generateCode()
   await supabaseAdmin.from('verification_codes').delete().eq('phone', phone)
   const { error: insertErr } = await supabaseAdmin.from('verification_codes').insert({
-    phone, code, expires_at: expiresAt, used: false,
+    phone, code, expires_at: new Date(Date.now() + CODE_TTL_MS).toISOString(), used: false,
   })
-
   if (insertErr) {
     console.error('[send-code] insert error:', insertErr.message)
-    return NextResponse.json({ error: 'Failed to generate code' }, { status: 500 })
+    await markCodeSendFailed(claim.sendId, 'code_insert_failed')
+    return NextResponse.json({ error: claimRefusalText('error', 0, siteLang) }, { status: 500 })
   }
 
-  // Message body — identical for both channels, and short enough to fit a
-  // single SMS segment (< 160 chars).
-  //
-  // Format is tuned for iOS Security Code AutoFill: the word "code" appears,
-  // the digits come right after a colon, and the code is the LAST thing in
-  // the message on its own line — with no bold/asterisks or trailing text,
-  // any of which stop iOS from surfacing the code above the keyboard. The
-  // route has no per-user language, so the label is bilingual on one line
-  // and the (unformatted) code closes the message.
-  const msg =
-    `Tchop & Ndjoka\n` +
-    `Votre code de vérification / Your verification code: ${code}`
+  // Tuned for iOS / Android code autofill: the word "code", a colon, and the
+  // digits last on their own, with no formatting around them.
+  const msg = lang === 'en'
+    ? `Tchop & Ndjoka\nYour verification code: ${code}`
+    : `Tchop & Ndjoka\nVotre code de vérification : ${code}`
 
-  // Deliver on the requested channel. If WhatsApp send errors (e.g. the
-  // number has no WhatsApp), auto-fall back to SMS and report it so the UI
-  // can tell the user. Note: Twilio still returns success for WhatsApp when
-  // the recipient silently has no WhatsApp, so this only catches hard send
-  // failures — the explicit "Get via SMS" link covers the silent case.
-  let usedChannel: Channel = channel
-  let fallback = false
+  const failed = (r: { error?: string; errorCode?: string; status: number }) =>
+    r.errorCode ?? r.error?.slice(0, 80) ?? `http_${r.status}`
 
   if (channel === 'sms') {
     const r = await sendSMS(phone, msg, { context: 'verification_code' })
     if (!r.ok) {
+      await markCodeSendFailed(claim.sendId, failed(r))
       console.error('[send-code] SMS send failed:', r.error)
-      return NextResponse.json({ error: 'Failed to send SMS code' }, { status: 502 })
+      return NextResponse.json({ error: sendFailedText(siteLang) }, { status: 502 })
     }
-  } else {
-    const r = await sendWhatsApp(phone, msg, { context: 'verification_code' })
-    if (!r.ok) {
-      console.warn('[send-code] WhatsApp send failed, falling back to SMS:', r.error)
-      const s = await sendSMS(phone, msg, { context: 'verification_code' })
-      if (!s.ok) {
-        console.error('[send-code] SMS fallback also failed:', s.error)
-        return NextResponse.json({ error: 'Failed to send code' }, { status: 502 })
-      }
-      usedChannel = 'sms'
-      fallback = true
-    }
+    return NextResponse.json({ sent: true, channel: 'sms', fallback: false })
   }
 
-  return NextResponse.json({ sent: true, channel: usedChannel, fallback })
+  const r = await sendWhatsApp(phone, msg, { context: 'verification_code' })
+  if (r.ok) return NextResponse.json({ sent: true, channel: 'whatsapp', fallback: false })
+
+  await markCodeSendFailed(claim.sendId, failed(r))
+  if (r.errorCode === TWILIO_DAILY_CAP) {
+    console.warn('[send-code] WhatsApp daily cap reached (63038); no SMS fallback')
+    return NextResponse.json({ error: claimRefusalText('daily_cap', 0, siteLang), reason: 'daily_cap' }, { status: 429 })
+  }
+
+  // Any other WhatsApp failure: one SMS attempt, itself within the limits.
+  console.warn('[send-code] WhatsApp send failed, trying SMS:', r.error)
+  const fb = await claimCodeSend(phone, ip, 'sms', true)
+  if (!fb.ok) {
+    return NextResponse.json({ error: claimRefusalText(fb.reason, fb.retryAfter, siteLang), reason: fb.reason }, { status: 429 })
+  }
+  const s = await sendSMS(phone, msg, { context: 'verification_code' })
+  if (!s.ok) {
+    await markCodeSendFailed(fb.sendId, failed(s))
+    console.error('[send-code] SMS fallback also failed:', s.error)
+    return NextResponse.json({ error: sendFailedText(siteLang) }, { status: 502 })
+  }
+  return NextResponse.json({ sent: true, channel: 'sms', fallback: true })
+}
+
+function sendFailedText(lang: Lang): string {
+  return lang === 'en'
+    ? 'The code could not be sent. Check the number or try again.'
+    : 'Le code n\'a pas pu être envoyé. Vérifiez le numéro ou réessayez.'
 }

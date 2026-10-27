@@ -5,6 +5,7 @@
 
 import MessageLogPanel from '@/components/MessageLogPanel'
 import FailedMessagesPanel from '@/components/FailedMessagesPanel'
+import AuthCodesPanel from '@/components/AuthCodesPanel'
 import { useBi } from '@/lib/languageContext'
 
 export default function AdminMessagesPage() {
@@ -25,6 +26,7 @@ export default function AdminMessagesPage() {
       </div>
 
       <FailedMessagesPanel />
+      <AuthCodesPanel />
       <MessageLogPanel showStats showFilters />
     </div>
   )
