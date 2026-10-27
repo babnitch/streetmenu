@@ -1,10 +1,9 @@
 // Client / Pro navigation (lib/navConfig.ts). Pure: no server, no DB.
 //
-// Pro mode is open to every logged-in customer. Its restaurant destinations
-// (Orders, Menu) need a restaurant; without one the Pro home takes their
-// place. Menu also needs manager or above.
+// Pro mode is open to every logged-in customer. Orders needs a restaurant;
+// the restaurant's own tools are gated by the viewer's role there.
 
-import { navFor } from '@/lib/navConfig'
+import { navFor, restaurantToolsFor } from '@/lib/navConfig'
 import { assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-nav-modes'
@@ -18,14 +17,23 @@ async function main(): Promise<void> {
     assertEq(keys('client', 'owner', true), client, 'restaurant owner')
   })
 
-  await step('Pro without a restaurant: Pro home, My events, Account', () => {
-    assertEq(keys('pro', null, false), ['proHome', 'myEvents', 'account'], 'no Orders, no Menu')
+  await step('Pro without a restaurant: My restaurants, My events, Account', () => {
+    assertEq(keys('pro', null, false), ['myRestaurants', 'myEvents', 'account'], 'no Orders')
   })
 
-  await step('Pro with a restaurant: Orders first, Menu for manager and above', () => {
-    assertEq(keys('pro', 'owner', true), ['orders', 'menu', 'myEvents', 'account'], 'owner')
-    assertEq(keys('pro', 'manager', true), ['orders', 'menu', 'myEvents', 'account'], 'manager')
-    assertEq(keys('pro', 'staff', true), ['orders', 'myEvents', 'account'], 'staff: no Menu')
+  await step('Pro with a restaurant: Orders first, for every role', () => {
+    for (const role of ['owner', 'manager', 'staff'] as const) {
+      assertEq(keys('pro', role, true), ['orders', 'myRestaurants', 'myEvents', 'account'], role)
+    }
+  })
+
+  await step('restaurant tools follow the role', () => {
+    const tools = (r: Parameters<typeof restaurantToolsFor>[0]) => restaurantToolsFor(r).map(t => t.key)
+    assertEq(tools('staff'), ['orders', 'validate'], 'staff: orders + validate')
+    assertEq(tools('manager'), ['orders', 'menu', 'vouchers', 'validate', 'settings'], 'manager: no Team')
+    assertEq(tools('owner'), ['orders', 'menu', 'vouchers', 'validate', 'settings', 'team'], 'owner: everything')
+    assertEq(tools('admin'), tools('owner'), 'platform admin = owner')
+    assertEq(tools(null), ['orders', 'validate'], 'no role: the floor tools only')
   })
 
   finish(SUITE)

@@ -49,6 +49,27 @@ async function main(): Promise<void> {
     // Never inserted — the "unknown phone" side of every assertion below.
     const unknownPhone = '+999280099'
 
+    await step('Pro profile: name + extra number typed any way, normalised', async () => {
+      const cookie = customerCookie(known)
+      assertEq((await api('/api/pro/profile')).status, 401, 'no session → 401')
+      const r = await api<{ profile?: { pro_name: string | null; pro_notify_phone: string | null } }>('/api/pro/profile', {
+        method: 'PATCH', cookie, body: { pro_name: '  Asso <b>Mboa</b>  ', pro_notify_phone: '0699 00 00 01' },
+      })
+      assertEq(r.status, 200, `PATCH → 200 (body ${r.raw.slice(0, 160)})`)
+      assertEq(r.body.profile?.pro_name, 'Asso Mboa', 'name sanitised')
+      assertEq(r.body.profile?.pro_notify_phone, '+237699000001', '"0699 00 00 01" → +237699000001 (account country)')
+      const bad = await api<{ error?: string }>('/api/pro/profile', { method: 'PATCH', cookie, body: { pro_notify_phone: '12' } })
+      assertEq(bad.status, 400, 'unusable number → 400')
+      assert(/Numéro invalide/.test(bad.body.error ?? '') && /Invalid number/.test(bad.body.error ?? ''), 'FR/EN error')
+      const g = await api<{ profile?: { pro_notify_phone: string | null } }>('/api/pro/profile', { cookie })
+      assertEq(g.body.profile?.pro_notify_phone, '+237699000001', 'a refused update left the saved number')
+      const cleared = await api<{ profile?: { pro_name: string | null; pro_notify_phone: string | null } }>('/api/pro/profile', {
+        method: 'PATCH', cookie, body: { pro_name: '', pro_notify_phone: '' },
+      })
+      assertEq(cleared.body.profile?.pro_notify_phone, null, "'' clears the number")
+      assertEq(cleared.body.profile?.pro_name, null, "'' clears the name")
+    })
+
     await step('image upload needs a login', async () => {
       const anon = await api('/api/upload/image', { method: 'POST', body: {} })
       assertEq(anon.status, 401, 'no session → 401')

@@ -1228,7 +1228,7 @@ export async function handleOrderCommand(
     await sendWhatsApp(from,
       `${pickLang(`📋 *Réservations — ${event.title}:*`, `📋 *Reservations — ${event.title}:*`, lang)}\n\n${lines.join('\n\n')}\n\n` +
       pickLang(`✅ Pointer une présence: envoyez "present CODE" (ex: present A3F7).`, `✅ Check someone in: send "present CODE" (e.g. present A3F7).`, lang) + '\n' +
-      pickLang(`Ou gérez tout sur le site:`, `Or manage everything on the site:`, lang) + `\n${BASE_URL}/account?tab=events`)
+      pickLang(`Ou gérez tout sur le site:`, `Or manage everything on the site:`, lang) + `\n${BASE_URL}/pro/events`)
     return ok()
   }
 
@@ -1250,7 +1250,7 @@ export async function handleOrderCommand(
     await sendWhatsApp(from,
       `✏️ *${event.title}*\n\n` +
       pickLang('Modifiez votre événement ici', 'Edit your event here', lang) +
-      `:\n${BASE_URL}/account?tab=events`)
+      `:\n${BASE_URL}/pro/events`)
     return ok()
   }
 

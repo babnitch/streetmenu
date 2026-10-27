@@ -6,6 +6,8 @@
 
 import { normalizePhone, samePhone, uniquePhones } from '@/lib/phone'
 import {
+  normalizeTypedPhone,
+  COUNTRIES,
   validateLocalPhone,
   composeFullPhone,
   detectCountry,
@@ -54,6 +56,20 @@ async function main(): Promise<void> {
     assert(!samePhone('', ''), 'two empties never match')
     assert(!samePhone('12345', '12345'), 'fewer than 6 significant digits never matches')
     assert(samePhone('123456', '123456'), 'exactly 6 digits is the shortest match')
+  })
+
+  await step('normalizeTypedPhone — a number typed any way → +E.164', () => {
+    const CM = COUNTRIES.CM, CH = COUNTRIES.CH, CI = COUNTRIES.CI
+    const ok = (raw: string, c: typeof CM) => { const r = normalizeTypedPhone(raw, c); return r.ok ? r.phone : null }
+    for (const raw of ['6 70 00 00 00', '0670000000', '237670000000', '+237 670 00 00 00', '00237670000000', '670000000']) {
+      assertEq(ok(raw, CM), '+237670000000', `"${raw}" (account in Cameroon)`)
+    }
+    assertEq(ok('079 123 45 67', CH), '+41791234567', 'Swiss national number: trunk 0 dropped')
+    assertEq(ok('+41 79 123 45 67', CM), '+41791234567', 'explicit international wins over the account country')
+    assertEq(ok('0707070707', CI), '+2250707070707', "Côte d'Ivoire keeps its leading 0")
+    for (const bad of ['12', 'abc', '+237 12345', '']) {
+      assertEq(normalizeTypedPhone(bad, CM).ok, false, `"${bad}" → refused`)
+    }
   })
 
   await step('uniquePhones — one entry per person, normalised', () => {

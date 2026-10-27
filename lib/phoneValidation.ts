@@ -206,3 +206,59 @@ export function matchesCountrySearch(meta: CountryMeta, q: string): boolean {
 function normalizeForSearch(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
 }
+
+// ── Typed numbers ───────────────────────────────────────────────────────────
+// A number typed however people type it — "6 70 00 00 00", "0670000000",
+// "237670000000", "+237 670 00 00 00", "00237…" — turned into +E.164.
+// `fallback` is the country to assume for a number without its dial code
+// (normally the account's own country).
+//
+// Unlike ensureInternational, a bare number is tried as a LOCAL number of the
+// fallback country first: "670000000" is a Cameroon mobile, not Timor-Leste
+// (+670). A national trunk "0" ("0670000000", Swiss "0791234567") is dropped
+// when that is what makes it valid. The result must pass validateLocalPhone
+// for its country (strict for the platform countries, 6-15 digits for the
+// rest); otherwise ok:false.
+export type TypedPhoneResult = { ok: true; phone: string } | { ok: false; error: string }
+
+export const TYPED_PHONE_ERROR =
+  'Numéro invalide. Exemple : 6 70 00 00 00 ou +237 670 00 00 00 / Invalid number. Example: 6 70 00 00 00 or +237 670 00 00 00'
+
+function validInternational(full: string): string | null {
+  const digits = full.replace(/\D/g, '')
+  if (digits.length < 6 || digits.length > 15) return null
+  const { country, local } = splitIntoCountryAndLocal(digits)
+  if (!country) return null
+  return validateLocalPhone(local, country.iso).ok ? `+${digits}` : null
+}
+
+export function normalizeTypedPhone(raw: string | null | undefined, fallback: CountryMeta): TypedPhoneResult {
+  const s = String(raw ?? '').replace(/^whatsapp:/i, '').trim()
+  const fail: TypedPhoneResult = { ok: false, error: TYPED_PHONE_ERROR }
+  if (!/\d/.test(s)) return fail
+
+  // Explicit international: "+237…" or "00237…".
+  if (s.startsWith('+') || s.replace(/[\s.\-()]/g, '').startsWith('00')) {
+    const digits = s.replace(/\D/g, '').replace(/^00/, '')
+    const phone = validInternational(digits)
+    return phone ? { ok: true, phone } : fail
+  }
+
+  const digits = s.replace(/\D/g, '')
+  const asLocal = (d: string) =>
+    validateLocalPhone(d, fallback.iso).ok ? validInternational(fallback.dialCode + d) : null
+
+  // 1. A local number of the fallback country. Strict (platform) countries
+  //    try it as typed first — Côte d'Ivoire numbers start with 0 — then
+  //    without a trunk "0"; elsewhere the trunk "0" is dropped first
+  //    (Swiss "079…" is +41 79…).
+  const trunkless = digits.startsWith('0') && !digits.startsWith('00') ? digits.slice(1) : null
+  const local = fallback.localLength > 0
+    ? asLocal(digits) ?? (trunkless ? asLocal(trunkless) : null)
+    : trunkless ? asLocal(trunkless) : asLocal(digits)
+  if (local) return { ok: true, phone: local }
+
+  // 2. Typed with the dial code but no "+": "237670000000".
+  const intl = validInternational(digits)
+  return intl ? { ok: true, phone: intl } : fail
+}

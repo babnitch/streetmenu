@@ -86,10 +86,16 @@ export default function ProHomePage() {
               </Link>
             </div>
 
+            <Link href="/pro/profile"
+              className="flex items-center justify-between gap-3 bg-white rounded-2xl shadow-sm px-4 py-3 mb-3 hover:bg-brand-light transition-colors">
+              <span className="text-sm font-semibold text-ink-primary">🪪 {bi('Profil Pro', 'Pro profile')}</span>
+              <span className="text-xs text-ink-tertiary">{bi('Nom d\'organisateur, numéro de notifications', 'Organiser name, notification number')} ›</span>
+            </Link>
+
             {(hasRestaurantRole || restaurants.length > 0 || (eventCount ?? 0) > 0) && (
               <div className="bg-white rounded-2xl shadow-sm divide-y divide-divider">
                 {restaurants.map(r => (
-                  <Link key={r.id} href="/dashboard"
+                  <Link key={r.id} href={`/dashboard?restaurant=${r.id}`}
                     className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-brand-light transition-colors">
                     <span className="text-sm font-semibold text-ink-primary truncate">🏪 {r.name}</span>
                     {r.status === 'pending'
@@ -98,7 +104,7 @@ export default function ProHomePage() {
                   </Link>
                 ))}
                 {(eventCount ?? 0) > 0 && (
-                  <Link href="/account?tab=events"
+                  <Link href="/pro/events"
                     className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-brand-light transition-colors">
                     <span className="text-sm font-semibold text-ink-primary">🎉 {bi('Mes événements', 'My events')} ({eventCount})</span>
                     <span className="text-ink-tertiary" aria-hidden="true">›</span>

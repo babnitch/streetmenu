@@ -50,7 +50,7 @@ export default function ModeToggle({ variant = 'compact' }: { variant?: 'banner'
       const d = await r.json()
       hasEvents = Array.isArray(d?.events) && d.events.length > 0
     } catch { /* fall through to the Pro home */ }
-    router.push(hasEvents ? '/account?tab=events' : '/pro')
+    router.push(hasEvents ? '/pro/events' : '/pro')
   }
 
   if (variant === 'banner') {

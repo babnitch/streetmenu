@@ -114,8 +114,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // In Pro mode the TopNav shows operations links instead.
   const showMapBtn  = effectiveMode === 'client'
                     && (pathname === '/' || pathname === '/events')
-  const isOwner   = topRole === 'owner'
-  const isManager = topRole === 'manager'
 
   // Nav row. Same source as the mobile BottomNav — see lib/navConfig.ts.
   // This bar renders the ROUTE destinations only: Search stays the inline
@@ -123,18 +121,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // filtered out here.
   const destinations: NavDestination[] =
     navFor(effectiveMode, topRole, hasRestaurantRole).filter(d => !d.actionKey)
-
-  // ── Legacy extras — TEMPORARY ───────────────────────────────────────────
-  // Vouchers and Settings are not in navConfig yet, so they're appended
-  // after the shared set instead of being modelled. They exist only on this
-  // bar; the BottomNav reaches them through /dashboard's own tab strip.
-  // Remove this block (and the suppression below) when they migrate.
-  const isDashVouchers = isDashboard && (dashboardTab === 'vouchers' || dashboardTab === 'validate')
-  const isDashSettings = isDashboard && dashboardTab === 'settings'
-  // navConfig's Orders match is "on /dashboard and not the Menu tab", which
-  // would also light up while an extra is selected. Suppress it so exactly
-  // one pill reads as active. Goes away with the extras.
-  const legacyExtraActive = isDashVouchers || isDashSettings
 
   // Tapping a dashboard-tab link flips context state and (if needed)
   // routes to /dashboard. Navigating while already on /dashboard is a
@@ -354,9 +340,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             const badge = d.badgeKey === 'pendingOrders' ? pendingCount
               : d.badgeKey === 'cartCount' ? totalItems
                 : undefined
-            const active = d.key === 'orders'
-              ? d.match(pathname, dashboardTab) && !legacyExtraActive
-              : d.match(pathname, dashboardTab)
+            const active = d.match(pathname, dashboardTab)
 
             // Dashboard destinations flip context state rather than routing
             // to a ?tab= URL, which Next.js treats as the same route.
@@ -375,17 +359,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             )
           })}
 
-          {/* Legacy extras — TEMPORARY, see the note above. */}
-          {effectiveMode === 'pro' && hasRestaurantRole && (isOwner || isManager) && (
-            <TopNavButton onClick={() => goToDashTab('vouchers')} active={isDashVouchers}>
-              🎫 {bi('Bons', 'Vouchers')}
-            </TopNavButton>
-          )}
-          {effectiveMode === 'pro' && hasRestaurantRole && isOwner && (
-            <TopNavButton onClick={() => goToDashTab('settings')} active={isDashSettings}>
-              ⚙️ {bi('Paramètres', 'Settings')}
-            </TopNavButton>
-          )}
         </nav>
 
         {/* Right cluster. The cart and account pills that used to live here

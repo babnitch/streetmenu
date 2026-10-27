@@ -13,11 +13,12 @@
 // enforced server-side in lib/subscriptions.ts getBroadcastEligibility; the
 // composer lives in Account and only renders for eligible senders.
 //
-// Pro mode is open to every logged-in customer. Its restaurant destinations
-// (Orders, Menu) carry `requiresRestaurant` and only show for a restaurant
-// team member; someone without a restaurant gets the Pro home (/pro) in
-// their place. The desktop TopNav still appends Vouchers and Settings for
-// restaurant owners/managers outside this module (see its legacy extras).
+// Pro mode is open to every logged-in customer:
+//   📦 Commandes (only with a restaurant) · 🏪 Mes restaurants ·
+//   🎉 Mes événements · 👤 Compte
+// Inside a restaurant, its tools (Orders, Menu, Vouchers, Validate, Settings,
+// Team) are RESTAURANT_TOOLS below, gated by the viewer's role there. The
+// dashboard strip, the Account tiles and /pro/restaurants all render from it.
 
 import type { DashboardTab, TeamRole, RoleRankShape } from './modeContext'
 
@@ -29,7 +30,7 @@ export type NavBadge  = 'pendingOrders' | 'cartCount'
 
 export type NavKey =
   | 'restaurants' | 'events' | 'search' | 'cart' | 'account'
-  | 'orders' | 'menu' | 'proHome' | 'myEvents'
+  | 'orders' | 'myRestaurants' | 'myEvents'
 
 export interface NavDestination {
   key:     NavKey
@@ -143,38 +144,26 @@ const PRO_NAV: readonly NavDestination[] = [
     href: '/dashboard', dashboardTab: 'orders',
     badgeKey: 'pendingOrders',
     requiresRestaurant: true,
-    // Catches every dashboard tab except Menu, so a freshly-loaded
-    // /dashboard still highlights something.
-    match: (p, tab) => p.startsWith('/dashboard') && tab !== 'menu',
+    // Every dashboard tab: the restaurant's own tool strip shows which one.
+    match: p => p.startsWith('/dashboard'),
   },
   {
-    key: 'menu', icon: '🍽️',
-    labelFr: 'Menu', labelEn: 'Menu',
-    href: '/dashboard', dashboardTab: 'menu',
-    // Manager or owner. Staff get a view-only surface later, not the editor.
-    minRole: 'manager',
-    requiresRestaurant: true,
-    match: (p, tab) => p.startsWith('/dashboard') && tab === 'menu',
-  },
-  {
-    // No restaurant yet: the Pro home, where one is added.
-    key: 'proHome', icon: '🧰',
-    labelFr: 'Espace Pro', labelEn: 'Pro home',
-    href: '/pro',
-    requiresRestaurant: false,
-    match: p => p === '/pro',
+    key: 'myRestaurants', icon: '🏪',
+    labelFr: 'Mes restaurants', labelEn: 'My restaurants',
+    href: '/pro/restaurants',
+    match: p => p === '/pro' || p.startsWith('/pro/restaurants'),
   },
   {
     key: 'myEvents', icon: '🎉',
     labelFr: 'Mes événements', labelEn: 'My events',
-    href: '/account?tab=events',
-    match: () => false,     // /account is shared with Account; see the renderer
+    href: '/pro/events',
+    match: p => p.startsWith('/pro/events'),
   },
   {
     key: 'account', icon: '👤',
     labelFr: 'Compte', labelEn: 'Account',
     href: '/account',
-    match: p => p === '/account',
+    match: p => p === '/account' || p === '/pro/profile',
   },
 ] as const
 
@@ -195,4 +184,40 @@ export function navFor(mode: NavMode, topRole: TeamRole | null, hasRestaurant = 
 /** Locale-picked label, so callers don't repeat the ternary. */
 export function navLabel(d: NavDestination, locale: string): string {
   return locale === 'en' ? d.labelEn : d.labelFr
+}
+
+// ── Restaurant tools ────────────────────────────────────────────────────────
+// The tools inside one restaurant, in display order. `minRole` is the lowest
+// team role that sees the tool; a platform admin counts as owner. Dashboard
+// tools switch the dashboard tab (through ModeContext, like the nav); Team
+// lives on /account.
+export type RestaurantToolKey = DashboardTab | 'team'
+export interface RestaurantTool {
+  key:      RestaurantToolKey
+  icon:     string
+  labelFr:  string
+  labelEn:  string
+  minRole?: TeamRole
+  /** Set for tools outside the dashboard. */
+  href?:    string
+}
+
+export const RESTAURANT_TOOLS: readonly RestaurantTool[] = [
+  { key: 'orders',   icon: '📦', labelFr: 'Commandes',  labelEn: 'Orders' },
+  { key: 'menu',     icon: '🍽️', labelFr: 'Menu',       labelEn: 'Menu',     minRole: 'manager' },
+  { key: 'vouchers', icon: '🎫', labelFr: 'Bons',       labelEn: 'Vouchers', minRole: 'manager' },
+  { key: 'validate', icon: '✅', labelFr: 'Valider',    labelEn: 'Validate' },
+  // Owners get the full settings panel, managers a reduced one.
+  { key: 'settings', icon: '⚙️', labelFr: 'Paramètres', labelEn: 'Settings', minRole: 'manager' },
+  { key: 'team',     icon: '👥', labelFr: 'Équipe',     labelEn: 'Team',     minRole: 'owner', href: '/account?tab=team' },
+] as const
+
+/** The tools a viewer holding `role` in a restaurant sees. */
+export function restaurantToolsFor(role: TeamRole | 'admin' | null | undefined): RestaurantTool[] {
+  const r: TeamRole | null = role === 'admin' ? 'owner' : role ?? null
+  return RESTAURANT_TOOLS.filter(t => meetsRole(r, t.minRole))
+}
+
+export function toolLabel(t: RestaurantTool, locale: string): string {
+  return locale === 'en' ? t.labelEn : t.labelFr
 }

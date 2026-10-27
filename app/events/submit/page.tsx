@@ -39,6 +39,21 @@ export default function SubmitEventPage() {
       .finally(() => setAuthLoading(false))
   }, [])
 
+  // Pre-fill the organiser name from the Pro profile (/pro/profile). It stays
+  // editable here, per event; an empty field is the only one filled.
+  useEffect(() => {
+    if (!me) return
+    let cancelled = false
+    fetch('/api/pro/profile', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        const name = typeof d?.profile?.pro_name === 'string' ? d.profile.pro_name : ''
+        if (!cancelled && name) setForm(f => (f.organizer_name ? f : { ...f, organizer_name: name }))
+      })
+      .catch(() => { /* the field stays empty */ })
+    return () => { cancelled = true }
+  }, [me])
+
   // Submission outcome — auto_approved sees a different success screen
   // than admin-pending.
   const [autoApproved, setAutoApproved] = useState(false)
@@ -306,9 +321,12 @@ export default function SubmitEventPage() {
               )}
         </p>
         <Link
-          href="/events"
+          href="/pro/events"
           className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
+          🎉 {bi('Voir mes événements', 'See my events')}
+        </Link>
+        <Link href="/events" className="mt-3 text-sm font-semibold text-ink-secondary hover:text-ink-primary underline underline-offset-2">
           {t('evt.backToEvents')}
         </Link>
       </div>
