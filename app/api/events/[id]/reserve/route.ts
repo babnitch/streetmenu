@@ -37,7 +37,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   // Booking requires a logged-in customer. The event page itself stays public
   // — only this action is gated, so the client shows a login prompt and comes
-  // back via /account?return=/events/<id>. Guest bookings used to be accepted
+  // back via /login?return=/events/<id>. Guest bookings used to be accepted
   // from a name + phone in the body; that path is gone, so a reservation is
   // always attached to a real account (and to its reservation history).
   const session = getSessionFromRequest(req)

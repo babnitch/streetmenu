@@ -23,8 +23,8 @@ import BroadcastPanel from '@/components/BroadcastPanel'
 import PromotePanel from '@/components/PromotePanel'
 import PhoneInput from '@/components/PhoneInput'
 import ConfirmModal from '@/components/ConfirmModal'
-import OtpInput from '@/components/OtpInput'
 import { useDataMode } from '@/lib/dataMode'
+import { loginHref } from '@/lib/lastPhone'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel } from '@/lib/navConfig'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
@@ -44,11 +44,7 @@ const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/pag
 const AdminMessages    = dynamicLoad(() => import('@/app/admin/messages/page'),     { ssr: false })
 
 // ── Types ────────────────────────────────────────────────────────────────────
-type LoginTab    = 'customer' | 'team'
-// Delivery channel for the verification code. WhatsApp is the free default;
-// SMS is the fallback for users without WhatsApp.
-type Channel     = 'whatsapp' | 'sms'
-type AuthStep    = 'loading' | 'login' | 'register' | 'otp' | 'dashboard'
+type AuthStep    = 'loading' | 'dashboard'
 
 // Read a `?return=` target from the URL, but only trust same-site absolute
 // paths (`/events/submit`) — never protocol-relative (`//evil.com`) or
@@ -100,36 +96,6 @@ const ADMIN_TAB_DESCS: Record<AdminSubTab, string> = {
   profile:      'Modifier vos informations / Edit your info',
 }
 
-// ── "Remember my number" persistence ────────────────────────────────────────
-// The last-used customer phone (full +E.164) and its country ISO are kept in
-// localStorage so a returning customer lands on a pre-filled login field. This
-// is deliberately NOT a cookie: it never travels with requests and logout does
-// not touch it (unless the user unticks the checkbox).
-const LAST_PHONE_KEY   = 'tn_last_phone'
-const LAST_COUNTRY_KEY = 'tn_last_country'
-
-function readSavedPhone(): { phone: string; country: string } {
-  if (typeof window === 'undefined') return { phone: '', country: '' }
-  try {
-    return {
-      phone:   localStorage.getItem(LAST_PHONE_KEY)   ?? '',
-      country: localStorage.getItem(LAST_COUNTRY_KEY) ?? '',
-    }
-  } catch {
-    // localStorage can throw in private mode / when storage is disabled.
-    return { phone: '', country: '' }
-  }
-}
-
-function saveLastPhone(phone: string, country: string) {
-  if (typeof window === 'undefined') return
-  try {
-    const trimmed = phone.trim()
-    if (trimmed) localStorage.setItem(LAST_PHONE_KEY, trimmed)
-    if (country) localStorage.setItem(LAST_COUNTRY_KEY, country)
-  } catch { /* storage unavailable — pre-fill just won't work next time */ }
-}
-
 interface SessionUser {
   id:     string
   name:   string
@@ -168,38 +134,9 @@ export default function AccountPage() {
   const { effectiveMode, resetMode, hasRestaurantRole, setDashboardTab, adminTab, setAdminTab } = useMode()
   const router = useRouter()
 
-  // Login form state
-  const [loginTab,    setLoginTab]    = useState<LoginTab>('customer')
+  // Page state: loading until /api/auth/me answers, then the dashboard (a
+  // logged-out visitor is sent to /login).
   const [step,        setStep]        = useState<AuthStep>('loading')
-  const [phone,       setPhone]       = useState('')
-  const [email,       setEmail]       = useState('')
-  const [password,    setPassword]    = useState('')
-  const [rememberMe,  setRememberMe]  = useState(false)
-  // We always remember the typed phone number so a returning customer
-  // finds the field pre-filled (see readSavedPhone / saveLastPhone).
-  // Persisted to localStorage, never to a cookie.
-  // ISO of the country picked in PhoneInput, captured from its onChange
-  // meta so we can persist it alongside the number.
-  const [phoneCountry,  setPhoneCountry]  = useState('')
-  const [name,        setName]        = useState('')
-  const [city,        setCity]        = useState('')
-  const [otp,         setOtp]         = useState('')
-  const [sending,     setSending]     = useState(false)
-  // Separate spinner for the "Get via SMS" link so it can show its own
-  // loading state without lighting up the primary WhatsApp button.
-  const [smsSending,  setSmsSending]  = useState(false)
-  // Channel the code was actually delivered on (drives the OTP-screen
-  // "sent via WhatsApp / SMS" line and the resend). Set from the send-code
-  // response, so an auto-fallback from WhatsApp to SMS is reflected too.
-  const [sentChannel, setSentChannel] = useState<Channel>('whatsapp')
-  const [verifying,   setVerifying]   = useState(false)
-  const [loggingIn,   setLoggingIn]   = useState(false)
-  const [error,       setError]       = useState('')
-  // OTP resend — 30s cooldown, capped at 3 resends per session so a leaked
-  // verify-code endpoint can't be hammered via the UI.
-  const [resendCooldown, setResendCooldown] = useState(0)
-  const [resendCount,    setResendCount]    = useState(0)
-  const [resending,      setResending]      = useState(false)
 
   // Session / dashboard
   const [user,             setUser]             = useState<SessionUser | null>(null)
@@ -314,33 +251,6 @@ export default function AccountPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
-  // OTP resend cooldown tick — runs while there's time left on the clock.
-  useEffect(() => {
-    if (resendCooldown <= 0) return
-    const t = setInterval(() => setResendCooldown(c => (c > 0 ? c - 1 : 0)), 1000)
-    return () => clearInterval(t)
-  }, [resendCooldown])
-
-  async function handleResendCode() {
-    if (resending || resendCooldown > 0 || resendCount >= 3) return
-    setResending(true)
-    try {
-      // Resend on whichever channel the code was last sent to.
-      const sent = await requestCode(phone.trim(), sentChannel)
-      if (!sent.ok) {
-        showToast(sent.error || bi('Erreur', 'Error'), false)
-        return
-      }
-      setResendCount(c => c + 1)
-      setResendCooldown(30)
-      showToast(sent.channel === 'sms'
-        ? bi('Code renvoyé par SMS!', 'Code resent via SMS!')
-        : bi('Code renvoyé!', 'Code resent!'))
-    } finally {
-      setResending(false)
-    }
-  }
-
   // Honor the ?tab= query param — BottomNav links to /account?tab=orders,
   // and TopNav desktop nav does likewise. Only adopt known CustomerTab
   // values to avoid arbitrary strings leaking into state. (The lazy
@@ -409,17 +319,6 @@ export default function AccountPage() {
     return () => { cancelled = true; clearInterval(t) }
   }, [hasRestaurantRole])
 
-  // ── On mount: pre-fill the phone field with the remembered number ──
-  // PhoneInput re-derives the country from the +E.164 value, but we also
-  // seed phoneCountry from the saved ISO as a fallback for ambiguous dial
-  // codes. Runs once; a returning (or just-logged-out) customer sees the
-  // field ready to go.
-  useEffect(() => {
-    const { phone: savedPhone, country: savedCountry } = readSavedPhone()
-    if (savedPhone)   setPhone(savedPhone)
-    if (savedCountry) setPhoneCountry(savedCountry)
-  }, [])
-
   // ── On mount: check JWT session ──
   useEffect(() => {
     fetch('/api/auth/me')
@@ -452,11 +351,23 @@ export default function AccountPage() {
             loadMyRestaurants()
           }
         } else {
-          setStep('login')
+          goToLogin()
         }
       })
-      .catch(() => setStep('login'))
+      .catch(() => goToLogin())
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Logged out: the one login screen is /login (L2). A legacy gate link
+  // /account?return=X sends X along; otherwise come back here, same tab.
+  function goToLogin() {
+    const ret = safeReturnUrl() ?? `${window.location.pathname}${window.location.search}`
+    window.location.replace(loginHref(ret))
+  }
+
+  // A brand-new account lands here with ?welcome=1: show the BIENVENUE banner.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('welcome') === '1') setWelcomeVoucherCode('BIENVENUE')
+  }, [])
 
   const loadCustomerData = useCallback(async (customerId: string) => {
     setLoadingData(true)
@@ -539,165 +450,16 @@ export default function AccountPage() {
     if (customerTab === 'profile' && !profile) loadProfile()
   }, [customerTab, activeRestId, profile])
 
-  // Sign-up pass for a NEW number: verify-code returns it after a right code;
-  // the register step then asks only for a first name (complete-signup).
-  const [signupPass, setSignupPass] = useState<string | null>(null)
-
-  // Low-level send-code request. Threads the chosen channel and records
-  // which channel the server actually used (an auto-fallback flips it to
-  // 'sms'). Returns the parsed response so callers can branch on ok.
-  async function requestCode(
-    cleaned: string,
-    channel: Channel,
-  ): Promise<{ ok: boolean; error?: string; channel: Channel; fallback: boolean }> {
-    const res  = await fetch('/api/auth/send-code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: cleaned, country: phoneCountry, channel, locale }),
-    })
-    const data = await res.json().catch(() => ({}))
-    const used: Channel = data.channel === 'sms' ? 'sms' : channel
-    if (res.ok) setSentChannel(used)
-    return { ok: res.ok, error: data.error, channel: used, fallback: !!data.fallback }
-  }
-
-  // ── Log in or sign up: one step ──
-  // A code goes to any valid number; whether it is new is only known after
-  // the code (verify-code), so nobody can look up who has an account.
-  async function handleSendCode(e: React.FormEvent | undefined, channel: Channel = 'whatsapp') {
-    e?.preventDefault()
-    setError('')
-    const cleaned = phone.trim()
-    if (!cleaned) return
-    if (channel === 'sms') setSmsSending(true); else setSending(true)
-    try {
-      const sent = await requestCode(cleaned, channel)
-      if (!sent.ok) { setError(sent.error || bi('Erreur', 'Error')); return }
-      if (sent.fallback) showToast(bi('WhatsApp indisponible — code envoyé par SMS', 'WhatsApp unavailable — code sent via SMS'))
-      setResendCount(0)
-      setResendCooldown(30)
-      setOtp('')
-      setStep('otp')
-    } finally {
-      if (channel === 'sms') setSmsSending(false); else setSending(false)
-    }
-  }
-
-  // After a session is set (verify-code for a known number, complete-signup
-  // for a new one).
-  function finishLogin(data: { customer: { id: string; phone: string; name: string }; isNewAccount?: boolean; welcomeVoucherCode?: string | null }) {
-    saveLastPhone(phone, phoneCountry)
-    const u: SessionUser = { id: data.customer.id, phone: data.customer.phone, name: data.customer.name, role: 'customer' }
-    // Login gate return — send the user back to where they came from
-    // (e.g. /events/submit) now that the session cookie is set.
-    const ret = safeReturnUrl()
-    if (ret) {
-      window.location.href = ret
-      return
-    }
-    setUser(u)
-    setStep('dashboard')
-    setDashView('customer')
-    if (data.isNewAccount && data.welcomeVoucherCode) {
-      setWelcomeVoucherCode(data.welcomeVoucherCode)
-      // Land on the Vouchers tab so the new BIENVENUE claim is right there.
-      setCustomerTab('vouchers')
-    }
-    loadCustomerData(u.id)
-    loadMyRestaurants()
-  }
-
-  // ── New number: first name only, then the account is created ──
-  async function handleRegisterSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    if (!name.trim() || !signupPass) return
-    setSending(true)
-    try {
-      const res = await fetch('/api/auth/complete-signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signupPass, name: name.trim(), locale, city: city || undefined }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
-      finishLogin(data)
-    } finally {
-      setSending(false)
-    }
-  }
-
-  // ── Verify OTP ──
-  // `code` lets the auto-submit path pass the freshly-completed value
-  // directly — the `otp` state hasn't necessarily flushed yet when the
-  // last digit lands. Manual submit (the button) falls back to state.
-  async function verifyOtp(code?: string) {
-    const codeToUse = (code ?? otp).trim()
-    if (verifying || codeToUse.length < 6) return
-    setError('')
-    setVerifying(true)
-    try {
-      const res  = await fetch('/api/auth/verify-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), country: phoneCountry, code: codeToUse, locale }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || bi('Erreur', 'Error')); return }
-      if (data.needsName && data.signupPass) {
-        setSignupPass(data.signupPass)
-        setStep('register')
-        return
-      }
-      finishLogin(data)
-    } finally {
-      setVerifying(false)
-    }
-  }
-
-  // ── Admin / team login ──
-  async function handleAdminLogin(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setLoggingIn(true)
-    try {
-      const res  = await fetch('/api/auth/admin-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password, rememberMe }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Erreur'); return }
-      const u: SessionUser = { id: data.user.id, email: data.user.email, name: data.user.name, role: data.user.role }
-      setUser(u)
-      setStep('dashboard')
-      setDashView('admin')
-    } finally {
-      setLoggingIn(false)
-    }
-  }
-
   // ── Sign out ──
   async function handleSignOut() {
-    // Logout clears the session cookie only. The remembered phone number
-    // is left in localStorage so the login field stays pre-filled.
+    // Logout clears the session cookie only; the remembered phone number
+    // stays in localStorage so /login comes back pre-filled.
     await fetch('/api/auth/logout', { method: 'POST' })
-    // Drop the persisted mode and re-probe now that the cookie is gone.
-    // Without this, hasRestaurantRole stays true until the window next
-    // regains focus, so a signed-out visitor could keep the restaurant-mode
-    // nav — and the stored mode would carry over to the next user on this
-    // device.
+    // Drop the persisted mode so the next person on this device starts in
+    // Client mode, then leave with a full load (every part of the app
+    // re-reads the now-empty session).
     resetMode()
-    setUser(null)
-    setEmail(''); setPassword(''); setName(''); setCity(''); setOtp('')
-    setMyRestaurants([]); setCustomerVouchers([]); setOrders([])
-    // Re-seed the phone field from whatever survived above, so the
-    // remembered number reappears on the login screen (the mount effect
-    // only runs on a fresh page load).
-    const { phone: savedPhone, country: savedCountry } = readSavedPhone()
-    setPhone(savedPhone)
-    setPhoneCountry(savedCountry)
-    setStep('login')
+    window.location.href = '/'
   }
 
   // ── Vendor: restaurant actions ──
@@ -1007,186 +769,6 @@ export default function AccountPage() {
       <TopNav />
 
       <div className={containerClass}>
-
-        {/* ── Login ── */}
-        {step === 'login' && (
-          <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
-            <div className="text-center mb-5">
-              <div className="text-5xl mb-3">👤</div>
-              <h1 className="text-xl font-bold text-ink-primary">{t('account.title')}</h1>
-            </div>
-
-            {/* Login tabs */}
-            <div className="flex bg-surface-muted rounded-2xl p-1 mb-5 gap-1">
-              <button
-                onClick={() => { setLoginTab('customer'); setError('') }}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'customer' ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'}`}
-              >
-                {t('account.tabCustomer')}
-              </button>
-              <button
-                onClick={() => { setLoginTab('team'); setError('') }}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${loginTab === 'team' ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'}`}
-              >
-                {t('account.tabTeam')}
-              </button>
-            </div>
-
-            {loginTab === 'customer' && (
-              <form onSubmit={e => handleSendCode(e, 'whatsapp')} autoComplete="on" className="space-y-3">
-                <div>
-                  <label className="block text-xs text-ink-secondary mb-1">{t('account.phoneLbl')}</label>
-                  <PhoneInput
-                    value={phone}
-                    onChange={(full, meta) => { setPhone(full); setPhoneCountry(meta.country.iso) }}
-                    autoComplete="tel"
-                    name="phone"
-                    wrapperClassName="rounded-2xl"
-                  />
-                  <p className="text-xs text-ink-tertiary mt-1">{t('account.whatsappHint')}</p>
-                </div>
-                {error && <p className="text-xs text-danger">{error}</p>}
-                {/* Primary: WhatsApp (free). */}
-                <button
-                  type="submit"
-                  disabled={sending || smsSending || !phone.trim()}
-                  className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
-                >
-                  {sending ? t('account.sending') : bi('📱 Recevoir par WhatsApp', '📱 Get via WhatsApp')}
-                </button>
-                {/* Fallback: SMS, as a quiet link so it doesn't compete with
-                    the primary action. */}
-                <button
-                  type="button"
-                  onClick={() => handleSendCode(undefined, 'sms')}
-                  disabled={sending || smsSending || !phone.trim()}
-                  className="w-full text-ink-tertiary hover:text-ink-secondary disabled:text-ink-tertiary/60 text-sm py-1.5 transition-colors"
-                >
-                  {smsSending
-                    ? bi('Envoi du SMS…', 'Sending SMS…')
-                    : bi('Pas de WhatsApp ? Recevoir par SMS 💬', 'No WhatsApp? Get via SMS 💬')}
-                </button>
-              </form>
-            )}
-
-            {loginTab === 'team' && (
-              <form onSubmit={handleAdminLogin} autoComplete="on" className="space-y-3">
-                <div>
-                  <label className="block text-xs text-ink-secondary mb-1">{t('account.emailLbl')}</label>
-                  <input
-                    type="email" name="email" autoComplete="email"
-                    value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder={t('account.emailPh')}
-                    className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-ink-secondary mb-1">{t('account.passwordLbl')}</label>
-                  <input
-                    type="password" name="password" autoComplete="current-password"
-                    value={password} onChange={e => setPassword(e.target.value)}
-                    placeholder={t('account.passwordPh')}
-                    className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand"
-                  />
-                </div>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="w-4 h-4 rounded accent-brand" />
-                  <span className="text-sm text-ink-secondary">{t('account.rememberMe')}</span>
-                </label>
-                {error && <p className="text-xs text-danger">{error}</p>}
-                <button
-                  type="submit"
-                  disabled={loggingIn || !email.trim() || !password.trim()}
-                  className="w-full bg-ink-primary hover:bg-ink-secondary disabled:bg-ink-tertiary text-white py-3.5 rounded-2xl font-bold text-sm transition-colors"
-                >
-                  {loggingIn ? t('account.loggingIn') : t('account.loginBtn')}
-                </button>
-              </form>
-            )}
-          </div>
-        )}
-
-        {/* ── Register ── */}
-        {step === 'register' && (
-          <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
-            <div className="text-center mb-6">
-              <div className="text-5xl mb-3">🎉</div>
-              <h1 className="text-xl font-bold text-ink-primary">{t('account.setupBtn')}</h1>
-              <p className="text-sm text-brand-darker font-medium mt-1">{t('account.setupSub')}</p>
-            </div>
-            <form onSubmit={handleRegisterSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs text-ink-secondary mb-1">{t('account.nameLbl')}</label>
-                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder={t('account.namePh')}
-                  className="w-full border border-divider rounded-2xl px-4 py-3 text-sm outline-none focus:border-brand" />
-              </div>
-              {error && <p className="text-xs text-danger">{error}</p>}
-              <button type="submit" disabled={sending || !name.trim()}
-                className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors">
-                {sending ? t('account.sending') : bi('Créer mon compte', 'Create my account')}
-              </button>
-              <button type="button" onClick={() => { setStep('login'); setError(''); setSignupPass(null) }}
-                className="w-full text-ink-tertiary text-sm py-2 hover:text-ink-secondary transition-colors">
-                {t('account.changePhone')}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* ── OTP ── */}
-        {step === 'otp' && (
-          <div className="max-w-md mx-auto bg-white rounded-3xl shadow-sm p-6">
-            <div className="text-center mb-6">
-              <div className="text-5xl mb-3">💬</div>
-              <h1 className="text-xl font-bold text-ink-primary">{t('account.otpLbl')}</h1>
-              <p className="text-sm text-ink-secondary mt-1">{phone}</p>
-              {/* Confirm which channel actually delivered the code. */}
-              <p className="text-xs text-brand-darker font-medium mt-1">
-                {sentChannel === 'sms'
-                  ? bi('Code envoyé par SMS', 'Code sent via SMS')
-                  : bi('Code envoyé par WhatsApp', 'Code sent via WhatsApp')}
-              </p>
-            </div>
-            <OtpInput
-              value={otp}
-              onChange={setOtp}
-              onComplete={verifyOtp}
-              length={6}
-              autoFocus
-              disabled={verifying}
-            />
-            {error && <p className="text-xs text-danger mb-3">{error}</p>}
-            <button onClick={() => verifyOtp()} disabled={verifying || otp.length < 6}
-              className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-3.5 rounded-2xl font-bold text-sm transition-colors mb-3">
-              {verifying ? t('account.verifying') : t('account.verify')}
-            </button>
-            {(() => {
-              const hitLimit = resendCount >= 3
-              const disabled = resending || resendCooldown > 0 || hitLimit
-              const label = hitLimit
-                ? bi('Limite atteinte', 'Limit reached')
-                : resendCooldown > 0
-                  ? bi(`Renvoyer dans ${resendCooldown}s`, `Resend in ${resendCooldown}s`)
-                  : resending
-                    ? bi('Envoi…', 'Sending…')
-                    : bi('Renvoyer le code', 'Resend code')
-              return (
-                <button
-                  type="button"
-                  onClick={handleResendCode}
-                  disabled={disabled}
-                  className="w-full text-brand-darker hover:text-brand-dark disabled:text-ink-tertiary disabled:cursor-not-allowed text-sm font-semibold py-2 transition-colors"
-                >
-                  {label}
-                </button>
-              )
-            })()}
-            <button onClick={() => { setStep('login'); setOtp(''); setError(''); setResendCooldown(0); setResendCount(0) }}
-              className="w-full text-ink-tertiary text-sm py-2 hover:text-ink-secondary transition-colors">
-              {t('account.changePhone')}
-            </button>
-          </div>
-        )}
 
         {/* ── Dashboard ── */}
         {step === 'dashboard' && user && (

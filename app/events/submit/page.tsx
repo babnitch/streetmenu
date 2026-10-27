@@ -8,6 +8,7 @@ import Image from 'next/image'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
+import { loginHref } from '@/lib/lastPhone'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
@@ -286,12 +287,12 @@ export default function SubmitEventPage() {
         </h1>
         <p className="text-ink-secondary text-sm mb-6 max-w-xs">
           {bi(
-            'La publication d\'événements est réservée aux comptes connectés. C\'est rapide — un code par SMS suffit.',
-            'Publishing events requires a logged-in account. Quick — one SMS code is enough.',
+            'La publication d\'événements est réservée aux comptes connectés. C\'est rapide — un code par WhatsApp suffit.',
+            'Publishing events requires a logged-in account. Quick — one WhatsApp code is enough.',
           )}
         </p>
         <Link
-          href="/account?return=/events/submit"
+          href={loginHref('/events/submit')}
           className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
           {bi('Se connecter', 'Log in')}

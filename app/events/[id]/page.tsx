@@ -11,6 +11,7 @@ import { Event } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
+import { loginHref as loginGate } from '@/lib/lastPhone'
 import EventSocialPanel from '@/components/EventSocialPanel'
 import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
@@ -146,7 +147,7 @@ export default function EventDetailPage() {
   }, [])
 
   // Resume a booking the login gate interrupted. A signed-out visitor who taps
-  // Reserve is sent to /account?return=/events/<id>?reserve=1 (or =pay) and
+  // Reserve is sent to /login?return=/events/<id>?reserve=1 (or =pay) and
   // lands back here with the form already open, instead of having to find the
   // button again. Read synchronously on mount, like the ?tab= handling in
   // /account, so the flag is known before the first paint.
@@ -338,7 +339,7 @@ export default function EventDetailPage() {
   // session cookie is set. The resume flag rides along INSIDE the return path,
   // so the booking form reopens on arrival.
   const loginHref = (intent: 'reserve' | 'pay') =>
-    `/account?return=${encodeURIComponent(`/events/${event.id}?${multiDay && selectedDay ? `date=${selectedDay}&` : ''}reserve=${intent === 'pay' ? 'pay' : '1'}`)}`
+    loginGate(`/events/${event.id}?${multiDay && selectedDay ? `date=${selectedDay}&` : ''}reserve=${intent === 'pay' ? 'pay' : '1'}`)
 
   function openReserve(pay: boolean) {
     // Booking requires an account (the API returns 401 otherwise). Anyone can

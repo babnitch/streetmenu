@@ -4,6 +4,7 @@
 // the restaurant's own tools are gated by the viewer's role there.
 
 import { navFor, restaurantToolsFor } from '@/lib/navConfig'
+import { safeReturnPath, loginHref } from '@/lib/lastPhone'
 import { assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-nav-modes'
@@ -34,6 +35,14 @@ async function main(): Promise<void> {
     assertEq(tools('owner'), ['orders', 'menu', 'vouchers', 'validate', 'settings', 'team'], 'owner: everything')
     assertEq(tools('admin'), tools('owner'), 'platform admin = owner')
     assertEq(tools(null), ['orders', 'validate'], 'no role: the floor tools only')
+  })
+
+  await step('login return path: same-site only, never the login screen', () => {
+    assertEq(safeReturnPath('/events/abc?reserve=1'), '/events/abc?reserve=1', 'a site path is kept')
+    for (const bad of ['//evil.com', 'https://evil.com', '/\\evil.com', '/login', '/login?return=/x', '/admin/login', '', null]) {
+      assertEq(safeReturnPath(bad as string | null), null, `${JSON.stringify(bad)} refused`)
+    }
+    assertEq(loginHref('/order'), '/login?return=%2Forder', 'gate link encodes the return path')
   })
 
   finish(SUITE)

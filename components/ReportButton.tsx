@@ -11,6 +11,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { loginHref } from '@/lib/lastPhone'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { REPORT_REASONS, type ReportTargetType, type ReportReason } from '@/lib/reports'
 
@@ -124,7 +125,7 @@ export default function ReportButton({ targetType, targetId, variant = 'full', l
                     {bi('Annuler', 'Cancel')}
                   </button>
                   <Link
-                    href="/account"
+                    href={loginHref(typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}`)}
                     className="flex-1 px-3 py-2 rounded-full text-sm font-semibold bg-brand text-white text-center"
                   >
                     {bi('Se connecter', 'Log in')}

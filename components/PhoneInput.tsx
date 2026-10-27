@@ -49,6 +49,11 @@ export interface PhoneInputProps {
   // Show inline validation error under the field. Default false because
   // some forms (login OTP) want to surface their own copy instead.
   showError?: boolean
+  // Keep every digit typed (up to 15): a trunk "0" or the dial code typed
+  // into the local part ("0670000000", "237670000000"). The caller sends
+  // meta.local + the country to a server that normalises it
+  // (normalizeTypedPhone). Used by /login.
+  freeLocal?: boolean
 }
 
 // Country selector + local number input combined into one control.
@@ -77,6 +82,7 @@ export default function PhoneInput({
   id,
   name,
   showError = false,
+  freeLocal = false,
 }: PhoneInputProps) {
   const { city } = useCity()
   const { locale } = useLanguage()
@@ -190,7 +196,7 @@ export default function PhoneInput({
     // 15 digits so typing past the cap is rejected but every keystroke
     // before that is preserved. The previous code used .slice(0, 0)
     // for non-platform countries, which silently dropped every digit.
-    const maxLen = meta.localLength > 0 ? meta.localLength : 15
+    const maxLen = meta.localLength > 0 && !freeLocal ? meta.localLength : 15
     const digits = raw.replace(/\D/g, '').slice(0, maxLen)
     setLocal(digits)
     emit(digits, country)

@@ -14,7 +14,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname()
   const { t } = useLanguage()
 
-  const isLoginPage = pathname === '/admin'
+  // /admin/login is the team's email login (the main admin console lives on
+  // /account); it renders on its own, outside this legacy layout.
+  const isLoginPage = pathname === '/admin' || pathname === '/admin/login'
 
   useEffect(() => {
     if (isLoginPage) {

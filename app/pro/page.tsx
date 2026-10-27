@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import TopNav from '@/components/TopNav'
+import { loginHref } from '@/lib/lastPhone'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
 
@@ -56,7 +57,7 @@ export default function ProHomePage() {
                 <p className="text-sm text-ink-secondary mb-4">
                   {bi('Connectez-vous pour gérer vos restaurants et événements.', 'Log in to manage your restaurants and events.')}
                 </p>
-                <Link href="/account?return=/pro"
+                <Link href={loginHref('/pro')}
                   className="inline-block bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">
                   🔐 {bi('Se connecter', 'Log in')}
                 </Link>

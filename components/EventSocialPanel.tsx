@@ -11,6 +11,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import { loginHref } from '@/lib/lastPhone'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import ReportButton from '@/components/ReportButton'
 
@@ -215,7 +216,7 @@ export default function EventSocialPanel({ eventId }: { eventId: string }) {
             {liked ? <>💖 {bi('Aimé', 'Liked')}</> : <>❤️ {bi('J\'aime', 'Like')}</>}
           </button>
         ) : (
-          <Link href="/account?return=" className="text-xs text-brand hover:text-brand-dark font-semibold underline">
+          <Link href={loginHref(`/events/${eventId}`)} className="text-xs text-brand hover:text-brand-dark font-semibold underline">
             {bi('Connectez-vous', 'Log in')}
           </Link>
         )}
@@ -254,7 +255,7 @@ export default function EventSocialPanel({ eventId }: { eventId: string }) {
           </div>
         ) : (
           <div className="mb-4 text-center bg-surface-muted rounded-xl py-3 px-4 text-xs text-ink-tertiary">
-            <Link href="/account?return=" className="text-brand hover:text-brand-dark font-semibold underline">
+            <Link href={loginHref(`/events/${eventId}`)} className="text-brand hover:text-brand-dark font-semibold underline">
               {bi('Connectez-vous pour commenter', 'Log in to comment')}
             </Link>
           </div>

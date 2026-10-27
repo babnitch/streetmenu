@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import TopNav from '@/components/TopNav'
+import { loginHref } from '@/lib/lastPhone'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useMode, type DashboardTab, type TeamRole } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel, type RestaurantTool } from '@/lib/navConfig'
@@ -64,7 +65,7 @@ export default function ProRestaurantsPage() {
             {sessionRole ? (
               <p className="text-sm text-ink-secondary">{bi('Réservé aux comptes clients.', 'For customer accounts only.')}</p>
             ) : (
-              <Link href="/account?return=/pro/restaurants"
+              <Link href={loginHref('/pro/restaurants')}
                 className="inline-block bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">
                 🔐 {bi('Se connecter', 'Log in')}
               </Link>

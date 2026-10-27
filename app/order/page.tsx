@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { loginHref } from '@/lib/lastPhone'
 import Image from 'next/image'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
@@ -804,7 +805,7 @@ export default function OrderPage() {
                   <span className="text-brand-dark">Log in to track your orders.</span>
                 </p>
                 <Link
-                  href="/account"
+                  href={loginHref('/order')}
                   className="text-xs font-semibold bg-surface text-brand-darker px-3 py-1.5 rounded-full border border-brand-badge/60 hover:bg-brand-badge/20 transition-colors flex-shrink-0"
                 >
                   {bi('Se connecter', 'Log in')}

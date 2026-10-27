@@ -107,7 +107,7 @@ async function main(): Promise<void> {
   })
 
   await step('#44 the public pages render', async () => {
-    for (const path of ['/', '/events', `/restaurant/${MERESTO_ID}`]) {
+    for (const path of ['/', '/events', `/restaurant/${MERESTO_ID}`, '/login', '/admin/login']) {
       const r = await api(path)
       assertEq(r.status, 200, `${path} → 200`)
       // Non-trivial HTML, not a blank shell or an error page. Length only —

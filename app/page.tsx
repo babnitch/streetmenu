@@ -373,7 +373,7 @@ export default function HomePage() {
       {!authLoading && !user && !bannerDismissed && (
         <div className="bg-brand-light text-brand-darker border-b border-divider">
           <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
-            <Link href="/account" className="text-sm font-semibold flex-1 hover:underline">
+            <Link href="/login" className="text-sm font-semibold flex-1 hover:underline">
               🎉 {t('banner.text')} — {t('banner.cta')}
             </Link>
             <button
