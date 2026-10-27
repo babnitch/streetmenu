@@ -88,6 +88,11 @@ async function main(): Promise<void> {
       assertEq(signed.status, 400, `logged in → past the gate (400 not multipart, got ${signed.status})`)
     })
 
+    await step('the old /admin password login is gone', async () => {
+      const r = await api('/api/admin/auth', { body: { password: 'x' } })
+      assertEq(r.status, 404, 'POST /api/admin/auth → 404')
+    })
+
     await step('check-phone is gone (no account lookup by strangers)', async () => {
       const r = await api(`/api/auth/check-phone?phone=${encodeURIComponent(known.phone)}`)
       assertEq(r.status, 404, 'HTTP 404')

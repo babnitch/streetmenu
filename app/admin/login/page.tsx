@@ -6,10 +6,17 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useBi } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
+import { safeReturnPath } from '@/lib/lastPhone'
 
 // /admin/login — the Tchop & Ndjoka team's email + password login (moved
-// out of the customer login screen). On success the admin console opens on
-// /account.
+// out of the customer login screen). On success: back to ?return= (an
+// /admin/… page), else the admin console on /account.
+// Only /admin/… pages are valid targets here.
+function adminReturn(): string | null {
+  const r = safeReturnPath(new URLSearchParams(window.location.search).get('return'))
+  return r && r.startsWith('/admin/') ? r : null
+}
+
 export default function AdminEmailLoginPage() {
   const bi = useBi()
   const [email, setEmail] = useState('')
@@ -21,7 +28,7 @@ export default function AdminEmailLoginPage() {
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
       .then(r => r.json())
-      .then(d => { if (d?.user) window.location.replace('/account') })
+      .then(d => { if (d?.user) window.location.replace(adminReturn() ?? '/account') })
       .catch(() => {})
   }, [])
 
@@ -36,7 +43,7 @@ export default function AdminEmailLoginPage() {
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) { setError(d.error ?? bi('Identifiants incorrects', 'Incorrect credentials')); setPassword(''); return }
-      window.location.href = '/account'
+      window.location.href = adminReturn() ?? '/account'
     } catch {
       setError(bi('Erreur réseau — réessayez.', 'Network error — please try again.'))
     } finally {

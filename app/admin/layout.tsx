@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
@@ -10,35 +10,42 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const bi = useBi()
   const [authed, setAuthed] = useState(false)
   const [checking, setChecking] = useState(true)
-  const router = useRouter()
   const pathname = usePathname()
   const { t } = useLanguage()
 
-  // /admin/login is the team's email login (the main admin console lives on
-  // /account); it renders on its own, outside this legacy layout.
-  const isLoginPage = pathname === '/admin' || pathname === '/admin/login'
+  // /admin/login renders on its own. Every other /admin page needs the
+  // real admin login (the session cookie the admin APIs check); the old
+  // password + browser token is gone. Logged out → /admin/login, which
+  // brings the visitor back here.
+  const isLoginPage = pathname === '/admin/login'
 
   useEffect(() => {
     if (isLoginPage) {
       setChecking(false)
       return
     }
-    // Storage access can throw outright when site data is blocked. Treat
-    // that as "no token" — the visitor is bounced to the login page
-    // rather than the layout crashing on the way in.
-    let token: string | null = null
-    try { token = localStorage.getItem('adminToken') } catch {}
-    if (!token) {
-      router.replace('/admin')
-    } else {
-      setAuthed(true)
-    }
-    setChecking(false)
-  }, [isLoginPage, router])
+    let cancelled = false
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return
+        if (d?.user && ['super_admin', 'admin', 'moderator'].includes(d.user.role)) {
+          // /admin itself has no page of its own: the console is /account.
+          if (pathname === '/admin') { window.location.replace('/account'); return }
+          setAuthed(true)
+          setChecking(false)
+        } else {
+          const back = pathname === '/admin' ? '' : `?return=${encodeURIComponent(pathname)}`
+          window.location.replace(`/admin/login${back}`)
+        }
+      })
+      .catch(() => { if (!cancelled) window.location.replace('/admin/login') })
+    return () => { cancelled = true }
+  }, [isLoginPage, pathname])
 
-  function logout() {
-    try { localStorage.removeItem('adminToken') } catch {}
-    router.replace('/admin')
+  async function logout() {
+    try { await fetch('/api/auth/logout', { method: 'POST' }) } catch {}
+    window.location.href = '/admin/login'
   }
 
   if (checking) {
