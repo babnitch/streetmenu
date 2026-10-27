@@ -564,7 +564,7 @@ export default function DashboardPage() {
           <div className="text-5xl mb-4">🏪</div>
           <h2 className="text-xl font-bold text-ink-primary mb-2">{t('dash.noRest')}</h2>
           <p className="text-ink-secondary mb-4">{t('dash.noRestSub')}</p>
-          <Link href="/" className="text-brand underline">{t('dash.backToMap')}</Link>
+          <Link href="/restaurants" className="text-brand underline">{t('dash.backToMap')}</Link>
         </div>
       </div>
     )

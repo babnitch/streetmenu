@@ -114,7 +114,7 @@ export default function SideMenu({
 
         <nav className="flex-1 py-2">
           {!loggedIn && <Heading>{bi('Explorer', 'Explore')}</Heading>}
-          <Item href="/" onClick={onClose} icon="🍽️">{bi('Restaurants', 'Restaurants')}</Item>
+          <Item href="/restaurants" onClick={onClose} icon="🍽️">{bi('Restaurants', 'Restaurants')}</Item>
           <Item href="/events" onClick={onClose} icon="🎉">{bi('Événements', 'Events')}</Item>
           {/* Plain links (full load): /account reads ?tab= when it loads, so
               a soft navigation from /account itself would not switch tab. */}

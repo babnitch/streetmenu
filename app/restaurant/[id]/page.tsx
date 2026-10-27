@@ -105,7 +105,7 @@ export default function MenuPage() {
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="text-center">
           <p className="text-ink-secondary mb-4">{t('menu.notFound')}</p>
-          <Link href="/" className="text-brand-dark underline">{t('menu.goBack')}</Link>
+          <Link href="/restaurants" className="text-brand-dark underline">{t('menu.goBack')}</Link>
         </div>
       </div>
     )
@@ -124,7 +124,7 @@ export default function MenuPage() {
           <div className="text-5xl mb-4">🏪</div>
           <p className="text-ink-primary font-semibold mb-1">Ce restaurant n&apos;est pas disponible</p>
           <p className="text-ink-secondary text-sm mb-4">This restaurant is not available.</p>
-          <Link href="/" className="text-brand-dark underline">{t('menu.goBack')}</Link>
+          <Link href="/restaurants" className="text-brand-dark underline">{t('menu.goBack')}</Link>
         </div>
       </div>
     )

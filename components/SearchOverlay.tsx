@@ -7,16 +7,24 @@ import { useBi } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import RestaurantCard, { RestaurantCardSkeleton, type RatingSummary } from './RestaurantCard'
 import { normalizeCuisine } from '@/lib/cuisineCategories'
+import Link from 'next/link'
+import { useLanguage } from '@/lib/languageContext'
+import { isPastEvent, formatEventWhen, EVENT_DATE_COLUMNS, type EventWhen } from '@/lib/eventDate'
 
-// Full-screen mobile search, opened from the BottomNav 🔍 tab.
+interface SearchEvent extends EventWhen { id: string; title: string; category: string | null; venue: string | null; neighborhood: string | null; description: string | null }
+
+// Full-screen search, opened from the BottomNav 🔍 tab (mobile) and from the
+// home page's big search field (mobile and desktop: `desktop`).
 //
-// Searches four things at once:
+// Searches five things at once:
 //   1. restaurant names       — local, over the city's restaurant list
 //   2. cuisines               — same list, cuisine_type + description
 //   3. neighborhoods          — same list, neighborhood + address
 //   4. menu items             — a debounced `menu_items` query; a hit
 //                               surfaces the restaurant that serves it,
 //                               labelled with the matching dish
+//   5. events                 — the city's upcoming events (title,
+//                               category, venue, neighbourhood, description)
 //
 // Recent queries live in localStorage (most-recent-first, capped) so the
 // overlay feels like a native app's search tab across sessions.
@@ -36,8 +44,10 @@ function writeRecents(list: string[]) {
   try { localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, RECENTS_MAX))) } catch {}
 }
 
-export default function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function SearchOverlay({ open, onClose, desktop = false }: { open: boolean; onClose: () => void; desktop?: boolean }) {
   const bi = useBi()
+  const { locale } = useLanguage()
+  const [events, setEvents] = useState<SearchEvent[]>([])
   const { city } = useCity()
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -112,6 +122,20 @@ export default function SearchOverlay({ open, onClose }: { open: boolean; onClos
     return () => { cancelled = true }
   }, [open, city])
 
+  // The city's upcoming events, loaded with the restaurants.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    supabase.from('events')
+      .select(`id, title, category, venue, neighborhood, description, ${EVENT_DATE_COLUMNS}`)
+      .eq('is_active', true).eq('city', city)
+      .order('date', { ascending: true }).limit(200)
+      .then(({ data }) => {
+        if (!cancelled) setEvents(((data ?? []) as unknown as SearchEvent[]).filter(e => !isPastEvent(e)))
+      })
+    return () => { cancelled = true }
+  }, [open, city])
+
   // Debounced menu-item search. `menu_items` is publicly readable (see
   // supabase-rls-policies.sql) but only for active restaurants, so the
   // result set is already scoped for us.
@@ -168,12 +192,19 @@ export default function SearchOverlay({ open, onClose }: { open: boolean; onClos
     return [...direct, ...viaMenu]
   }, [query, restaurants, menuHits])
 
+  const eventResults = useMemo(() => {
+    const q = normalizeCuisine(query.trim())
+    if (!q) return [] as SearchEvent[]
+    return events.filter(e => normalizeCuisine([e.title, e.category, e.venue, e.neighborhood, e.description]
+      .filter(Boolean).join(' ')).includes(q)).slice(0, 20)
+  }, [query, events])
+
   if (!open) return null
 
   const trimmed = query.trim()
 
   return (
-    <div className="md:hidden fixed inset-0 z-50 bg-surface flex flex-col">
+    <div className={`${desktop ? '' : 'md:hidden '}fixed inset-0 z-50 bg-surface flex flex-col`}>
       {/* Search bar */}
       <div className="flex-shrink-0 border-b border-divider px-3 py-2.5 flex items-center gap-2">
         <button
@@ -197,7 +228,7 @@ export default function SearchOverlay({ open, onClose }: { open: boolean; onClos
               value={query}
               onChange={e => setQuery(e.target.value)}
               enterKeyHint="search"
-              placeholder={bi('Plats, restaurants, quartiers…', 'Dishes, restaurants, areas…')}
+              placeholder={bi('Un plat, un restaurant, un événement…', 'A dish, a restaurant, an event…')}
               className="w-full bg-surface-muted border border-transparent focus:border-brand focus:bg-surface rounded-full pl-9 pr-9 py-2.5 text-sm text-ink-primary placeholder-ink-tertiary outline-none transition-colors"
             />
             {query && (
@@ -261,14 +292,31 @@ export default function SearchOverlay({ open, onClose }: { open: boolean; onClos
               <div className="grid grid-cols-2 gap-3">
                 {Array.from({ length: 4 }).map((_, i) => <RestaurantCardSkeleton key={i} />)}
               </div>
-            ) : results.length > 0 ? (
+            ) : results.length > 0 || eventResults.length > 0 ? (
               <>
-                <p className="text-xs text-ink-secondary mb-3">
+                {eventResults.length > 0 && (
+                  <div className="mb-5">
+                    <h2 className="text-sm font-bold text-ink-primary mb-2">🎉 {bi('Événements', 'Events')}</h2>
+                    <ul className="divide-y divide-divider bg-white rounded-2xl border border-divider">
+                      {eventResults.map(e => (
+                        <li key={e.id}>
+                          <Link href={`/events/${e.id}`} onClick={() => { commitRecent(query); onClose() }}
+                            className="flex flex-col px-3 py-2.5 hover:bg-surface-muted">
+                            <span className="text-sm font-semibold text-ink-primary truncate">{e.title}</span>
+                            <span className="text-xs text-ink-tertiary truncate">📅 {formatEventWhen(e, locale, 'card')}{e.venue ? ` · 📍 ${e.venue}` : ''}</span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {results.length > 0 && <h2 className="text-sm font-bold text-ink-primary mb-2">🍽️ {bi('Restaurants', 'Restaurants')}</h2>}
+                <p className={`text-xs text-ink-secondary mb-3 ${results.length === 0 ? 'hidden' : ''}`}>
                   <span className="font-semibold text-ink-primary">{results.length}</span>{' '}
                   {bi('résultat(s)', 'result(s)')} · {city}
                   {menuSearching && <span className="text-ink-tertiary"> · {bi('recherche des plats…', 'searching dishes…')}</span>}
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className={`grid grid-cols-2 ${desktop ? 'md:grid-cols-4' : ''} gap-3`}>
                   {results.map(r => (
                     <div key={r.id}>
                       <RestaurantCard

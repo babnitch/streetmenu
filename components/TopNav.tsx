@@ -117,7 +117,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // Map icon only makes sense on the two map-bearing client-mode surfaces.
   // In Pro mode the TopNav shows operations links instead.
   const showMapBtn  = effectiveMode === 'client'
-                    && (pathname === '/' || pathname === '/events')
+                    && (pathname === '/restaurants' || pathname === '/events')
 
   // Nav row. Same source as the mobile BottomNav — see lib/navConfig.ts.
   // This bar renders the ROUTE destinations only: Search stays the inline
@@ -284,7 +284,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <CityDropdown />
         </div>
 
-        {/* Desktop-only inline search — submits to /?q=...#search so the
+        {/* Desktop-only inline search — submits to /restaurants?q=...#search so the
             home page seeds its own search input. On pages other than /,
             this is a jump-to-results shortcut. Hidden on mobile; the
             home page search input + BottomNav Search tab cover mobile.
@@ -295,7 +295,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             onSubmit={e => {
               e.preventDefault()
               const q = searchDraft.trim()
-              router.push(q ? `/?q=${encodeURIComponent(q)}#search` : '/')
+              router.push(q ? `/restaurants?q=${encodeURIComponent(q)}#search` : '/restaurants')
             }}
             className="hidden md:flex flex-1 max-w-md"
             role="search"

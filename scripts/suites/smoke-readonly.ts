@@ -106,8 +106,19 @@ async function main(): Promise<void> {
     assert(me.status > 0 && me.status < 500, `auth/me answers (${me.status}) — the app is up`)
   })
 
+  await step('home "Populaires": public, city-checked, ranked lists only', async () => {
+    const bad = await api('/api/popular?city=Paris')
+    assertEq(bad.status, 400, 'unknown city → 400')
+    const r = await api<{ restaurants?: Array<{ id: string; name: string }>; events?: Array<{ id: string; title: string }> }>(
+      `/api/popular?city=${encodeURIComponent('Yaoundé')}`)
+    assertEq(r.status, 200, 'Yaoundé → 200')
+    assert(Array.isArray(r.body.restaurants) && Array.isArray(r.body.events), 'two lists')
+    assert((r.body.restaurants ?? []).length <= 6 && (r.body.events ?? []).length <= 6, 'at most 6 each')
+    assert(!/count|phone|customer/i.test(r.raw), 'no counts or personal data in the answer')
+  })
+
   await step('#44 the public pages render', async () => {
-    for (const path of ['/', '/events', `/restaurant/${MERESTO_ID}`, '/login', '/admin/login']) {
+    for (const path of ['/', '/restaurants', '/events', `/restaurant/${MERESTO_ID}`, '/login', '/admin/login']) {
       const r = await api(path)
       assertEq(r.status, 200, `${path} → 200`)
       // Non-trivial HTML, not a blank shell or an error page. Length only —

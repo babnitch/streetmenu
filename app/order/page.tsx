@@ -444,7 +444,7 @@ export default function OrderPage() {
           <h2 className="text-xl font-bold text-ink-primary mb-2">{t('order.emptyTitle')}</h2>
           <p className="text-ink-secondary mb-6">{t('order.emptySub')}</p>
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/restaurants')}
             className="bg-brand text-white px-6 py-3 rounded-full font-semibold hover:bg-brand-dark transition-colors"
           >
             {t('order.exploreBtn')}
@@ -500,7 +500,7 @@ export default function OrderPage() {
                 📦 {bi('Voir mes commandes', 'View my orders')}
               </Link>
               <button
-                onClick={() => router.push('/')}
+                onClick={() => router.push('/restaurants')}
                 className="block text-ink-secondary text-sm py-2 w-full hover:text-ink-primary transition-colors"
               >
                 {t('order.backToMap')}
@@ -508,7 +508,7 @@ export default function OrderPage() {
             </div>
           ) : (
             <button
-              onClick={() => router.push('/')}
+              onClick={() => router.push('/restaurants')}
               className="bg-brand hover:bg-brand-dark text-white px-6 py-3 rounded-full font-semibold transition-colors w-full"
             >
               {t('order.backToMap')}
@@ -568,7 +568,7 @@ export default function OrderPage() {
             {bi('Réessayer / Retry', 'Retry / Réessayer')}
           </button>
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/restaurants')}
             className="text-ink-secondary text-sm py-2 hover:text-ink-primary transition-colors"
           >
             {t('order.backToMap')}

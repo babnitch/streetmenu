@@ -105,8 +105,9 @@ const CLIENT_NAV: readonly NavDestination[] = [
     key: 'restaurants', icon: '🏠',
     // Same word in both locales — kept explicit rather than special-cased.
     labelFr: 'Restaurants', labelEn: 'Restaurants',
-    href: '/',
-    match: p => p === '/' || p.startsWith('/restaurant'),
+    // The list lives on /restaurants (L4); / is the landing page.
+    href: '/restaurants',
+    match: p => p.startsWith('/restaurant'),
   },
   {
     key: 'events', icon: '🎉',

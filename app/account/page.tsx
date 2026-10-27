@@ -1225,7 +1225,7 @@ export default function AccountPage() {
                               <div className="text-center py-12">
                                 <div className="text-4xl mb-3">📋</div>
                                 <p className="text-ink-tertiary text-sm">{t('account.noOrders')}</p>
-                                <Link href="/" className="mt-4 inline-block text-brand text-sm font-semibold underline">
+                                <Link href="/restaurants" className="mt-4 inline-block text-brand text-sm font-semibold underline">
                                   {bi('Explorer les restaurants', 'Browse restaurants')}
                                 </Link>
                               </div>
