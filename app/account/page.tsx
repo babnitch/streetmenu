@@ -1588,8 +1588,8 @@ export default function AccountPage() {
                       <MenuLanguageRow />
 
                       {/* Client ⇄ Pro switcher (components/ModeToggle.tsx,
-                          the same component as the desktop banner and the
-                          header pill). Every logged-in customer gets it. */}
+                          the same component as the desktop banner). Every
+                          logged-in customer gets it. */}
                       <ModeToggle variant="row" />
 
                       <SignOutRow label={t('account.signOut')} onClick={handleSignOut} />

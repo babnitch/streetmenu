@@ -6,6 +6,7 @@ import { useMode, type Mode } from '@/lib/modeContext'
 
 // ModeToggle — THE switcher for Client ⇄ Pro, for every logged-in customer
 // (admins and logged-out visitors don't see it: `canEnterPro` is false).
+// It lives on the Account page only (mobile row, desktop banner).
 //
 // Switching NAVIGATES to the mode's home:
 //   - Pro → Orders (/dashboard) with a restaurant, else My events when the
@@ -18,8 +19,7 @@ import { useMode, type Mode } from '@/lib/modeContext'
 //   - "banner"  — a full-width card with help text; the desktop profile tab.
 //   - "row"     — a MenuRow-shaped list item; the mobile account menu.
 //   - "compact" — a two-option switch, full width.
-//   - "header"  — a small two-option pill for the top bar.
-export default function ModeToggle({ variant = 'compact' }: { variant?: 'banner' | 'row' | 'compact' | 'header' }) {
+export default function ModeToggle({ variant = 'compact' }: { variant?: 'banner' | 'row' | 'compact' }) {
   const { effectiveMode, setMode, canEnterPro, hasRestaurantRole, loading, setDashboardTab } = useMode()
   const router   = useRouter()
   const pathname = usePathname() ?? ''
@@ -105,7 +105,7 @@ export default function ModeToggle({ variant = 'compact' }: { variant?: 'banner'
     )
   }
 
-  return <SegmentedToggle mode={mode} onChange={switchTo} size={variant === 'header' ? 'xs' : 'sm'} />
+  return <SegmentedToggle mode={mode} onChange={switchTo} size="sm" />
 }
 
 function SegmentedToggle({
@@ -113,14 +113,14 @@ function SegmentedToggle({
 }: {
   mode: Mode
   onChange: (m: Mode) => void
-  size: 'xs' | 'sm' | 'lg'
+  size: 'sm' | 'lg'
 }) {
-  const pad = size === 'lg' ? 'px-4 py-2.5 text-sm' : size === 'sm' ? 'px-3 py-1.5 text-xs' : 'px-2.5 py-1 text-[11px]'
+  const pad = size === 'lg' ? 'px-4 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'
   return (
     <div
       role="group"
       aria-label="Client / Pro"
-      className={`inline-flex bg-surface-muted rounded-full p-0.5 ${size === 'xs' ? '' : 'w-full'}`}
+      className="inline-flex bg-surface-muted rounded-full p-0.5 w-full"
     >
       <ToggleOption active={mode === 'client'} onClick={() => onChange('client')} pad={pad} label="Client" />
       <ToggleOption active={mode === 'pro'} onClick={() => onChange('pro')} pad={pad} label="Pro" />

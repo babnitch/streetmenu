@@ -7,7 +7,6 @@ import { useCart } from '@/lib/cartContext'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
-import ModeToggle from './ModeToggle'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
@@ -203,8 +202,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             separate commit, so this bar is otherwise left alone. */}
         {!isAdmin && <CityDropdown />}
         <div className="flex items-center gap-2">
-          {/* Client ⇄ Pro for every logged-in customer (null otherwise). */}
-          <ModeToggle variant="header" />
           {authChecked && me === null && <LanguageToggle />}
           <Link
             href="/account"
@@ -433,9 +430,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
               📶
             </button>
           )}
-
-          {/* Client ⇄ Pro for every logged-in customer (null otherwise). */}
-          <ModeToggle variant="header" />
 
           {/* Language toggle — last in the cluster, visible on every page
               and every breakpoint. Secondary copy lives in /account. */}
