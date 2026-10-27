@@ -80,6 +80,20 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
         ],
       },
+      // Team pages — never indexed by search engines (no robots.txt entry:
+      // that file is public and would advertise the path).
+      {
+        source: '/admin/:path*',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        ],
+      },
+      {
+        source: '/admin',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        ],
+      },
       // API responses — never cached anywhere. Most routes are auth-gated
       // dynamic lookups; a stale cached response is worse than an extra
       // roundtrip.

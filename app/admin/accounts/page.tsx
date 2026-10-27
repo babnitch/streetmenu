@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
 import MessageLogPanel from '@/components/MessageLogPanel'
+import TeamLoginsPanel from '@/components/TeamLoginsPanel'
 import { CLIENT_LABEL, roleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -337,6 +338,9 @@ export default function AdminAccountsPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
+      {/* Team login log — super_admin / admin only (the API refuses others). */}
+      {(currentRole === 'super_admin' || currentRole === 'admin') && <TeamLoginsPanel />}
+
       {/* Toast */}
       {toast && (
         <div className={`fixed top-5 right-5 z-[100] px-5 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white max-w-sm ${toast.ok ? 'bg-brand' : 'bg-danger'}`}>

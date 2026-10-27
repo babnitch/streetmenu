@@ -3,7 +3,6 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import OtpInput from '@/components/OtpInput'
@@ -56,6 +55,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState<null | Channel | 'verify' | 'name' | 'resend'>(null)
   const [error, setError] = useState('')
   const [cooldown, setCooldown] = useState(0)
+  const [teamSession, setTeamSession] = useState(false)
 
   // Return target, remembered number, and "already logged in?".
   useEffect(() => {
@@ -74,8 +74,12 @@ export default function LoginPage() {
           if (q.get('intent') === 'pro') persistMode('pro')
           window.location.replace(ret ?? (q.get('intent') === 'pro' ? '/pro' : '/account'))
         }
-        else if (d?.user) window.location.replace('/account')
-        else setStep('phone')
+        else {
+          // A team session in this browser: say that logging in as a client
+          // will replace it (one browser = one session).
+          if (d?.user) setTeamSession(true)
+          setStep('phone')
+        }
       })
       .catch(() => setStep('phone'))
   }, [])
@@ -211,6 +215,12 @@ export default function LoginPage() {
                 {bi('Un code vous sera envoyé pour vérifier votre numéro.', 'We\'ll send you a code to check your number.')}
               </p>
             </div>
+            {teamSession && (
+              <p className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2 mb-3" role="status">
+                {bi('Vous êtes connecté comme équipe. Se connecter comme client fermera la session équipe dans ce navigateur.',
+                  'You are logged in as team. Logging in as a customer will end the team session in this browser.')}
+              </p>
+            )}
             <form onSubmit={e => { e.preventDefault(); sendCode('whatsapp') }} className="space-y-3" autoComplete="on">
               <label className="block text-xs text-ink-secondary">{bi('Numéro de téléphone', 'Phone number')}</label>
               <PhoneInput
@@ -320,13 +330,6 @@ export default function LoginPage() {
           </div>
         )}
 
-        {step !== 'checking' && (
-          <p className="text-center mt-6">
-            <Link href="/admin/login" className="text-[11px] text-ink-tertiary hover:text-ink-secondary underline underline-offset-2">
-              {bi('Équipe Tchop & Ndjoka', 'Tchop & Ndjoka team')}
-            </Link>
-          </p>
-        )}
       </main>
     </div>
   )

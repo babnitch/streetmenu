@@ -15,7 +15,7 @@ export interface SessionPayload {
 }
 
 // Customers always get 30 days (login is a phone code; fewer logins also
-// means fewer paid messages). Admin logins keep "remember me": 24 h or 30 d.
+// means fewer paid messages). Team sessions: setAdminSession, 12 h.
 export function signSession(payload: SessionPayload, rememberMe = false): string {
   return jwt.sign(payload, SECRET, {
     expiresIn: rememberMe ? '30d' : '24h',
@@ -94,4 +94,20 @@ export function setCustomerSession(
   customer: { id: string; phone: string; name: string },
 ): NextResponse {
   return setSessionCookie(res, { id: customer.id, phone: customer.phone, name: customer.name, role: 'customer' }, true)
+}
+
+// Log a team member in (after the 2-step login): 12-hour session, no
+// "remember me".
+export const ADMIN_SESSION_SECONDS = 12 * 60 * 60
+
+export function setAdminSession(res: NextResponse, payload: SessionPayload): NextResponse {
+  const token = jwt.sign(payload, SECRET, { expiresIn: ADMIN_SESSION_SECONDS })
+  res.cookies.set(COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: ADMIN_SESSION_SECONDS,
+    path: '/',
+  })
+  return res
 }

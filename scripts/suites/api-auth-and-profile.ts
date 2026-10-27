@@ -20,6 +20,8 @@ import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import { api, customerCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeOrder } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
+import bcrypt from 'bcryptjs'
+import { staffCookie } from '../testkit/session'
 
 const SUITE = 'api-auth-and-profile'
 
@@ -261,6 +263,65 @@ async function main(): Promise<void> {
       assert(old.status >= 400, `the old public, ownerless signup is gone (HTTP ${old.status})`)
       const { data: none } = await sb.from('restaurants').select('id').eq('name', testName('c3_old_signup'))
       assertEq((none ?? []).length, 0, 'nothing created by it')
+    })
+
+    await step('team login: 2 steps, lockout, logs, 12-hour session', async () => {
+      // A throwaway team account. The local server runs with
+      // ADMIN_LOGIN_ALERTS=off, so its lock alert never reaches real phones.
+      const email = testName('team').toLowerCase().replace(/[^a-z0-9_]/g, '') + '@test.invalid'
+      const { data: adm, error } = await sb.from('admin_users').insert({
+        email, name: 'Test Team', role: 'moderator', status: 'active', phone: '+999280095',
+        password_hash: bcrypt.hashSync('Right-Password-1', 10),
+      } as never).select('id').single()
+      if (error || !adm) throw new Error(`team insert: ${error?.message}`)
+      const adminId = (adm as { id: string }).id
+      try {
+        const unknown = await api<{ error?: string }>('/api/auth/admin-login', { body: { email: 'nobody' + email, password: 'x' } })
+        const wrong = await api<{ error?: string }>('/api/auth/admin-login', { body: { email, password: 'wrong' } })
+        assertEq(unknown.status, 401, 'unknown email → 401')
+        assertEq(wrong.status, 401, 'wrong password → 401')
+        assertEq(unknown.body.error, wrong.body.error, 'same message: no telling whether the email exists')
+
+        const ok = await api<{ step?: string; challenge?: string }>('/api/auth/admin-login', { body: { email, password: 'Right-Password-1' } })
+        assert(ok.status === 200 || ok.status === 502, `right password → code step (HTTP ${ok.status}; 502 = dummy Twilio)`)
+        const { data: ch } = await sb.from('admin_login_challenges').select('id, code').eq('admin_id', adminId).eq('used', false).single()
+        const c = ch as { id: string; code: string }
+        assert(/^\d{6}$/.test(c.code), 'a 6-digit code is pending')
+        const { data: noSession } = await sb.from('admin_login_attempts').select('stage, success').eq('email', email).eq('success', true)
+        assertEq((noSession ?? []).map(r => (r as { stage: string }).stage), ['password'], 'the password alone opens no session')
+
+        const bad = await api<{ error?: string }>('/api/auth/admin-verify', { body: { challenge: c.id, code: c.code === '000000' ? '111111' : '000000' } })
+        assertEq(bad.status, 400, 'wrong code → 400')
+        const good = await postWithCookie('/api/auth/admin-verify', { challenge: c.id, code: c.code })
+        assertEq(good.status, 200, `right code → 200 (${JSON.stringify(good.body).slice(0, 100)})`)
+        assert(/Max-Age=43200/i.test(good.setCookie), 'team session lasts 12 hours')
+        const reuse = await api('/api/auth/admin-verify', { body: { challenge: c.id, code: c.code } })
+        assertEq(reuse.status, 400, 'a code works once')
+
+        // Failures so far for this email: wrong password + wrong code = 2.
+        for (let i = 0; i < 3; i++) await api('/api/auth/admin-login', { body: { email, password: 'wrong' } })
+        const locked = await api<{ locked?: boolean }>('/api/auth/admin-login', { body: { email, password: 'Right-Password-1' } })
+        assertEq(locked.status, 429, '5 failures → locked, even with the right password')
+        assertEq(locked.body.locked, true, 'says locked')
+        const { data: audit } = await sb.from('audit_log').select('action').eq('target_id', adminId)
+        const actions = new Set((audit ?? []).map(r => (r as { action: string }).action))
+        assert(actions.has('admin_login_success') && actions.has('admin_login_failed'), 'successes and failures are in the audit log')
+
+        // A suspended team member's open session ends.
+        const cookie = staffCookie({ id: adminId, email, name: 'Test Team', role: 'moderator' })
+        assertEq(((await api<{ user: { id: string } | null }>('/api/auth/me', { cookie })).body.user)?.id, adminId, 'team session works')
+        await sb.from('admin_users').update({ status: 'suspended' } as never).eq('id', adminId)
+        assertEq((await api<{ user: unknown }>('/api/auth/me', { cookie })).body.user, null, 'suspended → session ended')
+
+        const page = await fetch(`${BASE}/admin/login`)
+        assert(/noindex/i.test(page.headers.get('x-robots-tag') ?? ''), '/admin/login is noindex')
+      } finally {
+        const { data: att } = await sb.from('admin_login_attempts').select('id').or(`email.eq.${email},email.eq.nobody${email}`)
+        const ids = [adminId, ...(att ?? []).map(r => (r as { id: string }).id)]
+        await sb.from('audit_log').delete().in('target_id', ids)
+        await sb.from('admin_login_attempts').delete().in('id', ids)
+        await sb.from('admin_users').delete().eq('id', adminId)
+      }
     })
 
     await step('/api/auth/me ends the session of a suspended account', async () => {

@@ -33,9 +33,13 @@ export type ClaimResult =
   | { ok: true; sendId: string }
   | { ok: false; reason: ClaimReason | 'error'; retryAfter: number }
 
-export async function claimCodeSend(phone: string, ip: string, channel: 'whatsapp' | 'sms', fallback = false): Promise<ClaimResult> {
+// purpose 'team': admin login codes — same per-number / per-IP limits, but
+// outside the platform's daily cap (supabase-admin-login-hardening.sql).
+export async function claimCodeSend(
+  phone: string, ip: string, channel: 'whatsapp' | 'sms', fallback = false, purpose: 'customer' | 'team' = 'customer',
+): Promise<ClaimResult> {
   const { data, error } = await supabaseAdmin.rpc('auth_code_claim', {
-    p_phone: phone, p_ip: ip, p_channel: channel, p_fallback: fallback,
+    p_phone: phone, p_ip: ip, p_channel: channel, p_fallback: fallback, p_purpose: purpose,
   })
   if (error || !data) {
     console.error('[auth-codes] claim failed:', error?.message)
