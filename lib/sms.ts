@@ -4,6 +4,7 @@
 // (no `whatsapp:` prefix).
 
 import type { SendResult } from './whatsapp'
+import { blockedByTestGuard } from './testGuard'
 import { logMessage, statusCallbackUrl, type SendOptions } from '@/lib/messageLog'
 
 const ACCOUNT_SID    = process.env.TWILIO_ACCOUNT_SID!
@@ -25,6 +26,7 @@ export function smsConfigured(): boolean {
 // throws. Mirrors sendWhatsAppRaw so callers get a uniform shape — including
 // the message_log write on every outcome (see lib/messageLog.ts).
 export async function sendSMS(to: string, message: string, opts: SendOptions = {}): Promise<SendResult> {
+  if (blockedByTestGuard(to)) return { ok: false, status: 0, error: 'blocked by TEST_ONLY_PHONE_PREFIX', errorCode: 'test_guard' }
   // SMS uses the bare +E.164 destination — strip any whatsapp: prefix a
   // caller may have carried over.
   const destination = to.replace(/^whatsapp:/i, '')

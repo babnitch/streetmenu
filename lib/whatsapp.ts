@@ -1,6 +1,7 @@
 // Twilio WhatsApp notification service — server-only
 
 import { logMessage, statusCallbackUrl, type SendOptions } from '@/lib/messageLog'
+import { blockedByTestGuard } from '@/lib/testGuard'
 import { enqueueFailedSend } from '@/lib/messageRetry'
 
 // Re-exported so callers can type their options without a second import.
@@ -96,6 +97,7 @@ export interface SendResult {
 // outage can't delay or block the message; awaited so serverless doesn't
 // freeze the function before the insert lands.
 async function sendWhatsAppRaw(to: string, message: string, opts: SendOptions = {}): Promise<SendResult> {
+  if (blockedByTestGuard(to)) return { ok: false, status: 0, error: 'blocked by TEST_ONLY_PHONE_PREFIX', errorCode: 'test_guard' }
   const destination = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
   const url = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`
   const body = new URLSearchParams({ From: FROM, To: destination, Body: message })

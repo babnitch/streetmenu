@@ -5,6 +5,8 @@
 // here is instant and needs neither a server nor a customer row.
 
 import { normalizePhone, samePhone, uniquePhones } from '@/lib/phone'
+import { maskCodes } from '@/lib/messageLog'
+import { blockedByTestGuard } from '@/lib/testGuard'
 import {
   normalizeTypedPhone,
   COUNTRIES,
@@ -70,6 +72,22 @@ async function main(): Promise<void> {
     for (const bad of ['12', 'abc', '+237 12345', '']) {
       assertEq(normalizeTypedPhone(bad, CM).ok, false, `"${bad}" → refused`)
     }
+  })
+
+  await step('login codes are never stored readable', () => {
+    assertEq(maskCodes('verification_code', 'Votre code de vérification : 482913'), 'Votre code de vérification : ••••••', 'customer code masked')
+    assertEq(maskCodes('verification_code', 'Code de connexion / Login code: 0042'), 'Code de connexion / Login code: ••••••', 'short code masked')
+    assertEq(maskCodes('order_notification', 'Commande #1234 — 2500 FCFA'), 'Commande #1234 — 2500 FCFA', 'other messages untouched')
+  })
+
+  await step('test send guard: only the test range when set', () => {
+    const before = process.env.TEST_ONLY_PHONE_PREFIX
+    process.env.TEST_ONLY_PHONE_PREFIX = '+999'
+    assertEq(blockedByTestGuard('whatsapp:+999280001'), false, '+999 allowed')
+    assertEq(blockedByTestGuard('+237 699 00 00 02'), true, 'a real number blocked')
+    delete process.env.TEST_ONLY_PHONE_PREFIX
+    assertEq(blockedByTestGuard('+237699000002'), false, 'unset (production) → no effect')
+    if (before !== undefined) process.env.TEST_ONLY_PHONE_PREFIX = before
   })
 
   await step('uniquePhones — one entry per person, normalised', () => {

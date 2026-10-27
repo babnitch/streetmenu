@@ -92,6 +92,12 @@ export function normalizeLogNumber(value: string | null | undefined): string {
  * Returns the new row id when the insert succeeded, or null — callers
  * ignore the result today, it exists for tests.
  */
+// Login codes (customer and team) are never stored readable: anyone with
+// access to Admin → Messages could otherwise log in as that person.
+export function maskCodes(context: string | null | undefined, body: string): string {
+  return context === 'verification_code' ? body.replace(/\d{4,8}/g, '••••••') : body
+}
+
 export async function logMessage(input: LogInput): Promise<string | null> {
   if (input.skipLog) return null
   try {
@@ -103,7 +109,7 @@ export async function logMessage(input: LogInput): Promise<string | null> {
         channel:       input.channel,
         from_number:   normalizeLogNumber(input.from),
         to_number:     normalizeLogNumber(input.to),
-        body:          (input.body ?? '').slice(0,
+        body:          maskCodes(input.context, input.body ?? '').slice(0,
           input.context && RETRYABLE_CONTEXTS.has(input.context) ? MAX_LOGGED_RETRYABLE_BODY : MAX_LOGGED_BODY),
         status:        input.status,
         error_code:    input.errorCode ?? null,

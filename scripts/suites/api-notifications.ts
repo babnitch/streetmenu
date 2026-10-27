@@ -182,13 +182,13 @@ async function main(): Promise<void> {
       assertEq(bad.status, 400, 'unusable extra number → 400')
       assertEq(bad.body.field, 'notify_phone', 'error names the field')
       const r = await api<{ event_id?: string }>('/api/events/submit', {
-        cookie, body: { ...base, whatsapp: '+15555550100', notify_phone: '0699 00 00 02' },
+        cookie, body: { ...base, whatsapp: '+999 555 0100', notify_phone: '+999 260 0099' },
       })
       assertEq(r.status, 200, `HTTP 200 (${r.raw.slice(0, 120)})`)
       track('events', r.body.event_id)
       const { data: ev } = await sb.from('events').select('whatsapp, notify_phone').eq('id', r.body.event_id ?? '').single()
       assertEq((ev as { whatsapp: string }).whatsapp, org.phone, 'contact is the account phone (a typed one is ignored)')
-      assertEq((ev as { notify_phone: string }).notify_phone, '+237699000002', 'extra number normalised with the account country')
+      assertEq((ev as { notify_phone: string }).notify_phone, '+9992600099', 'extra number normalised (spaces removed)')
       const same = await api<{ event_id?: string }>('/api/events/submit', {
         cookie, body: { ...base, title: testName('c3_submit_same'), notify_phone: org.phone },
       })
@@ -197,13 +197,26 @@ async function main(): Promise<void> {
       assertEq((ev2 as { notify_phone: string | null }).notify_phone, null, 'the account number as "extra" → stored as none')
     })
 
+    await step('send guard: a real-looking number gets nothing and leaves no log row', async () => {
+      const cookie = customerCookie(org)
+      const real = '+237 699 00 00 09'
+      const r = await api<{ event_id?: string }>('/api/events/submit', {
+        cookie, body: { title: testName('c3_guard'), date: futureDateISO(20), city: testName('city'), category: 'Autre', ticket_price: 0, organizer_name: 'Asso', notify_phone: real },
+      })
+      assertEq(r.status, 200, 'submit still works')
+      track('events', r.body.event_id)
+      const { data } = await sb.from('message_log').select('id').in('to_number', ['+237699000009', 'whatsapp:+237699000009'])
+      assertEq((data ?? []).length, 0, 'no message (and no log row) to the real-looking number')
+      await sb.from('events').update({ notify_phone: null } as never).eq('id', r.body.event_id ?? '')
+    })
+
     await step('event edit: the extra number can be changed and cleared', async () => {
       const ev = await makeEvent({ organizerId: org.id, label: 'c3_edit' })
       const cookie = customerCookie(org)
-      const set = await api(`/api/events/${ev.id}`, { method: 'PATCH', cookie, body: { notify_phone: '+237 699 00 00 03' } })
+      const set = await api(`/api/events/${ev.id}`, { method: 'PATCH', cookie, body: { notify_phone: '+999 260 0098' } })
       assertEq(set.status, 200, 'PATCH → 200')
       let { data } = await sb.from('events').select('notify_phone').eq('id', ev.id).single()
-      assertEq((data as { notify_phone: string }).notify_phone, '+237699000003', 'saved normalised')
+      assertEq((data as { notify_phone: string }).notify_phone, '+9992600098', 'saved normalised')
       await api(`/api/events/${ev.id}`, { method: 'PATCH', cookie, body: { notify_phone: '' } })
       ;({ data } = await sb.from('events').select('notify_phone').eq('id', ev.id).single())
       assertEq((data as { notify_phone: string | null }).notify_phone, null, "'' clears it")

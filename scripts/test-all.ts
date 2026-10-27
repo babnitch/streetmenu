@@ -15,11 +15,13 @@ import { spawn, spawnSync } from 'child_process'
 import { readdirSync, existsSync } from 'fs'
 import { join, resolve } from 'path'
 import { randomBytes } from 'crypto'
-import { isSupabaseConfigured, BASE } from './testkit/env'
+import { isSupabaseConfigured, BASE, sb } from './testkit/env'
 import { RESULT_MARKER } from './testkit/assert'
 import { listLedgers, teardownFromLedger, dropLedger } from './testkit/ledger'
 
 const SUITES_DIR = resolve(process.cwd(), 'scripts', 'suites')
+// The only numbers a test may message (see lib/testGuard.ts).
+const TEST_PREFIX = '+999'
 const TSX = resolve(process.cwd(), 'node_modules', '.bin', 'tsx')
 
 type Group = 'unit' | 'db' | 'api' | 'smoke'
@@ -265,10 +267,25 @@ async function main(): Promise<void> {
   }
 
   // 3. Preflight for the server-dependent groups.
+  // The suites write to the live database and send through the app's own
+  // senders, so the local server MUST refuse every non-test number
+  // (TEST_ONLY_PHONE_PREFIX=+999, see lib/testGuard.ts). In-process suites
+  // inherit the same guard from this process.
+  process.env.TEST_ONLY_PHONE_PREFIX = process.env.TEST_ONLY_PHONE_PREFIX || TEST_PREFIX
+  const runStartedAt = new Date().toISOString()
   let apiUp = true
   if (suites.some(s => s.group === 'api' || s.group === 'smoke')) {
     apiUp = await serverIsUp()
     console.log(`   server ${apiUp ? 'reachable' : 'NOT reachable'} at ${BASE}`)
+    if (apiUp) {
+      const g = await fetch(`${BASE}/api/internal/test-guard`).then(r => r.json()).catch(() => null) as { prefix?: string | null } | null
+      if (g?.prefix !== TEST_PREFIX) {
+        console.error(`\n🔴 The server at ${BASE} does not have the test send guard on.`)
+        console.error(`   Start it with TEST_ONLY_PHONE_PREFIX=${TEST_PREFIX} (and dummy Twilio credentials). Nothing was run.`)
+        process.exit(2)
+      }
+      console.log(`   send guard on (${TEST_PREFIX} only)`)
+    }
   }
 
   // 4. Unit suites in parallel (they share no state); everything else in
@@ -318,6 +335,15 @@ async function main(): Promise<void> {
     if (!post.ok && args.verbose) console.log(post.output)
     const gate = sweep('count')
     residue = gate.count
+
+    // A test send attempt to a real number (logged with the dummy
+    // credentials' error 20003) fails the run, whatever the guard says.
+    const { count: leaked } = await sb.from('message_log').select('id', { count: 'exact', head: true })
+      .gte('created_at', runStartedAt).eq('error_code', '20003').not('to_number', 'like', `%${TEST_PREFIX}%`)
+    if ((leaked ?? 0) > 0) {
+      console.error(`\n🔴 ${leaked} test send(s) to a non-test number were logged during this run.`)
+      residue += leaked ?? 0
+    }
   }
 
   // 6. Summary.

@@ -79,7 +79,7 @@ async function main(): Promise<void> {
         cookie: customerCookie(publisher),
         body: {
           title: 'x', message: 'y', target_city: 'Yaoundé',
-          sender_type: 'publisher', phone_number: '+237670000000',
+          sender_type: 'publisher', phone_number: '+999270000000',
         },
       })
       assertEq(r.status, 403, `HTTP 403 (body ${r.raw.slice(0, 120)})`)
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
         cookie: customerCookie(owner),
         body: {
           title: 'x', message: 'y', target_city: 'Yaoundé',
-          sender_type: 'restaurant', restaurant_id: rest.id, phone_number: '+237670000000',
+          sender_type: 'restaurant', restaurant_id: rest.id, phone_number: '+999270000000',
         },
       })
       assertEq(r.status, 403, `HTTP 403 (body ${r.raw.slice(0, 120)})`)
