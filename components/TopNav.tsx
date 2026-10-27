@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCart } from '@/lib/cartContext'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
+import SideMenu from './SideMenu'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
@@ -49,6 +50,9 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   // match the mobile cadence; poll is only started when the viewer
   // actually owns/manages an approved restaurant.
   const [pendingCount, setPendingCount] = useState(0)
+  // The ☰ side menu (components/SideMenu.tsx).
+  const [menuOpen, setMenuOpen] = useState(false)
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
 
   const {
     effectiveMode, hasRestaurantRole, topRole, dashboardTab, setDashboardTab,
@@ -174,40 +178,19 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     <header className="sticky top-0 z-30 bg-surface border-b border-divider md:shadow-sm">
 
       {/* ── Mobile bar (< md) ────────────────────────────────────────────
-          Deliberately spare: city picker on the left, notification bell on
-          the right. The logo, search field and map button all moved off
-          mobile — search lives in the BottomNav overlay and the map is
-          desktop-only now. Signed-in visitors switch language in
-          Account → Profil; guests have no profile, so they get the FR/EN
-          toggle here, next to the bell. Compact 48px height so the cuisine
-          row below it sits above the fold. */}
-      <div className="md:hidden px-4 h-12 flex items-center justify-between gap-2">
-        {/* The city picker is a customer filter and is hidden from admins
-            here as it is on the desktop bar. The rest of the MOBILE admin
-            nav is still the in-page grid in /account — replacing that is a
-            separate commit, so this bar is otherwise left alone. */}
-        {!isAdmin && <CityDropdown />}
-        <div className="flex items-center gap-2">
-          {authChecked && me === null && <LanguageToggle />}
-          <Link
-            href="/account"
-            aria-label={
-              pendingCount > 0
-                ? bi(`Notifications — ${pendingCount} en attente`, `Notifications — ${pendingCount} pending`)
-                : bi('Notifications', 'Notifications')
-            }
-            className="relative w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-xl hover:bg-surface-muted transition-colors"
-          >
-            <span aria-hidden="true">🔔</span>
-            {pendingCount > 0 && (
-              <span className={`absolute top-1 right-1 rounded-full bg-brand text-white font-bold flex items-center justify-center leading-none ring-2 ring-surface ${
-                pendingCount > 9 ? 'h-5 min-w-5 text-[10px] px-1' : 'h-4 w-4 text-[10px]'
-              }`}>
-                {pendingCount > 99 ? '99+' : pendingCount}
-              </span>
-            )}
+          ☰ menu (left, with a dot when the restaurant has orders waiting) ·
+          "Tchop & Ndjoka" · "Se connecter" when logged out, the account's
+          initial when logged in. City, language, WhatsApp and the Pro
+          entries live in the ☰ menu (components/SideMenu.tsx). Admins keep
+          a bare bar: their navigation is the console on /account. */}
+      <div className="md:hidden px-2 h-12 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 min-w-0">
+          {!isAdmin && <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />}
+          <Link href={isAdmin ? '/account' : '/'} className="font-black text-brand tracking-tight truncate px-1">
+            Tchop &amp; Ndjoka
           </Link>
         </div>
+        {!isAdmin && <AccountButton me={me} authChecked={authChecked} label={bi('Se connecter', 'Log in')} />}
       </div>
 
       {/* ── Desktop ADMIN bar (md+) ─────────────────────────────────────
@@ -283,6 +266,8 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
       {/* ── Desktop bar (md+) — unchanged by the mobile redesign ───────── */}
       <div className={`${isAdmin ? 'hidden' : 'hidden md:flex'} max-w-2xl mx-auto px-3 sm:px-4 h-14 items-center gap-2 sm:gap-4`}>
+
+        <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />
 
         {/* Logo — orange T&N text, never hidden. Compact on mobile. */}
         <Link href="/" className="flex items-center gap-1 flex-shrink-0" aria-label="Tchop &amp; Ndjoka — home">
@@ -404,11 +389,16 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             </button>
           )}
 
-          {/* Language toggle — last in the cluster, visible on every page
-              and every breakpoint. Secondary copy lives in /account. */}
+          {/* Language toggle — also in the ☰ menu. */}
           <LanguageToggle />
+
+          <AccountButton me={me} authChecked={authChecked} label={bi('Se connecter', 'Log in')} />
         </div>
       </div>
+
+      {!isAdmin && (
+        <SideMenu open={menuOpen} onClose={closeMenu} user={me ? { name: me.name, role: me.role } : null} pendingCount={pendingCount} />
+      )}
     </header>
   )
 }
@@ -574,5 +564,36 @@ function AdminMoreMenu({
         </div>
       )}
     </div>
+  )
+}
+
+// ☰ — opens the side menu. A dot when the viewer's restaurant has orders
+// waiting (the count is on "Commandes du restaurant" inside).
+function MenuButton({ onClick, badge, label }: { onClick: () => void; badge: number; label: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={badge > 0 ? `${label} (${badge})` : label} title={label}
+      className="relative w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full text-xl text-ink-primary hover:bg-surface-muted transition-colors">
+      <span aria-hidden="true">☰</span>
+      {badge > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-brand ring-2 ring-surface" aria-hidden="true" />}
+    </button>
+  )
+}
+
+// "Se connecter" when logged out; the account's initial (→ Mon compte) when
+// logged in. Nothing until the session check answers (no flash).
+function AccountButton({ me, authChecked, label }: { me: SessionUser | null; authChecked: boolean; label: string }) {
+  if (!authChecked) return <span className="w-9 h-9" aria-hidden="true" />
+  if (!me) {
+    return (
+      <Link href="/login" className="flex-shrink-0 text-xs font-semibold bg-brand hover:bg-brand-dark text-white px-3 py-1.5 rounded-full transition-colors">
+        {label}
+      </Link>
+    )
+  }
+  return (
+    <Link href="/account" aria-label={me.name} title={me.name}
+      className="flex-shrink-0 w-9 h-9 rounded-full bg-brand text-white font-bold flex items-center justify-center text-sm">
+      {(me.name || '?').trim().charAt(0).toUpperCase()}
+    </Link>
   )
 }

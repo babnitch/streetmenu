@@ -152,6 +152,8 @@ export default function AccountPage() {
     if (typeof window === 'undefined') return 'orders'
     const q = new URLSearchParams(window.location.search).get('tab')
     const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
+    // ?tab=bookings (☰ → Mes réservations): on desktop the bookings head the
+    // Orders tab.
     return q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'orders'
   })
   // Mobile-only drill-down. `null` = showing the menu list; anything else
@@ -162,6 +164,7 @@ export default function AccountPage() {
   const [mobileSection,    setMobileSection]    = useState<MobileSection | null>(() => {
     if (typeof window === 'undefined') return null
     const q = new URLSearchParams(window.location.search).get('tab')
+    if (q === 'bookings') return 'bookings'
     return q && isCustomerTab(q) ? q : null
   })
   // Whether the paid Broadcast / Promote panels would render anything for
