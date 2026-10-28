@@ -35,6 +35,7 @@ import { samePhone, uniquePhones } from '@/lib/phone'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { hasRestaurantModule, eventAllows } from '@/lib/modulesServer'
+import { isSideOn, platformOffReply } from '@/lib/platformSwitch'
 
 // An event whose organiser has no Réservations module (M4): booked with the
 // organiser directly.
@@ -790,6 +791,11 @@ export async function handleOrderCommand(
 ): Promise<NextResponse | null> {
   const lang = normalizeLang(customer.preferred_language)
   if (cmd === 'commander' || cmd === 'order' || cmd === 'commande') {
+    // M6: restaurants switched off for the whole platform.
+    if (!(await isSideOn('restaurants'))) {
+      await sendWhatsApp(from, platformOffReply('restaurants', lang))
+      return ok()
+    }
     const restaurants = await listRestaurantsForCity(customer.city)
     if (restaurants.length === 0) {
       await sendWhatsApp(from, pickLang('🚫 Aucun restaurant disponible pour le moment.', '🚫 No restaurants available right now.', lang))
@@ -1202,6 +1208,11 @@ export async function handleOrderCommand(
   // "evenements" / "events" → upcoming events in the customer's city. Seeds
   // an event_browse session so the customer can pick by number.
   if (cmd === 'evenements' || cmd === 'événements' || cmd === 'events') {
+    // M6: events switched off for the whole platform.
+    if (!(await isSideOn('events'))) {
+      await sendWhatsApp(from, platformOffReply('events', lang))
+      return ok()
+    }
     const today = new Date().toISOString().slice(0, 10)
     // Prefer the customer's city; fall back to anywhere if their city has
     // no upcoming events.
@@ -1864,6 +1875,13 @@ export async function handleEventSession(
 ): Promise<NextResponse> {
   const { user_type, step, data } = session
   const lang = normalizeLang(customer.preferred_language)
+
+  // M6: events switched off mid-conversation → the booking stops here.
+  if (!(await isSideOn('events'))) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, platformOffReply('events', lang))
+    return ok()
+  }
 
   if (cmd === 'annuler' || cmd === 'cancel') {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2639,6 +2657,13 @@ export async function handleOrderingSession(
 ): Promise<NextResponse> {
   const { step, data } = session
   const lang = normalizeLang(customer.preferred_language)
+
+  // M6: restaurants switched off mid-conversation → the order stops here.
+  if (!(await isSideOn('restaurants'))) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, platformOffReply('restaurants', lang))
+    return ok()
+  }
 
   // Universal exit — "no"/"non"/"cancel"/"annuler"/"exit"/"quitter"/"stop"
   // bail out of the order at ANY step (the old flow only honoured no/non at

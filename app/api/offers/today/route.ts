@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { loadRestaurantOffersToday, loadTodayOffers } from '@/lib/offersServer'
 import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
+import { isSideOn } from '@/lib/platformSwitch'
 import { deliversNow } from '@/lib/modules'
 
 export const dynamic = 'force-dynamic'
@@ -18,6 +19,10 @@ const CITY_LIMIT = 12
 // Public: it shows only what the restaurant pages show anyway. menu_offers is
 // server-only (RLS), so pages read offers here, not through the anon client.
 export async function GET(req: NextRequest) {
+  // M6: restaurants switched off → no offers anywhere.
+  if (!(await isSideOn('restaurants'))) {
+    return NextResponse.json({ offers: [], prices: {}, free_delivery: false }, { headers: { 'Cache-Control': 'no-store' } })
+  }
   const city = req.nextUrl.searchParams.get('city')
   if (city != null) return cityOffers(city)
 

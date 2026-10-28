@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSideOn } from '@/lib/platformSwitch'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sanitizeText } from '@/lib/sanitize'
@@ -37,6 +38,10 @@ function safeImageUrl(input: unknown): string | null {
 // Body: { name, city, neighborhood, cuisine_type, image_url, lat?, lng? }
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
+
+  // M6: platform switch — restaurants off → 503 platform_off.
+  const platformOff = await requireSideOn('restaurants')
+  if (platformOff) return platformOff
   if (!session || session.role !== 'customer') {
     return NextResponse.json({ error: 'Connexion requise / Login required', login_required: true }, { status: 401 })
   }

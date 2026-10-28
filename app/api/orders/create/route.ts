@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSideOn } from '@/lib/platformSwitch'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sanitizeText, sanitizePhone, sanitizeCode } from '@/lib/sanitize'
@@ -32,6 +33,10 @@ export const dynamic = 'force-dynamic'
 // Returns { ok, order: { id, total_price, … } } on success.
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
+
+  // M6: platform switch — restaurants off → 503 platform_off.
+  const platformOff = await requireSideOn('restaurants')
+  if (platformOff) return platformOff
 
   // 30 order creates per IP per hour — generous for real users (one
   // session might place 2-3), tight for a scripted abuser.

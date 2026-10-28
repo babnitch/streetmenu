@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
 import { EVENT_DATE_COLUMNS, isPastEvent } from '@/lib/eventDate'
 import { loadTodayOffers } from '@/lib/offersServer'
+import { getPlatformStatus } from '@/lib/platformSwitch'
 import { deliversNow } from '@/lib/modules'
 
 export const dynamic = 'force-dynamic'
@@ -81,8 +82,10 @@ export async function GET(req: NextRequest) {
     (tierPrices[t.event_id] ??= []).push(Math.round(Number(t.price)))
   }
 
+  // M6: a side switched off shows nothing on the home page.
+  const platform = await getPlatformStatus()
   return NextResponse.json({
-    restaurants: topRestaurants.map(r => {
+    restaurants: !platform.restaurants ? [] : topRestaurants.map(r => {
       // M2: delivery only with the Livraison module; modules stay server-side.
       const { modules: _m, ...pub } = r
       void _m
@@ -90,7 +93,7 @@ export async function GET(req: NextRequest) {
       const free = offers[r.id]?.freeDelivery === true && delivers
       return { ...pub, delivery_enabled: delivers, delivery_fee: free ? 0 : r.delivery_fee, free_delivery: free }
     }),
-    events: topEvents.map(e => {
+    events: !platform.events ? [] : topEvents.map(e => {
       const prices = tierPrices[e.id]
       const own = Math.max(0, Math.round(Number((e as { ticket_price?: number | null }).ticket_price ?? 0)))
       const paid = (prices ?? [own]).filter(p => p > 0)

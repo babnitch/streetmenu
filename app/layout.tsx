@@ -8,6 +8,7 @@ import { ModeProvider } from '@/lib/modeContext'
 import { DataModeProvider } from '@/lib/dataMode'
 import { CLIENT_VERSION } from '@/lib/clientVersion'
 import BottomNav from '@/components/BottomNav'
+import PlatformGate from '@/components/PlatformGate'
 
 export const metadata: Metadata = {
   title: 'Tchop & Ndjoka',
@@ -37,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <CityProvider>
                 <ModeProvider>
                   <DataModeProvider>
-                    {children}
+                    <PlatformGate>{children}</PlatformGate>
                     <BottomNav />
                   </DataModeProvider>
                 </ModeProvider>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSideOn } from '@/lib/platformSwitch'
 import { effectiveRestaurantMode } from '@/lib/modules'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
@@ -21,6 +22,10 @@ export async function POST(req: NextRequest) {
     if (!orderId || !phoneNumber) {
       return NextResponse.json({ error: 'orderId et phoneNumber requis / required' }, { status: 400 })
     }
+
+  // M6: platform switch — restaurants off → 503 platform_off.
+  const platformOff = await requireSideOn('restaurants')
+  if (platformOff) return platformOff
 
     // 10 deposits per IP per hour — prevents a script from spamming
     // PawaPay USSD prompts at someone else's wallet.

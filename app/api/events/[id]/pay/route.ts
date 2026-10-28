@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSideOn } from '@/lib/platformSwitch'
 import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { notifyOrganizer } from '@/lib/eventRecipients'
@@ -33,6 +34,10 @@ export const dynamic = 'force-dynamic'
 // are responsible for flipping payment_status to 'paid' and firing the
 // notifyPaidReservation fan-out.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+
+  // M6: platform switch — events off → 503 platform_off.
+  const platformOff = await requireSideOn('events')
+  if (platformOff) return platformOff
   // Same login gate as /reserve — paying for a ticket is a booking, so it
   // needs an account. Viewing the event stays public.
   const session = getSessionFromRequest(req)

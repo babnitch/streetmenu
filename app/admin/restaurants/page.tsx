@@ -12,6 +12,7 @@ import ConfirmModal from '@/components/ConfirmModal'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 import ModulesSheet, { ModuleSwitches, ModuleChips } from '@/components/ModulesSheet'
 import AdminModuleRequests from '@/components/AdminModuleRequests'
+import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
@@ -439,7 +440,8 @@ export default function AdminRestaurantsPage() {
         ))}
       </div>
 
-      {/* Module requests from restaurants (M5) — admins only. */}
+      {/* Platform switch (M6) + module requests (M5) — admins only. */}
+      {canTogglePayment && <AdminPlatformSwitch side="restaurants" />}
       {canTogglePayment && (
         <AdminModuleRequests subject="restaurant" onDecided={(id, mods) => {
           if (mods) setRestaurants(prev => prev.map(x => x.id === id ? { ...x, modules: mods, broadcast_enabled: mods.includes('broadcast') } : x))

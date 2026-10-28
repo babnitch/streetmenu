@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSideOn } from '@/lib/platformSwitch'
 import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { notifyOrganizer } from '@/lib/eventRecipients'
@@ -38,6 +39,10 @@ export const dynamic = 'force-dynamic'
 // Free + pay-at-door only. payment_enabled=true events route through
 // /pay (PawaPay) — that handler mirrors this validation.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+
+  // M6: platform switch — events off → 503 platform_off.
+  const platformOff = await requireSideOn('events')
+  if (platformOff) return platformOff
   // Booking requires a logged-in customer. The event page itself stays public
   // — only this action is gated, so the client shows a login prompt and comes
   // back via /login?return=/events/<id>. Guest bookings used to be accepted

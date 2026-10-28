@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSideOn } from '@/lib/platformSwitch'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 
@@ -41,6 +42,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const me = customerId(req)
   if (!me) return unauthorized()
+
+  // M6: platform switch — restaurants off → 503 platform_off.
+  const platformOff = await requireSideOn('restaurants')
+  if (platformOff) return platformOff
   const body = await req.json().catch(() => ({}))
   const rid = typeof body?.restaurant_id === 'string' ? body.restaurant_id : ''
   if (!UUID.test(rid)) return NextResponse.json({ error: 'restaurant_id' }, { status: 400 })

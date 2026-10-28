@@ -2472,6 +2472,12 @@ async function handleCustomer(
   if (ordering) return ordering
 
   if (cmd === 'restaurant' || cmd === 'inscription' || cmd === 'register') {
+    // M6: no restaurant sign-up while restaurants are switched off.
+    const { isSideOn, platformOffReply } = await import('@/lib/platformSwitch')
+    if (!(await isSideOn('restaurants'))) {
+      await sendWhatsApp(from, platformOffReply('restaurants', lang))
+      return ok()
+    }
     await supabaseAdmin.from('signup_sessions').upsert({
       phone, user_type: 'vendor', step: 1,
       data: { customer_id: customer.id, lang }, expires_at: sessionExpiry(),

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSideOn } from '@/lib/platformSwitch'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -28,6 +29,10 @@ export const dynamic = 'force-dynamic'
 // Login required (Option 2 in the spec) — guests fall back to 401, and the
 // /events/submit page shunts them to /account.
 export async function POST(req: NextRequest) {
+
+  // M6: platform switch — events off → 503 platform_off.
+  const platformOff = await requireSideOn('events')
+  if (platformOff) return platformOff
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') {
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
