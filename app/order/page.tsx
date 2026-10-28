@@ -165,7 +165,7 @@ export default function OrderPage() {
     if (!restaurantId) return
     let cancelled = false
     ;(async () => {
-      const [{ data }, status] = await Promise.all([
+      const [{ data }, status, offers] = await Promise.all([
         supabase
           .from('restaurants')
           .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city, delivery_enabled, delivery_fee, delivery_extra_min')
@@ -173,11 +173,19 @@ export default function OrderPage() {
         fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.json())
           .catch(() => null),
+        // Free-delivery day (V2) → fee 0. The server applies the same rule.
+        fetch(`/api/offers/today?restaurant_id=${restaurantId}`, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null),
       ])
       if (cancelled) return
       setPaymentMode(normalizeMode(data?.payment_mode ?? modeFromLegacy(data?.payment_enabled)))
       setPrep({ min: data?.prep_time_min ?? null, max: data?.prep_time_max ?? null })
-      setDelivery({ enabled: data?.delivery_enabled === true, fee: Number(data?.delivery_fee ?? 0), extra: data?.delivery_extra_min ?? null })
+      setDelivery({
+        enabled: data?.delivery_enabled === true,
+        fee: offers?.free_delivery ? 0 : Number(data?.delivery_fee ?? 0),
+        extra: data?.delivery_extra_min ?? null,
+      })
       setRestaurantCity(data?.city ?? '')
       // Default TRUE matches the column default — a missing row should
       // never silently disable orders.

@@ -8,12 +8,21 @@
 //
 // Delivery (V1): the restaurant's own fee is added after the voucher —
 // vouchers apply to the food, never to the delivery fee.
+//
+// Offer of the day (V2): a dish on offer today costs its offer price (never
+// more than the menu price); a free-delivery day makes the fee 0. "Today"
+// is the restaurant's own day, so the price changes by itself at midnight.
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { validateVoucher, type VoucherRow } from '@/lib/vouchers'
 import { DELIVERY_OFF_TEXT, type Fulfilment } from '@/lib/delivery'
+import { loadRestaurantOffersToday } from '@/lib/offersServer'
 
-export interface PricedLine { id: string; name: string; price: number; quantity: number; photo_url: string | null }
+export interface PricedLine {
+  id: string; name: string; price: number; quantity: number; photo_url: string | null
+  // The menu price when an offer applied (for the order card / history).
+  regular_price?: number
+}
 
 export type OrderPricing =
   | {
@@ -53,7 +62,13 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
   if (delivery && rest.delivery_enabled !== true) {
     return { ok: false, status: 409, error: DELIVERY_OFF_TEXT, reason: 'delivery_off' }
   }
-  const deliveryFee = delivery ? Math.max(0, Math.round(Number(rest.delivery_fee ?? 0))) : 0
+  const offers = await loadRestaurantOffersToday(restaurantId)
+  const deliveryFee = delivery && !offers.freeDelivery ? Math.max(0, Math.round(Number(rest.delivery_fee ?? 0))) : 0
+  // Today's price for a dish: the offer when lower than the menu price.
+  const priceOf = (id: string, menuPrice: number): number => {
+    const o = offers.prices[id]
+    return o != null && o < menuPrice ? o : menuPrice
+  }
 
   const { data: rows, error } = await supabaseAdmin
     .from('menu_items')
@@ -65,7 +80,7 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
 
   const current = Array.from(qty.keys()).map(id => {
     const r = byId.get(id)
-    return { id, price: r ? Math.round(Number(r.price)) : 0, available: !!r && r.is_available !== false }
+    return { id, price: r ? priceOf(id, Math.round(Number(r.price))) : 0, available: !!r && r.is_available !== false }
   })
   const missing = Array.from(qty.keys()).find(id => !byId.has(id))
   if (missing) {
@@ -80,11 +95,14 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
 
   const lines: PricedLine[] = Array.from(qty.entries()).map(([id, quantity]) => {
     const r = byId.get(id)!
+    const regular = Math.max(0, Math.round(Number(r.price)))
+    const price = priceOf(id, regular)
     return {
       id, quantity,
       name: String(r.name ?? '').slice(0, 120),
-      price: Math.max(0, Math.round(Number(r.price))),
+      price,
       photo_url: (r.photo_url as string | null) ?? null,
+      ...(price < regular ? { regular_price: regular } : {}),
     }
   })
   const subtotal = lines.reduce((s, l) => s + l.price * l.quantity, 0)

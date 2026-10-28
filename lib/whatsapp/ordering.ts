@@ -25,6 +25,7 @@ import { randomUUID } from 'crypto'
 import { closeReservation, reserveEventSeats, getEventAvailability, type ReserveSeatsResult } from '@/lib/eventSeats'
 import { formatPrepTime } from '@/lib/prepTime'
 import { formatDeliveryTime } from '@/lib/delivery'
+import { loadRestaurantOffersToday } from '@/lib/offersServer'
 import { sendEventMessage } from '@/lib/directMessaging'
 import { generateReservationCode } from '@/lib/reservationCode'
 import {
@@ -179,7 +180,8 @@ export interface OrderingCustomer {
   preferred_language?: string | null
 }
 
-interface MenuItemRef { menu_item_id: string; name: string; price: number }
+// regular_price: the menu price when today's offer (V2) lowers it.
+interface MenuItemRef { menu_item_id: string; name: string; price: number; regular_price?: number }
 interface CartItem extends MenuItemRef { quantity: number }
 
 interface OrderingSessionData {
@@ -258,14 +260,24 @@ async function loadAvailableMenu(restaurantId: string): Promise<MenuItemRef[]> {
     .eq('restaurant_id', restaurantId)
     .eq('is_available', true)
     .order('name')
-  return (data ?? []).map(r => ({ menu_item_id: r.id, name: r.name, price: Number(r.price) }))
+  // Today's offer prices (V2) are the prices the bot shows and charges.
+  const offers = await loadRestaurantOffersToday(restaurantId)
+  return (data ?? []).map(r => {
+    const regular = Number(r.price)
+    const offer = offers.prices[r.id]
+    return offer != null && offer < regular
+      ? { menu_item_id: r.id, name: r.name, price: offer, regular_price: regular }
+      : { menu_item_id: r.id, name: r.name, price: regular }
+  })
 }
 
 function buildMenuMessage(restaurantName: string, menu: MenuItemRef[], lang: Lang = 'fr'): string {
   if (menu.length === 0) {
     return `🍽️ *${restaurantName}*\n\n${pickLang('Menu vide.', 'Empty menu.', lang)}\n\n${pickLang('_Envoyez "annuler" pour choisir un autre restaurant_', '_Send "cancel" to pick another restaurant_', lang)}`
   }
-  const lines = menu.map((m, i) => `${i + 1}. ${m.name} — ${Number(m.price).toLocaleString()} FCFA`)
+  const lines = menu.map((m, i) => m.regular_price
+    ? `${i + 1}. ${m.name} — ~${m.regular_price.toLocaleString()}~ *${Number(m.price).toLocaleString()} FCFA* 🏷️`
+    : `${i + 1}. ${m.name} — ${Number(m.price).toLocaleString()} FCFA`)
   return [
     `🍽️ *${restaurantName}*`,
     '',

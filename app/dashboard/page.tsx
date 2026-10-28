@@ -16,6 +16,7 @@ import {
   PREP_TIME_DEFAULT_MIN,
   PREP_TIME_DEFAULT_MAX,
 } from '@/lib/prepTime'
+import { validateOffer, percentOffLabel } from '@/lib/offers'
 import { formatDeliveryTime, validateDeliverySettings, DELIVERY_EXTRA_DEFAULT, DELIVERY_EXTRA_MAX, DELIVERY_FEE_MAX } from '@/lib/delivery'
 import { useMode, type DashboardTab, type TeamRole } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel } from '@/lib/navConfig'
@@ -1034,6 +1035,10 @@ export default function DashboardPage() {
               )}
 
               {canEditMenu && (
+                <OffersPanel restaurant={selectedRestaurant} menuItems={menuItems} />
+              )}
+
+              {canEditMenu && (
                 <button
                   onClick={() => { setEditingItem(null); setShowItemForm(true) }}
                   className="w-full bg-brand text-white py-3 rounded-2xl font-semibold mb-4 hover:bg-brand-dark transition-colors"
@@ -1778,6 +1783,202 @@ function PaymentSettingsPanel({
               'Sandbox only. In production, contact support to enable payouts.',
             )}
           </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Offer of the day (V2) ────────────────────────────────────────────────────
+// A dish at a lower price, or free delivery, for today or a few days. Ends by
+// itself after its last day (the restaurant's own midnight). Owner, manager
+// and admin — the same people who edit the menu.
+interface OfferRow {
+  id: string
+  kind: 'price' | 'free_delivery'
+  menu_item_id: string | null
+  offer_price: number | null
+  starts_on: string
+  ends_on: string
+  menu_item?: { name: string; price: number } | null
+}
+
+function OffersPanel({ restaurant, menuItems }: { restaurant: Restaurant; menuItems: MenuItem[] }) {
+  const bi = useBi()
+  const [offers, setOffers] = useState<OfferRow[]>([])
+  const [today, setToday] = useState('')
+  const [open, setOpen] = useState(false)
+  const [kind, setKind] = useState<'price' | 'free_delivery'>('price')
+  const [itemId, setItemId] = useState('')
+  const [price, setPrice] = useState('')
+  const [severalDays, setSeveralDays] = useState(false)
+  const [startsOn, setStartsOn] = useState('')
+  const [endsOn, setEndsOn] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/restaurants/${restaurant.id}/offers`, { cache: 'no-store' })
+    const d = await res.json().catch(() => null)
+    if (!res.ok || !d) return
+    setOffers(d.offers ?? [])
+    setToday(d.today ?? '')
+  }, [restaurant.id])
+  useEffect(() => { load() }, [load])
+
+  const item = menuItems.find(m => m.id === itemId)
+  const fmtDay = (iso: string) => iso === today
+    ? bi("aujourd'hui", 'today')
+    : new Date(`${iso}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  const when = (o: OfferRow) => o.starts_on === o.ends_on
+    ? fmtDay(o.starts_on)
+    : `${fmtDay(o.starts_on)} → ${fmtDay(o.ends_on)}`
+
+  async function save() {
+    setError('')
+    const first = severalDays ? (startsOn || today) : today
+    const last  = severalDays ? (endsOn || first) : today
+    const body = kind === 'price'
+      ? { kind, menu_item_id: itemId, offer_price: Number(price), starts_on: first, ends_on: last }
+      : { kind, starts_on: first, ends_on: last }
+    if (kind === 'price') {
+      const v = validateOffer(body, today, item ? Math.round(item.price) : null)
+      if (!v.ok) { setError(v.error); return }
+    }
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/restaurants/${restaurant.id}/offers`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(d.error ?? bi('Erreur', 'Error')); return }
+      setOpen(false); setItemId(''); setPrice(''); setSeveralDays(false); setStartsOn(''); setEndsOn('')
+      await load()
+    } catch {
+      setError(bi('Erreur réseau', 'Network error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function remove(o: OfferRow) {
+    if (!confirm(bi("Terminer cette offre maintenant ?", 'End this offer now?'))) return
+    const res = await fetch(`/api/restaurants/${restaurant.id}/offers/${o.id}`, { method: 'DELETE' })
+    if (res.ok) setOffers(prev => prev.filter(x => x.id !== o.id))
+  }
+
+  const pill = (active: boolean) => `px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+    active ? 'bg-ink-primary text-white border-ink-primary' : 'bg-surface text-ink-secondary border-divider'
+  }`
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-bold text-ink-primary">🏷️ {bi('Offre du jour', "Today's offer")}</h2>
+          <p className="text-xs text-ink-tertiary">{bi('Se termine toute seule après le dernier jour.', 'Ends by itself after the last day.')}</p>
+        </div>
+        {!open && (
+          <button onClick={() => { setOpen(true); setError('') }} className="bg-brand hover:bg-brand-dark text-white px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0">
+            + {bi('Nouvelle offre', 'New offer')}
+          </button>
+        )}
+      </div>
+
+      {offers.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {offers.map(o => (
+            <li key={o.id} className="flex items-center justify-between gap-2 bg-brand-light rounded-xl px-3 py-2 text-sm">
+              <span className="min-w-0">
+                {o.kind === 'free_delivery' ? (
+                  <span className="font-semibold text-ink-primary">🛵 {bi('Livraison offerte', 'Free delivery')}</span>
+                ) : (
+                  <>
+                    <span className="font-semibold text-ink-primary">{o.menu_item?.name ?? '—'}</span>{' '}
+                    {o.menu_item && <span className="text-ink-tertiary line-through text-xs">{Number(o.menu_item.price).toLocaleString()}</span>}{' '}
+                    <span className="font-bold text-brand-darker">{Number(o.offer_price).toLocaleString()} FCFA</span>{' '}
+                    {o.menu_item && o.offer_price != null && (
+                      <span className="text-xs font-bold text-brand-darker">{percentOffLabel(Number(o.menu_item.price), o.offer_price)}</span>
+                    )}
+                  </>
+                )}
+                <span className="block text-xs text-ink-secondary">
+                  {o.starts_on <= today ? '● ' : ''}{when(o)}
+                </span>
+              </span>
+              <button onClick={() => remove(o)} className="text-xs text-danger font-semibold flex-shrink-0">
+                {bi('Terminer', 'End')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open && (
+        <div className="mt-3 border-t border-divider pt-3 space-y-3">
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => setKind('price')} className={pill(kind === 'price')}>
+              {bi('Plat à prix réduit', 'Dish at a lower price')}
+            </button>
+            {restaurant.delivery_enabled && (
+              <button type="button" onClick={() => setKind('free_delivery')} className={pill(kind === 'free_delivery')}>
+                🛵 {bi('Livraison offerte', 'Free delivery')}
+              </button>
+            )}
+          </div>
+
+          {kind === 'price' && (
+            <div className="flex gap-3 flex-wrap items-end">
+              <div className="flex-1 min-w-[10rem]">
+                <label htmlFor="offer-dish" className="block text-xs font-semibold text-ink-secondary mb-1">{bi('Plat', 'Dish')}</label>
+                <select id="offer-dish" value={itemId} onChange={e => setItemId(e.target.value)}
+                  className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface">
+                  <option value="">{bi('Choisir…', 'Choose…')}</option>
+                  {menuItems.filter(m => m.is_available).map(m => (
+                    <option key={m.id} value={m.id}>{m.name} — {Math.round(m.price).toLocaleString()} FCFA</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="offer-price" className="block text-xs font-semibold text-ink-secondary mb-1">{bi("Prix de l'offre (FCFA)", 'Offer price (FCFA)')}</label>
+                <input id="offer-price" type="number" inputMode="numeric" min={1} value={price} onChange={e => setPrice(e.target.value)}
+                  className="w-32 border border-divider rounded-xl px-3 py-2 text-sm bg-surface" />
+              </div>
+              {item && Number(price) > 0 && Number(price) < item.price && (
+                <span className="text-sm font-bold text-brand-darker pb-2">{percentOffLabel(item.price, Number(price))}</span>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => setSeveralDays(false)} className={pill(!severalDays)}>{bi("Aujourd'hui", 'Today')}</button>
+            <button type="button" onClick={() => setSeveralDays(true)} className={pill(severalDays)}>{bi('Plusieurs jours', 'Several days')}</button>
+          </div>
+          {severalDays && (
+            <div className="flex gap-3 flex-wrap">
+              <div>
+                <label htmlFor="offer-from" className="block text-xs font-semibold text-ink-secondary mb-1">{bi('Du', 'From')}</label>
+                <input id="offer-from" type="date" min={today} value={startsOn || today} onChange={e => setStartsOn(e.target.value)}
+                  className="border border-divider rounded-xl px-3 py-2 text-sm bg-surface" />
+              </div>
+              <div>
+                <label htmlFor="offer-to" className="block text-xs font-semibold text-ink-secondary mb-1">{bi('Au', 'To')}</label>
+                <input id="offer-to" type="date" min={startsOn || today} value={endsOn || startsOn || today} onChange={e => setEndsOn(e.target.value)}
+                  className="border border-divider rounded-xl px-3 py-2 text-sm bg-surface" />
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <div className="flex gap-2">
+            <button onClick={save} disabled={saving || (kind === 'price' && (!itemId || !price))}
+              className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2 rounded-xl text-sm font-semibold">
+              {saving ? bi('Enregistrement…', 'Saving…') : bi("Publier l'offre", 'Publish offer')}
+            </button>
+            <button onClick={() => { setOpen(false); setError('') }} className="text-sm text-ink-secondary px-3">
+              {bi('Annuler', 'Cancel')}
+            </button>
+          </div>
         </div>
       )}
     </div>

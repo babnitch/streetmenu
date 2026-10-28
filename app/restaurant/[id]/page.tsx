@@ -11,6 +11,7 @@ import { Restaurant, MenuItem } from '@/types'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
+import { percentOffLabel } from '@/lib/offers'
 import TopNav from '@/components/TopNav'
 import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
 import RestaurantHoursPanel from '@/components/RestaurantHoursPanel'
@@ -39,13 +40,16 @@ export default function MenuPage() {
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: rest }, { data: menu }, statusRes, ratingRes] = await Promise.all([
+      const [{ data: rest }, { data: menu }, statusRes, ratingRes, offersRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', id).single(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         // Rating summary for the hero chip. Failure (e.g. supabase-reviews.sql
         // not yet applied) is silent — the chip just doesn't render.
         fetch(`/api/restaurants/${id}/rating`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        // Today's offers (V2): the dish costs its offer price, the menu
+        // price shows struck through. The server charges the same price.
+        fetch(`/api/offers/today?restaurant_id=${id}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       ])
       if (ratingRes && typeof ratingRes.count === 'number') {
         setRatingSummary({ average: Number(ratingRes.average ?? 0), count: ratingRes.count })
@@ -64,7 +68,13 @@ export default function MenuPage() {
           'status=', rest.status)
         setRestaurant(rest)
       }
-      if (menu) setMenuItems(menu)
+      if (menu) {
+        const prices: Record<string, number> = offersRes?.prices ?? {}
+        setMenuItems((menu as MenuItem[]).map(m => {
+          const o = prices[m.id]
+          return o != null && o < m.price ? { ...m, price: o, regular_price: m.price } : m
+        }))
+      }
       const s = statusRes?.status?.[id]
       if (s) setComputedOpen(!!s.open)
       setLoading(false)
@@ -368,7 +378,17 @@ function MenuItemCard({
             <p className="text-xs text-ink-secondary mt-0.5 line-clamp-2">{item.description}</p>
           )}
           <div className="flex items-center justify-between mt-2 gap-3">
-            <span className="font-bold text-brand-dark text-sm">{item.price.toLocaleString()} FCFA</span>
+            <span className="flex items-baseline gap-1.5 flex-wrap">
+              <span className="font-bold text-brand-dark text-sm">{item.price.toLocaleString()} FCFA</span>
+              {item.regular_price != null && (
+                <>
+                  <span className="text-xs text-ink-tertiary line-through">{item.regular_price.toLocaleString()} FCFA</span>
+                  <span className="text-[11px] font-bold text-white bg-brand rounded-full px-1.5 py-0.5">
+                    {percentOffLabel(item.regular_price, item.price)}
+                  </span>
+                </>
+              )}
+            </span>
             <button
               onClick={onAdd}
               className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors flex-shrink-0 ${

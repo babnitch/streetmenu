@@ -59,6 +59,8 @@ export interface MenuItem {
   is_available: boolean
   is_daily_special: boolean
   created_at: string
+  // Display only: the menu price when today's offer (V2) set `price` lower.
+  regular_price?: number
 }
 
 export interface Order {
