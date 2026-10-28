@@ -6,6 +6,8 @@ import { pickLang } from '@/lib/whatsapp'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { notifyEventSubscribers } from '@/lib/subscriptions'
 import { EVENT_DATE_COLUMNS } from '@/lib/eventDate'
+import { validateModules } from '@/lib/modules'
+import { setOrganizerModules, organizerModules } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,6 +36,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const wasInactive = !event.is_active
 
+  // Approve + activate in one step (M1): for an organiser's first event the
+  // screen sends their modules (Réservations pre-ticked). Admins only —
+  // a moderator's approval leaves the modules as they are.
+  const body = await req.json().catch(() => ({}))
+  const isAdmin = ['super_admin', 'admin'].includes(session.role)
+  let modulesToSet: string[] | null = null
+  if (body?.modules !== undefined && isAdmin && event.organizer_id) {
+    const v = validateModules('organizer', body.modules)
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+    modulesToSet = v.modules
+  }
+
   if (wasInactive) {
     await supabaseAdmin.from('events').update({ is_active: true }).eq('id', event.id)
   }
@@ -58,6 +72,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           ...(grantAuto ? { event_auto_approve: true } : {}),
         })
         .eq('id', organizer.id)
+
+      // Modules: the list from the screen, plus Auto-approbation when this
+      // approval earned it. setOrganizerModules keeps event_auto_approve in step.
+      if (modulesToSet || grantAuto) {
+        const base = modulesToSet ?? await organizerModules(organizer.id)
+        const next = grantAuto && !base.includes('auto_approve') ? [...base, 'auto_approve'] : base
+        await setOrganizerModules(organizer.id, next, { id: session.id, type: session.role }, grantAuto ? 'auto_approve_granted' : 'approval')
+      }
 
       if (grantAuto) {
         await writeAudit({

@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   if (orgIds.length > 0) {
     const { data: subs } = await supabaseAdmin
       .from('customers')
-      .select('id, name, phone, events_approved_count, event_auto_approve')
+      .select('id, name, phone, events_approved_count, event_auto_approve, organizer_modules')
       .in('id', orgIds)
     for (const s of subs ?? []) submitters[s.id] = s
   }

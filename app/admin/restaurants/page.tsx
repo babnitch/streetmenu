@@ -10,6 +10,8 @@ import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import ConfirmModal from '@/components/ConfirmModal'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
+import ModulesSheet, { ModuleSwitches, ModuleChips } from '@/components/ModulesSheet'
+import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
 interface RestaurantRow {
@@ -40,6 +42,7 @@ interface RestaurantRow {
   payment_mode: PaymentMode | null
   whatsapp_payment_enabled: boolean | null
   broadcast_enabled: boolean | null
+  modules: string[] | null
   owner: { id: string; name: string; phone: string } | null
 }
 
@@ -48,11 +51,13 @@ interface RestaurantForm {
   name: string; description: string; address: string; city: string
   lat: string; lng: string; phone: string; whatsapp: string; logo_url: string
   owner_phone: string; owner_name: string
+  modules: string[]
 }
 const EMPTY_FORM: RestaurantForm = {
   name: '', description: '', address: '', city: '',
   lat: '', lng: '', phone: '', whatsapp: '', logo_url: '',
   owner_phone: '', owner_name: '',
+  modules: DEFAULT_ON_APPROVAL.restaurant,
 }
 
 type Tab = 'all' | 'pending' | 'suspended' | 'deleted'
@@ -134,6 +139,8 @@ export default function AdminRestaurantsPage() {
     restaurant: RestaurantRow
   } | null>(null)
   const [modalReason, setModalReason] = useState('')
+  // Modules sheet (M1): edit a restaurant's modules, or approve + activate.
+  const [modulesFor, setModulesFor] = useState<{ restaurant: RestaurantRow; mode: 'edit' | 'approve' } | null>(null)
 
   useEffect(() => {
     fetchRestaurants()
@@ -173,17 +180,33 @@ export default function AdminRestaurantsPage() {
   // WhatsApp + audit entry, which the old direct write skipped. It returns
   // { ok, welcomedOwners } rather than the row, so we patch the two columns
   // it is documented to set.
-  async function approveRestaurant(r: RestaurantRow) {
+  // Opens the approval screen: modules with Commandes pre-ticked, so approve
+  // and activate are one step (M1).
+  function approveRestaurant(r: RestaurantRow) {
+    setModulesFor({ restaurant: r, mode: 'approve' })
+  }
+  async function confirmApprove(r: RestaurantRow, modules: string[]): Promise<string | null> {
     setActionLoading(r.id + '-approve')
-    const ok = await postJSON(`/api/restaurants/${r.id}/approve`)
-    if (ok.ok) {
-      setRestaurants(prev => prev.map(x =>
-        x.id === r.id ? { ...x, is_active: true, status: 'active' } : x))
-      showToast(`✅ ${r.name} approuvé / approved`)
-    } else {
-      showToast(ok.error || bi('Erreur', 'Error'), false)
-    }
+    const ok = await postJSON(`/api/restaurants/${r.id}/approve`, { modules })
     setActionLoading(null)
+    if (!ok.ok) return ok.error || bi('Erreur', 'Error')
+    setRestaurants(prev => prev.map(x =>
+      x.id === r.id ? { ...x, is_active: true, status: 'active', modules, broadcast_enabled: modules.includes('broadcast') } : x))
+    showToast(`✅ ${r.name} approuvé / approved`)
+    return null
+  }
+
+  // Edit a restaurant's modules (audited server-side).
+  async function saveModules(r: RestaurantRow, modules: string[]): Promise<string | null> {
+    const res = await fetch('/api/admin/modules', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: 'restaurant', id: r.id, modules }),
+    })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) return d.error ?? bi('Erreur', 'Error')
+    setRestaurants(prev => prev.map(x => x.id === r.id ? { ...x, modules: d.modules, broadcast_enabled: d.modules.includes('broadcast') } : x))
+    showToast(`✅ ${r.name} — ${bi('modules enregistrés', 'modules saved')}`)
+    return null
   }
 
   // ── Pending: reject (hard delete) ──
@@ -293,24 +316,6 @@ export default function AdminRestaurantsPage() {
   const setRestaurantMode      = (r: RestaurantRow, mode: PaymentMode) => patchPayment(r, { payment_mode: mode })
   const toggleRestaurantWhatsapp = (r: RestaurantRow, next: boolean) => patchPayment(r, { whatsapp_payment_enabled: next })
 
-  // ── Broadcast capability (super_admin / admin only, default OFF) ──
-  async function toggleRestaurantBroadcast(r: RestaurantRow, next: boolean) {
-    setActionLoading(r.id + '-broadcast')
-    const res = await fetch(`/api/admin/restaurants/${r.id}/broadcast`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ broadcast_enabled: next }),
-    })
-    if (res.ok) {
-      setRestaurants(prev => prev.map(x => x.id === r.id ? { ...x, broadcast_enabled: next } : x))
-      showToast(`✅ ${r.name} — ${next ? bi('diffusion activée', 'broadcasting enabled') : bi('diffusion désactivée', 'broadcasting disabled')}`)
-    } else {
-      const d = await res.json().catch(() => ({}))
-      showToast(d.error ?? bi('Erreur', 'Error'), false)
-    }
-    setActionLoading(null)
-  }
-
   // ── Logo upload ──
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -350,6 +355,7 @@ export default function AdminRestaurantsPage() {
       phone: form.phone.trim(), whatsapp: form.whatsapp.trim(),
       logo_url: form.logo_url,
       owner_phone: form.owner_phone.trim(), owner_name: form.owner_name.trim(),
+      modules: form.modules,
     })
     const data = res.ok ? (res.data?.restaurant ?? null) : null
     setSaving(false)
@@ -449,6 +455,9 @@ export default function AdminRestaurantsPage() {
             </Field>
             <Field label={bi('Nom du propriétaire (nouveau numéro)', 'Owner name (new number)')}><input value={form.owner_name} onChange={e => setForm(f => ({ ...f, owner_name: e.target.value }))} placeholder="Marie Ngo" className={INPUT} /></Field>
             <Field label="WhatsApp"><PhoneInput value={form.whatsapp} onChange={(full) => setForm(f => ({ ...f, whatsapp: full }))} defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined} /></Field>
+            <Field label={bi('Modules (la vitrine est toujours incluse)', 'Modules (the basic page is always included)')} className="sm:col-span-2">
+              <ModuleSwitches subject="restaurant" value={form.modules} onChange={next => setForm(f => ({ ...f, modules: next }))} />
+            </Field>
             <Field label={bi('Photo * (obligatoire)', 'Photo * (required)')} className="sm:col-span-2">
               <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-ink-secondary" />
               {uploading && <span className="text-xs text-brand ml-2">Envoi…</span>}
@@ -507,13 +516,30 @@ export default function AdminRestaurantsPage() {
               onUndoDelete={undoDelete}
               onSetMode={setRestaurantMode}
               onToggleWhatsapp={toggleRestaurantWhatsapp}
-              onToggleBroadcast={toggleRestaurantBroadcast}
+              onEditModules={r => setModulesFor({ restaurant: r, mode: 'edit' })}
             />
           ))}
         </div>
       )}
 
       {/* Modals */}
+      {modulesFor && (
+        <ModulesSheet
+          subject="restaurant"
+          title={modulesFor.mode === 'approve'
+            ? bi(`Approuver « ${modulesFor.restaurant.name} »`, `Approve "${modulesFor.restaurant.name}"`)
+            : bi(`Modules — ${modulesFor.restaurant.name}`, `Modules — ${modulesFor.restaurant.name}`)}
+          subtitle={modulesFor.mode === 'approve'
+            ? bi('Choisissez les modules à activer avec l\'approbation.', 'Pick the modules to switch on with the approval.')
+            : undefined}
+          initial={modulesFor.mode === 'approve' && !(modulesFor.restaurant.modules ?? []).length
+            ? DEFAULT_ON_APPROVAL.restaurant
+            : (modulesFor.restaurant.modules ?? [])}
+          confirmLabel={modulesFor.mode === 'approve' ? bi('✅ Approuver et activer', 'Approve and activate') : bi('Enregistrer', 'Save')}
+          onConfirm={mods => modulesFor.mode === 'approve' ? confirmApprove(modulesFor.restaurant, mods) : saveModules(modulesFor.restaurant, mods)}
+          onClose={() => setModulesFor(null)}
+        />
+      )}
       {modal?.type === 'suspend' && (
         <ConfirmModal
           title={bi(`Suspendre "${modal.restaurant.name}"`, `Suspend "${modal.restaurant.name}"`)}
@@ -571,7 +597,7 @@ function RestaurantCard({
   tab,
   actionLoading,
   canTogglePayment,
-  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onSetMode, onToggleWhatsapp, onToggleBroadcast,
+  onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onSetMode, onToggleWhatsapp, onEditModules,
 }: {
   restaurant: RestaurantRow
   tab: Tab
@@ -585,7 +611,7 @@ function RestaurantCard({
   onUndoDelete: (r: RestaurantRow) => void
   onSetMode:        (r: RestaurantRow, mode: PaymentMode) => void
   onToggleWhatsapp: (r: RestaurantRow, next: boolean) => void
-  onToggleBroadcast: (r: RestaurantRow, next: boolean) => void
+  onEditModules: (r: RestaurantRow) => void
 }) {
   const bi = useBi()
   const within30Days = r.deleted_at
@@ -657,20 +683,16 @@ function RestaurantCard({
         />
       )}
 
-      {/* Paid-broadcast capability — admin/super_admin only, default OFF. */}
+      {/* Modules (M1) — admin/super_admin only. Diffusion lives here now. */}
       {canTogglePayment && !r.deleted_at && (
         <div className="border-t border-divider px-5 py-3 bg-surface flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-ink-secondary mr-1">{bi('Diffusion', 'Broadcast')}:</span>
+          <span className="text-xs font-semibold text-ink-secondary mr-1">{bi('Modules', 'Modules')}:</span>
+          <span className="flex-1 min-w-0"><ModuleChips subject="restaurant" modules={r.modules ?? []} /></span>
           <button
-            disabled={actionLoading === r.id + '-broadcast'}
-            onClick={() => onToggleBroadcast(r, !r.broadcast_enabled)}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-60 ${
-              r.broadcast_enabled
-                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                : 'bg-white text-ink-secondary border-divider hover:bg-surface-muted'
-            }`}
+            onClick={() => onEditModules(r)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-white text-ink-secondary border-divider hover:bg-surface-muted"
           >
-            📢 {r.broadcast_enabled ? bi('Diffusion activée', 'Broadcast on') : bi('Diffusion désactivée', 'Broadcast off')}
+            ⚙️ {bi('Gérer', 'Manage')}
           </button>
         </div>
       )}

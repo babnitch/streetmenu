@@ -6,6 +6,8 @@ import { normalizePhone } from '@/lib/phone'
 import { writeAudit } from '@/lib/audit'
 import { isAdminRole } from '@/lib/adminNav'
 import { RESTAURANT_PHOTO_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
+import { validateModules } from '@/lib/modules'
+import { setRestaurantModules } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -116,6 +118,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Coordonnées hors limites / Coordinates out of range' }, { status: 400 })
   }
 
+  // Modules switched on with the creation (M1). Omitted = Vitrine only.
+  let modules: string[] | null = null
+  if (body.modules !== undefined) {
+    const v = validateModules('restaurant', body.modules)
+    if (!v.ok) return NextResponse.json({ error: v.error, field: 'modules' }, { status: 400 })
+    modules = v.modules
+  }
+
   if (!/^\+\d{8,15}$/.test(ownerPhone)) {
     return NextResponse.json({ error: 'Téléphone du propriétaire requis / Owner phone required', field: 'owner_phone' }, { status: 400 })
   }
@@ -188,6 +198,12 @@ export async function POST(req: NextRequest) {
     { onConflict: 'restaurant_id,customer_id', ignoreDuplicates: true },
   )
   if (teamErr) console.error('[admin/restaurants] owner team row:', teamErr.message)
+
+  if (modules && modules.length > 0) {
+    const set = await setRestaurantModules(data.id, modules, { id: session.id, type: session.role }, 'created_by_admin')
+    if (set.ok) data.modules = set.after
+    else console.error('[admin/restaurants] modules:', set.error)
+  }
 
   await writeAudit({
     action:          'restaurant_created_by_admin',

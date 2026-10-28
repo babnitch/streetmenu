@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
+import { switchModule } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,10 +32,8 @@ export async function POST(req: NextRequest, { params }: { params: { customerId:
     return NextResponse.json({ ok: true, ignored: 'not auto-approved' })
   }
 
-  await supabaseAdmin
-    .from('customers')
-    .update({ event_auto_approve: false })
-    .eq('id', customer.id)
+  // Through the modules (M1): Auto-approbation and this flag stay one.
+  await switchModule('organizer', customer.id, 'auto_approve', false, { id: session.id, type: session.role }, 'auto_approve_revoked')
 
   await writeAudit({
     action:          'auto_approve_revoked',

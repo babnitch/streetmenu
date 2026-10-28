@@ -10,6 +10,8 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { formatEventWhen } from '@/lib/eventDate'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { formatFCFA } from '@/lib/money'
+import ModulesSheet, { ModuleChips } from '@/components/ModulesSheet'
+import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -20,7 +22,7 @@ interface EventAggregate { reservations_count: number; tickets_count: number; re
 // (is_active=true, not yet completed); Completed = event_status 'completed';
 // All = everything, with pending pinned to the top.
 type EventTab = 'all' | 'pending' | 'active' | 'completed'
-interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean }
+interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean; organizer_modules: string[] | null }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function useToast() {
@@ -92,11 +94,42 @@ export default function AdminEventsPage() {
   const setEventMode      = (evt: Event, mode: PaymentMode) => patchEventPayment(evt, { payment_mode: mode })
   const toggleEventWhatsapp = (evt: Event, next: boolean) => patchEventPayment(evt, { whatsapp_payment_enabled: next })
 
-  async function approve(id: string) {
+  // Organiser modules sheet (M1): approve + activate for a first event, or edit.
+  const [modulesFor, setModulesFor] = useState<{ submitter: Submitter; eventId?: string } | null>(null)
+
+  // A new organiser's first event (no modules yet) opens the approval screen
+  // with Réservations pre-ticked; otherwise approve straight away.
+  function approve(id: string) {
+    const evt = events.find(e => e.id === id)
+    const sub = evt?.organizer_id ? submitters[evt.organizer_id] : undefined
+    if (canTogglePayment && sub && (sub.organizer_modules ?? []).length === 0) {
+      setModulesFor({ submitter: sub, eventId: id })
+      return
+    }
+    void doApprove(id)
+  }
+
+  async function saveOrganizerModules(sub: Submitter, modules: string[]): Promise<string | null> {
+    const res = await fetch('/api/admin/modules', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: 'organizer', id: sub.id, modules }),
+    })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) return d.error ?? bi('Erreur', 'Error')
+    setSubmitters(prev => ({ ...prev, [sub.id]: { ...sub, organizer_modules: d.modules, event_auto_approve: d.modules.includes('auto_approve') } }))
+    showToast(bi('✅ Modules enregistrés', '✅ Modules saved'))
+    return null
+  }
+
+  async function doApprove(id: string, modules?: string[]): Promise<string | null> {
     setSaving(id)
     try {
-      // Server route handles counter + auto-approve gate + WhatsApp ping.
-      const res  = await fetch(`/api/admin/events/${id}/approve`, { method: 'POST' })
+      // Server route handles counter + auto-approve gate + WhatsApp ping,
+      // and the organiser's modules when the approval screen sent them.
+      const res  = await fetch(`/api/admin/events/${id}/approve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(modules ? { modules } : {}),
+      })
       const data = await res.json().catch(() => ({}))
       console.log('[admin/events] approve', id, '→', res.status, data)
       if (res.ok) {
@@ -109,12 +142,16 @@ export default function AdminEventsPage() {
         // trust badge on the submitter. Non-fatal — the optimistic update
         // above already moved the event.
         fetchEvents().catch(() => {})
-      } else {
-        showToast(data?.error ?? bi('Erreur lors de l\'approbation', 'Approval failed'), false)
+        return null
       }
+      const msg = data?.error ?? bi('Erreur lors de l\'approbation', 'Approval failed')
+      showToast(msg, false)
+      return msg
     } catch (e) {
       console.error('[admin/events] approve failed:', e)
-      showToast(bi('Erreur réseau lors de l\'approbation', 'Network error during approval'), false)
+      const msg = bi('Erreur réseau lors de l\'approbation', 'Network error during approval')
+      showToast(msg, false)
+      return msg
     } finally {
       setSaving(null)
     }
@@ -278,6 +315,9 @@ export default function AdminEventsPage() {
               onToggleFeatured={() => toggleFeatured(evt)}
               onSetMode={(m) => setEventMode(evt, m)}
               onToggleWhatsapp={(n) => toggleEventWhatsapp(evt, n)}
+              onEditModules={canTogglePayment && evt.organizer_id && submitters[evt.organizer_id]
+                ? () => setModulesFor({ submitter: submitters[evt.organizer_id!] })
+                : undefined}
               onRevokeAutoApprove={
                 evt.organizer_id && submitters[evt.organizer_id]?.event_auto_approve
                   ? () => revokeAutoApprove(evt.organizer_id!)
@@ -303,13 +343,36 @@ export default function AdminEventsPage() {
           ))}
         </div>
       )}
+
+      {modulesFor && (
+        <ModulesSheet
+          subject="organizer"
+          title={modulesFor.eventId
+            ? bi(`Approuver — premier événement de ${modulesFor.submitter.name}`, `Approve — ${modulesFor.submitter.name}'s first event`)
+            : bi(`Modules — ${modulesFor.submitter.name}`, `Modules — ${modulesFor.submitter.name}`)}
+          subtitle={modulesFor.eventId
+            ? bi('Choisissez les modules à activer avec l\'approbation.', 'Pick the modules to switch on with the approval.')
+            : undefined}
+          initial={modulesFor.eventId && !(modulesFor.submitter.organizer_modules ?? []).length
+            ? DEFAULT_ON_APPROVAL.organizer
+            : (modulesFor.submitter.organizer_modules ?? [])}
+          confirmLabel={modulesFor.eventId ? bi('✅ Approuver et activer', 'Approve and activate') : bi('Enregistrer', 'Save')}
+          onConfirm={async mods => {
+            if (!modulesFor.eventId) return saveOrganizerModules(modulesFor.submitter, mods)
+            const err = await doApprove(modulesFor.eventId, mods)
+            if (!err) setSubmitters(prev => ({ ...prev, [modulesFor.submitter.id]: { ...modulesFor.submitter, organizer_modules: mods } }))
+            return err
+          }}
+          onClose={() => setModulesFor(null)}
+        />
+      )}
     </div>
   )
 }
 
 function EventRow({
   event, aggregate, submitter, saving, canTogglePayment,
-  onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove, onToggleFeatured,
+  onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove, onEditModules, onToggleFeatured,
   approveLabel, rejectLabel, organizerLabel,
   reservationsLabel, ticketsLabel, revenueLabel, commissionLabel, netLabel,
   priceLabel, freeLabel, freeBadgeLabel,
@@ -326,6 +389,7 @@ function EventRow({
   onSetMode: (m: PaymentMode) => void
   onToggleWhatsapp: (n: boolean) => void
   onRevokeAutoApprove?: () => void
+  onEditModules?: () => void
   onToggleFeatured: () => void
   approveLabel: string
   rejectLabel: string
@@ -438,6 +502,17 @@ function EventRow({
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                   {submitter.events_approved_count}/3 {progressLabel}
                 </span>
+              )}
+              {onEditModules && (
+                <>
+                  <ModuleChips subject="organizer" modules={submitter.organizer_modules ?? []} />
+                  <button
+                    onClick={onEditModules}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white text-ink-secondary border border-divider hover:bg-surface-muted"
+                  >
+                    ⚙️ Modules
+                  </button>
+                </>
               )}
               {onRevokeAutoApprove && (
                 <button

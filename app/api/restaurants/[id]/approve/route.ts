@@ -4,6 +4,8 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { uniquePhones } from '@/lib/phone'
+import { validateModules } from '@/lib/modules'
+import { setRestaurantModules } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -76,6 +78,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const wasAlreadyActive = before.status === 'active'
+
+  // Approve + activate in one step (M1): the approval screen sends the
+  // modules it shows (Commandes pre-ticked). Checked before anything changes.
+  const body = await req.json().catch(() => ({}))
+  if (body?.modules !== undefined) {
+    const v = validateModules('restaurant', body.modules)
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+    const set = await setRestaurantModules(params.id, v.modules, { id: session.id, type: session.role }, 'approval')
+    if (!set.ok) return NextResponse.json({ error: set.error }, { status: set.status })
+  }
 
   const { error } = await supabaseAdmin
     .from('restaurants')

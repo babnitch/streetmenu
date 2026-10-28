@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
+import { switchModule } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,11 +30,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     .maybeSingle()
   if (!before) return NextResponse.json({ error: 'Restaurant introuvable / not found' }, { status: 404 })
 
-  const { error } = await supabaseAdmin
-    .from('restaurants')
-    .update({ broadcast_enabled: body.broadcast_enabled })
-    .eq('id', params.id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // Through the modules (M1): the Diffusion module and this flag stay one.
+  const sw = await switchModule('restaurant', params.id, 'broadcast', body.broadcast_enabled, { id: session.id, type: session.role }, 'broadcast_toggle')
+  if (!sw.ok) return NextResponse.json({ error: sw.error }, { status: sw.status })
 
   await writeAudit({
     action:          'broadcast_capability_updated',
