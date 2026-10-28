@@ -21,6 +21,7 @@ import EventPoster from '@/components/events/EventPoster'
 import { FEW_SEATS_MAX, FEW_SEATS_SHARE } from '@/lib/eventStatus'
 import { localDayISO } from '@/lib/eventCalendar'
 import type { DayAvailability } from '@/lib/eventSeats'
+import { formatAmount, formatFCFA } from '@/lib/money'
 
 // Mirror of the MNO prefix check in /order — only the four PawaPay-routed
 // dial codes (CMR/CIV/SEN/BEN) are accepted, with or without the leading '+'.
@@ -539,7 +540,7 @@ export default function EventDetailPage() {
             {event.venue && <p className="text-sm text-ink-secondary">📍 {event.venue}</p>}
             {ticketsFrom !== null && (
               <p className="text-sm font-bold text-ink-primary mt-1">
-                {ticketsFrom === 0 ? bi('Gratuit', 'Free') : `${bi('Billets dès', 'Tickets from')} ${ticketsFrom.toLocaleString()} FCFA`}
+                {ticketsFrom === 0 ? bi('Gratuit', 'Free') : `${bi('Billets dès', 'Tickets from')} ${formatFCFA(ticketsFrom)}`}
               </p>
             )}
           </div>
@@ -564,7 +565,7 @@ export default function EventDetailPage() {
             value={
               isFree
                 ? t('evt.free')
-                : `${ticketPrice.toLocaleString()} FCFA${bi(' / personne', ' / person')}`
+                : `${formatFCFA(ticketPrice)}${bi(' / personne', ' / person')}`
             }
           />
           {maxTickets > 0 && !soldOut && remaining !== Infinity && (
@@ -651,7 +652,7 @@ export default function EventDetailPage() {
                         </span>
                         {price !== null && (
                           <span className="block text-xs text-ink-secondary">
-                            {price === 0 ? bi('Gratuit', 'Free') : `${bi('Dès', 'From')} ${price.toLocaleString()} FCFA`}
+                            {price === 0 ? bi('Gratuit', 'Free') : `${bi('Dès', 'From')} ${formatFCFA(price)}`}
                           </span>
                         )}
                       </span>
@@ -722,7 +723,7 @@ export default function EventDetailPage() {
                       </p>
                     </div>
                     <p className="text-sm font-bold text-brand-darker flex-shrink-0">
-                      {t.price === 0 ? bi('Gratuit', 'Free') : `${t.price.toLocaleString()} FCFA`}
+                      {t.price === 0 ? bi('Gratuit', 'Free') : `${formatFCFA(t.price)}`}
                     </p>
                   </div>
                   {!tierSoldOut && (
@@ -771,8 +772,8 @@ export default function EventDetailPage() {
                 {(hasTiers ? tierTotalPrice > 0 : !isFree) && (
                   <span className="block text-xs font-normal opacity-90 mt-0.5">
                     {hasTiers
-                      ? `${tierTotalPrice.toLocaleString()} FCFA`
-                      : `${bi('Paiement sur place', 'Pay at the door')} · ${ticketPrice.toLocaleString()} FCFA${bi(' / personne', ' / person')}`}
+                      ? `${formatFCFA(tierTotalPrice)}`
+                      : `${bi('Paiement sur place', 'Pay at the door')} · ${formatFCFA(ticketPrice)}${bi(' / personne', ' / person')}`}
                   </span>
                 )}
                 {hasTiers && tierTotalQty === 0 && (
@@ -784,13 +785,13 @@ export default function EventDetailPage() {
                 ? bi('Sélectionnez un tarif', 'Pick a tier')
                 : tierTotalPrice === 0
                   ? bi('📋 Réserver gratuitement', '📋 Reserve free')
-                  : `📋 ${bi('Réserver', 'Reserve')} ${tierTotalPrice.toLocaleString()} FCFA`
+                  : `📋 ${bi('Réserver', 'Reserve')} ${formatFCFA(tierTotalPrice)}`
             ) : (
               <>
                 📋 {bi('Réserver', 'Reserve')}
                 {!isFree && (
                   <span className="block text-xs font-normal opacity-90 mt-0.5">
-                    {bi('Paiement sur place', 'Pay at the door')} · {ticketPrice.toLocaleString()} FCFA{bi(' / personne', ' / person')}
+                    {bi('Paiement sur place', 'Pay at the door')} · {formatFCFA(ticketPrice)}{bi(' / personne', ' / person')}
                   </span>
                 )}
               </>
@@ -813,8 +814,8 @@ export default function EventDetailPage() {
               {hasTiers
                 ? (multiTierPay
                     ? bi('Un seul tarif par paiement', 'One tier per payment')
-                    : tierTotalPrice > 0 ? `${tierTotalPrice.toLocaleString()} FCFA` : bi('Sélectionnez un tarif', 'Pick a tier'))
-                : `${ticketPrice.toLocaleString()} FCFA${bi(' / personne', ' / person')}`}
+                    : tierTotalPrice > 0 ? `${formatFCFA(tierTotalPrice)}` : bi('Sélectionnez un tarif', 'Pick a tier'))
+                : `${formatFCFA(ticketPrice)}${bi(' / personne', ' / person')}`}
             </span>
           </button>
         )}
@@ -949,7 +950,7 @@ export default function EventDetailPage() {
                   {bi('Validez le paiement sur votre téléphone.', 'Confirm the payment on your phone.')}
                 </p>
                 <p className="text-xs text-ink-tertiary mb-4 font-mono">
-                  {finalTotal.toLocaleString()} FCFA · {trimmedMomo}
+                  {formatFCFA(finalTotal)} · {trimmedMomo}
                 </p>
                 {activeDepositId && (
                   <p className="text-[10px] text-ink-tertiary font-mono">ref: {activeDepositId.slice(0, 12)}…</p>
@@ -1095,7 +1096,7 @@ export default function EventDetailPage() {
                     {appliedPromo && (
                       <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
                         <span className="text-xs font-semibold text-emerald-700">
-                          🎫 {appliedPromo.code} — -{promoDiscount.toLocaleString()} FCFA {bi('appliqué!', 'applied!')}
+                          🎫 {appliedPromo.code} — -{formatFCFA(promoDiscount)} {bi('appliqué!', 'applied!')}
                         </span>
                         <button
                           type="button"
@@ -1120,11 +1121,11 @@ export default function EventDetailPage() {
                     <span className="font-bold text-brand-darker">
                       {promoDiscount > 0 && (
                         <span className="text-ink-tertiary line-through font-normal mr-2">
-                          {totalForQty.toLocaleString()}
+                          {formatAmount(totalForQty)}
                         </span>
                       )}
                       <span className={promoDiscount > 0 ? 'text-emerald-600' : ''}>
-                        {finalTotal.toLocaleString()} FCFA
+                        {formatFCFA(finalTotal)}
                       </span>
                     </span>
                   </div>
@@ -1158,7 +1159,7 @@ export default function EventDetailPage() {
                     {submitting
                       ? bi('Envoi…', 'Sending…')
                       : payNow
-                        ? `${bi('Payer', 'Pay')} ${finalTotal.toLocaleString()} FCFA`
+                        ? `${bi('Payer', 'Pay')} ${formatFCFA(finalTotal)}`
                         : bi('Confirmer', 'Confirm')}
                   </button>
                 </div>

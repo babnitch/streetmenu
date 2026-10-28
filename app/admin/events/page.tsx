@@ -9,6 +9,7 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { formatEventWhen } from '@/lib/eventDate'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
+import { formatFCFA } from '@/lib/money'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -349,7 +350,7 @@ function EventRow({
 
   const ticketPrice = Number(event.ticket_price ?? 0)
   const isFree      = !(ticketPrice > 0)
-  const priceStr    = isFree ? freeLabel : `${ticketPrice.toLocaleString()} FCFA`
+  const priceStr    = isFree ? freeLabel : `${formatFCFA(ticketPrice)}`
   // Free events are always reservation_only.
   const mode        = isFree ? 'reservation_only' : normalizeMode(event.payment_mode ?? modeFromLegacy(event.payment_enabled))
   const modeLabel   = mode === 'payment_only'
@@ -470,9 +471,9 @@ function EventRow({
         )}
         {gross > 0 && (
           <>
-            <span>💰 {revenueLabel}: <strong className="text-brand">{gross.toLocaleString()} FCFA</strong></span>
-            <span>📊 {commissionLabel}: <strong className="text-ink-primary">{commission.toLocaleString()} FCFA</strong></span>
-            <span>🤝 {netLabel}: <strong className="text-ink-primary">{net.toLocaleString()} FCFA</strong></span>
+            <span>💰 {revenueLabel}: <strong className="text-brand">{formatFCFA(gross)}</strong></span>
+            <span>📊 {commissionLabel}: <strong className="text-ink-primary">{formatFCFA(commission)}</strong></span>
+            <span>🤝 {netLabel}: <strong className="text-ink-primary">{formatFCFA(net)}</strong></span>
           </>
         )}
       </div>

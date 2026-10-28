@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { Voucher } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { isPercentDiscount } from '@/lib/vouchers'
+import { formatAmount, formatFCFA } from '@/lib/money'
 
 interface VoucherCardProps {
   voucher: Voucher
@@ -29,7 +30,7 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
 
   const discountLabel = isPercentDiscount(voucher.discount_type)
     ? `${voucher.discount_value}%`
-    : `${Number(voucher.discount_value).toLocaleString()}F`
+    : formatAmount(voucher.discount_value)
 
   const expiryStr = voucher.expires_at
     ? new Date(voucher.expires_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -82,7 +83,7 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
             </p>
             {voucher.min_order > 0 && (
               <p className="text-[11px] text-ink-tertiary mt-0.5">
-                {bi('Min:', 'Min:')} {Number(voucher.min_order).toLocaleString()} FCFA
+                {bi('Min:', 'Min:')} {formatFCFA(Number(voucher.min_order))}
               </p>
             )}
           </div>
@@ -124,7 +125,7 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
 
             <div className="bg-brand text-white rounded-2xl py-4 mb-4">
               <p className="text-5xl font-black">
-                {isPercentDiscount(voucher.discount_type) ? `-${voucher.discount_value}%` : `-${Number(voucher.discount_value).toLocaleString()} FCFA`}
+                {isPercentDiscount(voucher.discount_type) ? `-${voucher.discount_value}%` : `-${formatFCFA(Number(voucher.discount_value))}`}
               </p>
               <p className="text-sm opacity-90 mt-1">{t('voucher.discount')}</p>
             </div>
@@ -141,7 +142,7 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
             </div>
 
             {voucher.min_order > 0 && (
-              <p className="text-xs text-ink-tertiary mb-1">{t('voucher.minOrder')}: {Number(voucher.min_order).toLocaleString()} FCFA</p>
+              <p className="text-xs text-ink-tertiary mb-1">{t('voucher.minOrder')}: {formatFCFA(Number(voucher.min_order))}</p>
             )}
             <p className="text-xs text-ink-tertiary mb-4">
               {expiryStr ? `${t('voucher.expiry')} ${expiryStr}` : t('voucher.noExpiry')}

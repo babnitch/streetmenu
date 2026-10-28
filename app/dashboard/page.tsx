@@ -25,6 +25,7 @@ import PaymentBadge from '@/components/PaymentBadge'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
+import { formatAmount, formatFCFA } from '@/lib/money'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
 type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
@@ -844,19 +845,19 @@ export default function DashboardPage() {
                             {Array.isArray(order.items) && order.items.map((item: { name: string; quantity: number; price: number }, i: number) => (
                               <li key={i} className="flex items-center justify-between">
                                 <span>{item.quantity}× {item.name}</span>
-                                <span className="text-ink-secondary font-mono text-xs">{(item.quantity * item.price).toLocaleString()} FCFA</span>
+                                <span className="text-ink-secondary font-mono text-xs">{formatFCFA((item.quantity * item.price))}</span>
                               </li>
                             ))}
                             {order.fulfilment === 'delivery' && (
                               <li className="flex items-center justify-between text-ink-secondary">
                                 <span>🛵 {bi('Frais de livraison', 'Delivery fee')}</span>
-                                <span className="font-mono text-xs">{Number(order.delivery_fee ?? 0).toLocaleString()} FCFA</span>
+                                <span className="font-mono text-xs">{formatFCFA(Number(order.delivery_fee ?? 0))}</span>
                               </li>
                             )}
                           </ul>
 
                           <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-divider">
-                            <span className="font-bold text-brand">{Number(order.total_price).toLocaleString()} FCFA</span>
+                            <span className="font-bold text-brand">{formatFCFA(Number(order.total_price))}</span>
                             <div className="flex items-center gap-2 flex-wrap">
                               {paymentPending && (
                                 <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-brand-light text-warning">
@@ -946,7 +947,7 @@ export default function DashboardPage() {
                         setValidateResult('ok')
                         setValidateDetails({
                           code: v?.code ?? '',
-                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
+                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${formatFCFA(Number(v?.discount_value))}`,
                           cvId: data.id,
                         })
                       }
@@ -965,7 +966,7 @@ export default function DashboardPage() {
                         setValidateResult('ok')
                         setValidateDetails({
                           code: v?.code ?? '',
-                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${Number(v?.discount_value).toLocaleString()} FCFA`,
+                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${formatFCFA(Number(v?.discount_value))}`,
                           cvId: data.id,
                         })
                       }
@@ -1083,7 +1084,7 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-brand text-sm font-semibold">CHF {item.price.toFixed(2)}</p>
+                      <p className="text-brand text-sm font-semibold">{formatFCFA(item.price)}</p>
                       <p className="text-xs text-ink-tertiary">{item.category}</p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
@@ -1234,7 +1235,7 @@ export default function DashboardPage() {
               💰 {bi('Marquer payé', 'Mark as paid')}
             </h3>
             <p className="text-xs text-ink-tertiary mb-4 font-mono">
-              #{orderShortId(markPaidOrder.id)} · {Number(markPaidOrder.total_price).toLocaleString()} FCFA
+              #{orderShortId(markPaidOrder.id)} · {formatFCFA(Number(markPaidOrder.total_price))}
             </p>
 
             <label className="block text-xs text-ink-secondary mb-1">
@@ -1895,8 +1896,8 @@ function OffersPanel({ restaurant, menuItems }: { restaurant: Restaurant; menuIt
                 ) : (
                   <>
                     <span className="font-semibold text-ink-primary">{o.menu_item?.name ?? '—'}</span>{' '}
-                    {o.menu_item && <span className="text-ink-tertiary line-through text-xs">{Number(o.menu_item.price).toLocaleString()}</span>}{' '}
-                    <span className="font-bold text-brand-darker">{Number(o.offer_price).toLocaleString()} FCFA</span>{' '}
+                    {o.menu_item && <span className="text-ink-tertiary line-through text-xs">{formatAmount(o.menu_item.price)}</span>}{' '}
+                    <span className="font-bold text-brand-darker">{formatFCFA(Number(o.offer_price))}</span>{' '}
                     {o.menu_item && o.offer_price != null && (
                       <span className="text-xs font-bold text-brand-darker">{percentOffLabel(Number(o.menu_item.price), o.offer_price)}</span>
                     )}
@@ -1935,7 +1936,7 @@ function OffersPanel({ restaurant, menuItems }: { restaurant: Restaurant; menuIt
                   className="w-full border border-divider rounded-xl px-3 py-2 text-sm bg-surface">
                   <option value="">{bi('Choisir…', 'Choose…')}</option>
                   {menuItems.filter(m => m.is_available).map(m => (
-                    <option key={m.id} value={m.id}>{m.name} — {Math.round(m.price).toLocaleString()} FCFA</option>
+                    <option key={m.id} value={m.id}>{m.name} — {formatFCFA(Math.round(m.price))}</option>
                   ))}
                 </select>
               </div>
@@ -2653,7 +2654,7 @@ function VendorVouchersPanel({
                       <p className="font-mono font-bold text-ink-primary">{v.code}</p>
                     </td>
                     <td className="px-4 py-3 text-brand-dark font-semibold">
-                      {isPercentDiscount(v.discount_type) ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
+                      {isPercentDiscount(v.discount_type) ? `${v.discount_value}%` : `${formatFCFA(Number(v.discount_value))}`}
                     </td>
                     <td className="px-4 py-3 text-ink-secondary">
                       {v.current_uses ?? 0}{v.max_uses ? `/${v.max_uses}` : ''}
@@ -2775,7 +2776,7 @@ function MenuItemForm({
     const payload = {
       name: name.trim(),
       description: description.trim(),
-      price: parseFloat(price),
+      price: Math.round(Number(price)),
       category: category.trim(),
       photo_url: photoUrl,
       is_available: isAvailable,
@@ -2830,7 +2831,9 @@ function MenuItemForm({
           <input
             placeholder={t('dash.itemPricePh')}
             type="number"
-            step="0.50"
+            step="1"
+            min="0"
+            inputMode="numeric"
             value={price}
             onChange={e => setPrice(e.target.value)}
             className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"

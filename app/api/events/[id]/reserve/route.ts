@@ -12,6 +12,7 @@ import { generateReservationCodes } from '@/lib/reservationCode'
 import { reserveEventSeats, type SeatRequestRow } from '@/lib/eventSeats'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 import { samePhone } from '@/lib/phone'
+import { formatFCFA } from '@/lib/money'
 
 export const dynamic = 'force-dynamic'
 
@@ -321,7 +322,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Tier name lines are language-neutral data (name + FCFA); the non-tier
   // fallback is the only piece that needs localising, so build it per lang.
   const tierLinesFor = (lang: 'fr' | 'en') => useTiers
-    ? inserted.map(r => `🎟 ${r.tier_name} × ${r.quantity}${r.total_price > 0 ? ` — ${Number(r.total_price).toLocaleString()} FCFA` : ''}`)
+    ? inserted.map(r => `🎟 ${r.tier_name} × ${r.quantity}${r.total_price > 0 ? ` — ${formatFCFA(Number(r.total_price))}` : ''}`)
     : [pickLang(`🎟 ${totalQuantity} place(s)`, `🎟 ${totalQuantity} ticket(s)`, lang)]
 
   // Primary reservation code (shown prominently). Multi-tier bookings list
@@ -360,15 +361,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Discount line shown to both parties when a voucher applied.
   const discountLineFor = (lang: 'fr' | 'en') => appliedVoucher && discountTotal > 0
     ? pickLang(
-        `🎫 Code ${appliedVoucher.code}: -${discountTotal.toLocaleString()} FCFA`,
-        `🎫 Code ${appliedVoucher.code}: -${discountTotal.toLocaleString()} FCFA`,
+        `🎫 Code ${appliedVoucher.code}: -${formatFCFA(discountTotal)}`,
+        `🎫 Code ${appliedVoucher.code}: -${formatFCFA(discountTotal)}`,
         lang,
       )
     : ''
   const priceLine = finalTotal > 0
     ? pickLang(
-        `\n💰 Paiement sur place: ${finalTotal.toLocaleString()} FCFA`,
-        `\n💰 Pay at the door: ${finalTotal.toLocaleString()} FCFA`,
+        `\n💰 Paiement sur place: ${formatFCFA(finalTotal)}`,
+        `\n💰 Pay at the door: ${formatFCFA(finalTotal)}`,
         custLang,
       )
     : ''
@@ -412,7 +413,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ...tierLinesFor(orgLang),
     codeLineFor(orgLang),
     discountLineFor(orgLang),
-    finalTotal > 0 ? `💰 ${finalTotal.toLocaleString()} FCFA` : '',
+    finalTotal > 0 ? `💰 ${formatFCFA(finalTotal)}` : '',
   ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }, organizerPhone)
 
   return NextResponse.json({

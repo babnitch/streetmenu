@@ -62,7 +62,8 @@ export async function PATCH(
     updates.name = name
   }
   if ('price' in body) {
-    const price = Number(body.price)
+    // Whole francs: FCFA has no decimals.
+    const price = Math.round(Number(body.price))
     if (!Number.isFinite(price) || price < 0) {
       return NextResponse.json({ error: 'Prix invalide / Invalid price' }, { status: 400 })
     }

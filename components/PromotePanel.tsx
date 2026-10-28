@@ -5,6 +5,7 @@ import { useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { useDepositPoll } from '@/lib/useDepositPoll'
+import { formatFCFA } from '@/lib/money'
 
 type Placement = 'top_list' | 'feed_card' | 'banner'
 type TargetType = 'restaurant' | 'event'
@@ -310,7 +311,7 @@ export default function PromotePanel() {
                     }`}
                   >
                     <span>{placementLabel(pl, bi)}</span>
-                    {p && <span className="text-xs font-mono">{p.price_per_day.toLocaleString()} FCFA/j</span>}
+                    {p && <span className="text-xs font-mono">{formatFCFA(p.price_per_day)}/j</span>}
                   </button>
                 )
               })}
@@ -349,10 +350,10 @@ export default function PromotePanel() {
           {pricing && (
             <div className={`rounded-xl p-3 border text-sm ${durationValid ? 'bg-brand-light/30 border-brand-light' : 'bg-rose-50 border-rose-100'}`}>
               <p className="text-ink-primary">
-                <span className="font-semibold">{days}</span> {bi('jours', 'days')} × {pricing.price_per_day.toLocaleString()} FCFA
+                <span className="font-semibold">{days}</span> {bi('jours', 'days')} × {formatFCFA(pricing.price_per_day)}
               </p>
               <p className="font-bold text-ink-primary mt-1">
-                💰 {cost.toLocaleString()} FCFA
+                💰 {formatFCFA(cost)}
               </p>
               {!durationValid && (
                 <p className="text-xs text-rose-600 mt-1">
@@ -427,7 +428,7 @@ export default function PromotePanel() {
                   </span>
                 </div>
                 <p className="text-ink-tertiary mt-0.5">
-                  {placementLabel(p.placement, bi)} · 📍 {p.city} · {p.total_budget.toLocaleString()} FCFA
+                  {placementLabel(p.placement, bi)} · 📍 {p.city} · {formatFCFA(p.total_budget)}
                 </p>
                 <p className="text-ink-tertiary mt-0.5">
                   👁️ {p.impressions} · 🖱️ {p.clicks} · {ctr}% CTR

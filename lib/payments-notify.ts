@@ -15,6 +15,7 @@ import { vendorRecipients, prepTimeLine, deliveryInfoFromOrder, deliveryLines } 
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
+import { formatFCFA } from '@/lib/money'
 
 export async function notifyPaidOrder(
   orderId: string,
@@ -41,7 +42,7 @@ export async function notifyPaidOrder(
   // Paid orders get ONE message per side, so it carries the item list too
   // (the web page no longer calls /api/whatsapp/notify-order after paying).
   const items = (Array.isArray(order.items) ? order.items : []) as Array<{ name: string; quantity: number; price: number }>
-  const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} — ${(Number(i.quantity) * Number(i.price)).toLocaleString()} FCFA`)
+  const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} — ${formatFCFA((Number(i.quantity) * Number(i.price)))}`)
   const itemsBlock = (lang: Lang) => itemLines.length
     ? [``, pickLang(`🍽️ *Articles:*`, `🍽️ *Items:*`, lang), ...itemLines]
     : []
@@ -60,7 +61,7 @@ export async function notifyPaidOrder(
       `🏪 ${restName}`,
       ...itemsBlock(lang),
       ``,
-      pickLang(`💰 *Total payé: ${total.toLocaleString()} FCFA*`, `💰 *Total paid: ${total.toLocaleString()} FCFA*`, lang),
+      pickLang(`💰 *Total payé: ${formatFCFA(total)}*`, `💰 *Total paid: ${formatFCFA(total)}*`, lang),
       ...(prepLine ? [prepLine] : []),
       ``,
       pickLang(
@@ -97,7 +98,7 @@ export async function notifyPaidOrder(
       ...deliveryLines(delivery, lang),
       ``,
       `💳 ${mno}`,
-      pickLang(`💰 *Total payé: ${total.toLocaleString()} FCFA*`, `💰 *Total paid: ${total.toLocaleString()} FCFA*`, lang),
+      pickLang(`💰 *Total payé: ${formatFCFA(total)}*`, `💰 *Total paid: ${formatFCFA(total)}*`, lang),
       ``,
       pickLang(`La commande est payée — préparez-la!`, `Order is paid — prepare it!`, lang),
       pickLang(`Répondez "ok ${id4}" pour confirmer`, `Reply "ok ${id4}" to confirm`, lang),
@@ -174,7 +175,7 @@ export async function notifyPaidReservation(
         lang,
       ),
       pickLang(`🎫 Code de réservation: *#${id4}*`, `🎫 Reservation code: *#${id4}*`, lang),
-      `💰 ${total.toLocaleString()} FCFA · ${mno}`,
+      `💰 ${formatFCFA(total)} · ${mno}`,
       ``,
       pickLang(`À bientôt!`, `See you soon!`, lang),
     ].filter(Boolean).join('\n'), { context: 'payment_confirmation', relatedId: r.id })
@@ -196,7 +197,7 @@ export async function notifyPaidReservation(
     `📱 ${r.customer_phone}`,
     pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, orgLang),
     `💳 ${mno}`,
-    `💰 ${total.toLocaleString()} FCFA`,
+    `💰 ${formatFCFA(total)}`,
   ].join('\n'), { context: 'payment_confirmation', relatedId: r.id })
   if (sentOrg === 0) console.warn(`[payment] notifyPaidReservation: no organizer message accepted for event ${event.id}`)
 }

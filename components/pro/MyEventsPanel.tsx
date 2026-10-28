@@ -16,6 +16,7 @@ import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
+import { formatFCFA } from '@/lib/money'
 
 // Event categories — kept in sync with app/events/submit/page.tsx.
 const EVENT_EDIT_CATEGORIES = [
@@ -418,7 +419,7 @@ export default function MyEventsPanel({
             {Number(selected.revenue) > 0 && (
               <div>
                 <p className="text-xs text-ink-tertiary">{bi('Recettes brutes', 'Gross')}</p>
-                <p className="text-lg font-bold text-brand">{Number(selected.revenue).toLocaleString()} FCFA</p>
+                <p className="text-lg font-bold text-brand">{formatFCFA(Number(selected.revenue))}</p>
               </div>
             )}
           </div>
@@ -430,11 +431,11 @@ export default function MyEventsPanel({
             <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
               <div className="bg-surface-muted rounded-xl p-2 text-center">
                 <p className="text-ink-tertiary">📊 {bi('Commission (10%)', 'Commission (10%)')}</p>
-                <p className="font-semibold text-ink-primary">{Number(selected.commission).toLocaleString()} FCFA</p>
+                <p className="font-semibold text-ink-primary">{formatFCFA(Number(selected.commission))}</p>
               </div>
               <div className="bg-brand-light rounded-xl p-2 text-center">
                 <p className="text-brand-dark">💵 {bi('Net', 'Net')}</p>
-                <p className="font-bold text-brand-darker">{Number(selected.net_revenue).toLocaleString()} FCFA</p>
+                <p className="font-bold text-brand-darker">{formatFCFA(Number(selected.net_revenue))}</p>
               </div>
             </div>
           )}
@@ -628,7 +629,7 @@ export default function MyEventsPanel({
                         {selected && isMultiDay(selected) && r.event_date && (
                           <>📅 {formatEventDay(r.event_date, locale, 'compact')} · </>
                         )}
-                        🎟 {r.quantity}{r.total_price > 0 && <> · {Number(r.total_price).toLocaleString()} FCFA</>}
+                        🎟 {r.quantity}{r.total_price > 0 && <> · {formatFCFA(Number(r.total_price))}</>}
                       </p>
                     </div>
                     <div className="flex flex-col gap-1 items-end flex-shrink-0">
@@ -982,7 +983,7 @@ export default function MyEventsPanel({
               )}
               {ticketPrice > 0 && Number(e.revenue) > 0 && (
                 <span className="text-brand font-semibold">
-                  💰 {Number(e.revenue).toLocaleString()} FCFA
+                  💰 {formatFCFA(Number(e.revenue))}
                 </span>
               )}
             </div>

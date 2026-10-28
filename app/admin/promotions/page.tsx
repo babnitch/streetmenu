@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
+import { formatFCFA } from '@/lib/money'
 
 type Placement = 'top_list' | 'feed_card' | 'banner'
 type StatusFilter = 'all' | 'pending_review' | 'active' | 'paused' | 'completed' | 'rejected'
@@ -162,7 +163,7 @@ export default function AdminPromotionsPage() {
       {/* Revenue */}
       <div className="bg-white rounded-2xl p-4 shadow-sm mb-6">
         <p className="text-xs text-ink-secondary font-medium">{bi('Revenu publicitaire total', 'Total ad revenue')}</p>
-        <p className="text-2xl font-bold text-brand mt-1">{revenue.toLocaleString()} FCFA</p>
+        <p className="text-2xl font-bold text-brand mt-1">{formatFCFA(revenue)}</p>
       </div>
 
       {/* Pricing */}
@@ -205,7 +206,7 @@ export default function AdminPromotionsPage() {
                   </div>
                 ) : (
                   <p className="text-xs text-ink-secondary">
-                    {p.price_per_day.toLocaleString()} FCFA/j · {p.min_duration_days}-{p.max_duration_days} {bi('jours', 'days')}
+                    {formatFCFA(p.price_per_day)}/j · {p.min_duration_days}-{p.max_duration_days} {bi('jours', 'days')}
                   </p>
                 )}
               </div>
@@ -264,7 +265,7 @@ export default function AdminPromotionsPage() {
                       {' '}{new Date(p.start_date).toLocaleDateString('fr-FR')} → {new Date(p.end_date).toLocaleDateString('fr-FR')}
                     </p>
                     <p className="text-xs text-ink-tertiary mt-0.5">
-                      💰 {p.total_budget.toLocaleString()} FCFA · 👁️ {p.impressions} · 🖱️ {p.clicks} · {ctr}% CTR
+                      💰 {formatFCFA(p.total_budget)} · 👁️ {p.impressions} · 🖱️ {p.clicks} · {ctr}% CTR
                     </p>
                     {p.rejection_reason && (
                       <p className="text-xs text-rose-600 mt-1">❌ {p.rejection_reason}</p>

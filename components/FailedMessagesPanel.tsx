@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import { formatEventDay } from '@/lib/eventDate'
+import { formatFCFA } from '@/lib/money'
 
 interface Unconfirmed {
   kind:            'order' | 'reservation'
@@ -122,7 +123,7 @@ export default function FailedMessagesPanel() {
               </span>
               <span className="text-ink-secondary">{u.customer_name ?? '—'}</span>
               <span className="font-mono text-ink-secondary">{u.customer_phone}</span>
-              <span className="text-ink-secondary">{Number(u.total_price ?? 0).toLocaleString()} FCFA</span>
+              <span className="text-ink-secondary">{formatFCFA(Number(u.total_price ?? 0))}</span>
               <span className="text-ink-tertiary">{fmt(u.created_at, locale)}</span>
               <span className={`px-2 py-0.5 rounded-full ${u.last_status ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
                 {u.last_status

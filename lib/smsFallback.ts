@@ -19,6 +19,7 @@ import { getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { samePhone } from '@/lib/phone'
 import { claimCodeSend, markCodeSendFailed } from '@/lib/authCodes'
 import { formatEventDates, formatEventDay, isMultiDay, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
+import { formatAmount } from '@/lib/money'
 
 export const FALLBACK_ERROR_CODES = new Set(['63016', '63015'])
 const STALE_MS = 30 * 60 * 1000
@@ -63,7 +64,7 @@ async function buildFallback(row: LogRow, phone: string, lang: Lang): Promise<
     const { data: order } = await supabaseAdmin.from('orders')
       .select('id, customer_phone, customer_name, total_price, restaurant_id').eq('id', row.related_id).maybeSingle()
     if (order) {
-      const total = Number(order.total_price ?? 0).toLocaleString()
+      const total = formatAmount(order.total_price)
       if (samePhone(phone, order.customer_phone)) {
         const { data: r } = await supabaseAdmin.from('restaurants').select('name').eq('id', order.restaurant_id).maybeSingle()
         return { text: pickLang(

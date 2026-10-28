@@ -36,6 +36,7 @@ import { notifyOrganizer } from '@/lib/eventRecipients'
 import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, isMultiDay, resolveBookingDay, todayISO } from '@/lib/eventDate'
+import { formatAmount, formatFCFA } from '@/lib/money'
 
 // Every send from this module is a reply in the WhatsApp bot conversation,
 // so it lands in the message log as 'bot_reply' unless the call site says
@@ -276,8 +277,8 @@ function buildMenuMessage(restaurantName: string, menu: MenuItemRef[], lang: Lan
     return `🍽️ *${restaurantName}*\n\n${pickLang('Menu vide.', 'Empty menu.', lang)}\n\n${pickLang('_Envoyez "annuler" pour choisir un autre restaurant_', '_Send "cancel" to pick another restaurant_', lang)}`
   }
   const lines = menu.map((m, i) => m.regular_price
-    ? `${i + 1}. ${m.name} — ~${m.regular_price.toLocaleString()}~ *${Number(m.price).toLocaleString()} FCFA* 🏷️`
-    : `${i + 1}. ${m.name} — ${Number(m.price).toLocaleString()} FCFA`)
+    ? `${i + 1}. ${m.name} — ~${formatAmount(m.regular_price)}~ *${formatFCFA(Number(m.price))}* 🏷️`
+    : `${i + 1}. ${m.name} — ${formatFCFA(Number(m.price))}`)
   return [
     `🍽️ *${restaurantName}*`,
     '',
@@ -352,14 +353,14 @@ export function parseOrder(raw: string, menu: MenuItemRef[], lang: Lang = 'fr'):
 }
 
 function buildSummaryMessage(restaurantName: string, items: CartItem[], total: number, lang: Lang = 'fr'): string {
-  const lines = items.map(i => `${i.quantity}× ${i.name} — ${(i.quantity * i.price).toLocaleString()} FCFA`)
+  const lines = items.map(i => `${i.quantity}× ${i.name} — ${formatFCFA((i.quantity * i.price))}`)
   return [
     pickLang(`📦 *Votre commande:*`, `📦 *Your order:*`, lang),
     '',
     `🏪 ${restaurantName}`,
     ...lines,
     '',
-    `💰 *Total: ${total.toLocaleString()} FCFA*`,
+    `💰 *Total: ${formatFCFA(total)}*`,
     '',
     pickLang(`Envoyez "oui" pour confirmer ou "non" pour annuler`, `Send "yes" to confirm or "no" to cancel`, lang),
   ].join('\n')
@@ -435,7 +436,7 @@ export function deliveryLines(d: OrderDeliveryInfo | null, lang: Lang): string[]
     `📍 ${d.address}`,
     ...(d.landmark ? [pickLang(`🧭 Repère : ${d.landmark}`, `🧭 Landmark: ${d.landmark}`, lang)] : []),
     ...(d.phone ? [`📞 ${d.phone}`] : []),
-    pickLang(`🚚 Frais de livraison : ${d.fee.toLocaleString()} FCFA`, `🚚 Delivery fee: ${d.fee.toLocaleString()} FCFA`, lang),
+    pickLang(`🚚 Frais de livraison : ${formatFCFA(d.fee)}`, `🚚 Delivery fee: ${formatFCFA(d.fee)}`, lang),
   ]
 }
 
@@ -457,7 +458,7 @@ export async function notifyVendorsOfNewOrder(
     return
   }
 
-  const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} (${(i.quantity * i.price).toLocaleString()} FCFA)`).join('\n')
+  const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} (${formatFCFA((i.quantity * i.price))})`).join('\n')
   // Render per recipient in their stored language (prep line included).
   const buildMsg = async (lang: Lang): Promise<string> => {
     const prepLine = await prepTimeLine(restaurantId, '⏱️', lang, delivery ? 'delivery' : null)
@@ -474,7 +475,7 @@ export async function notifyVendorsOfNewOrder(
       itemLines,
       ...deliveryLines(delivery, lang),
       ``,
-      `💰 *Total: ${total.toLocaleString()} FCFA*`,
+      `💰 *Total: ${formatFCFA(total)}*`,
       ...(prepLine ? [``, prepLine] : []),
       ``,
       `━━━━━━━━━━━━━━━━━━`,
@@ -649,13 +650,13 @@ async function initiateWhatsappPayment(
   })
 
   await sendWhatsApp(from, pickLang([
-    `💰 *Commande de ${total.toLocaleString()} FCFA*`,
+    `💰 *Commande de ${formatFCFA(total)}*`,
     ``,
     `Un prompt de paiement va apparaître sur votre téléphone. Confirmez le paiement avec votre code PIN mobile money.`,
     ``,
     `_Si rien n'apparaît dans 2 minutes, envoyez "payer" pour réessayer._`,
   ].join('\n'), [
-    `💰 *Order of ${total.toLocaleString()} FCFA*`,
+    `💰 *Order of ${formatFCFA(total)}*`,
     ``,
     `A payment prompt will appear on your phone. Confirm the payment with your mobile money PIN.`,
     ``,
@@ -821,7 +822,7 @@ export async function handleOrderCommand(
       if (!v) return ''
       const value = isPercentDiscount(v.discount_type)
         ? `-${v.discount_value}%`
-        : `-${Number(v.discount_value).toLocaleString()} FCFA`
+        : `-${formatFCFA(Number(v.discount_value))}`
       const used    = !!cv.used_at
       const expired = v.expires_at ? new Date(v.expires_at).getTime() < now : false
       const status  = used ? labels.used
@@ -889,7 +890,7 @@ export async function handleOrderCommand(
     })
     const value = isPercentDiscount(v.discount_type)
       ? `-${v.discount_value}%`
-      : `-${Number(v.discount_value).toLocaleString()} FCFA`
+      : `-${formatFCFA(Number(v.discount_value))}`
     await sendWhatsApp(from, pickLang(
       `🎫 Code *${code}* ajouté (${value})!\n\nUtilisez-le à votre prochaine commande.`,
       `🎫 Voucher *${code}* added (${value})!\n\nUse it on your next order.`,
@@ -957,7 +958,7 @@ export async function handleOrderCommand(
     const itemsLine = (o: OrderRow): string => {
       const items = (o.items as unknown as OrderItem[] | null) ?? []
       const summary = items.length ? items.map(it => `${it.quantity}× ${it.name}`).join(', ') : ''
-      const price = `${Number(o.total_price).toLocaleString()} FCFA`
+      const price = `${formatFCFA(Number(o.total_price))}`
       return summary ? `${summary} — ${price}` : price
     }
 
@@ -1056,7 +1057,7 @@ export async function handleOrderCommand(
       const pay   = payLabel[r.payment_status ?? 'not_required'] ?? ''
       const stat  = statusLabel[r.reservation_status] ?? r.reservation_status
       const codeStr = r.reservation_code ? ` · #${r.reservation_code}` : ''
-      return `${i + 1}. *${ev?.title ?? '—'}* (${dateStr})${codeStr}\n   🎟 ${r.quantity} place(s)${r.total_price > 0 ? ` · ${Number(r.total_price).toLocaleString()} FCFA` : ''}\n   ${stat}${pay ? ` · ${pay}` : ''}`
+      return `${i + 1}. *${ev?.title ?? '—'}* (${dateStr})${codeStr}\n   🎟 ${r.quantity} place(s)${r.total_price > 0 ? ` · ${formatFCFA(Number(r.total_price))}` : ''}\n   ${stat}${pay ? ` · ${pay}` : ''}`
     })
 
     // Seed a reservations_browse session so "annuler reservation N" can
@@ -1208,7 +1209,7 @@ export async function handleOrderCommand(
       const when = formatEventWhen(e, lang, 'list')
       const price = !e.ticket_price || e.ticket_price <= 0
         ? pickLang('Gratuit', 'Free', lang)
-        : `${Number(e.ticket_price).toLocaleString()} FCFA`
+        : `${formatFCFA(Number(e.ticket_price))}`
       return `${i + 1}. *${e.title}* — ${when} — ${price}`
     })
 
@@ -1355,7 +1356,7 @@ export async function handleOrderCommand(
     const lines = tiers.map((t, i) => {
       const cap = t.max_quantity > 0 ? `${t.sold_count}/${t.max_quantity}` : `${t.sold_count}`
       const inactive = t.is_active ? '' : pickLang(' (inactif)', ' (inactive)', lang)
-      const priceLine = t.price === 0 ? pickLang('Gratuit', 'Free', lang) : `${t.price.toLocaleString()} FCFA`
+      const priceLine = t.price === 0 ? pickLang('Gratuit', 'Free', lang) : `${formatFCFA(t.price)}`
       return `${i + 1}. ${t.name} — ${priceLine} · ${pickLang(`${cap} vendus`, `${cap} sold`, lang)}${inactive}`
     })
     await sendWhatsApp(from, `${pickLang(`🎫 *Tarifs — ${event.title}:*`, `🎫 *Tiers — ${event.title}:*`, lang)}\n\n${lines.join('\n')}`)
@@ -1418,8 +1419,8 @@ export async function handleOrderCommand(
     })
 
     await sendWhatsApp(from, pickLang(
-      `✅ Tarif *${inserted.name}* ajouté à *${event.title}* — ${price.toLocaleString()} FCFA.`,
-      `✅ Tier *${inserted.name}* added to *${event.title}* — ${price.toLocaleString()} FCFA.`,
+      `✅ Tarif *${inserted.name}* ajouté à *${event.title}* — ${formatFCFA(price)}.`,
+      `✅ Tier *${inserted.name}* added to *${event.title}* — ${formatFCFA(price)}.`,
       lang,
     ))
     return ok()
@@ -1966,8 +1967,8 @@ export async function handleEventSession(
       })
       if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
       await sendWhatsApp(from, pickLang(
-        `${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\nComment souhaitez-vous payer?\n\n1. 💰 Payer maintenant (Mobile Money)\n2. 📋 Réserver (payer sur place)\n\nRépondez 1 ou 2`,
-        `${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\nHow would you like to pay?\n\n1. 💰 Pay now (Mobile Money)\n2. 📋 Reserve (pay at the door)\n\nReply 1 or 2`,
+        `${q} × ${formatAmount(ticketPrice)} = *${formatFCFA(totalPrice)}*\n\nComment souhaitez-vous payer?\n\n1. 💰 Payer maintenant (Mobile Money)\n2. 📋 Réserver (payer sur place)\n\nRépondez 1 ou 2`,
+        `${q} × ${formatAmount(ticketPrice)} = *${formatFCFA(totalPrice)}*\n\nHow would you like to pay?\n\n1. 💰 Pay now (Mobile Money)\n2. 📋 Reserve (pay at the door)\n\nReply 1 or 2`,
         lang,
       ))
       return ok()
@@ -2041,8 +2042,8 @@ export async function handleEventSession(
     })
     if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
     await sendWhatsApp(from, pickLang(
-      `🎫 ${vres.voucher.code} appliqué! Nouveau total: *${total.toLocaleString()} FCFA*.\nEnvoyez *oui* pour confirmer.`,
-      `🎫 ${vres.voucher.code} applied! New total: *${total.toLocaleString()} FCFA*.\nSend *yes* to confirm.`,
+      `🎫 ${vres.voucher.code} appliqué! Nouveau total: *${formatFCFA(total)}*.\nEnvoyez *oui* pour confirmer.`,
+      `🎫 ${vres.voucher.code} applied! New total: *${formatFCFA(total)}*.\nSend *yes* to confirm.`,
       lang,
     ))
     return ok()
@@ -2304,7 +2305,7 @@ async function askEventMomoNumber(
   })
   if (sessErr) return sessionSaveFailed(from, 'event_reserve', sessErr, lang)
   await sendWhatsApp(from,
-    `💰 ${q} × ${ticketPrice.toLocaleString()} = *${totalPrice.toLocaleString()} FCFA*\n\n` +
+    `💰 ${q} × ${formatAmount(ticketPrice)} = *${formatFCFA(totalPrice)}*\n\n` +
     pickLang(
       `Envoyez votre numéro Mobile Money pour payer.\n\nEx: 237670000000\n\nOu "annuler"`,
       `Send your Mobile Money number to pay.\n\nEx: 237670000000\n\nOr "cancel"`,
@@ -2376,8 +2377,8 @@ async function confirmEventReservationWhatsapp(opts: {
   const whenStr = formatEventWhen(event, lang, 'message')
   const payLine = ticketPrice > 0
     ? '\n' + pickLang(
-        `💰 Paiement sur place: ${totalPrice.toLocaleString()} FCFA`,
-        `💰 Pay at the door: ${totalPrice.toLocaleString()} FCFA`,
+        `💰 Paiement sur place: ${formatFCFA(totalPrice)}`,
+        `💰 Pay at the door: ${formatFCFA(totalPrice)}`,
         lang,
       )
     : ''
@@ -2390,7 +2391,7 @@ async function confirmEventReservationWhatsapp(opts: {
     pickLang(`🎟 ${q} place(s)`, `🎟 ${q} spot(s)`, lang),
     pickLang(`🎫 Code de réservation: *#${reservationCode}*`, `🎫 Reservation code: *#${reservationCode}*`, lang),
     voucherCode && discountAmount > 0
-      ? pickLang(`🎫 Code ${voucherCode}: -${discountAmount.toLocaleString()} FCFA`, `🎫 Code ${voucherCode}: -${discountAmount.toLocaleString()} FCFA`, lang)
+      ? pickLang(`🎫 Code ${voucherCode}: -${formatFCFA(discountAmount)}`, `🎫 Code ${voucherCode}: -${formatFCFA(discountAmount)}`, lang)
       : '',
     payLine,
   ].filter(Boolean).join('\n'))
@@ -2417,7 +2418,7 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     : ''
   const priceLine = !event.ticket_price || event.ticket_price <= 0
     ? pickLang(`🎫 Gratuit`, `🎫 Free`, lang)
-    : pickLang(`🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / personne`, `🎫 ${Number(event.ticket_price).toLocaleString()} FCFA / person`, lang)
+    : pickLang(`🎫 ${formatFCFA(Number(event.ticket_price))} / personne`, `🎫 ${formatFCFA(Number(event.ticket_price))} / person`, lang)
   // Seats left come from the reservations that hold seats (per day). A
   // multi-day event is booked on the website, so no single number here.
   const left = event.max_tickets && event.max_tickets > 0 && !isMultiDay(event)
@@ -2578,7 +2579,7 @@ async function pingOrganizer(
     `👤 ${customer.name}`,
     `📱 ${customer.phone}`,
     `🎟 ${quantity} ${pickLang('place(s)', 'spot(s)', orgLang)}`,
-    total > 0 ? `💰 ${total.toLocaleString()} FCFA` : '',
+    total > 0 ? `💰 ${formatFCFA(total)}` : '',
   ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id })
 }
 
@@ -2794,16 +2795,16 @@ export async function handleOrderingSession(
         expires_at: sessionExpiry(15),
       }).eq('phone', phone)
 
-      const lines = (data.items ?? []).map(i => `${i.quantity}× ${i.name} — ${(i.quantity * i.price).toLocaleString()} FCFA`)
+      const lines = (data.items ?? []).map(i => `${i.quantity}× ${i.name} — ${formatFCFA((i.quantity * i.price))}`)
       await sendWhatsApp(from, [
         pickLang(`🏷️ Code *${result.voucher.code}* appliqué!`, `🏷️ Code *${result.voucher.code}* applied!`, lang),
         ``,
         `🏪 ${data.restaurant_name}`,
         ...lines,
         ``,
-        pickLang(`Sous-total: ${subtotal.toLocaleString()} FCFA`, `Subtotal: ${subtotal.toLocaleString()} FCFA`, lang),
-        pickLang(`Remise: −${result.discount.toLocaleString()} FCFA`, `Discount: −${result.discount.toLocaleString()} FCFA`, lang),
-        pickLang(`💰 *Nouveau total: ${result.finalTotal.toLocaleString()} FCFA*`, `💰 *New total: ${result.finalTotal.toLocaleString()} FCFA*`, lang),
+        pickLang(`Sous-total: ${formatFCFA(subtotal)}`, `Subtotal: ${formatFCFA(subtotal)}`, lang),
+        pickLang(`Remise: −${formatFCFA(result.discount)}`, `Discount: −${formatFCFA(result.discount)}`, lang),
+        pickLang(`💰 *Nouveau total: ${formatFCFA(result.finalTotal)}*`, `💰 *New total: ${formatFCFA(result.finalTotal)}*`, lang),
         ``,
         pickLang(`Envoyez "oui" pour confirmer ou "non" pour annuler.`, `Send "yes" to confirm or "no" to cancel.`, lang),
       ].join('\n'))
@@ -2961,9 +2962,9 @@ async function finalizeRestaurantWhatsappOrder(opts: {
     `🏪 ${data.restaurant_name}`,
   ]
   if (discount > 0 && data.voucher_code) {
-    confirmLines.push(`🏷️ ${data.voucher_code} (−${discount.toLocaleString()} FCFA)`)
+    confirmLines.push(`🏷️ ${data.voucher_code} (−${formatFCFA(discount)})`)
   }
-  confirmLines.push(`💰 Total: ${total.toLocaleString()} FCFA`)
+  confirmLines.push(`💰 Total: ${formatFCFA(total)}`)
   const custPrepLine = await prepTimeLine(data.restaurant_id, '🕐', custLang)
   if (custPrepLine) confirmLines.push(custPrepLine)
   confirmLines.push(``, pickLang(
@@ -3178,7 +3179,7 @@ export async function handleVendorOrderAction(
         ``,
         `🧾 Commande #${upper}`,
         `💳 ${label.fr}`,
-        `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
+        `💰 ${formatFCFA(Number(order.total_price))}`,
         ``,
         `Merci!`,
       ].join('\n'), [
@@ -3186,7 +3187,7 @@ export async function handleVendorOrderAction(
         ``,
         `🧾 Order #${upper}`,
         `💳 ${label.en}`,
-        `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
+        `💰 ${formatFCFA(Number(order.total_price))}`,
         ``,
         `Thank you!`,
       ].join('\n'), payLang))

@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { isPercentDiscount } from '@/lib/vouchers'
+import { formatFCFA } from '@/lib/money'
 
 // Enriched voucher row returned by GET /api/admin/vouchers — includes the
 // server-derived status and the joined restaurant name.
@@ -368,7 +369,7 @@ export default function AdminVouchersPage() {
                       <p className="font-mono font-bold text-ink-primary">{v.code}</p>
                     </td>
                     <td className="px-4 py-3 text-brand-dark font-semibold">
-                      {isPercentDiscount(v.discount_type) ? `${v.discount_value}%` : `${Number(v.discount_value).toLocaleString()} FCFA`}
+                      {isPercentDiscount(v.discount_type) ? `${v.discount_value}%` : `${formatFCFA(Number(v.discount_value))}`}
                     </td>
                     <td className="px-4 py-3 text-ink-secondary text-xs">
                       {v.event_name

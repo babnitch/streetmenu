@@ -1,3 +1,4 @@
+import { formatFCFA } from '@/lib/money'
 // Delivery by the restaurant's own rider (V1). Pure and client-safe, so the
 // checkout, the dashboard, the API and the WhatsApp messages share one copy
 // of the rules and wording.
@@ -57,7 +58,7 @@ export function validateDeliverySettings(raw: {
   }
   const fee = Number(raw.delivery_fee ?? 0)
   if (!Number.isInteger(fee) || fee < 0 || fee > DELIVERY_FEE_MAX) {
-    return { ok: false, error: `Frais de livraison invalides (0 à ${DELIVERY_FEE_MAX.toLocaleString('fr-FR')} FCFA) / Invalid delivery fee (0 to ${DELIVERY_FEE_MAX.toLocaleString('en-US')} FCFA)` }
+    return { ok: false, error: `Frais de livraison invalides (0 à ${formatFCFA(DELIVERY_FEE_MAX)}) / Invalid delivery fee (0 to ${formatFCFA(DELIVERY_FEE_MAX)})` }
   }
   const extra = Number(raw.delivery_extra_min ?? DELIVERY_EXTRA_DEFAULT)
   if (!Number.isInteger(extra) || extra < 0 || extra > DELIVERY_EXTRA_MAX) {

@@ -248,7 +248,7 @@ export default function SubmitEventPage() {
         city:            form.city,
         neighborhood:    form.neighborhood,
         category:        form.category,
-        ticket_price:    form.price ? parseFloat(form.price) : null,
+        ticket_price:    form.price ? Math.round(Number(form.price)) : null,
         max_tickets:     form.max_tickets ? parseInt(form.max_tickets, 10) : 0,
         payment_mode:    form.payment_mode,
         whatsapp_payment_enabled: !!form.whatsapp_payment_enabled,

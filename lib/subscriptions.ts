@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, normalizeLang, pickLang, type Lang, type SendOptions } from '@/lib/whatsapp'
 import { categoryLabelBilingual } from '@/lib/categoryLabels'
 import { formatEventWhen } from '@/lib/eventDate'
+import { formatFCFA } from '@/lib/money'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ interface EventForNotify {
 function formatEventLine(e: EventForNotify, lang: Lang): string {
   const price = e.ticket_price ?? e.price
   const priceLine = price && price > 0
-    ? `🎫 ${Number(price).toLocaleString()} FCFA`
+    ? `🎫 ${formatFCFA(Number(price))}`
     : `🎫 ${pickLang('Gratuit', 'Free', lang)}`
   // `categoryLabelBilingual` returns e.g. "👶 Enfants / 👶 Kids" — we strip
   // to the half matching `lang` so the badge stays single-language.

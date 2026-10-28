@@ -14,6 +14,7 @@ import {
   handlePaymentRetry,
   type OrderingCustomer,
 } from '@/lib/whatsapp/ordering'
+import { formatFCFA } from '@/lib/money'
 
 export const dynamic = 'force-dynamic'
 // A payment step does a dozen DB round-trips plus a PawaPay call (itself
@@ -1069,7 +1070,7 @@ async function handleSession(
 
     await sendWhatsApp(from,
       pickLang(`✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}`, `✅ *${dishName}* added${photoUrl ? ' 📸' : ''}`, mcLang) + `\n` +
-      pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, mcLang) + `\n` +
+      pickLang(`Prix: ${formatFCFA(price)}`, `Price: ${formatFCFA(price)}`, mcLang) + `\n` +
       pickLang(`Catégorie: ${category}`, `Category: ${category}`, mcLang) + `\n\n` +
       pickLang(`💡 Envoyez 'menu' pour voir votre menu complet.`, `💡 Send 'menu' to see your full menu.`, mcLang))
     return ok()
@@ -1834,7 +1835,7 @@ async function handleVendor(
       return ok()
     }
     const lines = items.map(i =>
-      `${i.is_available ? '✅' : '❌'} ${i.name} — ${Number(i.price).toLocaleString()} FCFA`)
+      `${i.is_available ? '✅' : '❌'} ${i.name} — ${formatFCFA(Number(i.price))}`)
     const menuHint = canEditMenu
       ? `\n\n` + pickLang(
           `💡 Pour ajouter un plat, envoyez une photo avec 'Nom - Prix'. Envoyez 'prix NOM PRIX' pour modifier un prix.`,
@@ -1873,7 +1874,7 @@ async function handleVendor(
       ? (o.items as { name: string; quantity: number }[]).map(i => `${i.quantity}× ${i.name}`).join(', ')
       : ''
     const orderLine = (o: typeof orders[number]) =>
-      `#${code(o.id)} — ${o.customer_name} — ${Number(o.total_price).toLocaleString()} FCFA — ${itemsOf(o)}`
+      `#${code(o.id)} — ${o.customer_name} — ${formatFCFA(Number(o.total_price))} — ${itemsOf(o)}`
 
     // Workflow order; each group shows only the next relevant action, with a
     // real code from that group's first order as a copy-pasteable example.
@@ -1948,7 +1949,7 @@ async function handleVendor(
     }
     await supabaseAdmin.from('menu_items').update({ price: newPrice }).eq('id', item.id)
     await sendWhatsApp(from,
-      `✅ *${item.name}* → ${newPrice.toLocaleString()} FCFA`)
+      `✅ *${item.name}* → ${formatFCFA(newPrice)}`)
     return ok()
   }
 
@@ -2069,7 +2070,7 @@ async function handleVendor(
         }
         await sendWhatsApp(from,
           pickLang(`✅ *${dishName}* ajouté${photoUrl ? ' 📸' : ''}`, `✅ *${dishName}* added${photoUrl ? ' 📸' : ''}`, lang) + `\n` +
-          pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, lang) + `\n` +
+          pickLang(`Prix: ${formatFCFA(price)}`, `Price: ${formatFCFA(price)}`, lang) + `\n` +
           pickLang(`Catégorie: ${category}`, `Category: ${category}`, lang) + `\n\n` +
           pickLang(`💡 Envoyez 'menu' pour voir votre menu complet.`, `💡 Send 'menu' to see your full menu.`, lang))
         return ok()
@@ -2087,7 +2088,7 @@ async function handleVendor(
         return ok()
       }
       await sendWhatsApp(from,
-        `✅ *${dishName}* (${price.toLocaleString()} FCFA)${photoUrl ? ' 📸' : ''}\n\n` +
+        `✅ *${dishName}* (${formatFCFA(price)})${photoUrl ? ' 📸' : ''}\n\n` +
         categoryPrompt(lang))
       return ok()
     }
@@ -2170,7 +2171,7 @@ async function handleVendor(
       }
       await sendWhatsApp(from,
         pickLang(`✅ *${dishName}* ajouté au menu`, `✅ *${dishName}* added to the menu`, lang) + `\n` +
-        pickLang(`Prix: ${price.toLocaleString()} FCFA`, `Price: ${price.toLocaleString()} FCFA`, lang) + `\n` +
+        pickLang(`Prix: ${formatFCFA(price)}`, `Price: ${formatFCFA(price)}`, lang) + `\n` +
         pickLang(`Catégorie: ${category}`, `Category: ${category}`, lang) + `\n\n` +
         pickLang(
           '📸 Envoyez une photo avec la même légende pour ajouter une image.',
@@ -2191,7 +2192,7 @@ async function handleVendor(
       return ok()
     }
     await sendWhatsApp(from,
-      `✅ *${dishName}* (${price.toLocaleString()} FCFA)\n\n` + categoryPrompt(lang))
+      `✅ *${dishName}* (${formatFCFA(price)})\n\n` + categoryPrompt(lang))
     return ok()
   }
 

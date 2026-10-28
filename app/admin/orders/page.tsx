@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { Order, Restaurant } from '@/types'
 import { useLanguage } from '@/lib/languageContext'
 import PaymentBadge from '@/components/PaymentBadge'
+import { formatFCFA } from '@/lib/money'
 
 const STATUS_STYLES: Record<string, string> = {
   pending:   'bg-brand-light text-warning',
@@ -76,7 +77,7 @@ export default function AdminOrdersPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <StatCard label={t('admin.ordTotal')} value={orders.length.toString()} />
         <StatCard label={t('admin.ordPending')} value={pendingCount.toString()} highlight={pendingCount > 0} />
-        <StatCard label={t('admin.ordRevenue')} value={`CHF ${totalRevenue.toFixed(2)}`} />
+        <StatCard label={t('admin.ordRevenue')} value={formatFCFA(totalRevenue)} />
         <StatCard label={t('admin.ordRests')} value={new Set(orders.map(o => o.restaurant_id)).size.toString()} />
       </div>
 
@@ -171,7 +172,7 @@ export default function AdminOrdersPage() {
                 </div>
                 <p className="text-sm text-ink-secondary">{formatItems(order.items)}</p>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-brand">CHF {Number(order.total_price).toFixed(2)}</span>
+                  <span className="font-bold text-brand">{formatFCFA(order.total_price)}</span>
                   <span className="text-xs text-ink-tertiary">{formatDate(order.created_at)}</span>
                 </div>
               </div>
@@ -187,7 +188,7 @@ export default function AdminOrdersPage() {
                 <p className="text-sm text-ink-secondary truncate" title={formatItems(order.items)}>
                   {formatItems(order.items)}
                 </p>
-                <p className="font-bold text-brand text-sm">CHF {Number(order.total_price).toFixed(2)}</p>
+                <p className="font-bold text-brand text-sm">{formatFCFA(order.total_price)}</p>
                 <div className="space-y-1">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[order.status]}`}>
                     {t(`status.${order.status}` as Parameters<typeof t>[0])}

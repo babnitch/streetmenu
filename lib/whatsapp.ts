@@ -3,6 +3,7 @@
 import { logMessage, statusCallbackUrl, type SendOptions } from '@/lib/messageLog'
 import { blockedByTestGuard } from '@/lib/testGuard'
 import { enqueueFailedSend } from '@/lib/messageRetry'
+import { formatFCFA } from '@/lib/money'
 
 // Re-exported so callers can type their options without a second import.
 export type { SendOptions } from '@/lib/messageLog'
@@ -277,7 +278,7 @@ export async function notifyCustomerOrderPlaced(
   const items = Array.isArray(order.items) ? order.items : []
   const itemsLabel = pickLang('Articles', 'Items', lang)
   const itemBullet = lang === 'en' ? '  • ' : '  • '
-  const itemLines = items.map(i => `${itemBullet}${i.quantity}× ${i.name} — ${Number(i.price).toLocaleString()} FCFA`).join('\n')
+  const itemLines = items.map(i => `${itemBullet}${i.quantity}× ${i.name} — ${formatFCFA(Number(i.price))}`).join('\n')
 
   const msg = [
     pickLang(`📥 *Commande reçue!*`, `📥 *Order received!*`, lang),
@@ -288,7 +289,7 @@ export async function notifyCustomerOrderPlaced(
     `🍽️ *${itemsLabel}:*`,
     itemLines,
     ``,
-    `💰 *Total: ${Number(order.total_price).toLocaleString()} FCFA*`,
+    `💰 *Total: ${formatFCFA(Number(order.total_price))}*`,
     ...(prepLine ? [``, prepLine] : []),
     ``,
     pickLang(

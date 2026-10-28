@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
+import { formatFCFA } from '@/lib/money'
 
 interface EventVoucher {
   id:               string
@@ -169,7 +170,7 @@ export default function EventVouchersPanel({ eventId }: { eventId: string }) {
                 <div className="min-w-0">
                   <p className="font-bold font-mono text-sm text-ink-primary tracking-wider">{v.code}</p>
                   <p className="text-[11px] text-ink-tertiary">
-                    {v.discount_type === 'percent' ? `-${v.discount_value}%` : `-${Number(v.discount_value).toLocaleString()} FCFA`}
+                    {v.discount_type === 'percent' ? `-${v.discount_value}%` : `-${formatFCFA(Number(v.discount_value))}`}
                     {' · '}
                     {bi('Utilisé', 'Used')}: {v.current_uses ?? 0}{v.max_uses ? `/${v.max_uses}` : ''}
                     {v.expires_at ? ` · ${bi('exp.', 'exp.')} ${new Date(v.expires_at).toLocaleDateString()}` : ''}

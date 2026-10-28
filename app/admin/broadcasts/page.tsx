@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useBi } from '@/lib/languageContext'
+import { formatFCFA } from '@/lib/money'
 
 interface BroadcastRow {
   id: string
@@ -162,11 +163,11 @@ export default function AdminBroadcastsPage() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <p className="text-xs text-ink-secondary">{bi('Par abonné', 'Per subscriber')}</p>
-                <p className="font-semibold text-ink-primary">{pricing.price_per_recipient.toLocaleString()} FCFA</p>
+                <p className="font-semibold text-ink-primary">{formatFCFA(pricing.price_per_recipient)}</p>
               </div>
               <div>
                 <p className="text-xs text-ink-secondary">{bi('Minimum', 'Minimum')}</p>
-                <p className="font-semibold text-ink-primary">{pricing.min_charge.toLocaleString()} FCFA</p>
+                <p className="font-semibold text-ink-primary">{formatFCFA(pricing.min_charge)}</p>
               </div>
               <div>
                 <p className="text-xs text-ink-secondary">{bi('Max caractères', 'Max chars')}</p>
@@ -288,7 +289,7 @@ export default function AdminBroadcastsPage() {
                         {blocked && <span className="ml-2 text-rose-600 font-semibold">🚫 {bi('bloqué', 'blocked')}</span>}
                       </p>
                       <p className="text-xs text-ink-tertiary mt-0.5">
-                        📍 {b.target_city} · {b.recipient_count} {bi('abonnés', 'subscribers')} · {b.cost.toLocaleString()} FCFA · {new Date(b.created_at).toLocaleDateString('fr-FR')}
+                        📍 {b.target_city} · {b.recipient_count} {bi('abonnés', 'subscribers')} · {formatFCFA(b.cost)} · {new Date(b.created_at).toLocaleDateString('fr-FR')}
                       </p>
                     </div>
                     <div className="flex flex-col gap-1 flex-shrink-0">

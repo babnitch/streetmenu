@@ -17,6 +17,7 @@ import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
 import RestaurantHoursPanel from '@/components/RestaurantHoursPanel'
 import BannerAd from '@/components/BannerAd'
 import ReportButton from '@/components/ReportButton'
+import { formatFCFA } from '@/lib/money'
 
 export default function MenuPage() {
   const bi = useBi()
@@ -330,7 +331,7 @@ export default function MenuPage() {
           >
             <span className="bg-white/25 rounded-full px-2 py-0.5 text-sm font-bold min-w-7 text-center">{totalItems}</span>
             <span className="font-semibold text-sm">{t('menu.viewCart')}</span>
-            <span className="font-semibold">{totalPrice.toLocaleString()} FCFA</span>
+            <span className="font-semibold">{formatFCFA(totalPrice)}</span>
           </Link>
         </div>
       )}
@@ -379,10 +380,10 @@ function MenuItemCard({
           )}
           <div className="flex items-center justify-between mt-2 gap-3">
             <span className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="font-bold text-brand-dark text-sm">{item.price.toLocaleString()} FCFA</span>
+              <span className="font-bold text-brand-dark text-sm">{formatFCFA(item.price)}</span>
               {item.regular_price != null && (
                 <>
-                  <span className="text-xs text-ink-tertiary line-through">{item.regular_price.toLocaleString()} FCFA</span>
+                  <span className="text-xs text-ink-tertiary line-through">{formatFCFA(item.regular_price)}</span>
                   <span className="text-[11px] font-bold text-white bg-brand rounded-full px-1.5 py-0.5">
                     {percentOffLabel(item.regular_price, item.price)}
                   </span>

@@ -13,6 +13,7 @@ import { pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
 import { fanoutBatched } from '@/lib/subscriptions'
 import { writeAudit } from '@/lib/audit'
 import { formatEventWhen, isMultiDay } from '@/lib/eventDate'
+import { formatFCFA } from '@/lib/money'
 
 // Reservation rows that count as a real attendee (exclude cancelled/rejected).
 const ACTIVE_RESERVATION_STATUSES = ['confirmed', 'pending', 'attended']
@@ -121,7 +122,7 @@ function changeSummary(c: SignificantChanges, event: EventForUpdate, lang: Lang)
   if (c.venue) parts.push(pickLang('nouveau lieu', 'new venue', lang))
   if (c.price) {
     const p = c.price.to
-    const priceLabel = p && p > 0 ? `${Number(p).toLocaleString()} FCFA` : pickLang('Gratuit', 'Free', lang)
+    const priceLabel = p && p > 0 ? `${formatFCFA(Number(p))}` : pickLang('Gratuit', 'Free', lang)
     parts.push(pickLang(`nouveau prix: ${priceLabel}`, `new price: ${priceLabel}`, lang))
   }
   return parts.join(', ')

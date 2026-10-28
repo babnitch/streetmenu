@@ -79,7 +79,7 @@ async function main(): Promise<void> {
       const order = await makeOrder(rest.id, cust, { extra: { order_type: 'paid_order', payment_status: 'paid' }, total: 4500 })
       const c = await waLog(cust.phone, 'payment_confirmation', order.id)
       assertEq(await smsFallbackForLog(c, '63015'), 'sent', 'customer → SMS')
-      assert(/4[ ,. ]?500/.test(smsSends[smsSends.length - 1].body), 'customer SMS has the total')
+      assert(/4[\s,.]?500/.test(smsSends[smsSends.length - 1].body), 'customer SMS has the total')
       const v = await waLog(owner.phone, 'payment_confirmation', order.id)
       assertEq(await smsFallbackForLog(v, '63016'), 'sent', 'restaurant → SMS')
       assert(/commande payée|paid order/.test(smsSends[smsSends.length - 1].body), 'restaurant SMS says new paid order')

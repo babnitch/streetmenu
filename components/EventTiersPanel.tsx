@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { formatEventDay } from '@/lib/eventDate'
 import type { DayAvailability } from '@/lib/eventSeats'
+import { formatFCFA } from '@/lib/money'
 
 interface Tier {
   id:           string
@@ -238,7 +239,7 @@ export default function EventTiersPanel({ eventId, multiDay = false, onTiersLoad
                     </p>
                     {t.description && <p className="text-xs text-ink-tertiary mt-0.5">{t.description}</p>}
                     <p className="text-xs text-ink-tertiary mt-0.5">
-                      {t.price === 0 ? bi('Gratuit', 'Free') : `${t.price.toLocaleString()} FCFA`}
+                      {t.price === 0 ? bi('Gratuit', 'Free') : `${formatFCFA(t.price)}`}
                       {soldLines(t).length === 1 && <>{' · '}{soldLines(t)[0]}</>}
                     </p>
                     {soldLines(t).length > 1 && (

@@ -18,6 +18,7 @@ import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { Voucher, CustomerVoucher } from '@/types'
 import { normalizeMode, modeFromLegacy, type PaymentMode } from '@/lib/paymentMode'
+import { formatFCFA } from '@/lib/money'
 
 // Customer session from the JWT cookie (what /account actually writes).
 // The legacy useAuth hook reads Supabase Auth, which this app doesn't use
@@ -573,7 +574,7 @@ export default function OrderPage() {
             {bi('Validez le paiement sur votre téléphone.', 'Confirm the payment on your phone.')}
           </p>
           <p className="text-xs text-ink-tertiary mb-6 font-mono">
-            {finalPrice.toLocaleString()} FCFA · {mnoPreview?.label ?? 'mobile money'}
+            {formatFCFA(finalPrice)} · {mnoPreview?.label ?? 'mobile money'}
           </p>
           <div className="flex justify-center mb-4">
             <div className="w-3 h-3 bg-brand rounded-full mx-1 animate-bounce" style={{ animationDelay: '0s' }} />
@@ -669,7 +670,7 @@ export default function OrderPage() {
               )}
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-ink-primary text-sm truncate">{item.name}</p>
-                <p className="text-brand-dark text-sm font-semibold">{item.price.toLocaleString()} FCFA</p>
+                <p className="text-brand-dark text-sm font-semibold">{formatFCFA(item.price)}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -692,25 +693,25 @@ export default function OrderPage() {
           ))}
           <div className="px-4 py-2 flex items-center justify-between border-t border-divider">
             <span className="text-sm text-ink-secondary">{t('order.subtotal')}</span>
-            <span className="text-sm font-semibold text-ink-primary">{totalPrice.toLocaleString()} FCFA</span>
+            <span className="text-sm font-semibold text-ink-primary">{formatFCFA(totalPrice)}</span>
           </div>
           {discountAmount > 0 && (
             <div className="px-4 py-2 flex items-center justify-between bg-brand-light">
               <span className="text-sm text-brand-darker">{t('order.discount')} ({appliedVoucher?.code})</span>
-              <span className="text-sm font-bold text-brand-darker">−{discountAmount.toLocaleString()} FCFA</span>
+              <span className="text-sm font-bold text-brand-darker">−{formatFCFA(discountAmount)}</span>
             </div>
           )}
           {isDelivery && (
             <div className="px-4 py-2 flex items-center justify-between border-t border-divider">
               <span className="text-sm text-ink-secondary">🛵 {bi('Frais de livraison', 'Delivery fee')}</span>
               <span className="text-sm font-semibold text-ink-primary">
-                {deliveryFee > 0 ? `${deliveryFee.toLocaleString()} FCFA` : bi('Offerte', 'Free')}
+                {deliveryFee > 0 ? `${formatFCFA(deliveryFee)}` : bi('Offerte', 'Free')}
               </span>
             </div>
           )}
           <div className="px-4 py-3 bg-brand-light flex items-center justify-between">
             <span className="font-semibold text-ink-primary">{t('order.finalTotal')}</span>
-            <span className="font-bold text-brand-dark text-lg">{finalPrice.toLocaleString()} FCFA</span>
+            <span className="font-bold text-brand-dark text-lg">{formatFCFA(finalPrice)}</span>
           </div>
         </div>
 
@@ -721,7 +722,7 @@ export default function OrderPage() {
             <div className="flex items-center justify-between bg-brand-light rounded-xl px-3 py-2.5">
               <div>
                 <p className="text-sm font-bold text-brand-darker">{appliedVoucher.code}</p>
-                <p className="text-xs text-brand-dark">{t('order.voucherApplied')} · −{discountAmount.toLocaleString()} FCFA</p>
+                <p className="text-xs text-brand-dark">{t('order.voucherApplied')} · −{formatFCFA(discountAmount)}</p>
               </div>
               <button onClick={removeVoucher} className="text-xs text-ink-tertiary hover:text-danger transition-colors ml-3">
                 {t('order.removeVoucher')}
@@ -759,7 +760,7 @@ export default function OrderPage() {
                         {cv.vouchers?.code}
                         {isPercentDiscount(cv.vouchers?.discount_type)
                           ? ` −${cv.vouchers?.discount_value}%`
-                          : ` −${cv.vouchers?.discount_value?.toLocaleString()} FCFA`}
+                          : ` −${formatFCFA(cv.vouchers?.discount_value)}`}
                       </button>
                     ))}
                   </div>
@@ -822,7 +823,7 @@ export default function OrderPage() {
               </div>
               <p className="text-xs text-ink-tertiary mt-1.5 px-2">
                 {isDelivery
-                  ? `${bi('Livraison', 'Delivery')} ${delivery.fee > 0 ? `${delivery.fee.toLocaleString()} FCFA` : bi('offerte', 'free')}${timeLabel ? ` · ${timeLabel}` : ''}`
+                  ? `${bi('Livraison', 'Delivery')} ${delivery.fee > 0 ? `${formatFCFA(delivery.fee)}` : bi('offerte', 'free')}${timeLabel ? ` · ${timeLabel}` : ''}`
                   : `${bi('À emporter', 'Take-away')}${timeLabel ? ` · ${timeLabel}` : ''}`}
               </p>
             </div>
@@ -1050,8 +1051,8 @@ export default function OrderPage() {
                     ? bi('Initialisation du paiement…', 'Starting payment…')
                     : t('order.placing'))
                 : showPayUI
-                  ? `${bi('Payer', 'Pay')} ${finalPrice.toLocaleString()} FCFA`
-                  : `📋 ${bi('Réserver la commande', 'Reserve order')} · ${finalPrice.toLocaleString()} FCFA`}
+                  ? `${bi('Payer', 'Pay')} ${formatFCFA(finalPrice)}`
+                  : `📋 ${bi('Réserver la commande', 'Reserve order')} · ${formatFCFA(finalPrice)}`}
           </button>
         </form>
       </div>

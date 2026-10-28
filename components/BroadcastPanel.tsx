@@ -6,6 +6,7 @@ import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { useDepositPoll } from '@/lib/useDepositPoll'
+import { formatFCFA } from '@/lib/money'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
 const CATEGORIES = [
@@ -383,12 +384,12 @@ export default function BroadcastPanel() {
                   {bi('abonnés', 'subscribers')} × {pricing.price_per_recipient} FCFA
                 </p>
                 <p className="text-ink-primary font-bold mt-1">
-                  💰 {preview.cost.toLocaleString()} FCFA
+                  💰 {formatFCFA(preview.cost)}
                 </p>
                 <p className="text-xs text-ink-tertiary mt-1">
                   {bi(
-                    `Min ${pricing.min_charge.toLocaleString()} FCFA`,
-                    `Min ${pricing.min_charge.toLocaleString()} FCFA`,
+                    `Min ${formatFCFA(pricing.min_charge)}`,
+                    `Min ${formatFCFA(pricing.min_charge)}`,
                   )}
                 </p>
               </div>
@@ -444,7 +445,7 @@ export default function BroadcastPanel() {
                   </span>
                 </div>
                 <p className="text-ink-tertiary mt-0.5">
-                  📍 {b.target_city} · {b.recipient_count} {bi('abonnés', 'subs')} · {b.cost.toLocaleString()} FCFA
+                  📍 {b.target_city} · {b.recipient_count} {bi('abonnés', 'subs')} · {formatFCFA(b.cost)}
                 </p>
               </div>
             )

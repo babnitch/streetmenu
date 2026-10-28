@@ -30,6 +30,7 @@ import { restaurantToolsFor, toolLabel } from '@/lib/navConfig'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 import { isPastEvent, formatEventDates, formatEventDay, isMultiDay } from '@/lib/eventDate'
+import { formatFCFA } from '@/lib/money'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
 const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'), { ssr: false })
@@ -2329,7 +2330,7 @@ function EventReservationCard({
             <p className="text-xs text-ink-secondary mt-1">
               🎟 {reservation.quantity} {bi('place(s)', 'ticket(s)')}
               {reservation.total_price > 0 && (
-                <> · {Number(reservation.total_price).toLocaleString()} FCFA</>
+                <> · {formatFCFA(Number(reservation.total_price))}</>
               )}
             </p>
             {reservation.reservation_code && (
@@ -2456,7 +2457,7 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
         </div>
         <p className="text-xs text-ink-tertiary mb-2 truncate">{itemsSummary}</p>
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="font-bold text-brand text-sm">{Number(order.total_price).toLocaleString()} FCFA</span>
+          <span className="font-bold text-brand text-sm">{formatFCFA(Number(order.total_price))}</span>
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <OrderStatusBadge status={order.status} />
             <PaymentBadge order={order} locale={locale} showRef />
@@ -2475,7 +2476,7 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
                 <li key={idx} className="flex items-center justify-between text-sm text-ink-primary">
                   <span>{it.quantity}× {it.name}</span>
                   {typeof it.price === 'number' && (
-                    <span className="text-ink-secondary font-mono">{(it.quantity * it.price).toLocaleString()} FCFA</span>
+                    <span className="text-ink-secondary font-mono">{formatFCFA((it.quantity * it.price))}</span>
                   )}
                 </li>
               ))}
@@ -2483,7 +2484,7 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
           )}
           <div className="flex items-center justify-between pt-2 border-t border-divider">
             <span className="text-xs text-ink-secondary uppercase tracking-wide">Total</span>
-            <span className="font-bold text-ink-primary font-mono">{Number(order.total_price).toLocaleString()} FCFA</span>
+            <span className="font-bold text-ink-primary font-mono">{formatFCFA(Number(order.total_price))}</span>
           </div>
         </div>
       )}

@@ -16,6 +16,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { addDays, localDayISO, weekdayIndex } from '@/lib/eventCalendar'
 import { eventDays as rangeDays, formatEventDates, formatEventDay } from '@/lib/eventDate'
 import { eventStatus, statusText, type ListingDay } from '@/lib/eventStatus'
+import { formatFCFA } from '@/lib/money'
 
 interface ListingEvent {
   id: string; title: string; category: string | null; venue: string | null; neighborhood: string | null
@@ -121,7 +122,7 @@ export default function EventsPage() {
   const featured = events.find(e => e.id === data?.featuredId) ?? null
   const allDays = useMemo(() => new Set(events.flatMap(e => upcomingDays(e, today))), [events, today])
 
-  const priceText = (p: number | null) => p === null ? null : p === 0 ? bi('Gratuit', 'Free') : `${bi('Dès', 'From')} ${p.toLocaleString()} FCFA`
+  const priceText = (p: number | null) => p === null ? null : p === 0 ? bi('Gratuit', 'Free') : `${bi('Dès', 'From')} ${formatFCFA(p)}`
   const whenLabel = (): string => {
     switch (when.kind) {
       case 'today':   return bi("aujourd'hui", 'today')

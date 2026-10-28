@@ -31,7 +31,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const name  = sanitizeText(body.name, 120)
-  const price = Number(body.price)
+  // Whole francs: FCFA has no decimals.
+  const price = Math.round(Number(body.price))
   if (!name) {
     return NextResponse.json({ error: 'Nom requis / Name required' }, { status: 400 })
   }

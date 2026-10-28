@@ -15,6 +15,7 @@ import { reserveEventSeats, type SeatRequestRow } from '@/lib/eventSeats'
 import { depositFailure } from '@/lib/whatsapp/ordering'
 import { randomUUID } from 'crypto'
 import { samePhone } from '@/lib/phone'
+import { formatFCFA } from '@/lib/money'
 
 export const dynamic = 'force-dynamic'
 
@@ -235,7 +236,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         event.venue ? `📍 ${event.venue}` : '',
         pickLang(`🎟 ${quantity} place(s)`, `🎟 ${quantity} ticket(s)`, lang),
         pickLang(`🎫 Code de réservation: *#${freeRes.reservation_code}*`, `🎫 Reservation code: *#${freeRes.reservation_code}*`, lang),
-        appliedVoucher ? pickLang(`🎫 Code ${appliedVoucher.code}: -${discountAmount.toLocaleString()} FCFA (gratuit!)`, `🎫 Code ${appliedVoucher.code}: -${discountAmount.toLocaleString()} FCFA (free!)`, lang) : '',
+        appliedVoucher ? pickLang(`🎫 Code ${appliedVoucher.code}: -${formatFCFA(discountAmount)} (gratuit!)`, `🎫 Code ${appliedVoucher.code}: -${formatFCFA(discountAmount)} (free!)`, lang) : '',
       ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id })
         .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
         .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
@@ -251,7 +252,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       `👤 ${custName}`,
       `📱 ${custPhone}`,
       pickLang(`🎟 ${quantity} place(s)`, `🎟 ${quantity} ticket(s)`, orgLang),
-      appliedVoucher ? `🎫 ${appliedVoucher.code}: -${discountAmount.toLocaleString()} FCFA` : '',
+      appliedVoucher ? `🎫 ${appliedVoucher.code}: -${formatFCFA(discountAmount)}` : '',
     ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id }, organizerPhone)
 
     return NextResponse.json({

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { formatFCFA } from '@/lib/money'
 
 export const dynamic = 'force-dynamic'
 
@@ -139,7 +140,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ``,
       pickLang(`🧾 Commande #${id4}`, `🧾 Order #${id4}`, lang),
       `💳 ${pickLang(label.fr, label.en, lang)}`,
-      `💰 ${Number(order.total_price).toLocaleString()} FCFA`,
+      `💰 ${formatFCFA(Number(order.total_price))}`,
       ``,
       pickLang(`Merci!`, `Thank you!`, lang),
     ].join('\n'), { context: 'payment_confirmation', relatedId: order.id })

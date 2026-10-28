@@ -7,6 +7,7 @@ import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { EVENT_DATE_COLUMNS, formatEventDates, isPastEvent } from '@/lib/eventDate'
 import { closeReservation, OPEN_RESERVATION_STATUSES } from '@/lib/eventSeats'
+import { formatFCFA } from '@/lib/money'
 
 export const dynamic = 'force-dynamic'
 
@@ -144,8 +145,8 @@ export async function POST(
       const custLang = await getLangByPhone(r.customer_phone)
       const refundLine = r.payment_status === 'paid'
         ? pickLang(
-            `\n💰 ${(r.total_price ?? 0).toLocaleString()} FCFA — l'organisateur vous contactera pour le remboursement.`,
-            `\n💰 ${(r.total_price ?? 0).toLocaleString()} FCFA — the organizer will contact you for a refund.`,
+            `\n💰 ${formatFCFA((r.total_price ?? 0))} — l'organisateur vous contactera pour le remboursement.`,
+            `\n💰 ${formatFCFA((r.total_price ?? 0))} — the organizer will contact you for a refund.`,
             custLang,
           )
         : ''
