@@ -36,6 +36,7 @@ import { notifyOrganizer } from '@/lib/eventRecipients'
 import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { hasRestaurantModule, eventAllows } from '@/lib/modulesServer'
 import { isSideOn, platformOffReply } from '@/lib/platformSwitch'
+import { orderLinkLine, bookingLinkLine } from '@/lib/siteLinks'
 
 // An event whose organiser has no Réservations module (M4): booked with the
 // organiser directly.
@@ -2451,6 +2452,7 @@ async function confirmEventReservationWhatsapp(opts: {
       ? pickLang(`🎫 Code ${voucherCode}: -${formatFCFA(discountAmount)}`, `🎫 Code ${voucherCode}: -${formatFCFA(discountAmount)}`, lang)
       : '',
     payLine,
+    bookingLinkLine(lang),
   ].filter(Boolean).join('\n'))
 
   await pingOrganizer(event, customer, q, totalPrice, reservationCode)
@@ -3060,7 +3062,7 @@ async function finalizeRestaurantWhatsappOrder(opts: {
   ))
   confirmLines.push(``, pickLang(
     `💡 Envoyez 'mes commandes' pour suivre votre commande.`,
-    `💡 Send 'my orders' to track your order.`, custLang))
+    `💡 Send 'my orders' to track your order.`, custLang), orderLinkLine(custLang))
   await sendWhatsApp(from, confirmLines.join('\n'))
 
   // Fan out to vendors — must be awaited. Fire-and-forget here dies with

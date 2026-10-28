@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSideOn } from '@/lib/platformSwitch'
 import { requireEventModule } from '@/lib/modulesServer'
+import { bookingLinkLine } from '@/lib/siteLinks'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -400,6 +401,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     codeLineFor(custLang),
     discountLineFor(custLang),
     priceLine,
+    bookingLinkLine(custLang),
   ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id, customerId: customerId ?? null })
     .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
     .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))

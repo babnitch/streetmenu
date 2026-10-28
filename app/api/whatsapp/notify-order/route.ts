@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { notifyCustomerOrderPlaced, getLangByPhone } from '@/lib/whatsapp'
 import { notifyVendorsOfNewOrder, prepTimeLine, deliveryInfoFromOrder } from '@/lib/whatsapp/ordering'
+import { ORDERS_URL } from '@/lib/siteLinks'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     const items = (Array.isArray(order.items) ? order.items : []) as Array<{ name: string; quantity: number; price: number }>
     const total = Number(order.total_price)
-    const trackingUrl = 'https://streetmenu.vercel.app/account'
+    const trackingUrl = ORDERS_URL
     // Single-language prep line + customer ping per the recipient's
     // preferred_language. prepTimeLine accepts a lang so the estimate label
     // matches the rest of the message.

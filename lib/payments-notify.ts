@@ -13,6 +13,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { vendorRecipients, prepTimeLine, deliveryInfoFromOrder, deliveryLines } from '@/lib/whatsapp/ordering'
 import { notifyOrganizer } from '@/lib/eventRecipients'
+import { orderLinkLine, bookingLinkLine } from '@/lib/siteLinks'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
 import { formatFCFA } from '@/lib/money'
@@ -69,6 +70,8 @@ export async function notifyPaidOrder(
         `Your order is confirmed and the restaurant is preparing your meal.`,
         lang,
       ),
+      ``,
+      orderLinkLine(lang),
     ].join('\n'), { context: 'payment_confirmation', relatedId: order.id })
     console.log(`[payment] customer notification result: ok=${r.ok} httpStatus=${r.status} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}${r.error ? ` error=${r.error.slice(0, 200)}` : ''}`)
   } else {
@@ -178,6 +181,7 @@ export async function notifyPaidReservation(
       `💰 ${formatFCFA(total)} · ${mno}`,
       ``,
       pickLang(`À bientôt!`, `See you soon!`, lang),
+      bookingLinkLine(lang),
     ].filter(Boolean).join('\n'), { context: 'payment_confirmation', relatedId: r.id })
     console.log(`[payment] reservation customer result: ok=${sent.ok} sid=${sent.sid ?? '-'} twilioStatus=${sent.twilioStatus ?? '-'}${sent.error ? ` error=${sent.error.slice(0, 200)}` : ''}`)
   } else {
