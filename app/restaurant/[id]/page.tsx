@@ -91,7 +91,7 @@ export default function MenuPage() {
   const categories = showCategoryTabs ? ['all', ...uniqueCategories] : []
   const filtered = activeCategory === 'all' ? nonSpecials : nonSpecials.filter(m => catKey(m.category) === catKey(activeCategory))
   const getItemQty = (itemId: string) => items.find(i => i.id === itemId)?.quantity ?? 0
-  const add = (item: MenuItem) => addItem({ id: item.id, name: item.name, price: item.price, quantity: 1, photo_url: item.photo_url }, id)
+  const add = (item: MenuItem) => addItem({ id: item.id, name: item.name, price: item.price, quantity: 1, photo_url: item.photo_url }, id, restaurant?.name)
 
   if (loading) {
     return (
