@@ -24,7 +24,7 @@
 import { sb, testName, testCode } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, customerCookie, adminCookie } from '../testkit/session'
-import { makeCustomer, makeEvent, futureDateISO, pastDateISO, type TestCustomer } from '../testkit/fixtures'
+import { makeCustomer, makeEvent, futureDateISO, pastDateISO, testPictureUrl, type TestCustomer } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 import { countMatchingSubscribers } from '@/lib/subscriptions'
 
@@ -101,7 +101,8 @@ async function main(): Promise<void> {
 
     const submitEvent = (body: Record<string, unknown>, cookie: string | null) =>
       api<{ ok?: boolean; event_id?: string; auto_approved?: boolean; error?: string }>('/api/events/submit', {
-        method: 'POST', body, ...(cookie ? { cookie } : {}),
+        // Every new event needs a poster (V5); a test may override it.
+        method: 'POST', body: { cover_photo: testPictureUrl('event-images'), ...body }, ...(cookie ? { cookie } : {}),
       })
     const approve = (id: string, cookie: string) =>
       api(`/api/admin/events/${id}/approve`, { method: 'POST', cookie })

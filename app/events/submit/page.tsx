@@ -13,6 +13,7 @@ import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
+import { EVENT_POSTER_REQUIRED } from '@/lib/pictureRequired'
 
 const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
 
@@ -166,6 +167,12 @@ export default function SubmitEventPage() {
       return
     }
 
+    // V5: every new event needs a poster.
+    if (!photo) {
+      setError(bi(EVENT_POSTER_REQUIRED.fr, EVENT_POSTER_REQUIRED.en))
+      return
+    }
+
     // Start/end range — same rules the API applies. Blank end = single-day.
     const rangeError = validateEventRange({
       date: form.date, time: form.time || null, end_date: form.end_date || null, end_time: form.end_time || null,
@@ -207,25 +214,27 @@ export default function SubmitEventPage() {
     // that read as "submit does nothing / nothing saves".
     try {
       let cover_photo = ''
-      if (photo) {
-        // Server-side compression via sharp → WebP / 800×450 / EXIF
-        // stripped / blur placeholder. See /api/upload/image. A failed
-        // upload is non-fatal: the event still submits without a cover.
-        try {
-          const fd = new FormData()
-          fd.append('file', photo)
-          fd.append('kind', 'event_poster')
-          fd.append('pathPrefix', 'events')
-          const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-          if (r.ok) {
-            const j = await r.json()
-            if (typeof j?.url === 'string') cover_photo = j.url
-          } else {
-            console.warn('[events/submit] photo upload failed:', r.status)
-          }
-        } catch (err) {
-          console.warn('[events/submit] photo upload threw:', err)
+      // Server-side compression via sharp → WebP / 800×450 / EXIF
+      // stripped / blur placeholder. See /api/upload/image. The poster is
+      // required (V5), so a failed upload stops the submit here.
+      try {
+        const fd = new FormData()
+        fd.append('file', photo)
+        fd.append('kind', 'event_poster')
+        fd.append('pathPrefix', 'events')
+        const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
+        if (r.ok) {
+          const j = await r.json()
+          if (typeof j?.url === 'string') cover_photo = j.url
+        } else {
+          console.warn('[events/submit] photo upload failed:', r.status)
         }
+      } catch (err) {
+        console.warn('[events/submit] photo upload threw:', err)
+      }
+      if (!cover_photo) {
+        setError(`${bi(EVENT_POSTER_REQUIRED.fr, EVENT_POSTER_REQUIRED.en)} — ${bi('l\'envoi a échoué, réessayez.', 'the upload failed, please try again.')}`)
+        return
       }
 
       const payload = {
@@ -244,7 +253,7 @@ export default function SubmitEventPage() {
         payment_mode:    form.payment_mode,
         whatsapp_payment_enabled: !!form.whatsapp_payment_enabled,
         requires_confirmation: !!form.requires_confirmation,
-        cover_photo:     cover_photo || null,
+        cover_photo,
         notify_phone:    form.notify_phone.trim(),
         organizer_name:  form.organizer_name,
         tiers:           tierPayload,
@@ -354,7 +363,7 @@ export default function SubmitEventPage() {
 
           {/* Poster — shown as a portrait poster on the Events page. */}
           <div>
-            <label className={LABEL}>{bi('Affiche de l\'événement', 'Event poster')}</label>
+            <label className={LABEL}>{bi('Affiche de l\'événement *', 'Event poster *')}</label>
             <div className="flex gap-3 items-start">
               <button type="button" onClick={() => fileInputRef.current?.click()}
                 className="relative w-32 aspect-[4/5] flex-shrink-0 border-2 border-dashed border-brand-badge rounded-2xl overflow-hidden hover:border-brand transition-colors">
@@ -369,7 +378,7 @@ export default function SubmitEventPage() {
                   {photoPreview ? bi('Changer l\'affiche', 'Change the poster') : bi('Ajouter une affiche', 'Add a poster')}
                 </p>
                 <p>{bi('Format conseillé : 1080 × 1350 px (portrait 4:5).', 'Recommended: 1080 × 1350 px (portrait 4:5).')}</p>
-                <p>{bi('Sans affiche, une illustration aux couleurs de Tchop & Ndjoka est utilisée.', 'Without one, a Tchop & Ndjoka illustration is used.')}</p>
+                <p className="font-semibold text-ink-secondary">{bi('Obligatoire.', 'Required.')}</p>
               </div>
             </div>
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />

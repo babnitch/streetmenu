@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { sanitizeText } from '@/lib/sanitize'
 import { writeAudit } from '@/lib/audit'
 import { isAdminRole } from '@/lib/adminNav'
+import { RESTAURANT_PHOTO_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
   const city        = sanitizeText(body.city, 60)
   const phone       = sanitizeText(body.phone, 32)
   const whatsapp    = sanitizeText(body.whatsapp, 32)
-  const logo_url    = typeof body.logo_url === 'string' ? body.logo_url : ''
+  const logo_url    = typeof body.logo_url === 'string' ? body.logo_url.trim() : ''
   const lat         = Number(body.lat)
   const lng         = Number(body.lng)
 
@@ -94,6 +95,10 @@ export async function POST(req: NextRequest) {
   // enforcing it rather than trusting the client to have run it.
   if (!name || !city) {
     return NextResponse.json({ error: 'Nom et ville requis / Name and city required' }, { status: 400 })
+  }
+  // V5: a new restaurant needs its photo (the form's upload lands in logo_url).
+  if (!hasPictureUrl(logo_url)) {
+    return NextResponse.json({ error: RESTAURANT_PHOTO_REQUIRED_TEXT, field: 'logo_url' }, { status: 400 })
   }
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({ error: 'lat et lng requis / lat and lng required' }, { status: 400 })

@@ -6,13 +6,14 @@ import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone } from '@/lib/whatsapp'
 import { cityCentre, isFoodType, acceptPosition, registeredText } from '@/lib/restaurantSignup'
+import { RESTAURANT_PHOTO_REQUIRED_TEXT } from '@/lib/pictureRequired'
 
 export const dynamic = 'force-dynamic'
 
 const BASE_URL = 'https://streetmenu.vercel.app'
 
 // Uploads come back from /api/upload/image as Supabase storage public URLs;
-// anything else is dropped (never blocks the signup).
+// anything else counts as no photo.
 function safeImageUrl(input: unknown): string | null {
   if (typeof input !== 'string' || !input) return null
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -23,7 +24,7 @@ function safeImageUrl(input: unknown): string | null {
 // logged-in customer. Does exactly what the WhatsApp signup does:
 //   - owner = the account, WhatsApp number = the account's phone (verified at
 //     login), inactive and pending until an admin approves;
-//   - photo in image_url, city / neighbourhood / food type from the shared
+//   - photo in image_url (required, V5), city / neighbourhood / food type from the shared
 //     lists (lib/restaurantSignup.ts);
 //   - map pin: the phone's position when sent and near the city, else the
 //     city centre (never 0,0);
@@ -33,7 +34,7 @@ function safeImageUrl(input: unknown): string | null {
 // One restaurant per number, as on WhatsApp (the bot recognises a vendor by
 // that number). A half-finished WhatsApp signup for the number is cleared.
 //
-// Body: { name, city, neighborhood, cuisine_type, image_url?, lat?, lng? }
+// Body: { name, city, neighborhood, cuisine_type, image_url, lat?, lng? }
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') {
@@ -54,6 +55,8 @@ export async function POST(req: NextRequest) {
   const centre = cityCentre(city)
   if (!centre) return NextResponse.json({ error: 'Ville invalide / Invalid city' }, { status: 400 })
   if (!isFoodType(cuisine)) return NextResponse.json({ error: 'Type de cuisine invalide / Invalid food type' }, { status: 400 })
+  const imageUrl = safeImageUrl(body?.image_url)
+  if (!imageUrl) return NextResponse.json({ error: RESTAURANT_PHOTO_REQUIRED_TEXT, field: 'image_url' }, { status: 400 })
 
   const { data: me } = await supabaseAdmin
     .from('customers').select('id, phone, name, status').eq('id', session.id).maybeSingle()
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest) {
       city,
       neighborhood,
       cuisine_type: cuisine,
-      image_url:    safeImageUrl(body?.image_url),
+      image_url:    imageUrl,
       whatsapp:     me.phone,
       owner_name:   me.name,
       customer_id:  me.id,

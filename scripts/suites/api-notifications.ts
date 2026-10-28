@@ -19,7 +19,7 @@ import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, adminCookie, customerCookie } from '../testkit/session'
 import { vendorRecipients } from '@/lib/whatsapp/ordering'
 import { organizerPhones } from '@/lib/eventRecipients'
-import { makeCustomer, makeRestaurant, makeOrder, addTeamMember, makeEvent, futureDateISO } from '../testkit/fixtures'
+import { makeCustomer, makeRestaurant, makeOrder, addTeamMember, makeEvent, futureDateISO, testPictureUrl } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 
 const SUITE = 'api-notifications'
@@ -177,7 +177,7 @@ async function main(): Promise<void> {
 
     await step('event submit: contact = account phone, extra number normalised', async () => {
       const cookie = customerCookie(org)
-      const base = { title: testName('c3_submit'), date: futureDateISO(20), city: testName('city'), category: 'Autre', ticket_price: 0, organizer_name: 'Asso' }
+      const base = { title: testName('c3_submit'), date: futureDateISO(20), city: testName('city'), category: 'Autre', ticket_price: 0, organizer_name: 'Asso', cover_photo: testPictureUrl('event-images') }
       const bad = await api<{ field?: string }>('/api/events/submit', { cookie, body: { ...base, notify_phone: '12' } })
       assertEq(bad.status, 400, 'unusable extra number → 400')
       assertEq(bad.body.field, 'notify_phone', 'error names the field')
@@ -204,7 +204,7 @@ async function main(): Promise<void> {
       const cookie = customerCookie(verified)
       const real = '+237 699 00 00 09'
       const r = await api<{ event_id?: string }>('/api/events/submit', {
-        cookie, body: { title: testName('c3_guard'), date: futureDateISO(20), city: testName('city'), category: 'Autre', ticket_price: 0, organizer_name: 'Asso', notify_phone: real },
+        cookie, body: { title: testName('c3_guard'), date: futureDateISO(20), city: testName('city'), category: 'Autre', ticket_price: 0, organizer_name: 'Asso', notify_phone: real, cover_photo: testPictureUrl('event-images') },
       })
       assertEq(r.status, 200, 'submit still works')
       track('events', r.body.event_id)

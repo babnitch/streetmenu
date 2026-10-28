@@ -9,6 +9,7 @@ import { useCity } from '@/lib/cityContext'
 import { proLoginHref } from '@/lib/lastPhone'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { RESTAURANT_CITIES, FOOD_TYPES } from '@/lib/restaurantSignup'
+import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 
 const INPUT = 'w-full bg-surface-muted border border-divider rounded-xl px-3 py-2.5 text-sm text-ink-primary outline-none focus:border-brand'
 const BOT_NUMBER = (process.env.NEXT_PUBLIC_WHATSAPP_BOT_NUMBER ?? '').replace(/\D/g, '')
@@ -58,17 +59,21 @@ export default function AddRestaurantPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    setBusy(true); setError(null); setExistingId(null)
+    setError(null); setExistingId(null)
+    const photoMissing = bi(RESTAURANT_PHOTO_REQUIRED.fr, RESTAURANT_PHOTO_REQUIRED.en)
+    if (!photo) { setError(photoMissing); return }
+    setBusy(true)
     try {
-      let image_url: string | null = null
-      if (photo) {
-        const fd = new FormData()
-        fd.append('file', photo)
-        fd.append('kind', 'restaurant_hero')
-        fd.append('bucket', 'restaurant-images')
-        fd.append('pathPrefix', 'restaurants')
-        const up = await fetch('/api/upload/image', { method: 'POST', body: fd })
-        if (up.ok) image_url = (await up.json())?.url ?? null
+      const fd = new FormData()
+      fd.append('file', photo)
+      fd.append('kind', 'restaurant_hero')
+      fd.append('bucket', 'restaurant-images')
+      fd.append('pathPrefix', 'restaurants')
+      const up = await fetch('/api/upload/image', { method: 'POST', body: fd })
+      const image_url: string | null = up.ok ? ((await up.json())?.url ?? null) : null
+      if (!image_url) {
+        setError(`${photoMissing} — ${bi('l\'envoi a échoué, réessayez.', 'the upload failed, please try again.')}`)
+        return
       }
       const r = await fetch('/api/restaurants/submit', {
         method: 'POST',
@@ -164,8 +169,9 @@ export default function AddRestaurantPage() {
             </div>
 
             <label className="block">
-              <span className="text-xs font-semibold text-ink-secondary">{bi('Photo (facultatif)', 'Photo (optional)')}</span>
-              <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
+              <span className="text-xs font-semibold text-ink-secondary">{bi('Photo du restaurant *', 'Restaurant photo *')}</span>
+              <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={e => { setPhoto(e.target.files?.[0] ?? null); setError(null) }} />
+              <span className="block text-[11px] text-ink-tertiary mt-1">{bi('Obligatoire — la devanture, la salle ou un plat.', 'Required — the front, the dining room or a dish.')}</span>
             </label>
 
             <div>

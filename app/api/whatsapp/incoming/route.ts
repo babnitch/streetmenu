@@ -1,4 +1,5 @@
 import { cityCentre, registeredText } from '@/lib/restaurantSignup'
+import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, guessLang, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
@@ -926,35 +927,35 @@ async function handleSession(
         step: 5, data: { ...data, cuisine_type: cuisine }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, pickLang(
-        '📸 Envoyez une *photo de votre restaurant*!\n\n_Envoyez "passer" pour ignorer cette étape._',
-        '📸 Send a *photo of your restaurant*!\n\n_Send "skip" to skip this step._', L))
+        '📸 Envoyez une *photo de votre restaurant* (obligatoire) : la devanture, la salle ou un plat.',
+        '📸 Send a *photo of your restaurant* (required): the front, the dining room or a dish.', L))
       return ok()
     }
 
-    // Step 5: profile photo (or skip)
+    // Step 5: restaurant photo — required (V5), no skip. Text or a
+    // non-image re-asks; the session stays open until a photo arrives
+    // (or "annuler"/"cancel"). The image is downloaded from Twilio with
+    // the API key and re-encoded into the restaurant-images bucket.
     if (step === 5) {
-      const skip = cmd === 'passer' || cmd === 'skip'
-      let imageUrl: string | null = null
-
-      if (!skip) {
-        if (!hasPhoto) {
-          await sendWhatsApp(from, pickLang('Envoyez une photo, ou "passer" pour ignorer.', 'Send a photo, or "skip" to skip.', L))
-          return ok()
-        }
-        console.log(`[whatsapp] Step 5 photo detected for ${phone}`)
-        const media = await downloadTwilioMedia(mediaUrl)
-        if (!media) {
-          // Don't drop the session — let them retry with another photo or skip.
-          await sendWhatsApp(from, pickLang('⚠️ Impossible de télécharger la photo. Réessayez ou envoyez "passer".', '⚠️ Could not download the photo. Retry or send "skip".', L))
-          return ok()
-        }
-        imageUrl = await uploadToStorage('restaurant-images', media.buffer, media.contentType)
-        if (!imageUrl) {
-          await sendWhatsApp(from, pickLang('⚠️ Impossible d\'enregistrer la photo. Réessayez ou envoyez "passer".', '⚠️ Could not save the photo. Retry or send "skip".', L))
-          return ok()
-        }
-        console.log(`[whatsapp] Step 5 URL saved to session data: ${imageUrl}`)
+      if (!hasPhoto) {
+        await sendWhatsApp(from, '📸 ' + pickLang(
+          `${RESTAURANT_PHOTO_REQUIRED.fr} pour terminer l'inscription.\n_Ou envoyez "annuler" pour arrêter._`,
+          `${RESTAURANT_PHOTO_REQUIRED.en} to finish signing up.\n_Or send "cancel" to stop._`, L))
+        return ok()
       }
+      console.log(`[whatsapp] Step 5 photo detected for ${phone}`)
+      const media = await downloadTwilioMedia(mediaUrl)
+      if (!media) {
+        // Don't drop the session — let them retry with another photo.
+        await sendWhatsApp(from, pickLang('⚠️ Impossible de télécharger la photo. Réessayez.', '⚠️ Could not download the photo. Please retry.', L))
+        return ok()
+      }
+      const imageUrl = await uploadToStorage('restaurant-images', media.buffer, media.contentType)
+      if (!imageUrl) {
+        await sendWhatsApp(from, pickLang('⚠️ Impossible d\'enregistrer la photo. Réessayez.', '⚠️ Could not save the photo. Please retry.', L))
+        return ok()
+      }
+      console.log(`[whatsapp] Step 5 URL saved to session data: ${imageUrl}`)
 
       const restaurantName = data.restaurant_name ?? 'Restaurant'
       const neighborhood   = data.neighborhood    ?? ''

@@ -10,13 +10,14 @@ import { notifyEventSubscribers } from '@/lib/subscriptions'
 import { normalizeMode, legacyEnabledFromMode } from '@/lib/paymentMode'
 import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
 import { capacityFromTiers } from '@/lib/eventCapacity'
+import { EVENT_POSTER_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/events/submit
 // Body: full event payload (title, description, date, time, end_date, end_time, venue, city,
 // neighborhood, category, price/ticket_price, max_tickets, payment_enabled,
-// cover_photo URL, organizer_name, notify_phone?). The WhatsApp contact is the
+// cover_photo URL (required for a new event, V5), organizer_name, notify_phone?). The WhatsApp contact is the
 // account phone; notify_phone is an optional extra number for notifications.
 //
 // Trust gate: when the submitter's customers.event_auto_approve is TRUE,
@@ -39,6 +40,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       error: 'Champs requis manquants / Missing required fields',
     }, { status: 400 })
+  }
+
+  if (!hasPictureUrl(body?.cover_photo)) {
+    return NextResponse.json({ error: EVENT_POSTER_REQUIRED_TEXT, field: 'cover_photo' }, { status: 400 })
   }
 
   // Start/end range. A blank end means a single-day event — same rules as the form.
@@ -119,7 +124,7 @@ export async function POST(req: NextRequest) {
     payment_mode:    paymentMode,
     whatsapp_payment_enabled: whatsappPaymentEnabled,
     requires_confirmation: requiresConfirmation,
-    cover_photo:     body.cover_photo || null,
+    cover_photo:     String(body.cover_photo).trim(),
     whatsapp:        submitter.phone,
     notify_phone:    notifyPhone,
     organizer_name:  body.organizer_name || submitter.name,

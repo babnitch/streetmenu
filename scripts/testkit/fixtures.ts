@@ -311,3 +311,11 @@ export function pastDateISO(daysBack: number): string {
   d.setDate(d.getDate() - daysBack)
   return d.toISOString().slice(0, 10)
 }
+
+// ── Pictures (V5) ───────────────────────────────────────────────────────────
+// New restaurants and events need a picture. A Supabase storage public URL is
+// the shape /api/upload/image returns (and the only one /api/restaurants/submit
+// accepts). Nothing is uploaded: the routes store the URL, never fetch it.
+export function testPictureUrl(bucket = 'restaurant-images'): string {
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''}/storage/v1/object/public/${bucket}/__t_v5.webp`
+}

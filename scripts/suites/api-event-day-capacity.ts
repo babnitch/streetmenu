@@ -20,7 +20,7 @@
 import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, customerCookie } from '../testkit/session'
-import { makeCustomer, makeEvent, makeTier, futureDateISO } from '../testkit/fixtures'
+import { makeCustomer, makeEvent, makeTier, futureDateISO, testPictureUrl } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 import { settleDeposit } from '@/lib/payments-settle'
 
@@ -236,7 +236,7 @@ async function main(): Promise<void> {
       const r = await api<{ event_id?: string }>('/api/events/submit', {
         method: 'POST', cookie: orgCookie, body: {
           title: testName('day_cap_submit'), date: d1, end_date: d3, city: testName('city'), category: 'Autre',
-          whatsapp: organizer.phone, ticket_price: 0, max_tickets: 50,
+          whatsapp: organizer.phone, ticket_price: 0, max_tickets: 50, cover_photo: testPictureUrl('event-images'),
           tiers: [{ name: 'A', price: 0, max_quantity: 2 }, { name: 'B', price: 0, max_quantity: 1 }],
         },
       })

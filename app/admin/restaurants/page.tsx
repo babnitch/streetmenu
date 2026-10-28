@@ -9,6 +9,7 @@ import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import ConfirmModal from '@/components/ConfirmModal'
+import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
 interface RestaurantRow {
@@ -330,6 +331,10 @@ export default function AdminRestaurantsPage() {
       showToast(bi('Nom, ville, lat et lng requis', 'Name, city, lat and lng required'), false)
       return
     }
+    if (!form.logo_url) {
+      showToast(bi(RESTAURANT_PHOTO_REQUIRED.fr, RESTAURANT_PHOTO_REQUIRED.en), false)
+      return
+    }
     setSaving(true)
     // is_open / is_active / status are set by the server, not sent from here.
     const res = await postJSON('/api/admin/restaurants', {
@@ -432,7 +437,7 @@ export default function AdminRestaurantsPage() {
             <Field label="Latitude *"><input type="number" step="any" value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="3.8667" className={INPUT} /></Field>
             <Field label="Longitude *"><input type="number" step="any" value={form.lng} onChange={e => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="11.5167" className={INPUT} /></Field>
             <Field label="WhatsApp"><PhoneInput value={form.whatsapp} onChange={(full) => setForm(f => ({ ...f, whatsapp: full }))} defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined} /></Field>
-            <Field label="Photo" className="sm:col-span-2">
+            <Field label={bi('Photo * (obligatoire)', 'Photo * (required)')} className="sm:col-span-2">
               <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-ink-secondary" />
               {uploading && <span className="text-xs text-brand ml-2">Envoi…</span>}
               {form.logo_url && !uploading && (

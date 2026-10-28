@@ -18,7 +18,7 @@
 import { sb, BASE, testName } from '../testkit/env'
 import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import { api, customerCookie } from '../testkit/session'
-import { makeCustomer, makeRestaurant, makeOrder } from '../testkit/fixtures'
+import { makeCustomer, makeRestaurant, makeOrder, testPictureUrl } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 import bcrypt from 'bcryptjs'
 import { staffCookie } from '../testkit/session'
@@ -240,7 +240,7 @@ async function main(): Promise<void> {
     await step('Ajouter un restaurant (web): owner = account, city-centre pin, one per number', async () => {
       const owner = await makeCustomer({ suiteNo: 28, name: 'Resto Owner' })
       const cookie = customerCookie(owner)
-      const body = { name: testName('c3_resto'), city: 'Dakar', neighborhood: 'Plateau', cuisine_type: 'Grillades' }
+      const body = { name: testName('c3_resto'), city: 'Dakar', neighborhood: 'Plateau', cuisine_type: 'Grillades', image_url: testPictureUrl() }
       assertEq((await api('/api/restaurants/submit', { body })).status, 401, 'logged out → 401')
       assertEq((await api('/api/restaurants/submit', { cookie, body: { ...body, city: 'Paris' } })).status, 400, 'unknown city → 400')
       assertEq((await api('/api/restaurants/submit', { cookie, body: { ...body, cuisine_type: 'Pizza' } })).status, 400, 'unknown food type → 400')
