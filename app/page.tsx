@@ -12,17 +12,34 @@ import { useMode } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import { proLoginHref } from '@/lib/lastPhone'
 import { formatEventWhen, type EventWhen } from '@/lib/eventDate'
+import { formatFCFA, formatAmount } from '@/lib/money'
+import { formatPrepTime } from '@/lib/prepTime'
+import { formatDeliveryTime } from '@/lib/delivery'
+import { percentOffLabel } from '@/lib/offers'
 
 const BOT_NUMBER = (process.env.NEXT_PUBLIC_WHATSAPP_BOT_NUMBER ?? '').replace(/\D/g, '')
 
-interface PopularRestaurant { id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null }
-interface PopularEvent extends EventWhen { id: string; title: string; category: string | null; venue: string | null; cover_photo: string | null }
+interface PopularRestaurant {
+  id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null
+  prep_time_min: number | null; prep_time_max: number | null
+  delivery_enabled: boolean | null; delivery_fee: number | null; delivery_extra_min: number | null; free_delivery?: boolean
+}
+interface PopularEvent extends EventWhen {
+  id: string; title: string; category: string | null; venue: string | null; cover_photo: string | null
+  price_from: number; is_free: boolean; has_tiers: boolean
+}
+interface TodayOffer {
+  kind: 'price' | 'free_delivery'
+  restaurant: { id: string; name: string; image: string | null }
+  dish?: { id: string; name: string; photo_url: string | null; regular_price: number; offer_price: number }
+}
 
-// / — the landing page (L4), for everyone. The restaurant list moved to
-// /restaurants; old /?q= links are forwarded there.
+// / — the landing page, for everyone (home v2, V3):
 //   promise · city chip · one search (dishes, restaurants, events) ·
-//   "Manger" / "Sortir" · WhatsApp (when a bot number is set) ·
-//   "Populaires à [ville]" (hidden when empty) · partner banner.
+//   WhatsApp (when a bot number is set) ·
+//   "Offres du jour" · "Restaurants populaires à [ville]" ·
+//   "Événements populaires" — three horizontal rows, each hidden when empty ·
+//   partner banner.
 export default function HomePage() {
   const bi = useBi()
   const { locale } = useLanguage()
@@ -31,6 +48,7 @@ export default function HomePage() {
   const { isLowData } = useDataMode()
   const [searchOpen, setSearchOpen] = useState(false)
   const [popular, setPopular] = useState<{ restaurants: PopularRestaurant[]; events: PopularEvent[] } | null>(null)
+  const [offers, setOffers] = useState<TodayOffer[]>([])
 
   // Old links: /?q=… was the restaurant search.
   useEffect(() => {
@@ -41,15 +59,36 @@ export default function HomePage() {
   useEffect(() => {
     let cancelled = false
     setPopular(null)
+    setOffers([])
     fetch(`/api/popular?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => { if (!cancelled) setPopular({ restaurants: d?.restaurants ?? [], events: d?.events ?? [] }) })
       .catch(() => { if (!cancelled) setPopular({ restaurants: [], events: [] }) })
+    fetch(`/api/offers/today?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setOffers(Array.isArray(d?.offers) ? d.offers : []) })
+      .catch(() => null)
     return () => { cancelled = true }
   }, [city])
 
   const partnerHref = !modeLoading && sessionRole ? '/pro' : proLoginHref('/pro')
-  const hasPopular = !!popular && (popular.restaurants.length > 0 || popular.events.length > 0)
+  const img = (src: string | null | undefined) => (isLowData ? null : (src || null))
+
+  // "Livraison 500 FCFA · 35-50 min" / "Livraison offerte · …" / "À emporter · 20-35 min"
+  const fulfilmentLine = (r: PopularRestaurant) => {
+    if (r.delivery_enabled) {
+      const time = formatDeliveryTime(r.prep_time_min, r.prep_time_max, r.delivery_extra_min)
+      const fee = r.free_delivery || !r.delivery_fee
+        ? bi('Livraison offerte', 'Free delivery')
+        : `${bi('Livraison', 'Delivery')} ${formatFCFA(r.delivery_fee)}`
+      return time ? `${fee} · ${time}` : fee
+    }
+    const time = formatPrepTime(r.prep_time_min, r.prep_time_max)
+    return time ? `${bi('À emporter', 'Take-away')} · ${time}` : bi('À emporter', 'Take-away')
+  }
+  const eventPrice = (e: PopularEvent) => e.is_free
+    ? bi('Gratuit', 'Free')
+    : e.has_tiers ? `${bi('dès', 'from')} ${formatFCFA(e.price_from)}` : formatFCFA(e.price_from)
 
   return (
     <div className="min-h-screen bg-surface">
@@ -69,19 +108,6 @@ export default function HomePage() {
           <span className="text-sm text-ink-tertiary">{bi('Un plat, un restaurant, un événement…', 'A dish, a restaurant, an event…')}</span>
         </button>
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <Link href="/restaurants" className="bg-brand hover:bg-brand-dark text-white rounded-2xl p-5 shadow-sm transition-colors">
-            <span className="block text-3xl mb-1" aria-hidden="true">🍽️</span>
-            <span className="block text-lg font-bold">{bi('Manger', 'Eat')}</span>
-            <span className="block text-xs opacity-90">{bi('Restaurants', 'Restaurants')}</span>
-          </Link>
-          <Link href="/events" className="bg-ink-primary hover:bg-ink-secondary text-white rounded-2xl p-5 shadow-sm transition-colors">
-            <span className="block text-3xl mb-1" aria-hidden="true">🎉</span>
-            <span className="block text-lg font-bold">{bi('Sortir', 'Go out')}</span>
-            <span className="block text-xs opacity-90">{bi('Événements', 'Events')}</span>
-          </Link>
-        </div>
-
         {BOT_NUMBER && (
           <a href={`https://wa.me/${BOT_NUMBER}?text=menu`} target="_blank" rel="noopener noreferrer"
             className="mt-3 block text-center text-sm font-semibold text-emerald-700 hover:underline">
@@ -89,23 +115,44 @@ export default function HomePage() {
           </a>
         )}
 
-        {/* Populaires — never an empty section. */}
-        {hasPopular && (
-          <section className="mt-8" aria-labelledby="popular-heading">
-            <h2 id="popular-heading" className="text-base font-bold text-ink-primary mb-3">
-              ⭐ {bi(`Populaires à ${city}`, `Popular in ${city}`)}
-            </h2>
-            <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {popular!.restaurants.map(r => (
-                <PopularCard key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={isLowData ? null : (r.image_url || r.logo_url)}
-                  fallback="🍽️" title={r.name} sub={[r.cuisine_type, r.neighborhood].filter(Boolean).join(' · ')} />
-              ))}
-              {popular!.events.map(e => (
-                <PopularCard key={`e-${e.id}`} href={`/events/${e.id}`} image={isLowData ? null : e.cover_photo}
-                  fallback="🎉" title={e.title} sub={formatEventWhen(e, locale, 'card')} />
-              ))}
-            </div>
-          </section>
+        {offers.length > 0 && (
+          <Row id="offers" title={`🏷️ ${bi('Offres du jour', "Today's offers")}`}>
+            {offers.map(o => (
+              <Card key={`o-${o.restaurant.id}-${o.dish?.id ?? 'delivery'}`} href={`/restaurant/${o.restaurant.id}`}
+                image={img(o.dish?.photo_url ?? o.restaurant.image)} fallback={o.dish ? '🍽️' : '🛵'}
+                badge={o.dish ? percentOffLabel(o.dish.regular_price, o.dish.offer_price) : bi('Livraison offerte', 'Free delivery')}
+                title={o.dish?.name ?? o.restaurant.name}
+                sub={o.dish ? o.restaurant.name : bi('Aujourd\'hui', 'Today')}>
+                {o.dish && (
+                  <p className="text-[12px] mt-0.5">
+                    <span className="font-bold text-brand-dark">{formatFCFA(o.dish.offer_price)}</span>{' '}
+                    <span className="text-ink-tertiary line-through">{formatAmount(o.dish.regular_price)}</span>
+                  </p>
+                )}
+              </Card>
+            ))}
+          </Row>
+        )}
+
+        {popular && popular.restaurants.length > 0 && (
+          <Row id="popular-restaurants" title={bi(`Restaurants populaires à ${city}`, `Popular restaurants in ${city}`)} more={{ href: '/restaurants', label: bi('Tout voir', 'See all') }}>
+            {popular.restaurants.map(r => (
+              <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} fallback="🍽️"
+                badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
+                title={r.name} sub={fulfilmentLine(r)} />
+            ))}
+          </Row>
+        )}
+
+        {popular && popular.events.length > 0 && (
+          <Row id="popular-events" title={bi('Événements populaires', 'Popular events')} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
+            {popular.events.map(e => (
+              <Card key={`e-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
+                title={e.title} sub={formatEventWhen(e, locale, 'card')}>
+                <p className="text-[12px] font-bold text-brand-dark mt-0.5">{eventPrice(e)}</p>
+              </Card>
+            ))}
+          </Row>
         )}
 
         <Link href={partnerHref}
@@ -121,17 +168,40 @@ export default function HomePage() {
   )
 }
 
-function PopularCard({ href, image, fallback, title, sub }: { href: string; image: string | null; fallback: string; title: string; sub: string }) {
+// One horizontal row: a heading (with "Tout voir" when given) and cards that
+// scroll sideways, edge to edge on a phone.
+function Row({ id, title, more, children }: { id: string; title: string; more?: { href: string; label: string }; children: React.ReactNode }) {
   return (
-    <Link href={href} className="flex-shrink-0 w-40 bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-      <div className="relative h-24 bg-gradient-to-br from-brand-badge to-brand">
+    <section className="mt-8" aria-labelledby={`${id}-heading`}>
+      <div className="flex items-baseline justify-between gap-3 mb-3">
+        <h2 id={`${id}-heading`} className="text-base font-bold text-ink-primary">{title}</h2>
+        {more && <Link href={more.href} className="text-sm font-semibold text-brand-dark hover:underline flex-shrink-0">{more.label} →</Link>}
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {children}
+      </div>
+    </section>
+  )
+}
+
+// A card in a row. `poster` gives events a taller, poster-shaped image.
+function Card({ href, image, fallback, badge, title, sub, poster, children }: {
+  href: string; image: string | null; fallback: string; badge?: string; title: string; sub: string; poster?: boolean; children?: React.ReactNode
+}) {
+  return (
+    <Link href={href} className={`snap-start flex-shrink-0 ${poster ? 'w-36' : 'w-44'} bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
+      <div className={`relative ${poster ? 'h-48' : 'h-28'} bg-gradient-to-br from-brand-badge to-brand`}>
         {image
-          ? <Image src={image} alt="" fill sizes="160px" className="object-cover" />
+          ? <Image src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover" />
           : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">{fallback}</span>}
+        {badge && (
+          <span className="absolute top-2 left-2 bg-brand text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow">{badge}</span>
+        )}
       </div>
       <div className="px-2.5 py-2">
         <p className="text-sm font-semibold text-ink-primary truncate">{title}</p>
         {sub && <p className="text-[11px] text-ink-tertiary truncate">{sub}</p>}
+        {children}
       </div>
     </Link>
   )

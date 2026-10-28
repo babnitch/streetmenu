@@ -40,9 +40,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const { locale } = useLanguage()
 
   const [me, setMe] = useState<SessionUser | null>(null)
-  // True once /api/auth/me has answered, so a guest-only control never
-  // flashes up for a signed-in visitor while the session is still loading.
-  const [authChecked, setAuthChecked] = useState(false)
   const [vendor, setVendor] = useState<VendorState>({ kind: 'none' })
   const [searchDraft, setSearchDraft] = useState('')
   // Mirror of the mobile BottomNav's vendor pending count so the desktop
@@ -70,7 +67,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         if (cancelled) return
         const sessionUser = (data?.user ?? null) as SessionUser | null
         setMe(sessionUser)
-        setAuthChecked(true)
         if (!sessionUser) { setVendor({ kind: 'none' }); return }
         if (isAdminRole(sessionUser.role)) {
           // Admins get the admin bar below; they have no vendor CTA and
@@ -86,7 +82,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         const allPending = list.every(r => r.status === 'pending')
         setVendor({ kind: allPending ? 'pending' : 'approved' })
       } catch {
-        if (!cancelled) { setVendor({ kind: 'none' }); setMe(null); setAuthChecked(true) }
+        if (!cancelled) { setVendor({ kind: 'none' }); setMe(null) }
       }
     })()
     return () => { cancelled = true }
@@ -179,10 +175,10 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
       {/* ── Mobile bar (< md) ────────────────────────────────────────────
           ☰ menu (left, with a dot when the restaurant has orders waiting) ·
-          "Tchop & Ndjoka" · "Se connecter" when logged out, the account's
-          initial when logged in. City, language, WhatsApp and the Pro
-          entries live in the ☰ menu (components/SideMenu.tsx). Admins keep
-          a bare bar: their navigation is the console on /account. */}
+          "Tchop & Ndjoka", nothing else (V3). Log in / account, city,
+          language, WhatsApp and the Pro entries live in the ☰ menu
+          (components/SideMenu.tsx). Admins keep a bare bar: their navigation
+          is the console on /account. */}
       <div className="md:hidden px-2 h-12 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 min-w-0">
           {!isAdmin && <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />}
@@ -190,7 +186,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             Tchop &amp; Ndjoka
           </Link>
         </div>
-        {!isAdmin && <AccountButton me={me} authChecked={authChecked} label={bi('Se connecter', 'Log in')} />}
       </div>
 
       {/* ── Desktop ADMIN bar (md+) ─────────────────────────────────────
@@ -264,8 +259,36 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         </div>
       )}
 
-      {/* ── Desktop bar (md+) — unchanged by the mobile redesign ───────── */}
-      <div className={`${isAdmin ? 'hidden' : 'hidden md:flex'} max-w-2xl mx-auto px-3 sm:px-4 h-14 items-center gap-2 sm:gap-4`}>
+      {/* ── Desktop bar (md+), customer mode (V3) ──────────────────────────
+          Same as mobile: ☰ + "Tchop & Ndjoka". Everything else is in the ☰
+          menu. The one page tool kept is the map toggle on /restaurants,
+          the only way to open its map on desktop. */}
+      {!isAdmin && effectiveMode === 'client' && (
+        <div className="hidden md:flex max-w-5xl mx-auto px-4 h-14 items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />
+            <Link href="/" className="font-black text-brand tracking-tight text-xl truncate">
+              Tchop &amp; Ndjoka
+            </Link>
+          </div>
+          {showMapBtn && (
+            <button
+              type="button"
+              onClick={toggleMap}
+              aria-label={bi('Carte', 'Map')}
+              title={bi('Carte', 'Map')}
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors"
+            >
+              🗺
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Desktop bar (md+), Pro mode — the restaurant's operations tabs
+          (orders, menu, settings…) stay: on desktop they are the only way
+          between dashboard tabs. ─────────────────────────────────────── */}
+      <div className={`${isAdmin || effectiveMode === 'client' ? 'hidden' : 'hidden md:flex'} max-w-2xl mx-auto px-3 sm:px-4 h-14 items-center gap-2 sm:gap-4`}>
 
         <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />
 
@@ -391,8 +414,6 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
           {/* Language toggle — also in the ☰ menu. */}
           <LanguageToggle />
-
-          <AccountButton me={me} authChecked={authChecked} label={bi('Se connecter', 'Log in')} />
         </div>
       </div>
 
@@ -579,21 +600,3 @@ function MenuButton({ onClick, badge, label }: { onClick: () => void; badge: num
   )
 }
 
-// "Se connecter" when logged out; the account's initial (→ Mon compte) when
-// logged in. Nothing until the session check answers (no flash).
-function AccountButton({ me, authChecked, label }: { me: SessionUser | null; authChecked: boolean; label: string }) {
-  if (!authChecked) return <span className="w-9 h-9" aria-hidden="true" />
-  if (!me) {
-    return (
-      <Link href="/login" className="flex-shrink-0 text-xs font-semibold bg-brand hover:bg-brand-dark text-white px-3 py-1.5 rounded-full transition-colors">
-        {label}
-      </Link>
-    )
-  }
-  return (
-    <Link href="/account" aria-label={me.name} title={me.name}
-      className="flex-shrink-0 w-9 h-9 rounded-full bg-brand text-white font-bold flex items-center justify-center text-sm">
-      {(me.name || '?').trim().charAt(0).toUpperCase()}
-    </Link>
-  )
-}
