@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRestaurantModule } from '@/lib/modulesServer'
+import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -65,6 +66,10 @@ export async function POST(req: NextRequest) {
     if (!elig.events.some(e => e.id === targetId)) {
       return NextResponse.json({ error: 'Vous n\'organisez pas cet événement / You do not organize this event' }, { status: 403 })
     }
+    // M4: "À la une" needs the organiser's module.
+    const { data: ev } = await supabaseAdmin.from('events').select('organizer_id').eq('id', targetId).maybeSingle()
+    const featOff = ev ? await requireEventModule(ev, 'featured') : null
+    if (featOff) return featOff
   }
 
   // Pricing + duration validation

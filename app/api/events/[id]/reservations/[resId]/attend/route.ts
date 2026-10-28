@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
@@ -22,6 +23,9 @@ export async function POST(
     .from('events').select('id, organizer_id, submitted_by').eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
 
+  // M4: door check-in needs the Contrôle des billets module.
+  const ctlOff = await requireEventModule(event, 'ticket_control')
+  if (ctlOff) return ctlOff
   if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
   }

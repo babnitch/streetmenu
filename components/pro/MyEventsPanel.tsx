@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import EventTiersPanel from '@/components/EventTiersPanel'
 import EventVouchersPanel from '@/components/EventVouchersPanel'
+import ModuleLocked from '@/components/ModuleLocked'
 import ConfirmModal from '@/components/ConfirmModal'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
@@ -97,6 +98,15 @@ export default function MyEventsPanel({
   // Reservation list filter — All / Pending / Confirmed / Attended.
   // Defaults to All so the organizer sees everything by default.
   const [resvFilter, setResvFilter] = useState<'all' | 'pending' | 'confirmed' | 'attended'>('all')
+  // The organiser's modules (M4): Codes promo and Contrôle des billets tools
+  // show only when on. null while loading (tools hidden until known).
+  const [orgModules, setOrgModules] = useState<string[] | null>(null)
+  useEffect(() => {
+    fetch('/api/pro/modules', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setOrgModules(Array.isArray(d?.organizer) ? d.organizer : []))
+      .catch(() => setOrgModules([]))
+  }, [])
   // Inline event-setting controls (open/close, manual approval, capacity).
   // Track in-flight to disable the buttons while a PATCH is mid-air.
   const [savingSettings, setSavingSettings] = useState(false)
@@ -470,7 +480,9 @@ export default function MyEventsPanel({
         <EventTiersPanel eventId={selected.id} multiDay={selectedDayCount > 1} onTiersLoaded={onTiersLoaded} />
 
         {/* Promo codes — organizer creates event-scoped vouchers. */}
-        <EventVouchersPanel eventId={selected.id} />
+        {orgModules?.includes('promo_codes')
+          ? <EventVouchersPanel eventId={selected.id} />
+          : orgModules && <ModuleLocked subject="organizer" module="promo_codes" />}
 
         {/* Event-level controls — reservations open/close, manual approval
             toggle, capacity bump. Each PATCH refreshes the parent so the
@@ -663,13 +675,15 @@ export default function MyEventsPanel({
                   )}
                   {r.reservation_status === 'confirmed' && (
                     <div className="flex items-center gap-2 pt-2 border-t border-divider">
-                      <button
-                        onClick={() => attend(r.id)}
-                        disabled={acting === r.id}
-                        className="text-xs px-3 py-1.5 rounded-full font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        ✅ {bi('Présent', 'Attended')}
-                      </button>
+                      {orgModules?.includes('ticket_control') && (
+                        <button
+                          onClick={() => attend(r.id)}
+                          disabled={acting === r.id}
+                          className="text-xs px-3 py-1.5 rounded-full font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          ✅ {bi('Présent', 'Attended')}
+                        </button>
+                      )}
                       <button
                         onClick={() => cancel(r.id)}
                         disabled={acting === r.id}

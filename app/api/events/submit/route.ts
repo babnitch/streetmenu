@@ -61,13 +61,14 @@ export async function POST(req: NextRequest) {
   // Trust read — used to decide auto_approved + is_active.
   const { data: submitter } = await supabaseAdmin
     .from('customers')
-    .select('id, name, phone, city, event_auto_approve, events_submitted_count')
+    .select('id, name, phone, city, organizer_modules, events_submitted_count')
     .eq('id', session.id)
     .maybeSingle()
   if (!submitter) {
     return NextResponse.json({ error: 'Compte introuvable / Account not found' }, { status: 404 })
   }
-  const autoApprove = !!submitter.event_auto_approve
+  // M4: the Auto-approbation module (kept in step with event_auto_approve).
+  const autoApprove = ((submitter.organizer_modules as string[] | null) ?? []).includes('auto_approve')
 
   // Contact numbers (C3): the event's WhatsApp contact is the organiser's
   // own account phone (verified at login, not typed). An optional extra
@@ -199,7 +200,7 @@ export async function POST(req: NextRequest) {
       targetId:        event.id,
       performedBy:     submitter.id,
       performedByType: 'customer',
-      metadata: { reason: 'event_auto_approve=true' },
+      metadata: { reason: 'module auto_approve' },
     })
   }
 

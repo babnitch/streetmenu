@@ -76,7 +76,7 @@ export async function getPromotionEligibility(customerId: string): Promise<Promo
   const [{ data: customer }, { data: rests }, { data: events }] = await Promise.all([
     supabaseAdmin
       .from('customers')
-      .select('event_auto_approve, events_approved_count')
+      .select('organizer_modules, events_approved_count')
       .eq('id', customerId)
       .maybeSingle(),
     supabaseAdmin
@@ -95,7 +95,7 @@ export async function getPromotionEligibility(customerId: string): Promise<Promo
     .map(r => ({ id: r.id, name: r.name, city: r.city }))
 
   const verifiedPublisher = !!customer && (
-    customer.event_auto_approve === true ||
+    ((customer.organizer_modules as string[] | null) ?? []).includes('auto_approve') ||
     (customer.events_approved_count ?? 0) >= 1
   )
 

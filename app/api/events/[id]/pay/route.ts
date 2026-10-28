@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -75,6 +76,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
     return NextResponse.json({ error: 'Événement clôturé / Event closed' }, { status: 409 })
   }
+  // M4: paid tickets need Réservations + Billets payants.
+  const payOff = await requireEventModule(event, 'reservations') ?? await requireEventModule(event, 'paid_tickets')
+  if (payOff) return payOff
   // Same past-event gate as /reserve — a finished event can't sell tickets.
   if (isPastEvent(event)) {
     console.log('[events/pay] rejected — event %s is past (date=%s end_date=%s)', event.id, event.date, event.end_date)

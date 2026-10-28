@@ -48,6 +48,12 @@ export interface MakeCustomerOpts {
   extra?:   Record<string, unknown>
 }
 
+// Organiser modules a test account gets unless the suite says otherwise
+// (extra.organizer_modules): what organisers used before modules existed.
+// Diffusion and Auto-approbation follow their old flags in `extra`, so
+// suites that set event_auto_approve / broadcast_enabled keep their meaning.
+export const DEFAULT_ORGANIZER_MODULES = ['reservations', 'paid_tickets', 'ticket_control', 'promo_codes', 'featured']
+
 export interface TestCustomer { id: string; phone: string; name: string; city: string }
 
 // Direct insert, never through the API — creating a customer via the API
@@ -59,8 +65,14 @@ export async function makeCustomer(opts: MakeCustomerOpts = {}): Promise<TestCus
   const city  = opts.city ?? 'Yaoundé'
   // A stale row on this phone would fail the unique index; clear it first.
   await sb.from('customers').delete().eq('phone', phone)
+  const extra = opts.extra ?? {}
+  const organizer_modules = (extra.organizer_modules as string[] | undefined) ?? [
+    ...DEFAULT_ORGANIZER_MODULES,
+    ...(extra.broadcast_enabled === true ? ['broadcast'] : []),
+    ...(extra.event_auto_approve === true ? ['auto_approve'] : []),
+  ]
   const row = await insertOne('customers', {
-    phone, name, city, status: opts.status ?? 'active', ...(opts.extra ?? {}),
+    phone, name, city, status: opts.status ?? 'active', ...extra, organizer_modules,
   })
   return { id: row.id as string, phone, name, city }
 }

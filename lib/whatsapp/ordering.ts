@@ -34,7 +34,18 @@ import {
 import { samePhone, uniquePhones } from '@/lib/phone'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { shouldMessageStatus } from '@/lib/orderStatusMessages'
-import { hasRestaurantModule } from '@/lib/modulesServer'
+import { hasRestaurantModule, eventAllows } from '@/lib/modulesServer'
+
+// An event whose organiser has no Réservations module (M4): booked with the
+// organiser directly.
+function bookingOffText(title: string, whatsapp: string | null | undefined, lang: Lang): string {
+  const contact = whatsapp ? ` : ${whatsapp}` : ''
+  return pickLang(
+    `🎉 *${title}* : les réservations se font directement auprès de l'organisateur${contact}.`,
+    `🎉 *${title}*: book directly with the organiser${contact}.`,
+    lang,
+  )
+}
 
 // A restaurant without the Commandes module (M2): orders go to the restaurant
 // directly, not through the bot.
@@ -1597,6 +1608,14 @@ export async function handleOrderCommand(
       return ok()
     }
     const shown = match.reservation_code ?? code.toUpperCase()
+    // M4: door check-in needs the Contrôle des billets module.
+    const { data: ctlEvent } = await supabaseAdmin.from('events').select('organizer_id').eq('id', match.event_id).maybeSingle()
+    if (ctlEvent && !(await eventAllows(ctlEvent, 'ticket_control'))) {
+      await sendWhatsApp(from, pickLang(
+        '🔒 Le module « Contrôle des billets » n\'est pas activé. Demandez-le depuis votre espace Pro.',
+        '🔒 The "Ticket control" module is not enabled. Request it from your Pro space.', lang))
+      return ok()
+    }
     if (match.reservation_status === 'cancelled' || match.reservation_status === 'rejected') {
       await sendWhatsApp(from, pickLang(
         `❌ Réservation #${shown} annulée — impossible de pointer.`,
@@ -1920,6 +1939,12 @@ export async function handleEventSession(
       await sendWhatsApp(from, pickLang('❌ Événement clôturé.', '❌ Event closed.', lang))
       return ok()
     }
+    // M4: re-checked here (the module may have been switched off meanwhile).
+    if (!(await eventAllows(event, 'reservations'))) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, bookingOffText(event.title, event.whatsapp, lang))
+      return ok()
+    }
     const blockedStep1 = bookingBlock(event, customer, lang)
     if (blockedStep1) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -1945,9 +1970,10 @@ export async function handleEventSession(
     // Effective WhatsApp mode: free events and vendors who haven't enabled
     // WhatsApp payment collapse to reservation_only.
     const isFree  = !(ticketPrice > 0)
+    // M4: without Billets payants the bot only books (pay at the door).
     const effMode = effectiveWhatsAppMode(
       normalizeMode(event.payment_mode ?? modeFromLegacy(event.payment_enabled)),
-      Boolean(event.whatsapp_payment_enabled),
+      Boolean(event.whatsapp_payment_enabled) && await eventAllows(event, 'paid_tickets'),
       isFree,
     )
 
@@ -2526,6 +2552,12 @@ async function startReserveFlow(
   if (blocked) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
     await sendWhatsApp(from, blocked)
+    return ok()
+  }
+  // M4: booking needs the organiser's Réservations module.
+  if (!(await eventAllows(event, 'reservations'))) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, bookingOffText(event.title, event.whatsapp, lang))
     return ok()
   }
   // Multi-day events are booked per day on the website (day picker); the

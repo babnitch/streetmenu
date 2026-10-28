@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -69,6 +70,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (event.event_status && ['cancelled', 'completed'].includes(event.event_status)) {
     return NextResponse.json({ error: 'Événement clôturé / Event closed' }, { status: 409 })
   }
+  // M4: booking needs the organiser's Réservations module.
+  const resOff = await requireEventModule(event, 'reservations')
+  if (resOff) return resOff
   // Past events can never take a new booking, whatever the organizer's other
   // settings say. Mirrors the client-side gate on /events/[id].
   if (isPastEvent(event)) {

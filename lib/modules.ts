@@ -141,3 +141,12 @@ export function effectiveRestaurantMode(r: (WithModules & { payment_mode?: strin
   if (!hasModule(r, 'payment')) return 'reservation_only'
   return normalizeMode(r?.payment_mode ?? modeFromLegacy(r?.payment_enabled))
 }
+
+// ── What an event's organiser modules allow (M4). `booking` comes from
+//    /api/events/[id]/availability; null while unknown (the server decides). ──
+export interface EventBooking { reservations: boolean; paid_tickets: boolean }
+
+export function effectiveEventMode(mode: PaymentMode, booking: EventBooking | null): PaymentMode {
+  if (booking && !booking.paid_tickets) return 'reservation_only'
+  return mode
+}

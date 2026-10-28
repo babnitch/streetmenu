@@ -115,3 +115,14 @@ function sameSet(a: string[], b: string[]): boolean {
 function diff(before: string[], after: string[]): { added: string[]; removed: string[] } {
   return { added: after.filter(x => !before.includes(x)), removed: before.filter(x => !after.includes(x)) }
 }
+
+// ── Events (M4): an event follows its organiser's modules. An event with no
+//    organiser account (old rows) keeps working as before modules existed. ──
+export async function eventAllows(event: { organizer_id?: string | null }, m: OrganizerModule): Promise<boolean> {
+  if (!event.organizer_id) return true
+  return (await organizerModules(event.organizer_id)).includes(m)
+}
+
+export async function requireEventModule(event: { organizer_id?: string | null }, m: OrganizerModule): Promise<NextResponse | null> {
+  return (await eventAllows(event, m)) ? null : moduleOffResponse('organizer', m)
+}

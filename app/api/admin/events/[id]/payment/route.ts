@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -28,6 +29,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   if (hasMode && !PAYMENT_MODES.includes(body.payment_mode as PaymentMode)) {
     return NextResponse.json({ error: 'payment_mode invalide / invalid' }, { status: 400 })
+  }
+  // M4: online payment needs the organiser's Billets payants module.
+  if ((hasMode && normalizeMode(body.payment_mode) !== 'reservation_only') || body.whatsapp_payment_enabled === true) {
+    const { data: ev } = await supabaseAdmin.from('events').select('organizer_id').eq('id', params.id).maybeSingle()
+    const off = ev ? await requireEventModule(ev, 'paid_tickets') : null
+    if (off) return off
   }
 
   const { data: before } = await supabaseAdmin

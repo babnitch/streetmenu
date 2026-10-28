@@ -154,6 +154,17 @@ export async function validateVoucher(
     console.log(`[vouchers] validate: wrong_event (voucher=${voucher.event_id} ctx=${ctx.eventId})`)
     return reject('wrong_event')
   }
+  // M4: an event's own codes work only while its organiser has Codes promo.
+  if (voucher.event_id) {
+    const { data: ev } = await supabaseAdmin.from('events').select('organizer_id').eq('id', voucher.event_id).maybeSingle()
+    if (ev?.organizer_id) {
+      const { data: org } = await supabaseAdmin.from('customers').select('organizer_modules').eq('id', ev.organizer_id).maybeSingle()
+      if (!((org?.organizer_modules as string[] | null) ?? []).includes('promo_codes')) {
+        console.log(`[vouchers] validate: organiser ${ev.organizer_id} has no promo_codes module`)
+        return reject('inactive')
+      }
+    }
+  }
 
   // City scoping — if voucher is city-restricted, require either a matching
   // customer city OR (when not provided) a matching restaurant city.

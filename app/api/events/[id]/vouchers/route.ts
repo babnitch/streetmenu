@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
@@ -46,6 +47,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const auth = await authorize(req, params.id)
   if ('error' in auth) return auth.error
   const { session, event } = auth
+
+  // M4: creating event codes needs the organiser's Codes promo module.
+  const promoOff = await requireEventModule(event, 'promo_codes')
+  if (promoOff) return promoOff
 
   const body = await req.json().catch(() => ({}))
   let code = (body.code ?? '').toString().trim().toUpperCase()

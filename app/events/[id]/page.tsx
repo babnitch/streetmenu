@@ -16,6 +16,7 @@ import ReportButton from '@/components/ReportButton'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, effectiveWebMode, canPayOnline, canReserve } from '@/lib/paymentMode'
+import { effectiveEventMode, type EventBooking } from '@/lib/modules'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, formatEventDates, formatEventWhen, formatEventEnd, formatEventDay, isMultiDay, defaultBookingDay, eventDays } from '@/lib/eventDate'
 import EventPoster from '@/components/events/EventPoster'
 import { FEW_SEATS_MAX, FEW_SEATS_SHARE } from '@/lib/eventStatus'
@@ -71,6 +72,9 @@ export default function EventDetailPage() {
   // when the endpoint failed — the page then falls back to the event-wide
   // counters, and the booking API still enforces the real limit.
   const [availability, setAvailability] = useState<DayAvailability[] | null>(null)
+  // The organiser's modules (M4): no Réservations → contact the organiser;
+  // no Billets payants → book and pay at the door. null = unknown yet.
+  const [booking, setBooking] = useState<EventBooking | null>(null)
   // The day this page books (multi-day events). Nothing is pre-selected: the
   // page shows its date list until the visitor taps a day, which puts
   // ?date= in the address (so Back / "Changer de date" return to the list,
@@ -88,6 +92,7 @@ export default function EventDetailPage() {
       const r = await fetch(`/api/events/${id}/availability`, { cache: 'no-store' })
       const d = await r.json()
       if (r.ok && Array.isArray(d?.days)) setAvailability(d.days)
+      if (r.ok && d?.booking) setBooking(d.booking)
     } catch { /* keep the counter fallback */ }
   }, [id])
   useEffect(() => { loadAvailability() }, [loadAvailability])
@@ -292,14 +297,15 @@ export default function EventDetailPage() {
   // A date in the past closes bookings no matter what the organizer set —
   // the reserve/pay APIs enforce the same rule server-side.
   const isPast       = isPastEvent(event)
-  const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed && !isPast
+  const bookingOff   = booking?.reservations === false
+  const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed && !isPast && !bookingOff
   // Resolve the 3-way payment mode (free events collapse to reservation_only).
   // reservation_only / both → reserve button; payment_only / both → pay button.
   // For 'both', both buttons render and the customer chooses.
-  const paymentMode  = effectiveWebMode(
+  const paymentMode  = effectiveEventMode(effectiveWebMode(
     normalizeMode(event.payment_mode ?? modeFromLegacy(event.payment_enabled)),
     isFree,
-  )
+  ), booking)
   const onlineReservable    = reservable && canReserve(paymentMode)
   const onlinePayReservable = reservable && canPayOnline(paymentMode) && ticketPrice > 0
 
@@ -617,7 +623,28 @@ export default function EventDetailPage() {
             {bi('🎟 Épuisé', '🎟 Sold out')}
           </div>
         )}
-        {!isCancelled && !isPast && !isCompleted && !soldOut && reservationsClosed && (
+        {/* Basic event page (no Réservations module): book with the organiser. */}
+        {!isCancelled && !isPast && !isCompleted && bookingOff && (() => {
+          const wa = (event.whatsapp ?? '').replace(/\D/g, '')
+          if (!wa) return null
+          const text = bi(`Bonjour, je voudrais réserver pour « ${event.title} ».`, `Hello, I'd like to book for "${event.title}".`)
+          return (
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <p className="text-sm font-bold text-ink-primary mb-3">{bi('Réservez auprès de l\'organisateur', 'Book with the organiser')}</p>
+              <div className="grid grid-cols-1 gap-2">
+                <a href={`https://wa.me/${wa}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-full font-semibold text-sm transition-colors">
+                  💬 {bi('Contacter sur WhatsApp', 'Contact on WhatsApp')}
+                </a>
+                <a href={`tel:+${wa}`}
+                  className="flex items-center justify-center gap-2 bg-surface border border-divider hover:bg-surface-muted text-ink-primary py-3 rounded-full font-semibold text-sm transition-colors">
+                  📞 {bi('Appeler', 'Call')}
+                </a>
+              </div>
+            </div>
+          )
+        })()}
+        {!isCancelled && !isPast && !isCompleted && !soldOut && reservationsClosed && !bookingOff && (
           <div className="bg-surface-muted border border-divider rounded-2xl p-4 text-center text-sm font-semibold text-ink-secondary">
             🔒 {bi('Les réservations sont fermées.', 'Reservations are closed.')}
           </div>

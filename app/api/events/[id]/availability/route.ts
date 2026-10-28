@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getEventAvailability } from '@/lib/eventSeats'
 import { todayISO } from '@/lib/eventDate'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { eventAllows } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,11 +12,17 @@ export const dynamic = 'force-dynamic'
 // same information the booking page shows. remaining null = unlimited.
 //
 // { days: [{ date, past, capacity, sold, remaining, soldOut,
-//            tiers: [{ tier_id, capacity, sold, remaining, soldOut }] }] }
+//            tiers: [{ tier_id, capacity, sold, remaining, soldOut }] }],
+//   booking: { reservations, paid_tickets } }   — the organiser's modules (M4):
+//   no Réservations → no booking button, contact the organiser instead.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const days = await getEventAvailability(params.id, todayISO())
   if (!days) {
     return NextResponse.json({ error: 'Disponibilité indisponible / Availability unavailable' }, { status: 500 })
   }
-  return NextResponse.json({ days })
+  const { data: ev } = await supabaseAdmin.from('events').select('organizer_id').eq('id', params.id).maybeSingle()
+  const booking = ev
+    ? { reservations: await eventAllows(ev, 'reservations'), paid_tickets: await eventAllows(ev, 'paid_tickets') }
+    : null
+  return NextResponse.json({ days, booking })
 }
