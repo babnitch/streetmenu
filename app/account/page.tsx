@@ -33,6 +33,7 @@ import { isPastEvent, formatEventDates, formatEventDay, isMultiDay } from '@/lib
 import { formatFCFA } from '@/lib/money'
 import { hasModule } from '@/lib/modules'
 import ModuleLocked from '@/components/ModuleLocked'
+import FavoritesList from '@/components/FavoritesList'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
 const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'), { ssr: false })
@@ -60,7 +61,7 @@ function safeReturnUrl(): string | null {
   return raw
 }
 type DashView    = 'customer' | 'vendor' | 'admin'
-type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' | 'team'
+type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' | 'team' | 'favorites'
 // The mobile profile is a menu list that drills into one section at a time.
 // It reuses the desktop tabs, plus three panels that live *inside* the
 // desktop Profile tab but get their own row on mobile.
@@ -68,7 +69,7 @@ type CustomerTab = 'vouchers' | 'orders' | 'events' | 'profile' | 'restaurant' |
 // customer. Desktop shows them at the top of the Orders tab; mobile gives
 // them their own quick-access tile so Orders stays purely food orders.
 type MobileSection = CustomerTab | 'broadcast' | 'promote' | 'notifications' | 'bookings'
-const CUSTOMER_TABS: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
+const CUSTOMER_TABS: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team', 'favorites']
 function isCustomerTab(v: string): v is CustomerTab {
   return (CUSTOMER_TABS as string[]).includes(v)
 }
@@ -155,7 +156,7 @@ export default function AccountPage() {
   const [customerTab,      setCustomerTab]      = useState<CustomerTab>(() => {
     if (typeof window === 'undefined') return 'orders'
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
+    const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team', 'favorites']
     // ?tab=bookings (☰ → Mes réservations): on desktop the bookings head the
     // Orders tab.
     return q && (allowed as string[]).includes(q) ? (q as CustomerTab) : 'orders'
@@ -266,7 +267,7 @@ export default function AccountPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team']
+    const allowed: CustomerTab[] = ['vouchers', 'orders', 'events', 'profile', 'restaurant', 'team', 'favorites']
     if (q && (allowed as string[]).includes(q)) {
       setCustomerTab(q as CustomerTab)
       setMobileSection(q as CustomerTab)
@@ -555,6 +556,7 @@ export default function AccountPage() {
     broadcast:     bi('Diffuser', 'Broadcast'),
     promote:       bi('Promouvoir', 'Promote'),
     bookings:      bi('Mes réservations', 'My bookings'),
+    favorites:     bi('Mes favoris', 'My favourites'),
   }
   const mobileSectionTitle = mobileSection ? MOBILE_SECTION_TITLES[mobileSection] : ''
 
@@ -933,6 +935,7 @@ export default function AccountPage() {
                 <div className="hidden md:flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
                   <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
                   <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
+                  <TabBtn icon="♥" label={bi('Favoris', 'Favourites')} active={customerTab === 'favorites'} onClick={() => setCustomerTab('favorites')} />
                   {/* Organizing is open to every logged-in user, so this is
                      unconditional — it used to appear only once you had an
                      event, which hid the feature from exactly the people who
@@ -1023,6 +1026,12 @@ export default function AccountPage() {
                         restaurant mode the tiles cover orders/menu/settings
                         and the list adds the vendor surfaces. */}
                     <MenuList>
+                      <MenuRow
+                        icon="♥"
+                        label={bi('Mes favoris', 'My favourites')}
+                        desc={bi('Vos restaurants préférés', 'Your favourite restaurants')}
+                        onClick={() => openMobileSection('favorites')}
+                      />
                       <MenuRow
                         icon="👤"
                         label={t('account.profileTab')}
@@ -1157,6 +1166,9 @@ export default function AccountPage() {
                 {/* The shared tab panels below render for desktop always,
                     and on mobile only once the user has drilled into one. */}
                 <div className={mobileSection !== null && isCustomerTab(mobileSection) ? '' : 'hidden md:block'}>
+
+                {/* Favourites (M7) */}
+                {customerTab === 'favorites' && <FavoritesList />}
 
                 {/* Vouchers */}
                 {customerTab === 'vouchers' && (

@@ -120,6 +120,7 @@ export default function SideMenu({
               a soft navigation from /account itself would not switch tab. */}
           {loggedIn && <PlainItem href="/account?tab=orders" icon="🧾">{bi('Mes commandes', 'My orders')}</PlainItem>}
           {loggedIn && <PlainItem href="/account?tab=bookings" icon="🎟">{bi('Mes réservations', 'My bookings')}</PlainItem>}
+          {loggedIn && <PlainItem href="/account?tab=favorites" icon="♥">{bi('Mes favoris', 'My favourites')}</PlainItem>}
           <label className="flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary">
             <span aria-hidden="true" className="w-6 text-center">📍</span>
             <span className="flex-1">{bi('Ville', 'City')}</span>
