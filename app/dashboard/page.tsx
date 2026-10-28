@@ -17,6 +17,8 @@ import {
   PREP_TIME_DEFAULT_MAX,
 } from '@/lib/prepTime'
 import { validateOffer, percentOffLabel } from '@/lib/offers'
+import { hasModule, takesOrders } from '@/lib/modules'
+import ModuleLocked from '@/components/ModuleLocked'
 import { formatDeliveryTime, validateDeliverySettings, DELIVERY_EXTRA_DEFAULT, DELIVERY_EXTRA_MAX, DELIVERY_FEE_MAX } from '@/lib/delivery'
 import { useMode, type DashboardTab, type TeamRole } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel } from '@/lib/navConfig'
@@ -719,6 +721,17 @@ export default function DashboardPage() {
           {/* Orders Tab */}
           {tab === 'orders' && (
             <div>
+              {/* Vitrine (no Commandes module, M2): customers order by WhatsApp
+                  or phone; orders already placed stay listed below. */}
+              {selectedRestaurant && !takesOrders(selectedRestaurant) && (
+                <div className="mb-3">
+                  <ModuleLocked subject="restaurant" module="orders">
+                    <p className="text-xs text-ink-secondary">
+                      {bi('Votre page affiche « Commander par WhatsApp » et « Appeler ».', 'Your page shows "Order on WhatsApp" and "Call".')}
+                    </p>
+                  </ModuleLocked>
+                </div>
+              )}
               {newOrderFlash && (
                 <div className="bg-brand text-white rounded-2xl px-4 py-3 mb-3 text-sm font-semibold shadow-lg animate-pulse">
                   🔔 {bi('Nouvelle commande!', 'New order!')}
@@ -1172,20 +1185,28 @@ export default function DashboardPage() {
                   setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                 }}
               />
-              <DeliveryPanel
-                restaurant={selectedRestaurant}
-                onChange={updated => {
-                  setSelectedRestaurant(updated)
-                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
-                }}
-              />
-              <PaymentSettingsPanel
-                restaurant={selectedRestaurant}
-                onChange={updated => {
-                  setSelectedRestaurant(updated)
-                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
-                }}
-              />
+              {hasModule(selectedRestaurant, 'delivery') ? (
+                <DeliveryPanel
+                  restaurant={selectedRestaurant}
+                  onChange={updated => {
+                    setSelectedRestaurant(updated)
+                    setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                  }}
+                />
+              ) : (
+                <ModuleLocked subject="restaurant" module="delivery" />
+              )}
+              {hasModule(selectedRestaurant, 'payment') ? (
+                <PaymentSettingsPanel
+                  restaurant={selectedRestaurant}
+                  onChange={updated => {
+                    setSelectedRestaurant(updated)
+                    setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                  }}
+                />
+              ) : (
+                <ModuleLocked subject="restaurant" module="payment" />
+              )}
             </div>
           )}
           {tab === 'settings' && (effectiveRole === 'manager' || effectiveRole === 'admin') && (
@@ -1198,13 +1219,17 @@ export default function DashboardPage() {
                   setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                 }}
               />
-              <DeliveryPanel
-                restaurant={selectedRestaurant}
-                onChange={updated => {
-                  setSelectedRestaurant(updated)
-                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
-                }}
-              />
+              {hasModule(selectedRestaurant, 'delivery') ? (
+                <DeliveryPanel
+                  restaurant={selectedRestaurant}
+                  onChange={updated => {
+                    setSelectedRestaurant(updated)
+                    setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                  }}
+                />
+              ) : (
+                <ModuleLocked subject="restaurant" module="delivery" />
+              )}
             </div>
           )}
           {tab === 'settings' && effectiveRole !== 'owner' && (

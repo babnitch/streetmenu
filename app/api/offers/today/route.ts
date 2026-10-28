@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { loadRestaurantOffersToday, loadTodayOffers } from '@/lib/offersServer'
 import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
+import { deliversNow } from '@/lib/modules'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,7 +44,7 @@ async function cityOffers(city: string) {
     return NextResponse.json({ error: 'city' }, { status: 400 })
   }
   const { data: rests } = await supabaseAdmin.from('restaurants')
-    .select('id, name, image_url, logo_url, delivery_enabled')
+    .select('id, name, image_url, logo_url, delivery_enabled, modules')
     .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null)
   const byId = new Map((rests ?? []).map(r => [r.id as string, r]))
   const today = await loadTodayOffers(Array.from(byId.keys()))
@@ -61,7 +62,7 @@ async function cityOffers(city: string) {
     const restaurant = { id: rid, name: r.name as string, image: (r.image_url || r.logo_url || null) as string | null }
     for (const o of t.offers) {
       if (o.kind === 'free_delivery') {
-        if (r.delivery_enabled === true) offers.push({ kind: 'free_delivery', restaurant, ends_on: o.ends_on })
+        if (deliversNow(r)) offers.push({ kind: 'free_delivery', restaurant, ends_on: o.ends_on })
         continue
       }
       const d = o.menu_item_id ? dishById.get(o.menu_item_id) : null

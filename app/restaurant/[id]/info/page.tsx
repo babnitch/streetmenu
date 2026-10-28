@@ -12,6 +12,7 @@ import { useBi, useLanguage } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
 import { formatDeliveryTime } from '@/lib/delivery'
 import { formatFCFA } from '@/lib/money'
+import { deliversNow } from '@/lib/modules'
 import TopNav from '@/components/TopNav'
 import RestaurantHoursPanel from '@/components/RestaurantHoursPanel'
 import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
@@ -113,8 +114,8 @@ export default function RestaurantInfoPage() {
                 </a>
               </div>
             </Row>
-            <Row icon={r.delivery_enabled ? '🛵' : '🥡'}>
-              {r.delivery_enabled ? (
+            <Row icon={deliversNow(r) ? '🛵' : '🥡'}>
+              {deliversNow(r) ? (
                 <span className="text-sm text-ink-primary">
                   {bi('Livraison', 'Delivery')} {fee > 0 ? formatFCFA(fee) : bi('offerte', 'free')}
                   {deliveryTime ? ` · ${deliveryTime}` : ''}

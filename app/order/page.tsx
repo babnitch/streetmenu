@@ -17,7 +17,8 @@ import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { Voucher, CustomerVoucher } from '@/types'
-import { normalizeMode, modeFromLegacy, type PaymentMode } from '@/lib/paymentMode'
+import { type PaymentMode } from '@/lib/paymentMode'
+import { takesOrders, deliversNow, effectiveRestaurantMode } from '@/lib/modules'
 import { formatFCFA } from '@/lib/money'
 
 // Customer session from the JWT cookie (what /account actually writes).
@@ -162,6 +163,8 @@ export default function OrderPage() {
   // City of the restaurant — drives the default country in the MoMo
   // PhoneInput (because the wallet must match the local MNO).
   const [restaurantCity, setRestaurantCity] = useState<string>('')
+  // False when the restaurant has no Commandes module (Vitrine only).
+  const [canOrder, setCanOrder] = useState<boolean | null>(null)
   useEffect(() => {
     if (!restaurantId) return
     let cancelled = false
@@ -169,7 +172,7 @@ export default function OrderPage() {
       const [{ data }, status, offers] = await Promise.all([
         supabase
           .from('restaurants')
-          .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city, delivery_enabled, delivery_fee, delivery_extra_min')
+          .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city, delivery_enabled, delivery_fee, delivery_extra_min, modules')
           .eq('id', restaurantId).maybeSingle(),
         fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.json())
@@ -180,15 +183,18 @@ export default function OrderPage() {
           .catch(() => null),
       ])
       if (cancelled) return
-      setPaymentMode(normalizeMode(data?.payment_mode ?? modeFromLegacy(data?.payment_enabled)))
+      // M2: what the restaurant's modules allow (pay-at-pickup without Paiement,
+      // no delivery without Livraison, no order at all without Commandes).
+      setCanOrder(data ? takesOrders(data) : null)
+      setPaymentMode(effectiveRestaurantMode(data))
       setPrep({ min: data?.prep_time_min ?? null, max: data?.prep_time_max ?? null })
       setDelivery({
-        enabled: data?.delivery_enabled === true,
+        enabled: deliversNow(data),
         fee: offers?.free_delivery ? 0 : Number(data?.delivery_fee ?? 0),
         extra: data?.delivery_extra_min ?? null,
       })
       // The choice made on the restaurant page (V4) carries over.
-      if (data?.delivery_enabled === true && rememberedFulfilment(restaurantId) === 'delivery') setFulfilment('delivery')
+      if (deliversNow(data) && rememberedFulfilment(restaurantId) === 'delivery') setFulfilment('delivery')
       setRestaurantCity(data?.city ?? '')
       // Default TRUE matches the column default — a missing row should
       // never silently disable orders.
@@ -198,7 +204,7 @@ export default function OrderPage() {
     })()
     return () => { cancelled = true }
   }, [restaurantId])
-  const orderingBlocked = restaurantOpen === false && !openWhenClosed
+  const orderingBlocked = (restaurantOpen === false && !openWhenClosed) || canOrder === false
 
   useEffect(() => {
     if (!me) return
@@ -777,7 +783,16 @@ export default function OrderPage() {
             out of after-hours orders (allow_orders_when_closed=false) we
             still render the warning here and disable the submit button
             below so the user understands why. */}
-        {restaurantOpen === false && (
+        {canOrder === false && (
+          <div className="rounded-2xl border px-4 py-3 mb-4 text-sm bg-rose-50 border-rose-200 text-rose-700">
+            <p className="font-semibold mb-0.5">{bi('Commande en ligne indisponible', 'Online ordering unavailable')}</p>
+            <p className="text-xs">
+              {bi('Ce restaurant prend les commandes directement : WhatsApp ou téléphone, depuis sa page.', 'This restaurant takes orders directly: WhatsApp or phone, from its page.')}
+            </p>
+          </div>
+        )}
+
+        {canOrder !== false && restaurantOpen === false && (
           <div className={`rounded-2xl border px-4 py-3 mb-4 text-sm ${
             orderingBlocked
               ? 'bg-rose-50 border-rose-200 text-rose-700'

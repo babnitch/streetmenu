@@ -17,6 +17,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { validateVoucher, type VoucherRow } from '@/lib/vouchers'
 import { DELIVERY_OFF_TEXT, type Fulfilment } from '@/lib/delivery'
 import { loadRestaurantOffersToday } from '@/lib/offersServer'
+import { takesOrders, hasModule, moduleOffText } from '@/lib/modules'
 
 export interface PricedLine {
   id: string; name: string; price: number; quantity: number; photo_url: string | null
@@ -56,9 +57,14 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
   if (qty.size === 0) return { ok: false, status: 400, error: 'items requis / required', reason: 'no_items' }
 
   const { data: rest } = await supabaseAdmin.from('restaurants')
-    .select('id, delivery_enabled, delivery_fee').eq('id', restaurantId).maybeSingle()
+    .select('id, delivery_enabled, delivery_fee, modules').eq('id', restaurantId).maybeSingle()
   if (!rest) return { ok: false, status: 404, error: 'Restaurant introuvable / Restaurant not found', reason: 'no_restaurant' }
+  // M2: a Vitrine-only restaurant takes no orders here.
+  if (!takesOrders(rest)) return { ok: false, status: 403, error: moduleOffText('restaurant', 'orders'), reason: 'module_off' }
   const delivery = input.fulfilment === 'delivery'
+  if (delivery && !hasModule(rest, 'delivery')) {
+    return { ok: false, status: 403, error: moduleOffText('restaurant', 'delivery'), reason: 'module_off' }
+  }
   if (delivery && rest.delivery_enabled !== true) {
     return { ok: false, status: 409, error: DELIVERY_OFF_TEXT, reason: 'delivery_off' }
   }

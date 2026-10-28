@@ -34,6 +34,17 @@ import {
 import { samePhone, uniquePhones } from '@/lib/phone'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { shouldMessageStatus } from '@/lib/orderStatusMessages'
+import { hasRestaurantModule } from '@/lib/modulesServer'
+
+// A restaurant without the Commandes module (M2): orders go to the restaurant
+// directly, not through the bot.
+function ordersOffText(restaurantName: string, lang: Lang): string {
+  return pickLang(
+    `🍽️ *${restaurantName}* ne prend pas les commandes ici pour l'instant. Contactez le restaurant directement (sa page : bouton « Commander par WhatsApp » ou « Appeler »).`,
+    `🍽️ *${restaurantName}* doesn't take orders here for now. Contact the restaurant directly (its page: "Order on WhatsApp" or "Call").`,
+    lang,
+  )
+}
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, isMultiDay, resolveBookingDay, todayISO } from '@/lib/eventDate'
 import { formatAmount, formatFCFA } from '@/lib/money'
@@ -223,6 +234,7 @@ async function listRestaurantsForCity(city: string): Promise<Array<{ id: string;
     .eq('is_active', true)
     .in('status', ['active', 'approved'])
     .is('deleted_at', null)
+    .contains('modules', ['orders'])   // M2: only restaurants that take orders
     .order('name')
     .limit(20)
   const { data } = await base.eq('city', city)
@@ -233,6 +245,7 @@ async function listRestaurantsForCity(city: string): Promise<Array<{ id: string;
     .eq('is_active', true)
     .in('status', ['active', 'approved'])
     .is('deleted_at', null)
+    .contains('modules', ['orders'])
     .order('name')
     .limit(20)
   return all ?? []
@@ -2619,6 +2632,12 @@ export async function handleOrderingSession(
       return ok()
     }
     const chosen = candidates[num - 1]
+    // M2: the Commandes module may have been switched off since the list.
+    if (!(await hasRestaurantModule(chosen.id, 'orders'))) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, ordersOffText(chosen.name, lang))
+      return ok()
+    }
     const menu = await loadAvailableMenu(chosen.id)
     if (menu.length === 0) {
       await sendWhatsApp(from, `🍽️ *${chosen.name}*\n\n${pickLang(`Ce restaurant n'a pas encore de plat disponible.\nEssayez un autre restaurant. Renvoyez "commander".`, `No available dishes yet.\nTry another restaurant. Send "commander" again.`, lang)}`)
@@ -2728,12 +2747,13 @@ export async function handleOrderingSession(
       // vendor hasn't enabled WhatsApp payment — independent of the web mode.
       const { data: rest } = await supabaseAdmin
         .from('restaurants')
-        .select('payment_mode, payment_enabled, whatsapp_payment_enabled, city')
+        .select('payment_mode, payment_enabled, whatsapp_payment_enabled, city, modules')
         .eq('id', data.restaurant_id)
         .maybeSingle()
+      // M2: without the Paiement module the bot only takes pay-at-pickup orders.
       const effMode = effectiveWhatsAppMode(
         normalizeMode(rest?.payment_mode ?? modeFromLegacy(rest?.payment_enabled)),
-        Boolean(rest?.whatsapp_payment_enabled),
+        Boolean(rest?.whatsapp_payment_enabled) && ((rest?.modules as string[] | null) ?? []).includes('payment'),
       )
       const restaurantCity = rest?.city ?? ''
 
@@ -2864,6 +2884,15 @@ async function finalizeRestaurantWhatsappOrder(opts: {
   lang: Lang
 }): Promise<NextResponse> {
   const { from, phone, customer, data, items, total, discount, restaurantCity, paid, lang } = opts
+
+  // M2: re-checked at the last moment — a module switched off during the
+  // conversation stops the order here, with a clear reply.
+  if (!(await hasRestaurantModule(data.restaurant_id, 'orders'))
+      || (paid && !(await hasRestaurantModule(data.restaurant_id, 'payment')))) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, ordersOffText(data.restaurant_name, lang))
+    return ok()
+  }
 
   const itemsJsonb = items.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))
   const { data: newOrder, error: orderErr } = await supabaseAdmin

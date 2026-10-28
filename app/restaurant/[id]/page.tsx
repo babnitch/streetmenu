@@ -15,6 +15,7 @@ import { formatDeliveryTime, rememberFulfilment, rememberedFulfilment, type Fulf
 import { percentOffLabel } from '@/lib/offers'
 import { formatFCFA, formatAmount } from '@/lib/money'
 import { loginHref } from '@/lib/lastPhone'
+import { takesOrders, deliversNow } from '@/lib/modules'
 import TopNav from '@/components/TopNav'
 import BannerAd from '@/components/BannerAd'
 import ReportButton from '@/components/ReportButton'
@@ -26,6 +27,8 @@ interface OpenInfo { open: boolean; next_kind?: string; next_at?: string }
 //   "Ouvert jusqu'à HH:MM" / "Fermé" · Livraison | À emporter switch (only
 //   when the restaurant delivers) · fee and time boxes · categories ·
 //   dishes with "+" on the photo · floating cart.
+// Without the Commandes module (Vitrine, M2): the same menu with prices but
+// no "+", switch or cart — "Commander par WhatsApp" and "Appeler" instead.
 // Ratings, hours, address and "Donner mon avis" live on /restaurant/[id]/info.
 export default function MenuPage() {
   const bi = useBi()
@@ -60,7 +63,7 @@ export default function MenuPage() {
       if (rest) {
         setRestaurant(rest)
         const remembered = rememberedFulfilment(id)
-        setFulfilment(rest.delivery_enabled ? (remembered ?? 'delivery') : 'pickup')
+        setFulfilment(deliversNow(rest) ? (remembered ?? 'delivery') : 'pickup')
       }
       if (menu) {
         const prices: Record<string, number> = offersRes?.prices ?? {}
@@ -138,7 +141,11 @@ export default function MenuPage() {
         : bi('Ouvert', 'Open'))
     : bi('Fermé', 'Closed')
 
-  const delivers = restaurant.delivery_enabled === true
+  const canOrder = takesOrders(restaurant)
+  const delivers = deliversNow(restaurant)
+  const waNumber = (restaurant.whatsapp || restaurant.phone || '').replace(/\D/g, '')
+  const callNumber = (restaurant.phone || restaurant.whatsapp || '').replace(/[^\d+]/g, '')
+  const waText = bi(`Bonjour ${restaurant.name}, je voudrais commander : `, `Hello ${restaurant.name}, I'd like to order: `)
   const isDelivery = delivers && fulfilment === 'delivery'
   const fee = freeDelivery ? 0 : Number(restaurant.delivery_fee ?? 0)
   const timeLabel = isDelivery
@@ -182,8 +189,26 @@ export default function MenuPage() {
           </Link>
         </p>
 
+        {/* Vitrine (no Commandes module): order straight with the restaurant. */}
+        {!canOrder && (waNumber || callNumber) && (
+          <div className="mt-4 grid grid-cols-1 gap-2">
+            {waNumber && (
+              <a href={`https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-full font-semibold text-sm transition-colors`}>
+                💬 {bi('Commander par WhatsApp', 'Order on WhatsApp')}
+              </a>
+            )}
+            {callNumber && (
+              <a href={`tel:${callNumber}`}
+                className={`flex items-center justify-center gap-2 bg-surface border border-divider hover:bg-surface-muted text-ink-primary py-3 rounded-full font-semibold text-sm transition-colors`}>
+                📞 {bi('Appeler', 'Call')}
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Livraison | À emporter — only when the restaurant delivers. */}
-        {delivers && (
+        {canOrder && delivers && (
           <div className="mt-4 grid grid-cols-2 gap-1 bg-surface-muted rounded-full p-1" role="radiogroup" aria-label={bi('Mode de retrait', 'Fulfilment')}>
             {(['delivery', 'pickup'] as const).map(f => (
               <button
@@ -203,7 +228,7 @@ export default function MenuPage() {
         )}
 
         {/* Two boxes: fee and time. */}
-        <div className="mt-3 grid grid-cols-2 gap-3">
+        {canOrder && <div className="mt-3 grid grid-cols-2 gap-3">
           <InfoBox
             value={isDelivery ? (fee > 0 ? formatFCFA(fee) : bi('Offerte', 'Free')) : bi('Sans frais', 'No fee')}
             label={isDelivery ? bi('Frais de livraison', 'Delivery fee') : bi('À emporter', 'Take-away')}
@@ -213,7 +238,7 @@ export default function MenuPage() {
             value={timeLabel ?? '—'}
             label={isDelivery ? bi('Livraison', 'Delivery time') : bi('Prêt en', 'Ready in')}
           />
-        </div>
+        </div>}
 
         <div className="mt-4">
           <BannerAd city={restaurant.city} />
@@ -248,7 +273,7 @@ export default function MenuPage() {
             <h2 className="text-lg font-bold text-ink-primary">⭐ {t('menu.specials')}</h2>
             <div className="divide-y divide-divider">
               {specials.map(item => (
-                <DishRow key={item.id} item={item} qty={getItemQty(item.id)} onAdd={() => add(item)}
+                <DishRow key={item.id} item={item} qty={getItemQty(item.id)} onAdd={canOrder ? () => add(item) : undefined}
                   addLabel={bi(`Ajouter ${item.name}`, `Add ${item.name}`)} />
               ))}
             </div>
@@ -262,7 +287,7 @@ export default function MenuPage() {
             )}
             <div className="divide-y divide-divider">
               {filtered.map(item => (
-                <DishRow key={item.id} item={item} qty={getItemQty(item.id)} onAdd={() => add(item)}
+                <DishRow key={item.id} item={item} qty={getItemQty(item.id)} onAdd={canOrder ? () => add(item) : undefined}
                   addLabel={bi(`Ajouter ${item.name}`, `Add ${item.name}`)} />
               ))}
             </div>
@@ -282,7 +307,7 @@ export default function MenuPage() {
       </div>
 
       {/* Floating cart — above the mobile BottomNav. */}
-      {totalItems > 0 && (
+      {canOrder && totalItems > 0 && (
         <div className="fixed left-4 right-4 max-w-xl mx-auto z-20 bottom-20 md:bottom-4">
           <Link
             href="/order"
@@ -378,7 +403,8 @@ function MoreMenu({ restaurantId }: { restaurantId: string }) {
 }
 
 // One dish: text on the left, photo on the right with "+" on it.
-function DishRow({ item, qty, onAdd, addLabel }: { item: MenuItem; qty: number; onAdd: () => void; addLabel: string }) {
+// No onAdd (Vitrine): the photo has no "+".
+function DishRow({ item, qty, onAdd, addLabel }: { item: MenuItem; qty: number; onAdd?: () => void; addLabel: string }) {
   return (
     <div className="flex gap-3 py-4">
       <div className="flex-1 min-w-0">
@@ -400,7 +426,7 @@ function DishRow({ item, qty, onAdd, addLabel }: { item: MenuItem; qty: number; 
         {item.photo_url
           ? <Image src={item.photo_url} alt={item.name} fill className="object-cover" sizes="112px" />
           : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">🍽️</span>}
-        <button
+        {onAdd && <button
           onClick={onAdd}
           aria-label={addLabel}
           className={`absolute bottom-1.5 right-1.5 min-w-9 h-9 px-2 rounded-full shadow-card flex items-center justify-center text-lg font-bold transition-colors ${
@@ -408,7 +434,7 @@ function DishRow({ item, qty, onAdd, addLabel }: { item: MenuItem; qty: number; 
           }`}
         >
           {qty > 0 ? qty : '+'}
-        </button>
+        </button>}
       </div>
     </div>
   )

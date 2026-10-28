@@ -46,6 +46,8 @@ export interface Restaurant {
   delivery_enabled?: boolean
   delivery_fee?: number
   delivery_extra_min?: number
+  // Modules switched on (supabase-modules.sql); [] = Vitrine only.
+  modules?: string[] | null
 }
 
 export interface MenuItem {

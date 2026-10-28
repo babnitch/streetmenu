@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { validatePrepTime } from '@/lib/prepTime'
 import { validateDeliverySettings } from '@/lib/delivery'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,6 +60,11 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
   if (hasDelivery) {
     const d = validateDeliverySettings(body)
     if (!d.ok) return NextResponse.json({ error: d.error }, { status: 400 })
+    // M2: delivering needs the Livraison module (switching it off is allowed).
+    if (d.settings.delivery_enabled) {
+      const off = await requireRestaurantModule(params.id, 'delivery')
+      if (off) return off
+    }
     Object.assign(updates, d.settings)
   }
 

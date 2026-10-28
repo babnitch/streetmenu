@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -40,6 +41,12 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
   }
   if (hasMode && !PAYMENT_MODES.includes(body.payment_mode as PaymentMode)) {
     return NextResponse.json({ error: 'payment_mode invalide / invalid' }, { status: 400 })
+  }
+  // M2: online payment needs the Paiement module (switching it off is allowed).
+  const turnsPayOn = (hasMode && normalizeMode(body.payment_mode) !== 'reservation_only') || body.whatsapp_payment_enabled === true
+  if (turnsPayOn) {
+    const off = await requireRestaurantModule(params.id, 'payment')
+    if (off) return off
   }
 
   const { data: before } = await supabaseAdmin

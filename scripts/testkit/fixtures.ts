@@ -73,8 +73,14 @@ export interface MakeRestaurantOpts {
   whatsapp?:    string
   isActive?:    boolean
   status?:      string
+  /** Modules switched on. Default: every module (how restaurants behaved
+   *  before modules existed), so older suites keep their meaning; gate
+   *  tests pass their own list ([] = Vitrine only). */
+  modules?:     string[]
   extra?:       Record<string, unknown>
 }
+
+export const ALL_RESTAURANT_MODULES = ['orders', 'payment', 'delivery', 'team', 'promo_codes', 'daily_offer', 'broadcast', 'featured']
 
 export interface TestRestaurant { id: string; name: string; whatsapp: string }
 
@@ -96,6 +102,7 @@ export async function makeRestaurant(opts: MakeRestaurantOpts = {}): Promise<Tes
     is_active:    opts.isActive ?? true,
     status:       opts.status ?? 'active',
     lat: 0, lng: 0,
+    modules:      opts.modules ?? ALL_RESTAURANT_MODULES,
     ...(opts.extra ?? {}),
   })
   // The DB trigger auto-creates the owner's restaurant_team row when

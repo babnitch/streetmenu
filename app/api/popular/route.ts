@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
 import { EVENT_DATE_COLUMNS, isPastEvent } from '@/lib/eventDate'
 import { loadTodayOffers } from '@/lib/offersServer'
+import { deliversNow } from '@/lib/modules'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
 
   const [restRes, evRes] = await Promise.all([
     supabaseAdmin.from('restaurants')
-      .select('id, name, cuisine_type, neighborhood, image_url, logo_url, prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min')
+      .select('id, name, cuisine_type, neighborhood, image_url, logo_url, prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, modules')
       .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null),
     supabaseAdmin.from('events')
       .select(`id, title, category, venue, cover_photo, ticket_price, ${EVENT_DATE_COLUMNS}`)
@@ -82,8 +83,12 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     restaurants: topRestaurants.map(r => {
-      const free = offers[r.id]?.freeDelivery === true && r.delivery_enabled === true
-      return { ...r, delivery_fee: free ? 0 : r.delivery_fee, free_delivery: free }
+      // M2: delivery only with the Livraison module; modules stay server-side.
+      const { modules: _m, ...pub } = r
+      void _m
+      const delivers = deliversNow(r)
+      const free = offers[r.id]?.freeDelivery === true && delivers
+      return { ...pub, delivery_enabled: delivers, delivery_fee: free ? 0 : r.delivery_fee, free_delivery: free }
     }),
     events: topEvents.map(e => {
       const prices = tierPrices[e.id]

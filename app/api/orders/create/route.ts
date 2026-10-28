@@ -7,6 +7,7 @@ import { normalizePhone } from '@/lib/phone'
 import { priceOrder, PRICE_CHANGED_TEXT } from '@/lib/orderPricing'
 import { consumeVoucherForOrder } from '@/lib/vouchers'
 import { writeAudit } from '@/lib/audit'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 import { normalizeFulfilment, DELIVERY_FIELDS_REQUIRED_TEXT, DELIVERY_ADDRESS_MAX, DELIVERY_LANDMARK_MAX } from '@/lib/delivery'
 
 export const dynamic = 'force-dynamic'
@@ -100,6 +101,11 @@ export async function POST(req: NextRequest) {
   }
   const items = priced.lines
   const orderType: 'reservation' | 'paid_order' = body?.order_type === 'paid_order' ? 'paid_order' : 'reservation'
+  // M2: paying online needs the Paiement module.
+  if (orderType === 'paid_order') {
+    const off = await requireRestaurantModule(restaurantId, 'payment')
+    if (off) return off
+  }
 
   const { data: order, error } = await supabaseAdmin
     .from('orders')

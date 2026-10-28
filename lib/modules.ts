@@ -9,6 +9,8 @@
 // Stored as text[]: restaurants.modules and customers.organizer_modules
 // (supabase-modules.sql, with CHECKs for the names and the dependencies).
 
+import { normalizeMode, modeFromLegacy, type PaymentMode } from '@/lib/paymentMode'
+
 export const RESTAURANT_MODULES = [
   'orders', 'payment', 'delivery', 'team', 'promo_codes', 'daily_offer', 'broadcast', 'featured', 'stats',
 ] as const
@@ -113,4 +115,29 @@ export function moduleOffText(subject: ModuleSubject, m: string): string {
   return i
     ? `Module « ${i.fr} » non activé pour ce ${subject === 'restaurant' ? 'restaurant' : 'compte'} / "${i.en}" module not enabled for this ${subject === 'restaurant' ? 'restaurant' : 'account'}`
     : 'Module non activé / Module not enabled'
+}
+
+// ── What a restaurant's modules allow (M2). Client-safe, so pages and APIs
+//    agree. `modules` is restaurants.modules. ──────────────────────────────
+type WithModules = { modules?: string[] | null }
+
+export function hasModule(r: WithModules | null | undefined, m: string): boolean {
+  return !!r?.modules?.includes(m)
+}
+
+// Cart + orders (else the Vitrine: menu with prices, WhatsApp / call buttons).
+export function takesOrders(r: WithModules | null | undefined): boolean {
+  return hasModule(r, 'orders')
+}
+
+// Delivery offered to customers: the module AND the restaurant's own switch.
+export function deliversNow(r: (WithModules & { delivery_enabled?: boolean | null }) | null | undefined): boolean {
+  return takesOrders(r) && hasModule(r, 'delivery') && r?.delivery_enabled === true
+}
+
+// The payment mode customers get: the restaurant's setting, but pay-at-pickup
+// only without the Paiement module (the setting is kept for when it returns).
+export function effectiveRestaurantMode(r: (WithModules & { payment_mode?: string | null; payment_enabled?: boolean | null }) | null | undefined): PaymentMode {
+  if (!hasModule(r, 'payment')) return 'reservation_only'
+  return normalizeMode(r?.payment_mode ?? modeFromLegacy(r?.payment_enabled))
 }
