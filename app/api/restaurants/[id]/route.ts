@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { validatePrepTime } from '@/lib/prepTime'
 import { validateDeliverySettings } from '@/lib/delivery'
+import { validateMenuType } from '@/lib/menuDays'
 import { requireRestaurantModule } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic'
 // PATCH /api/restaurants/[id]
 // Body: { prep_time_min, prep_time_max }
 //    or { delivery_enabled, delivery_fee, delivery_extra_min }   (V1)
+//    or { menu_type: 'a_la_carte' | 'daily' }                    (Menu par jour)
 //
 // Owner + manager (+ admin) can set the kitchen's estimated preparation
 // range — it's an operational setting like opening hours, not a commercial
@@ -41,12 +43,14 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
   let body: {
     prep_time_min?: unknown; prep_time_max?: unknown
     delivery_enabled?: unknown; delivery_fee?: unknown; delivery_extra_min?: unknown
+    menu_type?: unknown
   }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid json' }, { status: 400 }) }
 
   const hasPrep     = body.prep_time_min !== undefined || body.prep_time_max !== undefined
   const hasDelivery = body.delivery_enabled !== undefined || body.delivery_fee !== undefined || body.delivery_extra_min !== undefined
-  if (!hasPrep && !hasDelivery) {
+  const hasMenuType = body.menu_type !== undefined
+  if (!hasPrep && !hasDelivery && !hasMenuType) {
     return NextResponse.json({ error: 'Aucune modification / No changes' }, { status: 400 })
   }
 
@@ -68,9 +72,15 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
     Object.assign(updates, d.settings)
   }
 
+  if (hasMenuType) {
+    const mt = validateMenuType(body.menu_type)
+    if (!mt) return NextResponse.json({ error: 'Type de menu invalide / Invalid menu type' }, { status: 400 })
+    updates.menu_type = mt
+  }
+
   const { data: before } = await supabaseAdmin
     .from('restaurants')
-    .select('prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min')
+    .select('prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, menu_type')
     .eq('id', params.id)
     .maybeSingle()
   if (!before) return NextResponse.json({ error: 'Restaurant introuvable / not found' }, { status: 404 })
@@ -83,7 +93,8 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
 
   const previous = Object.fromEntries(Object.keys(updates).map(k => [k, (before as Record<string, unknown>)[k]]))
   await writeAudit({
-    action:          hasDelivery && !hasPrep ? 'delivery_settings_updated' : 'prep_time_updated',
+    action:          hasMenuType && !hasPrep && !hasDelivery ? 'menu_type_updated'
+                   : hasDelivery && !hasPrep ? 'delivery_settings_updated' : 'prep_time_updated',
     targetType:      'restaurant',
     targetId:        params.id,
     performedBy:     session.id,

@@ -37,6 +37,7 @@ import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { hasRestaurantModule, eventAllows } from '@/lib/modulesServer'
 import { isSideOn, platformOffReply } from '@/lib/platformSwitch'
 import { orderLinkLine, bookingLinkLine } from '@/lib/siteLinks'
+import { isDailyMenu, restaurantWeekday, isServedOn } from '@/lib/menuDays'
 
 // An event whose organiser has no Réservations module (M4): booked with the
 // organiser directly.
@@ -281,12 +282,18 @@ function buildRestaurantListMessage(restaurants: Array<{ name: string; cuisine_t
 
 // ── Menu snapshot ────────────────────────────────────────────────────────────
 async function loadAvailableMenu(restaurantId: string): Promise<MenuItemRef[]> {
-  const { data } = await supabaseAdmin
-    .from('menu_items')
-    .select('id, name, price')
-    .eq('restaurant_id', restaurantId)
-    .eq('is_available', true)
-    .order('name')
+  const [{ data: all }, { data: rest }] = await Promise.all([
+    supabaseAdmin
+      .from('menu_items')
+      .select('id, name, price, available_days')
+      .eq('restaurant_id', restaurantId)
+      .eq('is_available', true)
+      .order('name'),
+    supabaseAdmin.from('restaurants').select('menu_type, timezone, city').eq('id', restaurantId).maybeSingle(),
+  ])
+  // Menu par jour (D1): only today's dishes (the restaurant's day).
+  const today = rest ? restaurantWeekday(rest) : 0
+  const data = (all ?? []).filter(r => !isDailyMenu(rest) || isServedOn(r as { available_days?: number[] | null }, today, 'daily'))
   // Today's offer prices (V2) are the prices the bot shows and charges.
   const offers = await loadRestaurantOffersToday(restaurantId)
   return (data ?? []).map(r => {
@@ -2951,6 +2958,22 @@ async function finalizeRestaurantWhatsappOrder(opts: {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
     await sendWhatsApp(from, ordersOffText(data.restaurant_name, lang))
     return ok()
+  }
+
+  // Menu par jour (D1): re-checked at confirm — a conversation that crossed
+  // midnight can't order a dish that isn't served today.
+  const { data: dayRest } = await supabaseAdmin.from('restaurants').select('menu_type, timezone, city').eq('id', data.restaurant_id).maybeSingle()
+  if (isDailyMenu(dayRest)) {
+    const { data: dayRows } = await supabaseAdmin.from('menu_items').select('id, name, available_days').in('id', items.map(i => i.menu_item_id))
+    const today = restaurantWeekday(dayRest!)
+    const off = (dayRows ?? []).find(r => !isServedOn(r as { available_days?: number[] | null }, today, 'daily'))
+    if (off) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang(
+        `❌ *${off.name}* n'est pas au menu aujourd'hui. Renvoyez "commander" pour voir le menu du jour.`,
+        `❌ *${off.name}* isn't on today's menu. Send "order" again to see today's menu.`, lang))
+      return ok()
+    }
   }
 
   const itemsJsonb = items.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))

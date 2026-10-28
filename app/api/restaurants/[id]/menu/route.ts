@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { validateDays } from '@/lib/menuDays'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { denyUnlessOwnerOrManager } from '@/lib/vendorAccess'
@@ -39,6 +40,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!Number.isFinite(price) || price < 0) {
     return NextResponse.json({ error: 'Prix invalide / Invalid price' }, { status: 400 })
   }
+  // Menu par jour (D1): the days the dish is served; omitted = every day.
+  let availableDays: number[] | undefined
+  if (body.available_days !== undefined) {
+    const d = validateDays(body.available_days)
+    if (!d.ok) return NextResponse.json({ error: d.error }, { status: 400 })
+    availableDays = d.days
+  }
 
   // Built literally — body.restaurant_id (which the form still sends) and any
   // other key simply have no path in.
@@ -54,6 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     photo_url:        typeof body.photo_url === 'string' ? body.photo_url : '',
     is_available:     typeof body.is_available === 'boolean' ? body.is_available : true,
     is_daily_special: typeof body.is_daily_special === 'boolean' ? body.is_daily_special : false,
+    ...(availableDays ? { available_days: availableDays } : {}),
   }
 
   const { data, error } = await supabaseAdmin

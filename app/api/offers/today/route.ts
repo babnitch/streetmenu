@@ -4,6 +4,7 @@ import { loadRestaurantOffersToday, loadTodayOffers } from '@/lib/offersServer'
 import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
 import { isSideOn } from '@/lib/platformSwitch'
 import { deliversNow } from '@/lib/modules'
+import { isDailyMenu, isServedOn, restaurantWeekday } from '@/lib/menuDays'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,14 +50,14 @@ async function cityOffers(city: string) {
     return NextResponse.json({ error: 'city' }, { status: 400 })
   }
   const { data: rests } = await supabaseAdmin.from('restaurants')
-    .select('id, name, image_url, logo_url, delivery_enabled, modules')
+    .select('id, name, image_url, logo_url, delivery_enabled, modules, menu_type, timezone, city')
     .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null)
   const byId = new Map((rests ?? []).map(r => [r.id as string, r]))
   const today = await loadTodayOffers(Array.from(byId.keys()))
 
   const dishIds = Object.values(today).flatMap(t => Object.keys(t.prices))
   const { data: dishes } = dishIds.length
-    ? await supabaseAdmin.from('menu_items').select('id, name, photo_url, price, is_available').in('id', dishIds)
+    ? await supabaseAdmin.from('menu_items').select('id, name, photo_url, price, is_available, available_days').in('id', dishIds)
     : { data: [] as Array<{ id: string; name: string; photo_url: string | null; price: number; is_available: boolean }> }
   const dishById = new Map((dishes ?? []).map(d => [d.id as string, d]))
 
@@ -72,6 +73,8 @@ async function cityOffers(city: string) {
       }
       const d = o.menu_item_id ? dishById.get(o.menu_item_id) : null
       if (!d || d.is_available === false || o.offer_price == null) continue
+      // Menu par jour: only dishes served today.
+      if (isDailyMenu(r) && !isServedOn(d as { available_days?: number[] | null }, restaurantWeekday(r), 'daily')) continue
       const regular = Math.round(Number(d.price))
       if (!(o.offer_price < regular)) continue
       offers.push({

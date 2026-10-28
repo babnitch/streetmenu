@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { validateDays } from '@/lib/menuDays'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { denyUnlessOwnerOrManager } from '@/lib/vendorAccess'
@@ -83,6 +84,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'is_daily_special must be boolean' }, { status: 400 })
     }
     updates.is_daily_special = body.is_daily_special
+  }
+
+  if ('available_days' in body) {
+    // Menu par jour (D1): the days the dish is served.
+    const d = validateDays(body.available_days)
+    if (!d.ok) return NextResponse.json({ error: d.error }, { status: 400 })
+    updates.available_days = d.days
   }
 
   if (Object.keys(updates).length === 0) {

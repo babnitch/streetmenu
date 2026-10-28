@@ -18,6 +18,7 @@ import { validateVoucher, type VoucherRow } from '@/lib/vouchers'
 import { DELIVERY_OFF_TEXT, type Fulfilment } from '@/lib/delivery'
 import { loadRestaurantOffersToday } from '@/lib/offersServer'
 import { takesOrders, hasModule, moduleOffText } from '@/lib/modules'
+import { isDailyMenu, restaurantWeekday, isServedOn, servedDays, availableOnText } from '@/lib/menuDays'
 
 export interface PricedLine {
   id: string; name: string; price: number; quantity: number; photo_url: string | null
@@ -57,7 +58,7 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
   if (qty.size === 0) return { ok: false, status: 400, error: 'items requis / required', reason: 'no_items' }
 
   const { data: rest } = await supabaseAdmin.from('restaurants')
-    .select('id, delivery_enabled, delivery_fee, modules').eq('id', restaurantId).maybeSingle()
+    .select('id, delivery_enabled, delivery_fee, modules, menu_type, timezone, city').eq('id', restaurantId).maybeSingle()
   if (!rest) return { ok: false, status: 404, error: 'Restaurant introuvable / Restaurant not found', reason: 'no_restaurant' }
   // M2: a Vitrine-only restaurant takes no orders here.
   if (!takesOrders(rest)) return { ok: false, status: 403, error: moduleOffText('restaurant', 'orders'), reason: 'module_off' }
@@ -78,7 +79,7 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
 
   const { data: rows, error } = await supabaseAdmin
     .from('menu_items')
-    .select('id, name, price, photo_url, is_available')
+    .select('id, name, price, photo_url, is_available, available_days')
     .eq('restaurant_id', restaurantId)
     .in('id', Array.from(qty.keys()))
   if (error) return { ok: false, status: 500, error: 'Erreur / Error', reason: 'lookup_failed' }
@@ -97,6 +98,20 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
   if (gone) {
     return { ok: false, status: 409, reason: 'sold_out', current,
       error: `Épuisé : ${gone.name} / Sold out: ${gone.name}` }
+  }
+  // Menu par jour (D1): a dish not served today (the restaurant's day) is
+  // refused; the cart drops it (available: false) and says when it is served.
+  if (isDailyMenu(rest)) {
+    const today = restaurantWeekday(rest)
+    const notToday = (rows ?? []).find(r => !isServedOn(r as { available_days?: number[] | null }, today, 'daily'))
+    if (notToday) {
+      const days = servedDays(notToday as { available_days?: number[] | null }, 'daily')
+      return {
+        ok: false, status: 409, reason: 'not_today',
+        current: current.map(c => c.id === notToday.id ? { ...c, available: false } : c),
+        error: `Pas disponible aujourd'hui : ${notToday.name} (${availableOnText(days, 'fr').toLowerCase()}) / Not available today: ${notToday.name} (${availableOnText(days, 'en').toLowerCase()})`,
+      }
+    }
   }
 
   const lines: PricedLine[] = Array.from(qty.entries()).map(([id, quantity]) => {
