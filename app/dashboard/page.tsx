@@ -18,6 +18,7 @@ import {
 } from '@/lib/prepTime'
 import { validateOffer, percentOffLabel } from '@/lib/offers'
 import { hasModule, takesOrders } from '@/lib/modules'
+import { isDailyMenu, ALL_DAYS, WEEK_ORDER, dayShort, dayName, daysLabel, servedDays, restaurantWeekday } from '@/lib/menuDays'
 import ModuleLocked from '@/components/ModuleLocked'
 import { formatDeliveryTime, validateDeliverySettings, DELIVERY_EXTRA_DEFAULT, DELIVERY_EXTRA_MAX, DELIVERY_FEE_MAX } from '@/lib/delivery'
 import { useMode, type DashboardTab, type TeamRole } from '@/lib/modeContext'
@@ -178,6 +179,8 @@ export default function DashboardPage() {
   const [confirming, setConfirming] = useState(false)
   const [validateDone, setValidateDone] = useState(false)
   const [showItemForm, setShowItemForm] = useState(false)
+  // Menu par jour: the Menu tab shows the list or "Menu de la semaine".
+  const [menuView, setMenuView] = useState<'list' | 'week'>('list')
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
   const [uploading, setUploading] = useState(false)
 
@@ -1064,6 +1067,7 @@ export default function DashboardPage() {
               {canEditMenu && showItemForm && (
                 <MenuItemForm
                   restaurantId={selectedRestaurant.id}
+                  dailyMenu={isDailyMenu(selectedRestaurant)}
                   item={editingItem}
                   onClose={() => { setShowItemForm(false); setEditingItem(null) }}
                   onSave={() => { fetchMenu(selectedRestaurant.id); setShowItemForm(false); setEditingItem(null) }}
@@ -1072,6 +1076,20 @@ export default function DashboardPage() {
                 />
               )}
 
+              {isDailyMenu(selectedRestaurant) && menuItems.length > 0 && (
+                <div className="grid grid-cols-2 gap-1 bg-surface-muted rounded-full p-1 mb-3" role="radiogroup" aria-label={bi('Vue du menu', 'Menu view')}>
+                  {(['list', 'week'] as const).map(v => (
+                    <button key={v} type="button" role="radio" aria-checked={menuView === v} onClick={() => setMenuView(v)}
+                      className={`py-1.5 rounded-full text-sm font-semibold ${menuView === v ? 'bg-white text-ink-primary shadow-sm' : 'text-ink-secondary'}`}>
+                      {v === 'list' ? bi('Liste', 'List') : bi('Menu de la semaine', "Week's menu")}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {isDailyMenu(selectedRestaurant) && menuView === 'week' && menuItems.length > 0 ? (
+                <MenuWeekView items={menuItems} today={restaurantWeekday(selectedRestaurant)} />
+              ) : (
               <div className="space-y-3">
                 {menuItems.length === 0 && !showItemForm && (
                   <div className="text-center py-12 text-ink-tertiary">
@@ -1098,7 +1116,12 @@ export default function DashboardPage() {
                         )}
                       </div>
                       <p className="text-brand text-sm font-semibold">{formatFCFA(item.price)}</p>
-                      <p className="text-xs text-ink-tertiary">{item.category}</p>
+                      <p className="text-xs text-ink-tertiary">
+                        {item.category}
+                        {isDailyMenu(selectedRestaurant) && servedDays(item, 'daily').length < 7 && (
+                          <span className="ml-1 font-semibold text-brand-darker">· {daysLabel(servedDays(item, 'daily'), locale === 'fr' ? 'fr' : 'en')}</span>
+                        )}
+                      </p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       {/* Same pill either way — a button for editors, a
@@ -1142,6 +1165,7 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </div>
+              )}
             </div>
           )}
 
@@ -1187,6 +1211,13 @@ export default function DashboardPage() {
                   setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                 }}
               />
+              <MenuTypePanel
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  setSelectedRestaurant(updated)
+                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                }}
+              />
               {hasModule(selectedRestaurant, 'delivery') ? (
                 <DeliveryPanel
                   restaurant={selectedRestaurant}
@@ -1215,6 +1246,13 @@ export default function DashboardPage() {
             <div className="space-y-3">
               <OpeningHoursPanel restaurant={selectedRestaurant} />
               <PrepTimePanel
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  setSelectedRestaurant(updated)
+                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                }}
+              />
+              <MenuTypePanel
                 restaurant={selectedRestaurant}
                 onChange={updated => {
                   setSelectedRestaurant(updated)
@@ -2013,6 +2051,90 @@ function OffersPanel({ restaurant, menuItems }: { restaurant: Restaurant; menuIt
   )
 }
 
+// ── Type de menu (Menu par jour) ─────────────────────────────────────────────
+// À la carte: the same menu every day (default). Menu par jour: each dish has
+// its days; customers see today's dishes, the others greyed with their days.
+// Owner, manager and admin, like the prep time.
+function MenuTypePanel({ restaurant, onChange }: { restaurant: Restaurant; onChange: (next: Restaurant) => void }) {
+  const bi = useBi()
+  const current = restaurant.menu_type === 'daily' ? 'daily' : 'a_la_carte'
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function choose(next: 'a_la_carte' | 'daily') {
+    if (next === current) return
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/restaurants/${restaurant.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ menu_type: next }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(d.error ?? bi('Erreur', 'Error')); return }
+      onChange({ ...restaurant, menu_type: next })
+    } catch {
+      setError(bi('Erreur réseau', 'Network error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const option = (value: 'a_la_carte' | 'daily', title: string, desc: string) => (
+    <button type="button" onClick={() => choose(value)} disabled={saving} aria-pressed={current === value}
+      className={`text-left rounded-xl border-2 px-3 py-2.5 transition-colors ${current === value ? 'border-brand bg-brand-light' : 'border-divider bg-white hover:border-brand-badge'}`}>
+      <span className="block text-sm font-bold text-ink-primary">{title}</span>
+      <span className="block text-xs text-ink-secondary">{desc}</span>
+    </button>
+  )
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-5">
+      <h2 className="text-lg font-bold text-ink-primary mb-3">📅 {bi('Type de menu', 'Menu type')}</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {option('a_la_carte', bi('À la carte', 'À la carte'), bi('Le même menu tous les jours.', 'The same menu every day.'))}
+        {option('daily', bi('Menu par jour', 'Menu by day'), bi('Choisissez les jours de chaque plat (Menu → modifier un plat).', 'Pick each dish\'s days (Menu → edit a dish).'))}
+      </div>
+      {error && <p className="text-xs text-danger mt-2">{error}</p>}
+    </div>
+  )
+}
+
+// "Menu de la semaine": Monday → Sunday, the dishes served each day (hidden
+// dishes greyed), today highlighted.
+function MenuWeekView({ items, today }: { items: MenuItem[]; today: number }) {
+  const bi = useBi()
+  const { locale } = useLanguage()
+  const lang = locale === 'fr' ? 'fr' : 'en'
+  return (
+    <div className="space-y-3">
+      {WEEK_ORDER.map(d => {
+        const dishes = items.filter(i => servedDays(i, 'daily').includes(d))
+        const isToday = d === today
+        return (
+          <section key={d} className={`bg-white rounded-2xl shadow-sm p-4 ${isToday ? 'ring-2 ring-brand' : ''}`}>
+            <h3 className="text-sm font-bold text-ink-primary capitalize mb-2">
+              {dayName(d, lang)}
+              {isToday && <span className="ml-2 text-[11px] font-bold text-white bg-brand px-2 py-0.5 rounded-full normal-case">{bi('aujourd\'hui', 'today')}</span>}
+              <span className="ml-2 text-xs font-normal text-ink-tertiary">{dishes.length}</span>
+            </h3>
+            {dishes.length === 0 ? (
+              <p className="text-xs text-ink-tertiary">{bi('Aucun plat ce jour-là.', 'No dish that day.')}</p>
+            ) : (
+              <ul className="flex flex-wrap gap-1.5">
+                {dishes.map(i => (
+                  <li key={i.id} className={`text-xs px-2.5 py-1 rounded-full border ${i.is_available ? 'bg-surface-muted border-divider text-ink-primary' : 'border-dashed border-divider text-ink-tertiary line-through'}`}>
+                    {i.is_daily_special && '⭐ '}{i.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Delivery panel (V1) ──────────────────────────────────────────────────────
 // The restaurant's own rider: on/off, a fixed fee, and the ride time added
 // to the prep range. Take-away always stays available. Same people as the
@@ -2754,15 +2876,18 @@ function MenuItemForm({
   onSave,
   uploading,
   setUploading,
+  dailyMenu = false,
 }: {
   restaurantId: string
+  // Menu par jour: the form asks which days the dish is served.
+  dailyMenu?: boolean
   item: MenuItem | null
   onClose: () => void
   onSave: () => void
   uploading: boolean
   setUploading: (v: boolean) => void
 }) {
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
   const bi = useBi()
   const [name, setName] = useState(item?.name ?? '')
   const [description, setDescription] = useState(item?.description ?? '')
@@ -2775,6 +2900,7 @@ function MenuItemForm({
   const [photoUrl, setPhotoUrl] = useState(item?.photo_url ?? '')
   const [isAvailable, setIsAvailable] = useState(item?.is_available ?? true)
   const [isSpecial, setIsSpecial] = useState(item?.is_daily_special ?? false)
+  const [days, setDays] = useState<number[]>(item?.available_days?.length ? item.available_days : [...ALL_DAYS])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -2808,6 +2934,7 @@ function MenuItemForm({
       photo_url: photoUrl,
       is_available: isAvailable,
       is_daily_special: isSpecial,
+      ...(dailyMenu ? { available_days: days } : {}),
     }
 
     try {
@@ -2903,11 +3030,30 @@ function MenuItemForm({
           </label>
         </div>
 
+        {dailyMenu && (
+          <fieldset>
+            <legend className="text-xs font-semibold text-ink-secondary mb-1.5">{bi('Jours disponibles', 'Available days')}</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {WEEK_ORDER.map(d => {
+                const on = days.includes(d)
+                return (
+                  <label key={d} className={`cursor-pointer select-none px-2.5 py-1 rounded-full text-xs font-semibold border ${on ? 'bg-ink-primary text-white border-ink-primary' : 'bg-white text-ink-secondary border-divider'}`}>
+                    <input type="checkbox" className="sr-only" checked={on}
+                      onChange={e => setDays(prev => e.target.checked ? [...prev, d] : prev.filter(x => x !== d))} />
+                    {dayShort(d, locale === 'fr' ? 'fr' : 'en')}
+                  </label>
+                )
+              })}
+            </div>
+            {days.length === 0 && <p className="text-xs text-danger mt-1">{bi('Choisissez au moins un jour.', 'Pick at least one day.')}</p>}
+          </fieldset>
+        )}
+
         {error && <p className="text-xs text-danger">{error}</p>}
 
         <button
           onClick={handleSave}
-          disabled={saving || !name || !price || uploading}
+          disabled={saving || !name || !price || uploading || (dailyMenu && days.length === 0)}
           className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
         >
           {saving ? t('dash.saving') : item ? t('dash.save') : t('dash.addItemBtn')}

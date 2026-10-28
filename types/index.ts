@@ -47,7 +47,8 @@ export interface Restaurant {
   delivery_fee?: number
   delivery_extra_min?: number
   // Modules switched on (supabase-modules.sql); [] = Vitrine only.
-  modules?: string[] | null
+  modules?: string[] | null  // 'a_la_carte' (default) or 'daily' (Menu par jour).
+  menu_type?: 'a_la_carte' | 'daily' | null
 }
 
 export interface MenuItem {
@@ -62,7 +63,8 @@ export interface MenuItem {
   is_daily_special: boolean
   created_at: string
   // Display only: the menu price when today's offer (V2) set `price` lower.
-  regular_price?: number
+  regular_price?: number  // Menu par jour (supabase-menu-days.sql): 0 = Sunday … 6; all days default.
+  available_days?: number[] | null
 }
 
 export interface Order {
