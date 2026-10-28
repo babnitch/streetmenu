@@ -16,7 +16,7 @@
 import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, warn, finish } from '../testkit/assert'
 import { api, customerCookie, adminCookie } from '../testkit/session'
-import { makeCustomer, makeRestaurant, makeEvent } from '../testkit/fixtures'
+import { makeCustomer, makeRestaurant, ALL_RESTAURANT_MODULES, makeEvent } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 
 const SUITE = 'api-broadcast-capability'
@@ -35,7 +35,8 @@ async function main(): Promise<void> {
       extra: { events_approved_count: 3, event_auto_approve: true },
     })
     const owner = await makeCustomer({ suiteNo: 60, name: 'Restaurant owner' })
-    const rest  = await makeRestaurant({ ownerId: owner.id, label: 'bcast_cap', status: 'active' })
+    // Diffusion off by default (the module is off): every module but broadcast.
+    const rest  = await makeRestaurant({ ownerId: owner.id, label: 'bcast_cap', status: 'active', modules: ALL_RESTAURANT_MODULES.filter(m => m !== 'broadcast') })
     const plain = await makeCustomer({ suiteNo: 60, name: 'Plain client' })
     const organizer = await makeCustomer({
       suiteNo: 60, name: 'Organizer', extra: { event_auto_approve: false },

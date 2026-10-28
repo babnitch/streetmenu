@@ -1558,6 +1558,14 @@ async function handleVendor(
       await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission.', 'You don\'t have permission.', lang))
       return ok()
     }
+    // M3: adding members needs the Équipe module.
+    const { hasRestaurantModule } = await import('@/lib/modulesServer')
+    if (!(await hasRestaurantModule(restaurant.id, 'team'))) {
+      await sendWhatsApp(from, pickLang(
+        '🔒 Le module « Équipe » n\'est pas activé pour votre restaurant. Demandez-le depuis votre espace Pro.',
+        '🔒 The "Team" module is not enabled for your restaurant. Request it from your Pro space.', lang))
+      return ok()
+    }
     const rawMemberPhone = addMemberMatch[1].trim()
     const memberRole  = addMemberMatch[2].toLowerCase() as 'manager' | 'staff'
 

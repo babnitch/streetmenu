@@ -37,7 +37,7 @@ import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api } from '../testkit/session'
 import {
   makeCustomer, makeRestaurant, makeMenuItem, makeOrder, addTeamMember, makeEvent, makeTier,
-  futureDateISO, pastDateISO, type TestCustomer,
+  futureDateISO, pastDateISO, type TestCustomer, ALL_RESTAURANT_MODULES,
 } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 import { countMatchingSubscribers } from '@/lib/subscriptions'
@@ -839,7 +839,7 @@ async function main(): Promise<void> {
     // reply is logged in message_log even though the local Twilio send fails.
     await step('"diffuser" from a restaurant owner: refusal when not enabled, link when enabled', async () => {
       const owner = await makeCustomer({ suiteNo: 49, name: 'WA Broadcast Owner' })
-      const rest  = await makeRestaurant({ ownerId: owner.id, label: 'wa_diffuser', whatsapp: owner.phone })
+      const rest  = await makeRestaurant({ ownerId: owner.id, label: 'wa_diffuser', whatsapp: owner.phone, modules: ALL_RESTAURANT_MODULES.filter(m => m !== 'broadcast') })
       const lastReply = async () => {
         const { data } = await sb.from('message_log').select('body')
           .eq('to_number', owner.phone).order('created_at', { ascending: false }).limit(1).maybeSingle()
@@ -850,7 +850,8 @@ async function main(): Promise<void> {
       const refusal = await lastReply()
       assert(refusal.includes("n'est pas activée pour votre restaurant"), 'not enabled → restaurant refusal', refusal)
 
-      const { error: colErr } = await sb.from('restaurants').update({ broadcast_enabled: true } as never).eq('id', rest.id)
+      // Switched on the way admin does it now: the Diffusion module (M3).
+      const { error: colErr } = await sb.from('restaurants').update({ broadcast_enabled: true, modules: [...ALL_RESTAURANT_MODULES] } as never).eq('id', rest.id)
       if (colErr) throw new Error(`enable broadcast: ${colErr.message}`)
       await send(owner.phone, 'diffuser')
       const link = await lastReply()

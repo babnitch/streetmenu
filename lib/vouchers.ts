@@ -136,6 +136,15 @@ export async function validateVoucher(
     console.log(`[vouchers] validate: wrong_restaurant (voucher=${voucher.restaurant_id} order=${ctx.restaurantId})`)
     return reject('wrong_restaurant')
   }
+  // M3: a restaurant's own codes work only while it has the Codes promo
+  // module (platform codes like BIENVENUE are not restaurant codes).
+  if (voucher.restaurant_id) {
+    const { data: r } = await supabaseAdmin.from('restaurants').select('modules').eq('id', voucher.restaurant_id).maybeSingle()
+    if (!((r?.modules as string[] | null) ?? []).includes('promo_codes')) {
+      console.log(`[vouchers] validate: restaurant ${voucher.restaurant_id} has no promo_codes module`)
+      return reject('inactive')
+    }
+  }
 
   // Event scoping — an event-scoped voucher only applies to that event's
   // reservations (and never to a restaurant order, where ctx.eventId is

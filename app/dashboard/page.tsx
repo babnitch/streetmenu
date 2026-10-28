@@ -1048,9 +1048,9 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {canEditMenu && (
-                <OffersPanel restaurant={selectedRestaurant} menuItems={menuItems} />
-              )}
+              {canEditMenu && (hasModule(selectedRestaurant, 'daily_offer')
+                ? <OffersPanel restaurant={selectedRestaurant} menuItems={menuItems} />
+                : <div className="mb-4"><ModuleLocked subject="restaurant" module="daily_offer" /></div>)}
 
               {canEditMenu && (
                 <button
@@ -1145,13 +1145,15 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {tab === 'vouchers' && selectedRestaurant && (
+          {tab === 'vouchers' && selectedRestaurant && (hasModule(selectedRestaurant, 'promo_codes') ? (
             <VendorVouchersPanel
               restaurant={selectedRestaurant}
               effectiveRole={effectiveRole}
               onValidate={() => setTab('validate')}
             />
-          )}
+          ) : (
+            <ModuleLocked subject="restaurant" module="promo_codes" />
+          ))}
 
           {/* Team tab — full pending-invitations + invite UI lands in the
               follow-up commit. For now the empty-state points vendors to

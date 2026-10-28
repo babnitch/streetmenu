@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { denyUnlessOwnerOrManager, wouldStripLastOwner, LAST_OWNER_ERROR } from '@/lib/vendorAccess'
@@ -65,6 +66,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!ownerEntry || ownerEntry.role !== 'owner') {
     return NextResponse.json({ error: 'Seul le restaurateur peut gérer l\'équipe / Only the Restaurant Owner can manage the team' }, { status: 403 })
   }
+
+  // M3: adding members needs the Équipe module (removing never does).
+  const teamOff = await requireRestaurantModule(params.id, 'team')
+  if (teamOff) return teamOff
 
   const { phone, role } = await req.json()
   if (!phone || !['manager', 'staff'].includes(role)) {

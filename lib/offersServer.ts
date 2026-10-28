@@ -23,12 +23,13 @@ export async function loadTodayOffers(restaurantIds: string[], at: Date = new Da
   if (ids.length === 0) return out
 
   const { data: rests } = await supabaseAdmin
-    .from('restaurants').select('id, timezone, city').in('id', ids)
+    .from('restaurants').select('id, timezone, city, modules').in('id', ids)
   const todayById = new Map<string, string>()
   for (const r of rests ?? []) {
     const today = dateInZone(restaurantZone(r), at)
-    todayById.set(r.id as string, today)
     out[r.id as string] = EMPTY(today)
+    // M3: offers apply only while the restaurant has the Offre du jour module.
+    if (((r.modules as string[] | null) ?? []).includes('daily_offer')) todayById.set(r.id as string, today)
   }
   if (todayById.size === 0) return out
 

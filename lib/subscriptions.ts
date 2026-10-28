@@ -104,26 +104,27 @@ export interface BroadcastEligibility {
 
 // Broadcasting is an admin-granted capability, OFF by default
 // (supabase-broadcast-capability.sql):
-//   - as a publisher when customers.broadcast_enabled is true;
+//   - as a publisher with the organiser Diffusion module (M3);
 //   - on behalf of a restaurant they own (restaurants.customer_id) that is
-//     active or approved, not deleted, and has restaurants.broadcast_enabled.
+//     active or approved, not deleted, with the restaurant Diffusion module.
 // customers.broadcast_blocked overrides both. Any read error leaves the
 // caller ineligible — this gate fails closed.
 export async function getBroadcastEligibility(customerId: string): Promise<BroadcastEligibility> {
   const { data: customer } = await supabaseAdmin
     .from('customers')
-    .select('id, broadcast_enabled, broadcast_blocked')
+    .select('id, organizer_modules, broadcast_blocked')
     .eq('id', customerId)
     .maybeSingle()
 
+  // M3: the Diffusion module replaces the broadcast_enabled flags.
   const blocked = !!customer?.broadcast_blocked
-  const asPublisher = !!customer && !blocked && customer.broadcast_enabled === true
+  const asPublisher = !!customer && !blocked && ((customer.organizer_modules as string[] | null) ?? []).includes('broadcast')
 
   const { data: rests } = await supabaseAdmin
     .from('restaurants')
     .select('id, name, status, deleted_at')
     .eq('customer_id', customerId)
-    .eq('broadcast_enabled', true)
+    .contains('modules', ['broadcast'])
   const asRestaurants = ((rests ?? []) as Array<{ id: string; name: string; status: string | null; deleted_at: string | null }>)
     .filter(r => !r.deleted_at && (r.status === 'active' || r.status === 'approved'))
     .map(r => ({ id: r.id, name: r.name }))

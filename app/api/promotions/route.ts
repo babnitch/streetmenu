@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -57,6 +58,9 @@ export async function POST(req: NextRequest) {
     if (!elig.restaurants.some(r => r.id === targetId)) {
       return NextResponse.json({ error: 'Vous ne possédez pas ce restaurant / You do not own this restaurant' }, { status: 403 })
     }
+    // M3: buying a placement needs the Mise en avant module.
+    const featuredOff = await requireRestaurantModule(targetId, 'featured')
+    if (featuredOff) return featuredOff
   } else {
     if (!elig.events.some(e => e.id === targetId)) {
       return NextResponse.json({ error: 'Vous n\'organisez pas cet événement / You do not organize this event' }, { status: 403 })

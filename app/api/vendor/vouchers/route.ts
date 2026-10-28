@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -68,6 +69,9 @@ export async function POST(req: NextRequest) {
   if (typeof restaurantId !== 'string' || !restaurantId) {
     return NextResponse.json({ error: 'restaurant_id requis / required' }, { status: 400 })
   }
+  // M3: creating codes needs the Codes promo module.
+  const promoOff = await requireRestaurantModule(restaurantId, 'promo_codes')
+  if (promoOff) return promoOff
 
   const ids = await allowedRestaurantIds(session.id)
   if (!ids.has(restaurantId)) {

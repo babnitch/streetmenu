@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { denyUnlessOwnerOrManager } from '@/lib/vendorAccess'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 import { writeAudit } from '@/lib/audit'
 import { dateInZone, restaurantZone, validateOffer } from '@/lib/offers'
 
@@ -44,6 +45,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const denied = await denyUnlessOwnerOrManager(req, params.id)
   if (denied) return denied
+  // M3: publishing offers needs the Offre du jour module.
+  const offerOff = await requireRestaurantModule(params.id, 'daily_offer')
+  if (offerOff) return offerOff
   const session = getSessionFromRequest(req)!
   const rest = await restaurantOf(params.id)
   if (!rest) return NextResponse.json({ error: 'Restaurant introuvable / not found' }, { status: 404 })

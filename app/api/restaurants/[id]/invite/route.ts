@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireRestaurantModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
@@ -34,6 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!ownerEntry || ownerEntry.role !== 'owner') {
     return NextResponse.json({ error: 'Seul le restaurateur peut inviter / Only the Restaurant Owner can invite' }, { status: 403 })
   }
+
+  // M3: inviting needs the Équipe module.
+  const teamOff = await requireRestaurantModule(params.id, 'team')
+  if (teamOff) return teamOff
 
   const body = await req.json().catch(() => ({}))
   const phone = normalizePhone(body.phone)

@@ -31,6 +31,8 @@ import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type Publisher
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 import { isPastEvent, formatEventDates, formatEventDay, isMultiDay } from '@/lib/eventDate'
 import { formatFCFA } from '@/lib/money'
+import { hasModule } from '@/lib/modules'
+import ModuleLocked from '@/components/ModuleLocked'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
 const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'), { ssr: false })
@@ -119,6 +121,7 @@ interface VendorRestaurant {
   suspended_by: string | null
   whatsapp:     string
   teamRole:     'owner' | 'manager' | 'staff'
+  modules?:     string[] | null
 }
 
 interface TeamMember {
@@ -1662,6 +1665,7 @@ export default function AccountPage() {
                     <h2 className="font-bold text-ink-primary mb-4">👥 {t('account.teamTitle')} — {activeRest.name}</h2>
 
                     {/* Add member form */}
+                    {hasModule(activeRest, 'team') ? (
                     <form onSubmit={handleAddTeamMember} className="flex gap-2 mb-5 flex-wrap">
                       <div className="flex-1 min-w-[180px]">
                         <PhoneInput
@@ -1680,6 +1684,9 @@ export default function AccountPage() {
                         {addingMember ? '…' : t('account.addMember')}
                       </button>
                     </form>
+                    ) : (
+                      <div className="mb-5"><ModuleLocked subject="restaurant" module="team" /></div>
+                    )}
                     {teamError && <p className="text-xs text-danger mb-3">{teamError}</p>}
 
                     {/* Team list */}
