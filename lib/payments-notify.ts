@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
-import { vendorRecipients, prepTimeLine } from '@/lib/whatsapp/ordering'
+import { vendorRecipients, prepTimeLine, deliveryInfoFromOrder, deliveryLines } from '@/lib/whatsapp/ordering'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
@@ -22,7 +22,7 @@ export async function notifyPaidOrder(
 ): Promise<void> {
   const { data: order } = await supabaseAdmin
     .from('orders')
-    .select('id, restaurant_id, customer_phone, customer_name, total_price, items')
+    .select('id, restaurant_id, customer_phone, customer_name, total_price, items, fulfilment, delivery_fee, delivery_address, delivery_landmark, delivery_phone')
     .eq('id', orderId)
     .maybeSingle()
   if (!order) {
@@ -52,7 +52,7 @@ export async function notifyPaidOrder(
   if (order.customer_phone) {
     console.log(`[payment] sending customer confirmation: order=${order.id} to=${order.customer_phone}`)
     const lang = await getLangByPhone(order.customer_phone)
-    const prepLine = await prepTimeLine(order.restaurant_id, '🕐', lang)
+    const prepLine = await prepTimeLine(order.restaurant_id, '🕐', lang, order.fulfilment)
     const r = await sendWhatsApp(order.customer_phone, [
       pickLang(`✅ *Paiement confirmé!*`, `✅ *Payment confirmed!*`, lang),
       ``,
@@ -83,6 +83,7 @@ export async function notifyPaidOrder(
   }
 
   const mno = correspondent ? mnoLabel(correspondent) : 'mobile money'
+  const delivery = deliveryInfoFromOrder(order)
 
   const results = await Promise.allSettled(recipients.map(async p => {
     const lang = await getLangByPhone(p)
@@ -93,6 +94,7 @@ export async function notifyPaidOrder(
       `👤 ${order.customer_name}`,
       `📱 ${order.customer_phone}`,
       ...itemsBlock(lang),
+      ...deliveryLines(delivery, lang),
       ``,
       `💳 ${mno}`,
       pickLang(`💰 *Total payé: ${total.toLocaleString()} FCFA*`, `💰 *Total paid: ${total.toLocaleString()} FCFA*`, lang),

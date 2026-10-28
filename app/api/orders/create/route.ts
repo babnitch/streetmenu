@@ -7,12 +7,15 @@ import { normalizePhone } from '@/lib/phone'
 import { priceOrder, PRICE_CHANGED_TEXT } from '@/lib/orderPricing'
 import { consumeVoucherForOrder } from '@/lib/vouchers'
 import { writeAudit } from '@/lib/audit'
+import { normalizeFulfilment, DELIVERY_FIELDS_REQUIRED_TEXT, DELIVERY_ADDRESS_MAX, DELIVERY_LANDMARK_MAX } from '@/lib/delivery'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/orders/create
 // Body: { restaurant_id, items: [{ id, quantity }], total_price,
-//         customer_name?, customer_phone?, voucher_code?, order_type }
+//         customer_name?, customer_phone?, voucher_code?, order_type,
+//         fulfilment?: 'pickup' | 'delivery',
+//         delivery_address?, delivery_landmark?, delivery_phone? }
 //
 // Creates an `orders` row using supabaseAdmin so the call works after
 // the RLS lockdown of the orders table. Identity comes from the JWT
@@ -22,6 +25,8 @@ export const dynamic = 'force-dynamic'
 // the voucher validated here and used up here. total_price is what the
 // checkout showed — when it differs from the server's total the order is
 // refused (409, reason price_mismatch, with the current prices).
+// A delivery order needs address + landmark + phone, and the restaurant's
+// delivery fee is part of the server's total.
 //
 // Returns { ok, order: { id, total_price, … } } on success.
 export async function POST(req: NextRequest) {
@@ -66,8 +71,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Nom et téléphone requis / Name and phone required' }, { status: 400 })
   }
 
+  const fulfilment = normalizeFulfilment(body?.fulfilment)
+  let deliveryAddress: string | null = null
+  let deliveryLandmark: string | null = null
+  let deliveryPhone: string | null = null
+  if (fulfilment === 'delivery') {
+    deliveryAddress  = sanitizeText(body?.delivery_address, DELIVERY_ADDRESS_MAX) || null
+    deliveryLandmark = sanitizeText(body?.delivery_landmark, DELIVERY_LANDMARK_MAX) || null
+    deliveryPhone    = normalizePhone(sanitizePhone(body?.delivery_phone)) || null
+    if (!deliveryAddress || !deliveryLandmark || !deliveryPhone) {
+      return NextResponse.json({ error: DELIVERY_FIELDS_REQUIRED_TEXT, reason: 'delivery_fields' }, { status: 400 })
+    }
+  }
+
   const voucherCode = body?.voucher_code ? sanitizeCode(body.voucher_code, 32) : null
-  const priced = await priceOrder({ restaurantId, items: requested, voucherCode, customerId })
+  const priced = await priceOrder({ restaurantId, items: requested, voucherCode, customerId, fulfilment })
   if (!priced.ok) {
     return NextResponse.json({ error: priced.error, reason: priced.reason, current: priced.current }, { status: priced.status })
   }
@@ -76,6 +94,7 @@ export async function POST(req: NextRequest) {
     console.warn(`[orders/create] price mismatch restaurant=${restaurantId}: client=${body?.total_price} server=${priced.total}`)
     return NextResponse.json({
       error: PRICE_CHANGED_TEXT, reason: 'price_mismatch', total: priced.total, discount: priced.discount,
+      delivery_fee: priced.deliveryFee,
       current: priced.lines.map(l => ({ id: l.id, price: l.price, available: true })),
     }, { status: 409 })
   }
@@ -96,8 +115,13 @@ export async function POST(req: NextRequest) {
       discount_amount: priced.discount > 0 ? priced.discount : null,
       order_type:     orderType,
       payment_status: orderType === 'paid_order' ? 'pending' : 'not_required',
+      fulfilment,
+      delivery_fee:      priced.deliveryFee,
+      delivery_address:  deliveryAddress,
+      delivery_landmark: deliveryLandmark,
+      delivery_phone:    deliveryPhone,
     })
-    .select('id, total_price, status, payment_status, order_type')
+    .select('id, total_price, status, payment_status, order_type, fulfilment, delivery_fee')
     .single()
 
   if (error || !order) {

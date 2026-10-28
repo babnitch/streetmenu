@@ -5,9 +5,13 @@
 // voucher. The checkout's own total is only compared against the result —
 // when they differ the order is refused and the current prices go back so
 // the cart can update.
+//
+// Delivery (V1): the restaurant's own fee is added after the voucher —
+// vouchers apply to the food, never to the delivery fee.
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { validateVoucher, type VoucherRow } from '@/lib/vouchers'
+import { DELIVERY_OFF_TEXT, type Fulfilment } from '@/lib/delivery'
 
 export interface PricedLine { id: string; name: string; price: number; quantity: number; photo_url: string | null }
 
@@ -17,6 +21,7 @@ export type OrderPricing =
       lines: PricedLine[]
       subtotal: number
       discount: number
+      deliveryFee: number
       total: number
       voucher: Pick<VoucherRow, 'id' | 'code'> | null
     }
@@ -27,6 +32,7 @@ export interface OrderPricingInput {
   items: Array<{ id: string; quantity: number }>
   voucherCode: string | null
   customerId: string | null
+  fulfilment?: Fulfilment
 }
 
 export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing> {
@@ -40,8 +46,14 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
   }
   if (qty.size === 0) return { ok: false, status: 400, error: 'items requis / required', reason: 'no_items' }
 
-  const { data: rest } = await supabaseAdmin.from('restaurants').select('id').eq('id', restaurantId).maybeSingle()
+  const { data: rest } = await supabaseAdmin.from('restaurants')
+    .select('id, delivery_enabled, delivery_fee').eq('id', restaurantId).maybeSingle()
   if (!rest) return { ok: false, status: 404, error: 'Restaurant introuvable / Restaurant not found', reason: 'no_restaurant' }
+  const delivery = input.fulfilment === 'delivery'
+  if (delivery && rest.delivery_enabled !== true) {
+    return { ok: false, status: 409, error: DELIVERY_OFF_TEXT, reason: 'delivery_off' }
+  }
+  const deliveryFee = delivery ? Math.max(0, Math.round(Number(rest.delivery_fee ?? 0))) : 0
 
   const { data: rows, error } = await supabaseAdmin
     .from('menu_items')
@@ -92,7 +104,8 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
     voucher = { id: v.voucher.id, code: v.voucher.code }
   }
 
-  return { ok: true, lines, subtotal, discount, total: Math.max(0, subtotal - discount), voucher }
+  const total = Math.max(0, subtotal - discount) + deliveryFee
+  return { ok: true, lines, subtotal, discount, deliveryFee, total, voucher }
 }
 
 export const PRICE_CHANGED_TEXT =

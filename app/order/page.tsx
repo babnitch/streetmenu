@@ -12,6 +12,7 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import { supabase } from '@/lib/supabase'
 import { isPercentDiscount } from '@/lib/vouchers'
 import { formatPrepTime } from '@/lib/prepTime'
+import { formatDeliveryTime, DELIVERY_ADDRESS_MAX, DELIVERY_LANDMARK_MAX, type Fulfilment } from '@/lib/delivery'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
@@ -149,8 +150,14 @@ export default function OrderPage() {
   // submit button can branch on all three at render time.
   const [openWhenClosed, setOpenWhenClosed] = useState(true)
   const [restaurantOpen, setRestaurantOpen] = useState<boolean | null>(null)
-  // "20-35 min" for the success screen, or null when unset (badge hidden).
-  const [prepLabel, setPrepLabel] = useState<string | null>(null)
+  // Prep range for the success screen ("20-35 min"; hidden when unset).
+  const [prep, setPrep] = useState<{ min: number | null; max: number | null }>({ min: null, max: null })
+  // Delivery by the restaurant's own rider (V1). Take-away is always there.
+  const [delivery, setDelivery] = useState<{ enabled: boolean; fee: number; extra: number | null }>({ enabled: false, fee: 0, extra: null })
+  const [fulfilment, setFulfilment] = useState<Fulfilment>('pickup')
+  const [address, setAddress] = useState('')
+  const [landmark, setLandmark] = useState('')
+  const [deliveryPhone, setDeliveryPhone] = useState('')
   // City of the restaurant — drives the default country in the MoMo
   // PhoneInput (because the wallet must match the local MNO).
   const [restaurantCity, setRestaurantCity] = useState<string>('')
@@ -161,7 +168,7 @@ export default function OrderPage() {
       const [{ data }, status] = await Promise.all([
         supabase
           .from('restaurants')
-          .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city')
+          .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city, delivery_enabled, delivery_fee, delivery_extra_min')
           .eq('id', restaurantId).maybeSingle(),
         fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.json())
@@ -169,7 +176,8 @@ export default function OrderPage() {
       ])
       if (cancelled) return
       setPaymentMode(normalizeMode(data?.payment_mode ?? modeFromLegacy(data?.payment_enabled)))
-      setPrepLabel(formatPrepTime(data?.prep_time_min, data?.prep_time_max))
+      setPrep({ min: data?.prep_time_min ?? null, max: data?.prep_time_max ?? null })
+      setDelivery({ enabled: data?.delivery_enabled === true, fee: Number(data?.delivery_fee ?? 0), extra: data?.delivery_extra_min ?? null })
       setRestaurantCity(data?.city ?? '')
       // Default TRUE matches the column default — a missing row should
       // never silently disable orders.
@@ -221,7 +229,21 @@ export default function OrderPage() {
       ? Math.round(totalPrice * appliedVoucher.discount_value / 100)
       : Math.min(appliedVoucher.discount_value, totalPrice)
     : 0
-  const finalPrice = totalPrice - discountAmount
+  const isDelivery = fulfilment === 'delivery' && delivery.enabled
+  // Vouchers apply to the food only; the delivery fee is added after.
+  const deliveryFee = isDelivery ? delivery.fee : 0
+  const finalPrice = totalPrice - discountAmount + deliveryFee
+  const deliveryFieldsMissing = isDelivery && (!address.trim() || !landmark.trim() || !deliveryPhone.trim())
+  const timeLabel = isDelivery
+    ? formatDeliveryTime(prep.min, prep.max, delivery.extra)
+    : formatPrepTime(prep.min, prep.max)
+
+  // The delivery phone follows the customer's own number until they edit it.
+  const deliveryPhoneEdited = useRef(false)
+  useEffect(() => {
+    if (deliveryPhoneEdited.current) return
+    setDeliveryPhone(me?.phone ?? phone)
+  }, [me, phone])
 
   const trimmedMomoPhone = momoPhone.trim()
   const momoPrefixValid = trimmedMomoPhone ? hasSupportedCountryPrefix(trimmedMomoPhone) : false
@@ -308,6 +330,12 @@ export default function OrderPage() {
         total_price:     finalPrice,
         voucher_code:    appliedVoucher?.code ?? null,
         order_type:      orderType,
+        fulfilment:      isDelivery ? 'delivery' : 'pickup',
+        ...(isDelivery ? {
+          delivery_address:  address.trim(),
+          delivery_landmark: landmark.trim(),
+          delivery_phone:    deliveryPhone.trim(),
+        } : {}),
       }),
     })
     const json = await res.json().catch(() => ({}))
@@ -315,6 +343,9 @@ export default function OrderPage() {
       // Prices are the server's: a changed price or a sold-out dish comes
       // back with the current menu, and the cart follows it.
       if (Array.isArray(json?.current)) syncPrices(json.current)
+      // The fee changed, or the restaurant stopped delivering meanwhile.
+      if (typeof json?.delivery_fee === 'number' && isDelivery) setDelivery(d => ({ ...d, fee: json.delivery_fee }))
+      if (json?.reason === 'delivery_off') { setDelivery(d => ({ ...d, enabled: false })); setFulfilment('pickup') }
       createErrorRef.current = typeof json?.error === 'string' ? json.error : null
       return null
     }
@@ -476,10 +507,10 @@ export default function OrderPage() {
               Order #{orderId.slice(0, 8).toUpperCase()}
             </p>
           )}
-          {prepLabel && (
+          {timeLabel && (
             <p className="text-sm text-ink-primary mb-6">
-              🕐 <span className="font-semibold">{bi('Temps estimé', 'Estimated time')}:</span>{' '}
-              {prepLabel}
+              {isDelivery ? '🛵' : '🕐'} <span className="font-semibold">{bi('Temps estimé', 'Estimated time')}:</span>{' '}
+              {timeLabel}
             </p>
           )}
           {!wasPaid && (
@@ -661,6 +692,14 @@ export default function OrderPage() {
               <span className="text-sm font-bold text-brand-darker">−{discountAmount.toLocaleString()} FCFA</span>
             </div>
           )}
+          {isDelivery && (
+            <div className="px-4 py-2 flex items-center justify-between border-t border-divider">
+              <span className="text-sm text-ink-secondary">🛵 {bi('Frais de livraison', 'Delivery fee')}</span>
+              <span className="text-sm font-semibold text-ink-primary">
+                {deliveryFee > 0 ? `${deliveryFee.toLocaleString()} FCFA` : bi('Offerte', 'Free')}
+              </span>
+            </div>
+          )}
           <div className="px-4 py-3 bg-brand-light flex items-center justify-between">
             <span className="font-semibold text-ink-primary">{t('order.finalTotal')}</span>
             <span className="font-bold text-brand-dark text-lg">{finalPrice.toLocaleString()} FCFA</span>
@@ -754,6 +793,78 @@ export default function OrderPage() {
 
         {/* Customer identity — session if logged in, inputs otherwise */}
         <form onSubmit={showPayUI ? handlePay : handleReservation}>
+          {/* Livraison | À emporter — only when the restaurant delivers. */}
+          {delivery.enabled && (
+            <div className="mb-4">
+              <div className="grid grid-cols-2 gap-1 bg-surface rounded-full p-1 border border-divider shadow-card" role="radiogroup" aria-label={bi('Mode de retrait', 'Fulfilment')}>
+                {(['delivery', 'pickup'] as const).map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    role="radio"
+                    aria-checked={fulfilment === f}
+                    onClick={() => setFulfilment(f)}
+                    className={`py-2 rounded-full text-sm font-semibold transition-colors ${
+                      fulfilment === f ? 'bg-ink-primary text-white' : 'text-ink-secondary hover:text-ink-primary'
+                    }`}
+                  >
+                    {f === 'delivery' ? `🛵 ${bi('Livraison', 'Delivery')}` : `🥡 ${bi('À emporter', 'Take-away')}`}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-ink-tertiary mt-1.5 px-2">
+                {isDelivery
+                  ? `${bi('Livraison', 'Delivery')} ${delivery.fee > 0 ? `${delivery.fee.toLocaleString()} FCFA` : bi('offerte', 'free')}${timeLabel ? ` · ${timeLabel}` : ''}`
+                  : `${bi('À emporter', 'Take-away')}${timeLabel ? ` · ${timeLabel}` : ''}`}
+              </p>
+            </div>
+          )}
+
+          {isDelivery && (
+            <div className="bg-surface rounded-2xl shadow-card border border-divider overflow-hidden mb-4">
+              <p className="px-4 pt-3 text-sm font-bold text-ink-primary">📍 {bi('Où livrer ?', 'Where to deliver?')}</p>
+              <div className="px-4 py-3 border-b border-divider">
+                <label htmlFor="delivery-address" className="block text-xs text-ink-secondary mb-1">{bi('Adresse', 'Address')}</label>
+                <input
+                  id="delivery-address"
+                  type="text"
+                  value={address}
+                  onChange={e => setAddress(e.target.value)}
+                  maxLength={DELIVERY_ADDRESS_MAX}
+                  autoComplete="street-address"
+                  placeholder={bi('Quartier, rue…', 'Area, street…')}
+                  required
+                  className="w-full text-sm text-ink-primary placeholder-ink-tertiary outline-none bg-transparent"
+                />
+              </div>
+              <div className="px-4 py-3 border-b border-divider">
+                <label htmlFor="delivery-landmark" className="block text-xs text-ink-secondary mb-1">{bi('Repère', 'Landmark')}</label>
+                <input
+                  id="delivery-landmark"
+                  type="text"
+                  value={landmark}
+                  onChange={e => setLandmark(e.target.value)}
+                  maxLength={DELIVERY_LANDMARK_MAX}
+                  placeholder={bi('Ex. : face à la pharmacie, portail bleu', 'E.g. opposite the pharmacy, blue gate')}
+                  required
+                  className="w-full text-sm text-ink-primary placeholder-ink-tertiary outline-none bg-transparent"
+                />
+              </div>
+              <div className="px-4 py-3">
+                <label className="block text-xs text-ink-secondary mb-1">{bi('Téléphone pour le livreur', 'Phone for the rider')}</label>
+                <PhoneInput
+                  value={deliveryPhone}
+                  onChange={(full) => {
+                    if (full !== deliveryPhone) deliveryPhoneEdited.current = true
+                    setDeliveryPhone(full)
+                  }}
+                  defaultCountry={restaurantCity ? getCountryFromCity(restaurantCity).iso : undefined}
+                  required
+                />
+              </div>
+            </div>
+          )}
+
           <h2 className="text-base font-bold text-ink-primary mb-3">{t('order.detailsTitle')}</h2>
 
           {loadingMe ? (
@@ -916,6 +1027,7 @@ export default function OrderPage() {
               || (!me && (!name || !phone))
               || (showPayUI && !mnoPreview)
               || orderingBlocked
+              || deliveryFieldsMissing
             }
             className={`w-full ${
               showPayUI

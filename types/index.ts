@@ -42,6 +42,10 @@ export interface Restaurant {
   // until the vendor sets one; the seed migration backfills 20/35.
   prep_time_min?: number | null
   prep_time_max?: number | null
+  // Delivery by the restaurant's own rider (supabase-v-home-delivery.sql).
+  delivery_enabled?: boolean
+  delivery_fee?: number
+  delivery_extra_min?: number
 }
 
 export interface MenuItem {
@@ -84,6 +88,12 @@ export interface Order {
   // has historical data — no calculation is built yet.
   confirmed_at?: string | null
   ready_at?: string | null
+  // Delivery (supabase-v-home-delivery.sql). 'pickup' unless delivered.
+  fulfilment?: 'pickup' | 'delivery'
+  delivery_fee?: number
+  delivery_address?: string | null
+  delivery_landmark?: string | null
+  delivery_phone?: string | null
 }
 
 export interface Voucher {

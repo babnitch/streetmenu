@@ -249,6 +249,8 @@ interface OrderPayload {
   items: OrderItem[]
   total_price: number
   created_at: string
+  // 'delivery' changes the "ready" and "delivered" wording (V1).
+  fulfilment?: string | null
 }
 
 function last4(orderId: string): string {
@@ -348,11 +350,17 @@ export async function notifyCustomerOrderReady(
   opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
-  const msg = pickLang(
-    `🎉 Votre commande #${id4} est prête! Venez la récupérer chez ${restaurantName}.`,
-    `🎉 Your order #${id4} is ready! Come pick it up at ${restaurantName}.`,
-    lang,
-  )
+  const msg = order.fulfilment === 'delivery'
+    ? pickLang(
+        `🛵 Votre commande #${id4} est prête, le livreur de ${restaurantName} arrive.`,
+        `🛵 Your order #${id4} is ready, ${restaurantName}'s rider is on the way.`,
+        lang,
+      )
+    : pickLang(
+        `🎉 Votre commande #${id4} est prête! Venez la récupérer chez ${restaurantName}.`,
+        `🎉 Your order #${id4} is ready! Come pick it up at ${restaurantName}.`,
+        lang,
+      )
   await sendWhatsApp(customerPhone, msg, {
     context: 'order_status_update', relatedId: order.id, ...opts,
   })
@@ -366,11 +374,17 @@ export async function notifyCustomerOrderDelivered(
   opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
-  const msg = pickLang(
-    `✅ Commande #${id4} récupérée. Merci et bon appétit! — ${restaurantName}`,
-    `✅ Order #${id4} picked up. Thank you and enjoy! — ${restaurantName}`,
-    lang,
-  )
+  const msg = order.fulfilment === 'delivery'
+    ? pickLang(
+        `✅ Commande #${id4} livrée. Merci et bon appétit! — ${restaurantName}`,
+        `✅ Order #${id4} delivered. Thank you and enjoy! — ${restaurantName}`,
+        lang,
+      )
+    : pickLang(
+        `✅ Commande #${id4} récupérée. Merci et bon appétit! — ${restaurantName}`,
+        `✅ Order #${id4} picked up. Thank you and enjoy! — ${restaurantName}`,
+        lang,
+      )
   await sendWhatsApp(customerPhone, msg, {
     context: 'order_status_update', relatedId: order.id, ...opts,
   })

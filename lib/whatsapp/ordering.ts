@@ -10,6 +10,7 @@ import {
   notifyCustomerOrderConfirmed,
   notifyCustomerOrderPreparing,
   notifyCustomerOrderReady,
+  notifyCustomerOrderDelivered,
   notifyCustomerOrderCancelled,
   pickLang,
   getLangByPhone,
@@ -23,6 +24,7 @@ import { createDeposit, checkDepositStatus, detectMNO, countryFromCity, isPawaPa
 import { randomUUID } from 'crypto'
 import { closeReservation, reserveEventSeats, getEventAvailability, type ReserveSeatsResult } from '@/lib/eventSeats'
 import { formatPrepTime } from '@/lib/prepTime'
+import { formatDeliveryTime } from '@/lib/delivery'
 import { sendEventMessage } from '@/lib/directMessaging'
 import { generateReservationCode } from '@/lib/reservationCode'
 import {
@@ -53,13 +55,17 @@ export async function prepTimeLine(
   restaurantId: string,
   emoji = '🕐',
   lang: Lang = 'fr',
+  fulfilment?: string | null,
 ): Promise<string> {
   const { data } = await supabaseAdmin
     .from('restaurants')
-    .select('prep_time_min, prep_time_max')
+    .select('prep_time_min, prep_time_max, delivery_extra_min')
     .eq('id', restaurantId)
     .maybeSingle()
-  const label = formatPrepTime(data?.prep_time_min, data?.prep_time_max)
+  // A delivery order's estimate includes the ride (V1).
+  const label = fulfilment === 'delivery'
+    ? formatDeliveryTime(data?.prep_time_min, data?.prep_time_max, data?.delivery_extra_min)
+    : formatPrepTime(data?.prep_time_min, data?.prep_time_max)
   if (!label) return ''
   return `${emoji} ${pickLang('Temps estimé', 'Estimated time', lang)}: ${label}`
 }
@@ -391,6 +397,36 @@ export interface OrderNotificationItem {
   price: number
 }
 
+// Where a delivery order goes (V1). Pickup orders have none.
+export interface OrderDeliveryInfo {
+  address: string
+  landmark: string | null
+  phone: string | null
+  fee: number
+}
+
+// Read from an orders row: null unless it is a delivery order.
+export function deliveryInfoFromOrder(o: {
+  fulfilment?: string | null; delivery_address?: string | null; delivery_landmark?: string | null
+  delivery_phone?: string | null; delivery_fee?: number | null
+}): OrderDeliveryInfo | null {
+  if (o.fulfilment !== 'delivery' || !o.delivery_address) return null
+  return { address: o.delivery_address, landmark: o.delivery_landmark ?? null, phone: o.delivery_phone ?? null, fee: Number(o.delivery_fee ?? 0) }
+}
+
+// The restaurant's lines for a delivery order, in the recipient's language.
+export function deliveryLines(d: OrderDeliveryInfo | null, lang: Lang): string[] {
+  if (!d) return [``, pickLang(`🥡 *À emporter*`, `🥡 *Take-away*`, lang)]
+  return [
+    ``,
+    pickLang(`🛵 *LIVRAISON*`, `🛵 *DELIVERY*`, lang),
+    `📍 ${d.address}`,
+    ...(d.landmark ? [pickLang(`🧭 Repère : ${d.landmark}`, `🧭 Landmark: ${d.landmark}`, lang)] : []),
+    ...(d.phone ? [`📞 ${d.phone}`] : []),
+    pickLang(`🚚 Frais de livraison : ${d.fee.toLocaleString()} FCFA`, `🚚 Delivery fee: ${d.fee.toLocaleString()} FCFA`, lang),
+  ]
+}
+
 export async function notifyVendorsOfNewOrder(
   restaurantId: string,
   restaurantName: string,
@@ -399,6 +435,7 @@ export async function notifyVendorsOfNewOrder(
   customerPhone: string,
   items: OrderNotificationItem[],
   total: number,
+  delivery: OrderDeliveryInfo | null = null,
 ): Promise<void> {
   const recipients = await vendorRecipients(restaurantId)
   const id4 = last4(orderId)
@@ -411,7 +448,7 @@ export async function notifyVendorsOfNewOrder(
   const itemLines = items.map(i => `  • ${i.quantity}× ${i.name} (${(i.quantity * i.price).toLocaleString()} FCFA)`).join('\n')
   // Render per recipient in their stored language (prep line included).
   const buildMsg = async (lang: Lang): Promise<string> => {
-    const prepLine = await prepTimeLine(restaurantId, '⏱️', lang)
+    const prepLine = await prepTimeLine(restaurantId, '⏱️', lang, delivery ? 'delivery' : null)
     return [
       pickLang(`🔔 *NOUVELLE COMMANDE!*`, `🔔 *NEW ORDER!*`, lang),
       `━━━━━━━━━━━━━━━━━━`,
@@ -423,6 +460,7 @@ export async function notifyVendorsOfNewOrder(
       ``,
       pickLang(`🍽️ *Articles:*`, `🍽️ *Items:*`, lang),
       itemLines,
+      ...deliveryLines(delivery, lang),
       ``,
       `💰 *Total: ${total.toLocaleString()} FCFA*`,
       ...(prepLine ? [``, prepLine] : []),
@@ -3031,7 +3069,7 @@ export async function handleVendorOrderAction(
   // cash. Truly closed orders ('completed' legacy + 'cancelled') stay out.
   const { data: orders } = await supabaseAdmin
     .from('orders')
-    .select('id, status, customer_phone, customer_name, total_price, created_at, items, order_type, payment_status, payment_id')
+    .select('id, status, customer_phone, customer_name, total_price, created_at, items, order_type, payment_status, payment_id, fulfilment')
     .eq('restaurant_id', restaurant.id)
     .not('status', 'in', '(completed,cancelled)')
     .order('created_at', { ascending: false })
@@ -3060,7 +3098,9 @@ export async function handleVendorOrderAction(
     items:          (order.items as Array<{ name: string; quantity: number; price: number }>) ?? [],
     total_price:    Number(order.total_price),
     created_at:     order.created_at,
+    fulfilment:     order.fulfilment,
   }
+  const isDelivery = order.fulfilment === 'delivery'
 
   // ── Manual mark-as-paid ────────────────────────────────────────────────────
   if (intent.kind === 'paye') {
@@ -3231,12 +3271,19 @@ export async function handleVendorOrderAction(
   } else if (target === 'ready') {
     await sendWhatsApp(from,
       pickLang(`🎉 Commande #${upper} prête! Le client est notifié.`, `🎉 Order #${upper} is ready! Customer notified.`, vendorLang) + `\n\n` +
-      pickLang(`💡 Envoyez 'recupere ${upper}' quand le client récupère sa commande.`, `💡 Send 'picked ${upper}' when the customer picks up.`, vendorLang))
+      (isDelivery
+        ? pickLang(`💡 Envoyez 'livre ${upper}' quand la commande est livrée.`, `💡 Send 'delivered ${upper}' when the order is delivered.`, vendorLang)
+        : pickLang(`💡 Envoyez 'recupere ${upper}' quand le client récupère sa commande.`, `💡 Send 'picked ${upper}' when the customer picks up.`, vendorLang)))
     await notifyCustomerOrderReady(order.customer_phone, payload, restaurant.name, custLang)
   } else if (target === 'delivered') {
-    await sendWhatsApp(from,
-      pickLang(`📦 Commande #${upper} récupérée. Terminé!`, `📦 Order #${upper} picked up. Done!`, vendorLang))
-    // No customer message: they are at the counter (shouldMessageStatus).
+    await sendWhatsApp(from, isDelivery
+      ? pickLang(`🛵 Commande #${upper} livrée. Terminé!`, `🛵 Order #${upper} delivered. Done!`, vendorLang)
+      : pickLang(`📦 Commande #${upper} récupérée. Terminé!`, `📦 Order #${upper} picked up. Done!`, vendorLang))
+    // Take-away: no customer message, they are at the counter. Delivery: the
+    // customer is told it arrived (shouldMessageStatus).
+    if (await shouldMessageStatus(order.id, 'delivered', order.fulfilment)) {
+      await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name, custLang)
+    }
   }
   return ok()
 }

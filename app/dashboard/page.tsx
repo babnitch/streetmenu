@@ -16,6 +16,7 @@ import {
   PREP_TIME_DEFAULT_MIN,
   PREP_TIME_DEFAULT_MAX,
 } from '@/lib/prepTime'
+import { formatDeliveryTime, validateDeliverySettings, DELIVERY_EXTRA_DEFAULT, DELIVERY_EXTRA_MAX, DELIVERY_FEE_MAX } from '@/lib/delivery'
 import { useMode, type DashboardTab, type TeamRole } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel } from '@/lib/navConfig'
 import TopNav from '@/components/TopNav'
@@ -46,6 +47,12 @@ const STATUS_LABEL: Record<string, string> = {
   delivered: '✅ Livrée / Delivered',
   completed: '✅ Terminée / Completed',     // legacy
   cancelled: '❌ Annulée / Cancelled',
+}
+
+// Delivery orders (V1): the rider brings it, nobody picks it up.
+const DELIVERY_ACTION_LABEL: Partial<Record<string, string>> = {
+  ready:     '🎉 Prête / Ready',
+  delivered: '🛵 Livrée / Delivered',
 }
 
 // Buttons visible per current status, and which roles can press each.
@@ -819,6 +826,19 @@ export default function DashboardPage() {
                             </div>
                           </div>
 
+                          {order.fulfilment === 'delivery' ? (
+                            <div className="mb-3 rounded-xl bg-brand-light px-3 py-2 text-sm text-ink-primary">
+                              <p className="font-bold text-brand-darker">🛵 {bi('Livraison', 'Delivery')}</p>
+                              {order.delivery_address && <p>📍 {order.delivery_address}</p>}
+                              {order.delivery_landmark && <p>🧭 {bi('Repère', 'Landmark')} : {order.delivery_landmark}</p>}
+                              {order.delivery_phone && (
+                                <a href={`tel:${order.delivery_phone}`} className="font-mono text-brand-darker">📞 {order.delivery_phone}</a>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="mb-2 text-xs font-semibold text-ink-secondary">🥡 {bi('À emporter', 'Take-away')}</p>
+                          )}
+
                           <ul className="text-sm text-ink-primary space-y-0.5 mb-3">
                             {Array.isArray(order.items) && order.items.map((item: { name: string; quantity: number; price: number }, i: number) => (
                               <li key={i} className="flex items-center justify-between">
@@ -826,6 +846,12 @@ export default function DashboardPage() {
                                 <span className="text-ink-secondary font-mono text-xs">{(item.quantity * item.price).toLocaleString()} FCFA</span>
                               </li>
                             ))}
+                            {order.fulfilment === 'delivery' && (
+                              <li className="flex items-center justify-between text-ink-secondary">
+                                <span>🛵 {bi('Frais de livraison', 'Delivery fee')}</span>
+                                <span className="font-mono text-xs">{Number(order.delivery_fee ?? 0).toLocaleString()} FCFA</span>
+                              </li>
+                            )}
                           </ul>
 
                           <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-divider">
@@ -864,7 +890,7 @@ export default function DashboardPage() {
                                       : 'bg-brand text-white hover:bg-brand-dark'
                                   }`}
                                 >
-                                  {updatingOrderId === order.id ? '…' : pickBi(a.label, locale)}
+                                  {updatingOrderId === order.id ? '…' : pickBi(order.fulfilment === 'delivery' ? (DELIVERY_ACTION_LABEL[a.target] ?? a.label) : a.label, locale)}
                                 </button>
                               ))}
                             </div>
@@ -1140,6 +1166,13 @@ export default function DashboardPage() {
                   setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                 }}
               />
+              <DeliveryPanel
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  setSelectedRestaurant(updated)
+                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                }}
+              />
               <PaymentSettingsPanel
                 restaurant={selectedRestaurant}
                 onChange={updated => {
@@ -1153,6 +1186,13 @@ export default function DashboardPage() {
             <div className="space-y-3">
               <OpeningHoursPanel restaurant={selectedRestaurant} />
               <PrepTimePanel
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  setSelectedRestaurant(updated)
+                  setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                }}
+              />
+              <DeliveryPanel
                 restaurant={selectedRestaurant}
                 onChange={updated => {
                   setSelectedRestaurant(updated)
@@ -1740,6 +1780,126 @@ function PaymentSettingsPanel({
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Delivery panel (V1) ──────────────────────────────────────────────────────
+// The restaurant's own rider: on/off, a fixed fee, and the ride time added
+// to the prep range. Take-away always stays available. Same people as the
+// prep-time panel (owner, manager, admin).
+function DeliveryPanel({
+  restaurant,
+  onChange,
+}: {
+  restaurant: Restaurant
+  onChange: (next: Restaurant) => void
+}) {
+  const bi = useBi()
+  const [enabled, setEnabled] = useState(restaurant.delivery_enabled === true)
+  const [fee, setFee] = useState(String(restaurant.delivery_fee ?? 0))
+  const [extra, setExtra] = useState(String(restaurant.delivery_extra_min ?? DELIVERY_EXTRA_DEFAULT))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [savedFlash, setSavedFlash] = useState(false)
+
+  const timeLabel = formatDeliveryTime(restaurant.prep_time_min, restaurant.prep_time_max, Number(extra))
+
+  async function save() {
+    const v = validateDeliverySettings({ delivery_enabled: enabled, delivery_fee: Number(fee), delivery_extra_min: Number(extra) })
+    if (!v.ok) { setError(v.error); return }
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/restaurants/${restaurant.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(v.settings),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? bi('Erreur', 'Error')); return }
+      onChange({ ...restaurant, ...v.settings })
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2000)
+    } catch {
+      setError(bi('Erreur réseau', 'Network error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-5">
+      <h2 className="text-lg font-bold text-ink-primary mb-1">🛵 {bi('Livraison', 'Delivery')}</h2>
+      <p className="text-xs text-ink-tertiary mb-4">
+        {bi(
+          'Votre propre livreur. La vente à emporter reste toujours possible.',
+          'Your own rider. Take-away is always available.',
+        )}
+      </p>
+
+      <label className="flex items-center justify-between gap-3 mb-4 cursor-pointer">
+        <span className="text-sm font-semibold text-ink-primary">{bi('Livraison activée', 'Delivery on')}</span>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={e => setEnabled(e.target.checked)}
+          className="w-5 h-5 accent-brand"
+        />
+      </label>
+
+      {enabled && (
+        <div className="flex items-end gap-3 mb-3 flex-wrap">
+          <div>
+            <label htmlFor="delivery-fee" className="block text-xs font-semibold text-ink-secondary mb-1">
+              {bi('Frais (FCFA)', 'Fee (FCFA)')}
+            </label>
+            <input
+              id="delivery-fee"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={DELIVERY_FEE_MAX}
+              step={50}
+              value={fee}
+              onChange={e => setFee(e.target.value)}
+              className="w-28 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-surface"
+            />
+          </div>
+          <div>
+            <label htmlFor="delivery-extra" className="block text-xs font-semibold text-ink-secondary mb-1">
+              {bi('Trajet (minutes)', 'Ride (minutes)')}
+            </label>
+            <input
+              id="delivery-extra"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={DELIVERY_EXTRA_MAX}
+              value={extra}
+              onChange={e => setExtra(e.target.value)}
+              className="w-24 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-surface"
+            />
+          </div>
+        </div>
+      )}
+
+      {enabled && timeLabel && (
+        <p className="text-xs text-ink-secondary mb-4">
+          {bi('Délai affiché aux clients', 'Time shown to customers')}: <span className="font-semibold">{timeLabel}</span>
+          {' '}({bi('préparation + trajet', 'prep + ride')})
+        </p>
+      )}
+
+      {error && <p className="text-xs text-danger mb-3">{error}</p>}
+
+      <button
+        onClick={save}
+        disabled={saving}
+        className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-5 py-2 rounded-xl font-semibold text-sm transition-colors"
+      >
+        {saving ? bi('Enregistrement…', 'Saving…') : savedFlash ? bi('✓ Enregistré', '✓ Saved') : bi('Enregistrer', 'Save')}
+      </button>
     </div>
   )
 }

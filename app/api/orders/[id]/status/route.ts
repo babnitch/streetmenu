@@ -54,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Load the order to know the restaurant and prior status
   const { data: order, error: orderErr } = await supabaseAdmin
     .from('orders')
-    .select('id, status, restaurant_id, customer_id, customer_name, customer_phone, items, total_price, created_at, order_type, payment_status')
+    .select('id, status, restaurant_id, customer_id, customer_name, customer_phone, items, total_price, created_at, order_type, payment_status, fulfilment')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -165,10 +165,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     items: (order.items as Array<{ name: string; quantity: number; price: number }>) ?? [],
     total_price: Number(order.total_price),
     created_at: order.created_at,
+    fulfilment: order.fulfilment,
   }
 
   let customerNotified = false
-  if (order.customer_phone && await shouldMessageStatus(order.id, targetStatus)) {
+  if (order.customer_phone && await shouldMessageStatus(order.id, targetStatus, order.fulfilment)) {
     try {
       const { getLangByPhone } = await import('@/lib/whatsapp')
       const lang = await getLangByPhone(order.customer_phone)

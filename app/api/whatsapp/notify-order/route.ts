@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { notifyCustomerOrderPlaced, getLangByPhone } from '@/lib/whatsapp'
-import { notifyVendorsOfNewOrder, prepTimeLine } from '@/lib/whatsapp/ordering'
+import { notifyVendorsOfNewOrder, prepTimeLine, deliveryInfoFromOrder } from '@/lib/whatsapp/ordering'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, customer_id, customer_name, customer_phone, items, total_price, created_at, restaurant_id, order_type, notified_at')
+      .select('id, customer_id, customer_name, customer_phone, items, total_price, created_at, restaurant_id, order_type, notified_at, fulfilment, delivery_fee, delivery_address, delivery_landmark, delivery_phone')
       .eq('id', orderId)
       .maybeSingle()
 
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     // preferred_language. prepTimeLine accepts a lang so the estimate label
     // matches the rest of the message.
     const lang = await getLangByPhone(order.customer_phone)
-    const custPrepLine = await prepTimeLine(order.restaurant_id, '🕐', lang)
+    const custPrepLine = await prepTimeLine(order.restaurant_id, '🕐', lang, order.fulfilment)
 
     const customerPromise = order.customer_phone
       ? notifyCustomerOrderPlaced(order.customer_phone, {
@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
       order.customer_phone,
       items,
       total,
+      deliveryInfoFromOrder(order),
     )
 
     const [customerResult, vendorResult] = await Promise.allSettled([customerPromise, vendorPromise])
