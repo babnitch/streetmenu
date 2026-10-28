@@ -445,6 +445,8 @@ export default function EventDetailPage() {
       }
       if (hasTiers && tierItem) body.tier_id = tierItem.tier_id
       if (appliedPromo) body.voucher_code = appliedPromo.code
+      // What the page shows; the server refuses when its own total differs.
+      body.expected_total = finalTotal
       const res = await fetch(`/api/events/${event!.id}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -484,6 +486,7 @@ export default function EventDetailPage() {
         : { quantity, locale }
       if (selectedDay) body.event_date = selectedDay
       if (appliedPromo) body.voucher_code = appliedPromo.code
+      body.expected_total = finalTotal
       const res = await fetch(`/api/events/${event!.id}/reserve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -726,7 +729,7 @@ export default function EventDetailPage() {
                     <div className="flex items-center justify-end gap-2 mt-2">
                       <button
                         type="button"
-                        onClick={() => setTierQty(prev => ({ ...prev, [t.id]: Math.max(0, (prev[t.id] ?? 0) - 1) }))}
+                        onClick={() => { setTierQty(prev => ({ ...prev, [t.id]: Math.max(0, (prev[t.id] ?? 0) - 1) })); clearPromo() }}
                         disabled={qty === 0}
                         className="w-7 h-7 flex items-center justify-center rounded-full bg-surface-muted text-ink-primary text-sm font-bold disabled:opacity-50"
                       >
@@ -735,7 +738,7 @@ export default function EventDetailPage() {
                       <span className="w-6 text-center text-sm font-semibold tabular-nums">{qty}</span>
                       <button
                         type="button"
-                        onClick={() => setTierQty(prev => ({ ...prev, [t.id]: (prev[t.id] ?? 0) + 1 }))}
+                        onClick={() => { setTierQty(prev => ({ ...prev, [t.id]: (prev[t.id] ?? 0) + 1 })); clearPromo() }}
                         disabled={!canInc}
                         className="w-7 h-7 flex items-center justify-center rounded-full bg-brand-light text-brand-darker text-sm font-bold disabled:opacity-50"
                       >

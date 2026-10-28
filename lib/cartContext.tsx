@@ -10,6 +10,9 @@ interface CartContextType {
   removeItem: (id: string) => void
   updateQuantity: (id: string, quantity: number) => void
   clearCart: () => void
+  // The server's current prices after a refused checkout: updates each
+  // line's price and drops dishes that are gone or sold out.
+  syncPrices: (current: Array<{ id: string; price: number; available: boolean }>) => void
   totalPrice: number
   totalItems: number
 }
@@ -52,11 +55,21 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setRestaurantId(null)
   }, [])
 
+  const syncPrices = useCallback((current: Array<{ id: string; price: number; available: boolean }>) => {
+    const byId = new Map(current.map(c => [c.id, c]))
+    setItems(prev => prev
+      .filter(i => byId.get(i.id)?.available !== false)
+      .map(i => {
+        const c = byId.get(i.id)
+        return c ? { ...i, price: c.price } : i
+      }))
+  }, [])
+
   const totalPrice = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0)
 
   return (
-    <CartContext.Provider value={{ items, restaurantId, addItem, removeItem, updateQuantity, clearCart, totalPrice, totalItems }}>
+    <CartContext.Provider value={{ items, restaurantId, addItem, removeItem, updateQuantity, clearCart, syncPrices, totalPrice, totalItems }}>
       {children}
     </CartContext.Provider>
   )

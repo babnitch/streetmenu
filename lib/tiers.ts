@@ -135,3 +135,26 @@ export function summarisePrice(
     fallbackPrice,
   }
 }
+
+// True once the event has at least one active tier: from then on the tiers
+// set the price, and a booking without one is refused (V0) — the event's own
+// ticket_price may be 0 or out of date.
+export async function hasActiveTiers(eventId: string): Promise<boolean> {
+  const { count } = await supabaseAdmin
+    .from('event_ticket_tiers').select('id', { count: 'exact', head: true })
+    .eq('event_id', eventId).eq('is_active', true)
+  return (count ?? 0) > 0
+}
+
+export const PICK_TIER_ERROR = 'Choisissez un type de billet / Pick a ticket type'
+
+// The page's total against the server's. Only checked when the page sends
+// one — the server's own total is what gets booked and charged either way.
+export function totalMismatch(expected: unknown, serverTotal: number): boolean {
+  if (expected === undefined || expected === null || expected === '') return false
+  const n = Math.round(Number(expected))
+  return !Number.isFinite(n) || n !== serverTotal
+}
+
+export const PRICE_CHANGED_BOOKING_TEXT =
+  'Le prix a changé. Rechargez la page et vérifiez le total. / The price has changed. Reload the page and check the total.'

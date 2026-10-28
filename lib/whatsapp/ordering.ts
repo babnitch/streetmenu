@@ -3,6 +3,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { hasActiveTiers } from '@/lib/tiers'
 import { writeAudit } from '@/lib/audit'
 import {
   sendWhatsApp as sendWhatsAppBase,
@@ -2468,6 +2469,17 @@ async function startReserveFlow(
   if (isMultiDay(event)) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
     await sendWhatsApp(from, multiDayWebLink(event.id, event.title, lang))
+    return ok()
+  }
+  // Ticket types are chosen on the website too: the chat flow books at the
+  // event's single price, which no longer applies once tiers exist.
+  if (await hasActiveTiers(event.id)) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, pickLang(
+      `🎟️ *${event.title}* a plusieurs types de billets : choisissez le vôtre et réservez sur le site :\n${BASE_URL}/events/${event.id}`,
+      `🎟️ *${event.title}* has several ticket types: pick yours and book on the website:\n${BASE_URL}/events/${event.id}`,
+      lang,
+    ))
     return ok()
   }
   const remaining = await seatsLeftToday(event)

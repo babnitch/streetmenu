@@ -4,16 +4,24 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { sanitizeText, sanitizePhone, sanitizeCode } from '@/lib/sanitize'
 import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
 import { normalizePhone } from '@/lib/phone'
+import { priceOrder, PRICE_CHANGED_TEXT } from '@/lib/orderPricing'
+import { consumeVoucherForOrder } from '@/lib/vouchers'
+import { writeAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/orders/create
-// Body: { restaurant_id, items, total_price, customer_name?, customer_phone?,
-//         voucher_code?, discount_amount?, order_type }
+// Body: { restaurant_id, items: [{ id, quantity }], total_price,
+//         customer_name?, customer_phone?, voucher_code?, order_type }
 //
 // Creates an `orders` row using supabaseAdmin so the call works after
 // the RLS lockdown of the orders table. Identity comes from the JWT
 // session when present; logged-out callers must include name + phone.
+//
+// Money is the server's (lib/orderPricing.ts): dish prices from the menu,
+// the voucher validated here and used up here. total_price is what the
+// checkout showed — when it differs from the server's total the order is
+// refused (409, reason price_mismatch, with the current prices).
 //
 // Returns { ok, order: { id, total_price, … } } on success.
 export async function POST(req: NextRequest) {
@@ -34,14 +42,10 @@ export async function POST(req: NextRequest) {
   if (itemsRaw.length === 0) {
     return NextResponse.json({ error: 'items requis / required' }, { status: 400 })
   }
-  // Whitelist the keys we accept on each cart line so an attacker
-  // can't sneak extra columns into the JSONB blob.
-  const items = itemsRaw.map((i: { id?: unknown; name?: unknown; price?: unknown; quantity?: unknown; photo_url?: unknown }) => ({
-    id:        typeof i?.id === 'string' ? i.id : '',
-    name:      sanitizeText(i?.name, 120),
-    price:     Math.max(0, Math.round(Number(i?.price ?? 0)) || 0),
-    quantity:  Math.max(1, Math.min(99, Math.round(Number(i?.quantity ?? 1)) || 1)),
-    photo_url: typeof i?.photo_url === 'string' ? i.photo_url : null,
+  // Only which dish and how many are taken from the browser.
+  const requested = itemsRaw.map((i: { id?: unknown; quantity?: unknown }) => ({
+    id:       typeof i?.id === 'string' ? i.id : '',
+    quantity: Math.max(1, Math.min(99, Math.round(Number(i?.quantity ?? 1)) || 1)),
   }))
 
   // Resolve customer identity. Session wins; logged-out callers supply name+phone.
@@ -62,11 +66,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Nom et téléphone requis / Name and phone required' }, { status: 400 })
   }
 
-  const totalPrice    = Math.max(0, Math.round(Number(body?.total_price ?? 0)) || 0)
-  const discountAmount = Number.isFinite(body?.discount_amount) && body.discount_amount > 0
-    ? Math.round(body.discount_amount)
-    : null
   const voucherCode = body?.voucher_code ? sanitizeCode(body.voucher_code, 32) : null
+  const priced = await priceOrder({ restaurantId, items: requested, voucherCode, customerId })
+  if (!priced.ok) {
+    return NextResponse.json({ error: priced.error, reason: priced.reason, current: priced.current }, { status: priced.status })
+  }
+  const clientTotal = Math.round(Number(body?.total_price))
+  if (!Number.isFinite(clientTotal) || clientTotal !== priced.total) {
+    console.warn(`[orders/create] price mismatch restaurant=${restaurantId}: client=${body?.total_price} server=${priced.total}`)
+    return NextResponse.json({
+      error: PRICE_CHANGED_TEXT, reason: 'price_mismatch', total: priced.total, discount: priced.discount,
+      current: priced.lines.map(l => ({ id: l.id, price: l.price, available: true })),
+    }, { status: 409 })
+  }
+  const items = priced.lines
   const orderType: 'reservation' | 'paid_order' = body?.order_type === 'paid_order' ? 'paid_order' : 'reservation'
 
   const { data: order, error } = await supabaseAdmin
@@ -77,10 +90,10 @@ export async function POST(req: NextRequest) {
       customer_name:  customerName,
       customer_phone: customerPhone,
       items,
-      total_price:    totalPrice,
+      total_price:    priced.total,
       status:         'pending',
-      voucher_code:   voucherCode,
-      discount_amount: discountAmount,
+      voucher_code:   priced.voucher?.code ?? null,
+      discount_amount: priced.discount > 0 ? priced.discount : null,
       order_type:     orderType,
       payment_status: orderType === 'paid_order' ? 'pending' : 'not_required',
     })
@@ -90,6 +103,17 @@ export async function POST(req: NextRequest) {
   if (error || !order) {
     console.error('[orders/create] insert failed:', error?.message)
     return NextResponse.json({ error: error?.message ?? 'Erreur' }, { status: 500 })
+  }
+
+  // The voucher is used up here, with the order — not by a later call from
+  // the browser that could be skipped.
+  if (priced.voucher) {
+    await consumeVoucherForOrder(priced.voucher.id, customerId, order.id)
+    await writeAudit({
+      action: 'voucher_applied', targetType: 'voucher', targetId: priced.voucher.id,
+      performedBy: customerId ?? order.id, performedByType: customerId ? 'customer' : 'guest',
+      metadata: { order_id: order.id, restaurant_id: restaurantId, code: priced.voucher.code, discount: priced.discount },
+    })
   }
   return NextResponse.json({ ok: true, order })
 }

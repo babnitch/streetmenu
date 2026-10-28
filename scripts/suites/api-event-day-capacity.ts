@@ -69,6 +69,9 @@ async function main(): Promise<void> {
       date: d1, endDate: d3, maxTickets: 5,
     })
     const vip = await makeTier(multi.id, { name: 'VIP', price: 0, maxQuantity: 2 })
+    // No cap of its own: bookings on it only meet the event-wide cap. (Once an
+    // event has ticket types every booking names one — V0.)
+    const standard = await makeTier(multi.id, { name: 'Standard', price: 0, maxQuantity: 0 })
 
     await step('a tier sold out on day 1 is still available on day 2', async () => {
       const a = await reserve(multi.id, { event_date: d1, items: [{ tier_id: vip.id, quantity: 2 }] })
@@ -89,12 +92,12 @@ async function main(): Promise<void> {
 
     await step('the event-wide cap applies per day', async () => {
       // Day 2 already holds 2 (VIP). 3 more fills it.
-      const fill = await reserve(multi.id, { event_date: d2, quantity: 3 }, 2)
+      const fill = await reserve(multi.id, { event_date: d2, items: [{ tier_id: standard.id, quantity: 3 }] }, 2)
       assertEq(fill.status, 200, `3 more on day 2 → 200 (body ${fill.raw.slice(0, 160)})`)
-      const over = await reserve(multi.id, { event_date: d2, quantity: 1 }, 3)
+      const over = await reserve(multi.id, { event_date: d2, items: [{ tier_id: standard.id, quantity: 1 }] }, 3)
       assertEq(over.status, 409, 'one more on day 2 → 409')
       assertEq(over.body.remaining, 0, 'remaining 0 on day 2')
-      const d3ok = await reserve(multi.id, { event_date: d3, quantity: 5 }, 3)
+      const d3ok = await reserve(multi.id, { event_date: d3, items: [{ tier_id: standard.id, quantity: 5 }] }, 3)
       assertEq(d3ok.status, 200, 'day 3 still takes its full 5')
       const day2 = (await availability(multi.id)).find(x => x.date === d2)
       assertEq(day2?.soldOut, true, 'availability: day 2 sold out')

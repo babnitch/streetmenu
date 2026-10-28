@@ -5,7 +5,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
-import { tierAvailability, type TicketTier } from '@/lib/tiers'
+import { tierAvailability, hasActiveTiers, totalMismatch, PICK_TIER_ERROR, PRICE_CHANGED_BOOKING_TEXT, type TicketTier } from '@/lib/tiers'
 import { canPayOnline, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCode } from '@/lib/reservationCode'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
@@ -105,6 +105,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         state: avail.kind,
       }, { status: 409 })
     }
+  } else if (await hasActiveTiers(event.id)) {
+    // Once tiers exist they set the price; the event's ticket_price may be 0.
+    return NextResponse.json({ error: PICK_TIER_ERROR, reason: 'tier_required' }, { status: 400 })
   }
 
   const ticketPrice = tier ? tier.price : (Number(event.ticket_price ?? 0) || 0)
@@ -188,6 +191,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     discountAmount = vres.discount
   }
   const finalTotal = Math.max(0, totalPrice - discountAmount)
+  if (totalMismatch(body.expected_total, finalTotal)) {
+    console.warn('[events/pay] price mismatch event=%s: page=%s server=%d', event.id, body.expected_total, finalTotal)
+    return NextResponse.json({ error: PRICE_CHANGED_BOOKING_TEXT, reason: 'price_mismatch', total_price: finalTotal }, { status: 409 })
+  }
   const commissionAmount = finalTotal > 0 ? Math.round(finalTotal * commissionRate) : 0
 
   // A 100%-off voucher makes the ticket free — PawaPay can't take a 0 deposit,

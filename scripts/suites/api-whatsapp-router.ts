@@ -36,7 +36,7 @@ import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api } from '../testkit/session'
 import {
-  makeCustomer, makeRestaurant, makeMenuItem, makeOrder, addTeamMember, makeEvent,
+  makeCustomer, makeRestaurant, makeMenuItem, makeOrder, addTeamMember, makeEvent, makeTier,
   futureDateISO, pastDateISO, type TestCustomer,
 } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
@@ -911,6 +911,21 @@ async function main(): Promise<void> {
         assert(body.includes(`/events/${ongoing.id}`), 'ONGOING multi-day event: the reply links to its web page', body)
         assertEq(await sessionsFor(c.phone), 0, 'no reservation flow was opened')
         assertEq((await eventReservationIds(ongoing.id)).length, 0, 'and nothing was booked')
+      })
+
+      await step('V0 "reserver XXXX": an event with ticket types is sent to the website, never booked at 0', async () => {
+        const tiered = await makeEvent({
+          organizerId: eventOrganizer.id, label: 'wa_tiered', city: EVENT_CITY, isActive: true, ticketPrice: 0,
+        })
+        await makeTier(tiered.id, { name: 'VIP', price: 5000 })
+        const c = await makeCustomer({ suiteNo: 34, name: 'WA Tier Booker', city: EVENT_CITY })
+        await send(c.phone, `reserver ${shortCode(tiered.id)}`)
+        const { data: reply } = await sb.from('message_log').select('body')
+          .eq('to_number', c.phone).order('created_at', { ascending: false }).limit(1).maybeSingle()
+        const body = (reply as { body?: string } | null)?.body ?? ''
+        assert(body.includes(`/events/${tiered.id}`) && /types de billets|ticket types/.test(body), 'the reply links to the web page to pick a ticket type', body)
+        assertEq(await sessionsFor(c.phone), 0, 'no reservation flow was opened')
+        assertEq((await eventReservationIds(tiered.id)).length, 0, 'and nothing was booked')
       })
     }
 

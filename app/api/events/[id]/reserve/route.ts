@@ -6,7 +6,7 @@ import { isEventOrganizer } from '@/lib/eventAuth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, normalizeLang, type Lang } from '@/lib/whatsapp'
 import { isPastEvent, PAST_EVENT_ERROR, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay, resolveBookingDay } from '@/lib/eventDate'
-import { tierAvailability, type TicketTier } from '@/lib/tiers'
+import { tierAvailability, hasActiveTiers, totalMismatch, PICK_TIER_ERROR, PRICE_CHANGED_BOOKING_TEXT, type TicketTier } from '@/lib/tiers'
 import { canReserve, normalizeMode, modeFromLegacy } from '@/lib/paymentMode'
 import { generateReservationCodes } from '@/lib/reservationCode'
 import { reserveEventSeats, type SeatRequestRow } from '@/lib/eventSeats'
@@ -196,6 +196,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       })
     }
   } else {
+    // Once tiers exist they set the price; the event's ticket_price may be 0.
+    if (await hasActiveTiers(event.id)) {
+      return NextResponse.json({ error: PICK_TIER_ERROR, reason: 'tier_required' }, { status: 400 })
+    }
     const qty = Number(body.quantity)
     const quantity = Number.isFinite(qty) && qty >= 1 && qty <= 10 ? Math.floor(qty) : 1
     const ticketPrice = Number(event.ticket_price ?? 0) || 0
@@ -243,6 +247,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
   }
   const finalTotal = Math.max(0, totalPrice - discountTotal)
+  if (totalMismatch(body.expected_total, finalTotal)) {
+    console.warn('[events/reserve] price mismatch event=%s: page=%s server=%d', event.id, body.expected_total, finalTotal)
+    return NextResponse.json({ error: PRICE_CHANGED_BOOKING_TEXT, reason: 'price_mismatch', total_price: finalTotal }, { status: 409 })
+  }
 
   // One unique short code per inserted row (customers quote it; organizers
   // check people in by it). Multi-tier bookings insert several rows, each

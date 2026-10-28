@@ -74,7 +74,7 @@ type PayPhase = 'idle' | 'waiting' | 'paid' | 'failed' | 'timeout'
 
 export default function OrderPage() {
   const bi = useBi()
-  const { items, totalPrice, totalItems, restaurantId, updateQuantity, clearCart } = useCart()
+  const { items, totalPrice, totalItems, restaurantId, updateQuantity, clearCart, syncPrices } = useCart()
   const router = useRouter()
   const { t } = useLanguage()
 
@@ -108,6 +108,8 @@ export default function OrderPage() {
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The server's reason when it refused the order (price changed, sold out…).
+  const createErrorRef = useRef<string | null>(null)
 
   // Pull session on mount; only treat role='customer' as "logged in" for the
   // purposes of this page (admins and vendors don't have customer-ordering
@@ -286,6 +288,7 @@ export default function OrderPage() {
   // Used by both the reservation and paid-order paths so cart/voucher
   // bookkeeping happens in one place.
   async function createOrderRow(orderType: 'reservation' | 'paid_order'): Promise<string | null> {
+    createErrorRef.current = null
     if (!restaurantId || items.length === 0) return null
 
     const customerName  = me?.name  ?? name.trim()
@@ -301,26 +304,23 @@ export default function OrderPage() {
         restaurant_id:   restaurantId,
         customer_name:   customerName,
         customer_phone:  customerPhone,
-        items,
+        items:           items.map(i => ({ id: i.id, quantity: i.quantity })),
         total_price:     finalPrice,
         voucher_code:    appliedVoucher?.code ?? null,
-        discount_amount: discountAmount > 0 ? discountAmount : null,
         order_type:      orderType,
       }),
     })
-    if (!res.ok) return null
     const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      // Prices are the server's: a changed price or a sold-out dish comes
+      // back with the current menu, and the cart follows it.
+      if (Array.isArray(json?.current)) syncPrices(json.current)
+      createErrorRef.current = typeof json?.error === 'string' ? json.error : null
+      return null
+    }
     const data: { id: string } | null = json?.order ?? null
     if (!data) return null
-
-    if (appliedVoucher) {
-      fetch('/api/customer/vouchers/consume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voucherId: appliedVoucher.id, orderId: data.id }),
-      }).catch(() => null)
-    }
-
+    // The server used the voucher up with the order.
     return data.id
   }
 
@@ -347,7 +347,7 @@ export default function OrderPage() {
       setSuccess(true)
       clearCart()
     } else {
-      alert(t('order.failed'))
+      alert(createErrorRef.current ?? t('order.failed'))
     }
     setSubmitting(false)
   }
@@ -365,7 +365,7 @@ export default function OrderPage() {
     const id = pendingOrderId ?? await createOrderRow('paid_order')
     if (!id) {
       setSubmitting(false)
-      alert(t('order.failed'))
+      alert(createErrorRef.current ?? t('order.failed'))
       return
     }
     setPendingOrderId(id)
