@@ -47,10 +47,12 @@ interface RestaurantRow {
 interface RestaurantForm {
   name: string; description: string; address: string; city: string
   lat: string; lng: string; phone: string; whatsapp: string; logo_url: string
+  owner_phone: string; owner_name: string
 }
 const EMPTY_FORM: RestaurantForm = {
   name: '', description: '', address: '', city: '',
   lat: '', lng: '', phone: '', whatsapp: '', logo_url: '',
+  owner_phone: '', owner_name: '',
 }
 
 type Tab = 'all' | 'pending' | 'suspended' | 'deleted'
@@ -335,6 +337,10 @@ export default function AdminRestaurantsPage() {
       showToast(bi(RESTAURANT_PHOTO_REQUIRED.fr, RESTAURANT_PHOTO_REQUIRED.en), false)
       return
     }
+    if (!form.owner_phone) {
+      showToast(bi('Téléphone du propriétaire requis', 'Owner phone required'), false)
+      return
+    }
     setSaving(true)
     // is_open / is_active / status are set by the server, not sent from here.
     const res = await postJSON('/api/admin/restaurants', {
@@ -343,6 +349,7 @@ export default function AdminRestaurantsPage() {
       lat: parseFloat(form.lat), lng: parseFloat(form.lng),
       phone: form.phone.trim(), whatsapp: form.whatsapp.trim(),
       logo_url: form.logo_url,
+      owner_phone: form.owner_phone.trim(), owner_name: form.owner_name.trim(),
     })
     const data = res.ok ? (res.data?.restaurant ?? null) : null
     setSaving(false)
@@ -436,6 +443,11 @@ export default function AdminRestaurantsPage() {
             <Field label="Description"><input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Cuisine camerounaise…" className={INPUT} /></Field>
             <Field label="Latitude *"><input type="number" step="any" value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="3.8667" className={INPUT} /></Field>
             <Field label="Longitude *"><input type="number" step="any" value={form.lng} onChange={e => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="11.5167" className={INPUT} /></Field>
+            <Field label={bi('Téléphone du propriétaire *', 'Owner phone *')}>
+              <PhoneInput value={form.owner_phone} onChange={(full) => setForm(f => ({ ...f, owner_phone: full }))} defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined} required />
+              <p className="text-[11px] text-ink-tertiary mt-1">{bi('Son compte existant, ou un nouveau compte est créé.', 'Their existing account, or a new account is created.')}</p>
+            </Field>
+            <Field label={bi('Nom du propriétaire (nouveau numéro)', 'Owner name (new number)')}><input value={form.owner_name} onChange={e => setForm(f => ({ ...f, owner_name: e.target.value }))} placeholder="Marie Ngo" className={INPUT} /></Field>
             <Field label="WhatsApp"><PhoneInput value={form.whatsapp} onChange={(full) => setForm(f => ({ ...f, whatsapp: full }))} defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined} /></Field>
             <Field label={bi('Photo * (obligatoire)', 'Photo * (required)')} className="sm:col-span-2">
               <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-ink-secondary" />

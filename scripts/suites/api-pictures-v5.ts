@@ -1,7 +1,7 @@
 // V5 — a picture for every NEW restaurant and every NEW event.
 //
 // Web restaurant signup (/api/restaurants/submit), admin restaurant create
-// (/api/admin/restaurants) and event submit (/api/events/submit) refuse a
+// (/api/admin/restaurants, which also needs the owner's phone) and event submit (/api/events/submit) refuse a
 // creation without a picture: 400 with the shared FR/EN message. The WhatsApp
 // signup's photo step no longer takes "passer"/"skip": the session waits on
 // step 5 until a photo arrives, and no restaurant is written.
@@ -10,7 +10,7 @@
 // per-run city, so no subscriber fan-out is reachable. The bot is driven with
 // text and a non-image attachment only — no Twilio media is ever downloaded.
 
-import { sb, testName } from '../testkit/env'
+import { sb, testName, testPhone } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, customerCookie, adminCookie } from '../testkit/session'
 import { makeCustomer, makeEvent, futureDateISO, testPictureUrl } from '../testkit/fixtures'
@@ -64,14 +64,57 @@ async function main(): Promise<void> {
       assertEq(blank.status, 400, 'blank logo_url → 400')
 
       const r = await api<{ restaurant?: { id: string; logo_url: string } }>('/api/admin/restaurants', {
-        cookie: admin, body: { ...body, logo_url: testPictureUrl() },
+        cookie: admin, body: { ...body, logo_url: testPictureUrl(), owner_phone: owner.phone },
       })
       if (r.body.restaurant?.id) track('restaurants', r.body.restaurant.id)
-      // The photo check passes. The insert itself still fails today (500:
-      // the route sets no customer_id, which is NOT NULL) — a separate,
-      // older bug outside V5, so only the photo gate is asserted here.
-      assert(r.status !== 400, `with a photo → past the photo check (HTTP ${r.status})`)
-      if (r.status === 200) assertEq(r.body.restaurant?.logo_url, testPictureUrl(), 'photo stored in logo_url')
+      assertEq(r.status, 200, `with a photo and an owner → 200 (${r.raw.slice(0, 160)})`)
+      assertEq(r.body.restaurant?.logo_url, testPictureUrl(), 'photo stored in logo_url')
+    })
+
+    await step('admin restaurant create: owner by phone — existing account, new account, one per number', async () => {
+      const admin = await adminCookie()
+      const pic = testPictureUrl()
+      const base = { city: 'Yaoundé', lat: 3.87, lng: 11.52, logo_url: pic }
+      type Created = { restaurant?: { id: string; customer_id: string; owner?: { id: string } } } & ErrBody
+      const create = (b: Record<string, unknown>) => api<Created>('/api/admin/restaurants', { cookie: admin, body: { ...base, ...b } })
+
+      const noOwner = await create({ name: testName('v5_admin_noowner') })
+      assertEq(noOwner.status, 400, 'no owner phone → 400')
+      assertEq(noOwner.body.field, 'owner_phone', 'field owner_phone')
+
+      // Existing account → reused, owner team row written.
+      const existing = await makeCustomer({ suiteNo: 66, name: 'V5 Existing Owner' })
+      const a = await create({ name: testName('v5_admin_existing'), owner_phone: existing.phone })
+      if (a.body.restaurant?.id) track('restaurants', a.body.restaurant.id)
+      assertEq(a.status, 200, `existing account → 200 (${a.raw.slice(0, 160)})`)
+      assertEq(a.body.restaurant?.customer_id, existing.id, 'owned by that account')
+      assertEq(a.body.restaurant?.owner?.id, existing.id, 'owner returned for the panel')
+      const { data: team } = await sb.from('restaurant_team').select('id, role, status')
+        .eq('restaurant_id', a.body.restaurant?.id ?? '').eq('customer_id', existing.id)
+      for (const t of team ?? []) track('restaurant_team', t.id as string)
+      assert((team ?? []).length === 1 && team![0].role === 'owner' && team![0].status === 'active', 'one active owner team row')
+
+      // Same number again → refused, one restaurant per number.
+      const again = await create({ name: testName('v5_admin_again'), owner_phone: existing.phone })
+      if (again.body.restaurant?.id) track('restaurants', again.body.restaurant.id)
+      assertEq(again.status, 409, 'second restaurant for the number → 409')
+
+      // New number: name required, then an account is created.
+      const fresh = testPhone(66, 9000 + Math.floor(Math.random() * 900))
+      const noName = await create({ name: testName('v5_admin_fresh'), owner_phone: fresh })
+      assertEq(noName.status, 400, 'new number without a name → 400')
+      assertEq(noName.body.field, 'owner_name', 'field owner_name')
+      const n = await create({ name: testName('v5_admin_fresh'), owner_phone: fresh, owner_name: 'V5 New Owner' })
+      if (n.body.restaurant?.id) track('restaurants', n.body.restaurant.id)
+      const { data: cust } = await sb.from('customers').select('id, name').eq('phone', fresh).maybeSingle()
+      if (cust?.id) track('customers', cust.id as string)
+      assertEq(n.status, 200, `new number → 200 (${n.raw.slice(0, 160)})`)
+      assert(!!cust && cust.name === 'V5 New Owner', 'account created with the name')
+      assertEq(n.body.restaurant?.customer_id, cust?.id, 'restaurant owned by the new account')
+      const { data: team2 } = await sb.from('restaurant_team').select('id, role')
+        .eq('restaurant_id', n.body.restaurant?.id ?? '').eq('customer_id', cust?.id ?? '')
+      for (const t of team2 ?? []) track('restaurant_team', t.id as string)
+      assertEq((team2 ?? []).length, 1, 'owner team row for the new account')
     })
 
     await step('event submit: no poster → 400 with the message; with a poster → created', async () => {
