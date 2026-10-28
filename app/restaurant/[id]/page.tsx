@@ -16,6 +16,7 @@ import { percentOffLabel } from '@/lib/offers'
 import { formatFCFA, formatAmount } from '@/lib/money'
 import { loginHref } from '@/lib/lastPhone'
 import { takesOrders, deliversNow } from '@/lib/modules'
+import { isDailyMenu, restaurantWeekday, isServedOn, servedDays, availableOnText } from '@/lib/menuDays'
 import TopNav from '@/components/TopNav'
 import BannerAd from '@/components/BannerAd'
 import ReportButton from '@/components/ReportButton'
@@ -30,12 +31,14 @@ interface OpenInfo { open: boolean; next_kind?: string; next_at?: string }
 // Without the Commandes module (Vitrine, M2): the same menu with prices but
 // no "+", switch or cart — "Commander par WhatsApp" and "Appeler" instead.
 // Ratings, hours, address and "Donner mon avis" live on /restaurant/[id]/info.
+// Menu par jour (D3): today's dishes as usual (plat du jour as a badge), then
+// "Autres jours" greyed with "Disponible le samedi" and no "+".
 export default function MenuPage() {
   const bi = useBi()
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const { addItem, items, totalItems, totalPrice } = useCart()
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
@@ -80,8 +83,15 @@ export default function MenuPage() {
     fetchData()
   }, [id])
 
-  const specials = menuItems.filter(m => m.is_daily_special)
-  const nonSpecials = menuItems.filter(m => !m.is_daily_special)
+  // Menu par jour: today's dishes are the menu; the rest wait for their day.
+  const daily = isDailyMenu(restaurant)
+  const todayDow = restaurant ? restaurantWeekday(restaurant) : 0
+  const todays = daily ? menuItems.filter(m => isServedOn(m, todayDow, 'daily')) : menuItems
+  const otherDays = daily ? menuItems.filter(m => !isServedOn(m, todayDow, 'daily')) : []
+  // À la carte keeps its "Spécialités du jour" section; Menu par jour shows
+  // the plat du jour as a badge on today's dishes instead.
+  const specials = daily ? [] : todays.filter(m => m.is_daily_special)
+  const nonSpecials = daily ? todays : todays.filter(m => !m.is_daily_special)
   // Categories match whatever the capitals ("Plats principaux" = "Plats Principaux").
   const catKey = (c: string | null | undefined) => (c ?? '').trim().toLowerCase()
   const uniqueCategories = Array.from(
@@ -288,7 +298,25 @@ export default function MenuPage() {
             <div className="divide-y divide-divider">
               {filtered.map(item => (
                 <DishRow key={item.id} item={item} qty={getItemQty(item.id)} onAdd={canOrder ? () => add(item) : undefined}
-                  addLabel={bi(`Ajouter ${item.name}`, `Add ${item.name}`)} />
+                  addLabel={bi(`Ajouter ${item.name}`, `Add ${item.name}`)}
+                  badge={daily && item.is_daily_special ? bi('⭐ Plat du jour', '⭐ Dish of the day') : undefined} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {daily && todays.length === 0 && otherDays.length > 0 && (
+          <p className="mt-6 text-sm text-ink-secondary text-center">{bi('Aucun plat aujourd\'hui.', 'No dish today.')}</p>
+        )}
+
+        {/* Menu par jour: the dishes of other days, greyed, no "+". */}
+        {otherDays.length > 0 && activeCategory === 'all' && (
+          <section className="mt-8" aria-labelledby="other-days">
+            <h2 id="other-days" className="text-lg font-bold text-ink-secondary">{bi('Autres jours', 'Other days')}</h2>
+            <div className="divide-y divide-divider opacity-60">
+              {otherDays.map(item => (
+                <DishRow key={item.id} item={item} qty={0} addLabel=""
+                  note={availableOnText(servedDays(item, 'daily'), locale === 'fr' ? 'fr' : 'en')} />
               ))}
             </div>
           </section>
@@ -403,12 +431,15 @@ function MoreMenu({ restaurantId }: { restaurantId: string }) {
 }
 
 // One dish: text on the left, photo on the right with "+" on it.
-// No onAdd (Vitrine): the photo has no "+".
-function DishRow({ item, qty, onAdd, addLabel }: { item: MenuItem; qty: number; onAdd?: () => void; addLabel: string }) {
+// No onAdd (Vitrine, other days): the photo has no "+". `badge` (plat du
+// jour) and `note` ("Disponible le samedi") show under the name.
+function DishRow({ item, qty, onAdd, addLabel, badge, note }: { item: MenuItem; qty: number; onAdd?: () => void; addLabel: string; badge?: string; note?: string }) {
   return (
     <div className="flex gap-3 py-4">
       <div className="flex-1 min-w-0">
         <h3 className="font-semibold text-ink-primary text-[15px] leading-tight">{item.name}</h3>
+        {badge && <span className="inline-block mt-1 text-[11px] font-bold text-brand-darker bg-brand-light px-2 py-0.5 rounded-full">{badge}</span>}
+        {note && <p className="mt-1 text-xs font-semibold text-ink-secondary">{note}</p>}
         <p className="mt-1 flex items-baseline gap-1.5 flex-wrap text-sm">
           <span className="font-semibold text-ink-primary">{formatFCFA(item.price)}</span>
           {item.regular_price != null && (
