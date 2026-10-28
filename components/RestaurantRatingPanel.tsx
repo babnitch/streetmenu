@@ -223,7 +223,7 @@ export default function RestaurantRatingPanel({ restaurantId }: { restaurantId: 
             >
               ⭐ {agg.their_rating
                 ? bi('Modifier ma note', 'Edit my rating')
-                : bi('Donner une note', 'Rate this restaurant')}
+                : bi('Donner mon avis', 'Give my review')}
             </button>
           ) : (
             <p className="text-xs text-ink-tertiary text-center">

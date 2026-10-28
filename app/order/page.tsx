@@ -12,7 +12,7 @@ import { useLanguage, useBi } from '@/lib/languageContext'
 import { supabase } from '@/lib/supabase'
 import { isPercentDiscount } from '@/lib/vouchers'
 import { formatPrepTime } from '@/lib/prepTime'
-import { formatDeliveryTime, DELIVERY_ADDRESS_MAX, DELIVERY_LANDMARK_MAX, type Fulfilment } from '@/lib/delivery'
+import { formatDeliveryTime, rememberedFulfilment, DELIVERY_ADDRESS_MAX, DELIVERY_LANDMARK_MAX, type Fulfilment } from '@/lib/delivery'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
@@ -187,6 +187,8 @@ export default function OrderPage() {
         fee: offers?.free_delivery ? 0 : Number(data?.delivery_fee ?? 0),
         extra: data?.delivery_extra_min ?? null,
       })
+      // The choice made on the restaurant page (V4) carries over.
+      if (data?.delivery_enabled === true && rememberedFulfilment(restaurantId) === 'delivery') setFulfilment('delivery')
       setRestaurantCity(data?.city ?? '')
       // Default TRUE matches the column default — a missing row should
       // never silently disable orders.

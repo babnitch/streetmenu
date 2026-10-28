@@ -1693,7 +1693,7 @@ export async function handleOrderCommand(
           `⭐ Notez ${rest?.name ?? 'votre dernier restaurant'} ici:`,
           `⭐ Rate ${rest?.name ?? 'your last restaurant'} here:`,
           lang,
-        ) + `\n${BASE_URL}/restaurant/${lastDelivered.restaurant_id}#rate`)
+        ) + `\n${BASE_URL}/restaurant/${lastDelivered.restaurant_id}/info#rate`)
     } else {
       await sendWhatsApp(from, pickLang(
         `🍽️ Aucune commande livrée pour le moment. Commandez d'abord, puis revenez pour noter.`,

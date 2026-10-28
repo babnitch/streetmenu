@@ -66,3 +66,21 @@ export function validateDeliverySettings(raw: {
   }
   return { ok: true, settings: { delivery_enabled: raw.delivery_enabled, delivery_fee: fee, delivery_extra_min: extra } }
 }
+
+// The Livraison | À emporter choice made on the restaurant page, carried to
+// the checkout for the same restaurant (this tab only). Storage may be
+// blocked: then the checkout simply starts on take-away.
+const FULFILMENT_KEY = (restaurantId: string) => `tn_fulfilment_${restaurantId}`
+
+export function rememberFulfilment(restaurantId: string, f: Fulfilment): void {
+  try { sessionStorage.setItem(FULFILMENT_KEY(restaurantId), f) } catch { /* storage unavailable */ }
+}
+
+export function rememberedFulfilment(restaurantId: string): Fulfilment | null {
+  try {
+    const v = sessionStorage.getItem(FULFILMENT_KEY(restaurantId))
+    return v === 'delivery' || v === 'pickup' ? v : null
+  } catch {
+    return null
+  }
+}

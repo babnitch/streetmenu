@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -11,14 +11,22 @@ import { Restaurant, MenuItem } from '@/types'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
+import { formatDeliveryTime, rememberFulfilment, rememberedFulfilment, type Fulfilment } from '@/lib/delivery'
 import { percentOffLabel } from '@/lib/offers'
+import { formatFCFA, formatAmount } from '@/lib/money'
+import { loginHref } from '@/lib/lastPhone'
 import TopNav from '@/components/TopNav'
-import RestaurantRatingPanel from '@/components/RestaurantRatingPanel'
-import RestaurantHoursPanel from '@/components/RestaurantHoursPanel'
 import BannerAd from '@/components/BannerAd'
 import ReportButton from '@/components/ReportButton'
-import { formatFCFA } from '@/lib/money'
 
+interface OpenInfo { open: boolean; next_kind?: string; next_at?: string }
+
+// /restaurant/[id] — the menu, Uber-style (V4):
+//   photo with ← and ⋯ (favourites, restaurant info) · name · type, area ·
+//   "Ouvert jusqu'à HH:MM" / "Fermé" · Livraison | À emporter switch (only
+//   when the restaurant delivers) · fee and time boxes · categories ·
+//   dishes with "+" on the photo · floating cart.
+// Ratings, hours, address and "Donner mon avis" live on /restaurant/[id]/info.
 export default function MenuPage() {
   const bi = useBi()
   const { id } = useParams<{ id: string }>()
@@ -28,46 +36,31 @@ export default function MenuPage() {
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  // Computed open/closed from /api/restaurants/open-status. Wins over the
-  // legacy restaurants.is_open column — that's now derived and may be
-  // stale. Null while the status hasn't been fetched yet.
-  const [computedOpen, setComputedOpen] = useState<boolean | null>(null)
-  // Compact rating summary for the hero chip. Full distribution + tags
-  // still live in <RestaurantRatingPanel> below the hero; this is the
-  // at-a-glance number for customers who don't scroll past the cover image.
-  const [ratingSummary, setRatingSummary] = useState<{ average: number; count: number } | null>(null)
+  const [openInfo, setOpenInfo] = useState<OpenInfo | null>(null)
+  const [freeDelivery, setFreeDelivery] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<string>('all')
+  const [fulfilment, setFulfilment] = useState<Fulfilment>('delivery')
+
+  // Old links (the bot's "rate" message) pointed at /restaurant/[id]#rate.
+  useEffect(() => {
+    if (window.location.hash === '#rate') router.replace(`/restaurant/${id}/info#rate`)
+  }, [id, router])
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: rest }, { data: menu }, statusRes, ratingRes, offersRes] = await Promise.all([
+      const [{ data: rest }, { data: menu }, statusRes, offersRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', id).single(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
-        // Rating summary for the hero chip. Failure (e.g. supabase-reviews.sql
-        // not yet applied) is silent — the chip just doesn't render.
-        fetch(`/api/restaurants/${id}/rating`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
         // Today's offers (V2): the dish costs its offer price, the menu
         // price shows struck through. The server charges the same price.
         fetch(`/api/offers/today?restaurant_id=${id}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       ])
-      if (ratingRes && typeof ratingRes.count === 'number') {
-        setRatingSummary({ average: Number(ratingRes.average ?? 0), count: ratingRes.count })
-      }
       if (rest) {
-        // Cross-check: we've seen the detail page render "Open" while the
-        // dashboard renders "Closed" for the same-named restaurant. This
-        // log prints the exact row the public page sees so we can confirm
-        // whether it's the same DB row as the vendor dashboard or a
-        // duplicate with a different id.
-        console.log('[restaurant] loaded',
-          'id=', rest.id,
-          'name=', rest.name,
-          'is_open=', rest.is_open,
-          'is_active=', rest.is_active,
-          'status=', rest.status)
         setRestaurant(rest)
+        const remembered = rememberedFulfilment(id)
+        setFulfilment(rest.delivery_enabled ? (remembered ?? 'delivery') : 'pickup')
       }
       if (menu) {
         const prices: Record<string, number> = offersRes?.prices ?? {}
@@ -76,29 +69,26 @@ export default function MenuPage() {
           return o != null && o < m.price ? { ...m, price: o, regular_price: m.price } : m
         }))
       }
+      setFreeDelivery(offersRes?.free_delivery === true)
       const s = statusRes?.status?.[id]
-      if (s) setComputedOpen(!!s.open)
+      if (s) setOpenInfo(s)
       setLoading(false)
     }
     fetchData()
   }, [id])
 
-  // Category pills come from the non-special items only — daily specials
-  // have their own section at the top when viewing "All", so a category
-  // that only contains specials would render an empty tab. Hide the tab
-  // bar entirely when the menu has 0–1 distinct filterable categories.
   const specials = menuItems.filter(m => m.is_daily_special)
   const nonSpecials = menuItems.filter(m => !m.is_daily_special)
+  // Categories match whatever the capitals ("Plats principaux" = "Plats Principaux").
+  const catKey = (c: string | null | undefined) => (c ?? '').trim().toLowerCase()
   const uniqueCategories = Array.from(
-    new Set(nonSpecials.map(m => m.category).filter(Boolean) as string[])
+    new Map(nonSpecials.filter(m => catKey(m.category)).map(m => [catKey(m.category), m.category.trim()])).values(),
   )
   const showCategoryTabs = uniqueCategories.length >= 2
   const categories = showCategoryTabs ? ['all', ...uniqueCategories] : []
-  const filtered = activeCategory === 'all'
-    ? nonSpecials
-    : nonSpecials.filter(m => m.category === activeCategory)
-
+  const filtered = activeCategory === 'all' ? nonSpecials : nonSpecials.filter(m => catKey(m.category) === catKey(activeCategory))
   const getItemQty = (itemId: string) => items.find(i => i.id === itemId)?.quantity ?? 0
+  const add = (item: MenuItem) => addItem({ id: item.id, name: item.name, price: item.price, quantity: 1, photo_url: item.photo_url }, id)
 
   if (loading) {
     return (
@@ -141,68 +131,99 @@ export default function MenuPage() {
     )
   }
 
+  const isOpen = openInfo?.open ?? restaurant.is_open
+  const statusLine = isOpen
+    ? (openInfo?.next_kind === 'closes' && openInfo.next_at
+        ? bi(`Ouvert jusqu'à ${openInfo.next_at}`, `Open until ${openInfo.next_at}`)
+        : bi('Ouvert', 'Open'))
+    : bi('Fermé', 'Closed')
+
+  const delivers = restaurant.delivery_enabled === true
+  const isDelivery = delivers && fulfilment === 'delivery'
+  const fee = freeDelivery ? 0 : Number(restaurant.delivery_fee ?? 0)
+  const timeLabel = isDelivery
+    ? formatDeliveryTime(restaurant.prep_time_min, restaurant.prep_time_max, restaurant.delivery_extra_min)
+    : formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
+
+  const pick = (f: Fulfilment) => { setFulfilment(f); rememberFulfilment(id, f) }
+
   return (
     <div className="min-h-screen bg-surface">
       <TopNav />
 
-      {/* Hero — 200px height, image + dark gradient, name overlaid bottom-left */}
-      <div className="relative h-48 bg-gradient-to-br from-brand-light to-brand-badge">
-        {(restaurant.image_url || restaurant.logo_url) && (
-          <Image
-            src={(restaurant.image_url || restaurant.logo_url)!}
-            alt={restaurant.name}
-            fill
-            className="object-cover"
-            sizes="100vw"
-            priority
-          />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+      {/* Photo with ← and ⋯ */}
+      <div className="relative h-52 md:h-64 bg-gradient-to-br from-brand-light to-brand-badge md:max-w-2xl md:mx-auto md:mt-4 md:rounded-2xl">
+        <div className="absolute inset-0 md:rounded-2xl overflow-hidden">
+          {(restaurant.image_url || restaurant.logo_url) ? (
+            <Image src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority />
+          ) : (
+            <span className="absolute inset-0 flex items-center justify-center text-6xl" aria-hidden="true">🍽️</span>
+          )}
+        </div>
         <button
           onClick={() => router.back()}
           className="absolute top-4 left-4 bg-surface/95 backdrop-blur-sm rounded-full w-10 h-10 flex items-center justify-center text-ink-primary shadow-card hover:bg-surface transition-colors"
-          aria-label="Back"
+          aria-label={bi('Retour', 'Back')}
         >
           ←
         </button>
-        <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-white leading-tight truncate">{restaurant.name}</h1>
-            <p className="text-white/85 text-sm truncate">
-              {[restaurant.cuisine_type, restaurant.neighborhood, restaurant.city].filter(Boolean).join(' · ')}
-            </p>
-            {/* Compact rating chip — visible without scrolling on every
-                viewport. Hidden when count=0 to keep the hero clean for
-                new restaurants. The full panel below the hero still
-                shows the "Pas encore d'avis" empty state. */}
-            {ratingSummary && ratingSummary.count > 0 && (
-              <a
-                href="#rate"
-                className="inline-flex items-center gap-1 mt-1 bg-white/90 backdrop-blur-sm text-ink-primary text-xs font-semibold px-2 py-0.5 rounded-full hover:bg-white transition-colors"
+        <MoreMenu restaurantId={id} />
+      </div>
+
+      <div className="px-4 max-w-2xl mx-auto">
+        <h1 className="text-2xl font-black text-ink-primary leading-tight mt-4">{restaurant.name}</h1>
+        <p className="text-sm text-ink-secondary mt-0.5">
+          {[restaurant.cuisine_type, restaurant.neighborhood].filter(Boolean).join(' · ')}
+        </p>
+        <p className={`text-sm font-semibold mt-1 ${isOpen ? 'text-green-700' : 'text-red-600'}`}>
+          {isOpen ? '🟢' : '🔴'} {statusLine}
+          <Link href={`/restaurant/${id}/info`} className="ml-2 font-normal text-ink-tertiary underline">
+            {bi('Infos', 'Info')}
+          </Link>
+        </p>
+
+        {/* Livraison | À emporter — only when the restaurant delivers. */}
+        {delivers && (
+          <div className="mt-4 grid grid-cols-2 gap-1 bg-surface-muted rounded-full p-1" role="radiogroup" aria-label={bi('Mode de retrait', 'Fulfilment')}>
+            {(['delivery', 'pickup'] as const).map(f => (
+              <button
+                key={f}
+                type="button"
+                role="radio"
+                aria-checked={fulfilment === f}
+                onClick={() => pick(f)}
+                className={`py-2 rounded-full text-sm font-semibold transition-colors ${
+                  fulfilment === f ? 'bg-surface text-ink-primary shadow-sm' : 'text-ink-secondary hover:text-ink-primary'
+                }`}
               >
-                ⭐ {ratingSummary.average.toFixed(1)}
-                <span className="text-ink-tertiary font-normal">({ratingSummary.count})</span>
-              </a>
-            )}
+                {f === 'delivery' ? bi('Livraison', 'Delivery') : bi('À emporter', 'Take-away')}
+              </button>
+            ))}
           </div>
-          {/* Source: computed open-status when available, falls back to the
-              legacy is_open column for the first render before the bulk
-              endpoint returns. The bulk endpoint factors in manual override
-              and timezone-correct schedule, so the column is stale-tolerated
-              rather than load-bearing. */}
-          <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full bg-white ${
-            (computedOpen ?? restaurant.is_open) ? 'text-green-600' : 'text-red-600'
-          }`}>
-            {(computedOpen ?? restaurant.is_open) ? bi('🟢 Ouvert', '🟢 Open') : bi('🔴 Fermé', '🔴 Closed')}
-          </span>
+        )}
+
+        {/* Two boxes: fee and time. */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <InfoBox
+            value={isDelivery ? (fee > 0 ? formatFCFA(fee) : bi('Offerte', 'Free')) : bi('Sans frais', 'No fee')}
+            label={isDelivery ? bi('Frais de livraison', 'Delivery fee') : bi('À emporter', 'Take-away')}
+            highlight={isDelivery && fee === 0}
+          />
+          <InfoBox
+            value={timeLabel ?? '—'}
+            label={isDelivery ? bi('Livraison', 'Delivery time') : bi('Prêt en', 'Ready in')}
+          />
+        </div>
+
+        <div className="mt-4">
+          <BannerAd city={restaurant.city} />
         </div>
       </div>
 
-      {/* Sticky category tabs — only rendered when the menu spans ≥2
-          categories; single-category menus skip the bar entirely. */}
+      {/* Sticky categories — only when the menu spans ≥2 of them. */}
       {showCategoryTabs && (
-        <div className="sticky top-0 z-10 bg-surface border-b border-divider">
-          <div className="max-w-2xl mx-auto flex gap-2 px-4 py-3 overflow-x-auto">
+        <div className="sticky top-12 md:top-14 z-10 bg-surface border-b border-divider mt-4">
+          <div className="max-w-2xl mx-auto flex gap-2 px-4 py-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {categories.map(cat => {
               const active = activeCategory === cat
               return (
@@ -210,9 +231,7 @@ export default function MenuPage() {
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
                   className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
-                    active
-                      ? 'bg-ink-primary text-white'
-                      : 'bg-surface-muted text-ink-secondary hover:text-ink-primary'
+                    active ? 'bg-ink-primary text-white' : 'bg-surface-muted text-ink-secondary hover:text-ink-primary'
                   }`}
                 >
                   {cat === 'all' ? t('menu.all') : cat.charAt(0).toUpperCase() + cat.slice(1)}
@@ -224,82 +243,30 @@ export default function MenuPage() {
       )}
 
       <div className="px-4 pb-40 md:pb-32 max-w-2xl mx-auto">
-        {/* Hours + Ratings sit at the top of the content area so they're
-            visible immediately under the hero on long menus. Previously
-            both lived after the menu and were past the fold on any
-            restaurant with more than ~15 items. */}
-        {(() => {
-          const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
-          return prepLabel ? (
-            <div className="mt-6">
-              <div className="bg-white rounded-2xl p-4 shadow-sm">
-                <p className="text-sm text-ink-primary">
-                  🕐 <span className="font-semibold">{bi('Temps de préparation', 'Prep time')}:</span>{' '}
-                  {prepLabel}
-                </p>
-              </div>
-            </div>
-          ) : null
-        })()}
-        <div className="mt-6">
-          <RestaurantHoursPanel restaurantId={id} />
-        </div>
-        <div id="rate" className="mt-3">
-          <RestaurantRatingPanel restaurantId={id} />
-        </div>
-
-        {/* Banner ad — single subtle promotion targeting this city. The
-            component fetches itself and renders nothing when there is
-            no active banner promo for the city, so the layout stays
-            stable on un-promoted city listings. */}
-        <div className="mt-4">
-          <BannerAd city={restaurant.city} />
-        </div>
-
-        {/* Daily Specials */}
         {specials.length > 0 && activeCategory === 'all' && (
-          <div className="mt-6">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-lg">⭐</span>
-              <h2 className="text-lg font-bold text-ink-primary">{t('menu.specials')}</h2>
-            </div>
-            <div className="space-y-3">
+          <section className="mt-6">
+            <h2 className="text-lg font-bold text-ink-primary">⭐ {t('menu.specials')}</h2>
+            <div className="divide-y divide-divider">
               {specials.map(item => (
-                <MenuItemCard
-                  key={item.id}
-                  item={item}
-                  qty={getItemQty(item.id)}
-                  onAdd={() => addItem({ id: item.id, name: item.name, price: item.price, quantity: 1, photo_url: item.photo_url }, id)}
-                  isSpecial
-                  dailyBadge={t('menu.dailyBadge')}
-                  addLabel={t('menu.add')}
-                  addedLabel={t('menu.added')}
-                />
+                <DishRow key={item.id} item={item} qty={getItemQty(item.id)} onAdd={() => add(item)}
+                  addLabel={bi(`Ajouter ${item.name}`, `Add ${item.name}`)} />
               ))}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Regular Items */}
         {filtered.length > 0 && (
-          <div className="mt-6">
+          <section className="mt-6">
             {activeCategory === 'all' && specials.length > 0 && (
-              <h2 className="text-lg font-bold text-ink-primary mb-3">{t('menu.menu')}</h2>
+              <h2 className="text-lg font-bold text-ink-primary">{t('menu.menu')}</h2>
             )}
-            <div className="space-y-3">
+            <div className="divide-y divide-divider">
               {filtered.map(item => (
-                <MenuItemCard
-                  key={item.id}
-                  item={item}
-                  qty={getItemQty(item.id)}
-                  onAdd={() => addItem({ id: item.id, name: item.name, price: item.price, quantity: 1, photo_url: item.photo_url }, id)}
-                  dailyBadge={t('menu.dailyBadge')}
-                  addLabel={t('menu.add')}
-                  addedLabel={t('menu.added')}
-                />
+                <DishRow key={item.id} item={item} qty={getItemQty(item.id)} onAdd={() => add(item)}
+                  addLabel={bi(`Ajouter ${item.name}`, `Add ${item.name}`)} />
               ))}
             </div>
-          </div>
+          </section>
         )}
 
         {menuItems.length === 0 && (
@@ -309,20 +276,12 @@ export default function MenuPage() {
           </div>
         )}
 
-        {/* Report button stays at the bottom — least-frequently-used
-            action, doesn't compete with the rating panel up top. */}
         <div className="mt-8">
-          <ReportButton
-            targetType="restaurant"
-            targetId={id}
-            label={bi('Signaler ce restaurant', 'Report this restaurant')}
-          />
+          <ReportButton targetType="restaurant" targetId={id} label={bi('Signaler ce restaurant', 'Report this restaurant')} />
         </div>
       </div>
 
-      {/* Floating cart CTA — sits above the mobile BottomNav (56px) and
-          hugs the screen edge on desktop. z-20 so it stays below the
-          BottomNav (z-40) if they ever visually overlap. */}
+      {/* Floating cart — above the mobile BottomNav. */}
       {totalItems > 0 && (
         <div className="fixed left-4 right-4 max-w-xl mx-auto z-20 bottom-20 md:bottom-4">
           <Link
@@ -339,69 +298,117 @@ export default function MenuPage() {
   )
 }
 
-function MenuItemCard({
-  item,
-  qty,
-  onAdd,
-  isSpecial = false,
-  dailyBadge,
-  addLabel,
-  addedLabel,
-}: {
-  item: MenuItem
-  qty: number
-  onAdd: () => void
-  isSpecial?: boolean
-  dailyBadge: string
-  addLabel: string
-  addedLabel: string
-}) {
+function InfoBox({ value, label, highlight }: { value: string; label: string; highlight?: boolean }) {
   return (
-    <div className={`bg-surface rounded-2xl overflow-hidden border border-divider ${isSpecial ? 'ring-2 ring-brand' : ''}`}>
-      {isSpecial && (
-        <div className="bg-brand text-white text-xs font-semibold px-3 py-1">
-          {dailyBadge}
+    <div className="border border-divider rounded-2xl px-4 py-3">
+      <p className={`text-base font-bold ${highlight ? 'text-brand-dark' : 'text-ink-primary'}`}>{value}</p>
+      <p className="text-xs text-ink-tertiary">{label}</p>
+    </div>
+  )
+}
+
+// ⋯ on the photo: favourites and restaurant info.
+function MoreMenu({ restaurantId }: { restaurantId: string }) {
+  const bi = useBi()
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [favorite, setFavorite] = useState<boolean | null>(null) // null = logged out / unknown
+  const [busy, setBusy] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/customer/favorites?restaurant_id=${restaurantId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setFavorite(!!d.favorite) })
+      .catch(() => null)
+    return () => { cancelled = true }
+  }, [restaurantId])
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc) }
+  }, [open])
+
+  async function toggleFavorite() {
+    if (favorite === null) { router.push(loginHref(`/restaurant/${restaurantId}`)); return }
+    setBusy(true)
+    try {
+      const res = favorite
+        ? await fetch(`/api/customer/favorites?restaurant_id=${restaurantId}`, { method: 'DELETE' })
+        : await fetch('/api/customer/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_id: restaurantId }) })
+      if (res.status === 401) { router.push(loginHref(`/restaurant/${restaurantId}`)); return }
+      if (res.ok) setFavorite(!favorite)
+    } finally {
+      setBusy(false)
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div ref={ref} className="absolute top-4 right-4">
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label={bi('Plus d\'options', 'More options')}
+        aria-expanded={open}
+        className="bg-surface/95 backdrop-blur-sm rounded-full w-10 h-10 flex items-center justify-center text-ink-primary text-lg font-bold shadow-card hover:bg-surface transition-colors"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 mt-2 w-60 bg-surface rounded-2xl shadow-card border border-divider overflow-hidden z-30">
+          <button role="menuitem" onClick={toggleFavorite} disabled={busy}
+            className="w-full text-left px-4 py-3 text-sm text-ink-primary hover:bg-surface-muted flex items-center gap-3">
+            <span aria-hidden="true">{favorite ? '♥' : '♡'}</span>
+            {favorite ? bi('Retirer des favoris', 'Remove from favourites') : bi('Ajouter aux favoris', 'Add to favourites')}
+          </button>
+          <Link role="menuitem" href={`/restaurant/${restaurantId}/info`}
+            className="w-full px-4 py-3 text-sm text-ink-primary hover:bg-surface-muted flex items-center gap-3 border-t border-divider">
+            <span aria-hidden="true">ℹ️</span>
+            {bi('Infos du restaurant', 'Restaurant info')}
+          </Link>
         </div>
       )}
-      <div className="flex gap-3 p-3">
-        {item.photo_url ? (
-          <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
-            <Image src={item.photo_url} alt={item.name} fill className="object-cover" sizes="80px" />
-          </div>
-        ) : (
-          <div className="w-20 h-20 rounded-xl bg-brand-light flex items-center justify-center flex-shrink-0 text-3xl">
-            🍽️
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-ink-primary text-sm leading-tight">{item.name}</h3>
-          {item.description && (
-            <p className="text-xs text-ink-secondary mt-0.5 line-clamp-2">{item.description}</p>
+    </div>
+  )
+}
+
+// One dish: text on the left, photo on the right with "+" on it.
+function DishRow({ item, qty, onAdd, addLabel }: { item: MenuItem; qty: number; onAdd: () => void; addLabel: string }) {
+  return (
+    <div className="flex gap-3 py-4">
+      <div className="flex-1 min-w-0">
+        <h3 className="font-semibold text-ink-primary text-[15px] leading-tight">{item.name}</h3>
+        <p className="mt-1 flex items-baseline gap-1.5 flex-wrap text-sm">
+          <span className="font-semibold text-ink-primary">{formatFCFA(item.price)}</span>
+          {item.regular_price != null && (
+            <>
+              <span className="text-xs text-ink-tertiary line-through">{formatAmount(item.regular_price)}</span>
+              <span className="text-[11px] font-bold text-white bg-brand rounded-full px-1.5 py-0.5">
+                {percentOffLabel(item.regular_price, item.price)}
+              </span>
+            </>
           )}
-          <div className="flex items-center justify-between mt-2 gap-3">
-            <span className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="font-bold text-brand-dark text-sm">{formatFCFA(item.price)}</span>
-              {item.regular_price != null && (
-                <>
-                  <span className="text-xs text-ink-tertiary line-through">{formatFCFA(item.regular_price)}</span>
-                  <span className="text-[11px] font-bold text-white bg-brand rounded-full px-1.5 py-0.5">
-                    {percentOffLabel(item.regular_price, item.price)}
-                  </span>
-                </>
-              )}
-            </span>
-            <button
-              onClick={onAdd}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors flex-shrink-0 ${
-                qty > 0
-                  ? 'bg-brand text-white hover:bg-brand-dark'
-                  : 'bg-brand-light text-brand-darker hover:bg-brand-badge'
-              }`}
-            >
-              {qty > 0 ? `${qty} · ${addedLabel}` : addLabel}
-            </button>
-          </div>
-        </div>
+        </p>
+        {item.description && <p className="text-xs text-ink-secondary mt-1 line-clamp-2">{item.description}</p>}
+      </div>
+      <div className="relative w-28 h-28 flex-shrink-0 rounded-xl overflow-hidden bg-brand-light">
+        {item.photo_url
+          ? <Image src={item.photo_url} alt={item.name} fill className="object-cover" sizes="112px" />
+          : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">🍽️</span>}
+        <button
+          onClick={onAdd}
+          aria-label={addLabel}
+          className={`absolute bottom-1.5 right-1.5 min-w-9 h-9 px-2 rounded-full shadow-card flex items-center justify-center text-lg font-bold transition-colors ${
+            qty > 0 ? 'bg-ink-primary text-white text-sm' : 'bg-surface text-ink-primary hover:bg-surface-muted'
+          }`}
+        >
+          {qty > 0 ? qty : '+'}
+        </button>
       </div>
     </div>
   )
