@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { requestModule } from '@/lib/moduleRequests'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,6 +9,9 @@ export const dynamic = 'force-dynamic'
 //   { organizer: string[],
 //     restaurants: [{ id, name, modules }],          // restaurants they own
 //     pending: [{ subject_type, restaurant_id, module }] }  // open requests
+// POST { subject: 'restaurant' | 'organizer', restaurant_id?, module }
+//   → "Demander l'activation": one pending request per module, admins told
+//     on WhatsApp. { ok, alreadyPending }.
 // Customer session only.
 export async function GET(req: NextRequest) {
   const s = getSessionFromRequest(req)
@@ -25,4 +29,15 @@ export async function GET(req: NextRequest) {
     restaurants: (rests ?? []).map(r => ({ id: r.id, name: r.name, status: r.status, modules: (r.modules as string[] | null) ?? [] })),
     pending: pending ?? [],
   }, { headers: { 'Cache-Control': 'no-store' } })
+}
+
+export async function POST(req: NextRequest) {
+  const s = getSessionFromRequest(req)
+  if (!s || s.role !== 'customer') return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
+  const body = await req.json().catch(() => ({}))
+  const subject = body?.subject === 'restaurant' ? 'restaurant' : body?.subject === 'organizer' ? 'organizer' : null
+  if (!subject || typeof body?.module !== 'string') return NextResponse.json({ error: 'subject, module' }, { status: 400 })
+  const r = await requestModule(s.id, subject, body.module, typeof body.restaurant_id === 'string' ? body.restaurant_id : null)
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
+  return NextResponse.json({ ok: true, alreadyPending: r.alreadyPending })
 }

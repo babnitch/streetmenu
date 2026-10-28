@@ -11,6 +11,7 @@ import { formatEventWhen } from '@/lib/eventDate'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { formatFCFA } from '@/lib/money'
 import ModulesSheet, { ModuleChips } from '@/components/ModulesSheet'
+import AdminModuleRequests from '@/components/AdminModuleRequests'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
@@ -288,6 +289,13 @@ export default function AdminEventsPage() {
           </button>
         ))}
       </div>
+
+      {/* Module requests from organisers (M5) — admins only. */}
+      {canTogglePayment && (
+        <AdminModuleRequests subject="organizer" onDecided={(id, mods) => {
+          if (mods) setSubmitters(prev => prev[id] ? { ...prev, [id]: { ...prev[id], organizer_modules: mods, event_auto_approve: mods.includes('auto_approve') } } : prev)
+        }} />
+      )}
 
       {/* Content */}
       {loading ? (

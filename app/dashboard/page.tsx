@@ -725,7 +725,7 @@ export default function DashboardPage() {
                   or phone; orders already placed stay listed below. */}
               {selectedRestaurant && !takesOrders(selectedRestaurant) && (
                 <div className="mb-3">
-                  <ModuleLocked subject="restaurant" module="orders">
+                  <ModuleLocked subject="restaurant" module="orders" restaurantId={selectedRestaurant.id} canRequest={effectiveRole === 'owner'}>
                     <p className="text-xs text-ink-secondary">
                       {bi('Votre page affiche « Commander par WhatsApp » et « Appeler ».', 'Your page shows "Order on WhatsApp" and "Call".')}
                     </p>
@@ -1050,7 +1050,7 @@ export default function DashboardPage() {
 
               {canEditMenu && (hasModule(selectedRestaurant, 'daily_offer')
                 ? <OffersPanel restaurant={selectedRestaurant} menuItems={menuItems} />
-                : <div className="mb-4"><ModuleLocked subject="restaurant" module="daily_offer" /></div>)}
+                : <div className="mb-4"><ModuleLocked subject="restaurant" module="daily_offer" restaurantId={selectedRestaurant.id} canRequest={effectiveRole === 'owner'} /></div>)}
 
               {canEditMenu && (
                 <button
@@ -1152,7 +1152,7 @@ export default function DashboardPage() {
               onValidate={() => setTab('validate')}
             />
           ) : (
-            <ModuleLocked subject="restaurant" module="promo_codes" />
+            <ModuleLocked subject="restaurant" module="promo_codes" restaurantId={selectedRestaurant.id} canRequest={effectiveRole === 'owner'} />
           ))}
 
           {/* Team tab — full pending-invitations + invite UI lands in the
@@ -1196,7 +1196,7 @@ export default function DashboardPage() {
                   }}
                 />
               ) : (
-                <ModuleLocked subject="restaurant" module="delivery" />
+                <ModuleLocked subject="restaurant" module="delivery" restaurantId={selectedRestaurant.id} canRequest={effectiveRole === 'owner'} />
               )}
               {hasModule(selectedRestaurant, 'payment') ? (
                 <PaymentSettingsPanel
@@ -1207,7 +1207,7 @@ export default function DashboardPage() {
                   }}
                 />
               ) : (
-                <ModuleLocked subject="restaurant" module="payment" />
+                <ModuleLocked subject="restaurant" module="payment" restaurantId={selectedRestaurant.id} canRequest={effectiveRole === 'owner'} />
               )}
             </div>
           )}
@@ -1230,7 +1230,7 @@ export default function DashboardPage() {
                   }}
                 />
               ) : (
-                <ModuleLocked subject="restaurant" module="delivery" />
+                <ModuleLocked subject="restaurant" module="delivery" restaurantId={selectedRestaurant.id} canRequest={false} />
               )}
             </div>
           )}

@@ -6,6 +6,7 @@ import TopNav from '@/components/TopNav'
 import { proLoginHref } from '@/lib/lastPhone'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
+import ProModulesPanel from '@/components/ProModulesPanel'
 
 // /pro — the Pro home. Open to every logged-in customer, with or without a
 // restaurant: two big ways in (add a restaurant, create an event), plus
@@ -113,6 +114,9 @@ export default function ProHomePage() {
                 )}
               </div>
             )}
+
+            {/* Mes modules (M5): status + "Demander l'activation". */}
+            <ProModulesPanel showOrganizer={(eventCount ?? 0) > 0} />
           </>
         )}
       </main>

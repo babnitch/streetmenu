@@ -1685,7 +1685,7 @@ export default function AccountPage() {
                       </button>
                     </form>
                     ) : (
-                      <div className="mb-5"><ModuleLocked subject="restaurant" module="team" /></div>
+                      <div className="mb-5"><ModuleLocked subject="restaurant" module="team" restaurantId={activeRest.id} /></div>
                     )}
                     {teamError && <p className="text-xs text-danger mb-3">{teamError}</p>}
 
