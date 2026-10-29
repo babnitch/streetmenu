@@ -1,17 +1,14 @@
 'use client'
 
-// The ☰ menu (L3, cleaned up in N1), opened from the header on every page.
-// It holds only what the bottom bar does not: Restaurants, Loisirs, the
-// city and the map live in the bottom bar / header.
-//
-// Logged out:  Créer un compte (primary) · Se connecter
-//              PROFESSIONNELS Ajouter mon restaurant ou bar ·
-//                             Ajouter un événement ou un lieu (the + sheet)
-//              Mode économique · FR | EN
-// Logged in:   avatar + name · Voir mon compte
-//              Mes commandes · Mes réservations · Mes favoris
-//              PROFESSIONNELS (+ Commandes du restaurant for a team) …
-//              Mode économique · FR | EN · Se déconnecter
+// The ☰ menu (L3; N1; Client / Pro separated). Its rows come from
+// lib/modeSurfaces sideMenuItems(mode):
+//   logged out  Créer un compte · Se connecter · Espace Pro (login first)
+//   Client      Mes commandes · Mes réservations · Mes favoris · Espace Pro
+//               (→ the "Passer en mode Pro" screen)
+//   Pro         Commandes du restaurant · Mes événements · Contrôle à
+//               l'entrée · Mes livraisons · Ajouter mon restaurant ou bar ·
+//               Ajouter un événement ou un lieu
+//   always      Mode économique · FR | EN · Se déconnecter
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -19,7 +16,8 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
-import { proLoginHref } from '@/lib/lastPhone'
+import { loginHref } from '@/lib/lastPhone'
+import { sideMenuItems } from '@/lib/modeSurfaces'
 import { useDataMode } from '@/lib/dataMode'
 import LanguageToggle from './LanguageToggle'
 import { openAddSheet } from './AddSheet'
@@ -37,19 +35,19 @@ export default function SideMenu({
   const bi = useBi()
   const pathname = usePathname() ?? ''
   const router = useRouter()
-  const { hasRestaurantRole, setDashboardTab, resetMode } = useMode()
+  const { hasRestaurantRole, setDashboardTab, resetMode, effectiveMode } = useMode()
   const { isLowData, toggle: toggleLowData } = useDataMode()
   // Q4: door staff (or organisers) with an event to check get an entry.
   const [checkEvents, setCheckEvents] = useState(0)
   // Q5: riders get "Mes livraisons".
   const [isRider, setIsRider] = useState(false)
   useEffect(() => {
-    if (!open || !user) return
+    if (!open || !user || effectiveMode !== 'pro') return
     fetch('/api/scan/my-events', { cache: 'no-store' }).then(r => r.json())
       .then(d => setCheckEvents(Array.isArray(d?.events) ? d.events.length : 0)).catch(() => null)
     fetch('/api/rider/orders', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)
       .then(d => setIsRider(d?.rider === true)).catch(() => null)
-  }, [open, user])
+  }, [open, user, effectiveMode])
   const panelRef = useRef<HTMLDivElement>(null)
 
   // Close on navigation and on Escape; lock the page scroll while open.
@@ -67,7 +65,9 @@ export default function SideMenu({
   if (!open) return null
 
   const loggedIn = !!user
-  const addRestaurant = loggedIn ? '/pro/restaurants/new' : proLoginHref('/pro/restaurants/new')
+  const items = sideMenuItems(effectiveMode, loggedIn, {
+    hasRestaurant: hasRestaurantRole, isOwner: false, checksEvents: checkEvents > 0, isRider, canPromote: false, canBroadcast: false,
+  })
 
   async function signOut() {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null)
@@ -119,37 +119,41 @@ export default function SideMenu({
         </div>
 
         <nav className="flex-1 py-2">
-          {/* Plain links (full load): /account reads ?tab= when it loads, so
-              a soft navigation from /account itself would not switch tab. */}
-          {loggedIn && <PlainItem href="/account?tab=orders" icon="🧾">{bi('Mes commandes', 'My orders')}</PlainItem>}
-          {loggedIn && <PlainItem href="/account?tab=bookings" icon="🎟">{bi('Mes réservations', 'My bookings')}</PlainItem>}
-          {loggedIn && <PlainItem href="/account?tab=favorites" icon="♥">{bi('Mes favoris', 'My favourites')}</PlainItem>}
-          {loggedIn && checkEvents > 0 && <Item href="/scanner" onClick={onClose} icon="🚪">{bi('Contrôler des billets', 'Check tickets')}</Item>}
-          {loggedIn && isRider && <Item href="/livraisons" onClick={onClose} icon="🛵">{bi('Mes livraisons', 'My deliveries')}</Item>}
-
-          <Heading>{bi('Professionnels', 'Professionals')}</Heading>
-          {loggedIn && hasRestaurantRole && (
-            <button type="button" onClick={restaurantOrders}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary hover:bg-surface-muted text-left">
-              <span aria-hidden="true" className="w-6 text-center">📦</span>
-              <span className="flex-1">{bi('Commandes du restaurant', 'Restaurant orders')}</span>
-              {pendingCount > 0 && (
-                <span className="min-w-5 h-5 px-1.5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center">
-                  {pendingCount > 99 ? '99+' : pendingCount}
-                </span>
-              )}
-            </button>
-          )}
-          <Item href={addRestaurant} onClick={onClose} icon="🏪">{bi('Ajouter mon restaurant ou bar', 'Add my restaurant or bar')}</Item>
-          <button type="button" onClick={() => { onClose(); openAddSheet() }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary hover:bg-surface-muted text-left">
-            <span aria-hidden="true" className="w-6 text-center">📢</span>{bi('Ajouter un événement ou un lieu', 'Add an event or a place')}
-          </button>
-          {loggedIn && (
-            <p className="px-4 pt-1 pb-2 text-[11px] text-ink-tertiary">
-              {bi('Le mode Pro s\'active dans Mon compte.', 'Switch to Pro mode in My account.')}
-            </p>
-          )}
+          {/* Client / Pro separated (lib/modeSurfaces sideMenuItems): each
+              mode lists only its own rows. Plain links (full load) for the
+              /account?tab= ones: /account reads ?tab= when it loads. */}
+          {items.map(item => {
+            switch (item) {
+              case 'myOrders': return <PlainItem key={item} href="/account?tab=orders" icon="🧾">{bi('Mes commandes', 'My orders')}</PlainItem>
+              case 'myBookings': return <PlainItem key={item} href="/account?tab=bookings" icon="🎟">{bi('Mes réservations', 'My bookings')}</PlainItem>
+              case 'myFavorites': return <PlainItem key={item} href="/account?tab=favorites" icon="♥">{bi('Mes favoris', 'My favourites')}</PlainItem>
+              // Client → the Pro switch screen (ModeGate on /pro); logged out → login first.
+              case 'proSpace': return <Item key={item} href={loggedIn ? '/pro' : loginHref('/pro')} onClick={onClose} icon="🧰">{bi('Espace Pro', 'Pro space')}</Item>
+              case 'restaurantOrders': return (
+                <button key={item} type="button" onClick={restaurantOrders}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary hover:bg-surface-muted text-left">
+                  <span aria-hidden="true" className="w-6 text-center">📦</span>
+                  <span className="flex-1">{bi('Commandes du restaurant', 'Restaurant orders')}</span>
+                  {pendingCount > 0 && (
+                    <span className="min-w-5 h-5 px-1.5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center">
+                      {pendingCount > 99 ? '99+' : pendingCount}
+                    </span>
+                  )}
+                </button>
+              )
+              case 'myEvents': return <Item key={item} href="/pro/events" onClick={onClose} icon="🎉">{bi('Mes événements', 'My events')}</Item>
+              case 'doorCheck': return <Item key={item} href="/scanner" onClick={onClose} icon="🚪">{bi("Contrôle à l'entrée", 'Door check')}</Item>
+              case 'deliveries': return <Item key={item} href="/livraisons" onClick={onClose} icon="🛵">{bi('Mes livraisons', 'My deliveries')}</Item>
+              case 'addRestaurant': return <Item key={item} href="/pro/restaurants/new" onClick={onClose} icon="🏪">{bi('Ajouter mon restaurant ou bar', 'Add my restaurant or bar')}</Item>
+              case 'addEventOrPlace': return (
+                <button key={item} type="button" onClick={() => { onClose(); openAddSheet() }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary hover:bg-surface-muted text-left">
+                  <span aria-hidden="true" className="w-6 text-center">📢</span>{bi('Ajouter un événement ou un lieu', 'Add an event or a place')}
+                </button>
+              )
+              default: return null   // header / footer rows: signup, login, account, lowData, language, signOut
+            }
+          })}
         </nav>
 
         <label className="border-t border-divider flex items-center gap-3 px-4 py-3 text-sm text-ink-primary cursor-pointer flex-shrink-0">
@@ -173,10 +177,6 @@ export default function SideMenu({
     </div>,
     document.body,
   )
-}
-
-function Heading({ children }: { children: React.ReactNode }) {
-  return <p className="px-4 pt-4 pb-1 text-[11px] font-bold uppercase tracking-wide text-ink-tertiary">{children}</p>
 }
 
 function Item({ href, icon, children, onClick }: { href: string; icon: string; children: React.ReactNode; onClick?: () => void }) {

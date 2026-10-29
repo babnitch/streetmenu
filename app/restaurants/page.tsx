@@ -2,6 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
+import { useMode } from '@/lib/modeContext'
+import { showProAlerts } from '@/lib/modeSurfaces'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
@@ -70,6 +72,7 @@ export default function HomePage() {
   const { t, locale } = useLanguage()
   const { user, loading: authLoading } = useAuth()
   const { city } = useCity()
+  const { effectiveMode } = useMode()
 
   // ── Filter state ───────────────────────────────────────────────────────
   // The pills and sort show on mobile and desktop (N1); the cuisine rail is
@@ -388,7 +391,8 @@ export default function HomePage() {
       {/* Pending-orders banner for vendors browsing the home page. Tap
           to go straight to the dashboard. Hidden when there's nothing
           pending. */}
-      {pendingOrders > 0 && (
+      {/* A pro alert: Pro mode only (Client / Pro separated). */}
+      {pendingOrders > 0 && showProAlerts(effectiveMode) && (
         <Link
           href="/dashboard"
           className="block bg-brand text-white border-b border-brand-dark hover:bg-brand-dark transition-colors"

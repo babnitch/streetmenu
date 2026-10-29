@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
-import { proLoginHref } from '@/lib/lastPhone'
+import { loginHref } from '@/lib/lastPhone'
 
 const OPEN_EVENT = 'nt-open-add-sheet'
 export const PLACES_ENABLED = false
@@ -40,7 +40,9 @@ export default function AddSheetHost() {
 
   if (!open) return null
   const loggedIn = !!sessionRole
-  const href = (path: string) => (loggedIn ? path : proLoginHref(path))
+  // Logged out: plain login (no silent switch to Pro); the ModeGate then
+  // offers "Passer en mode Pro".
+  const href = (path: string) => (loggedIn ? path : loginHref(path))
   const close = () => setOpen(false)
 
   // Portalled to <body>: inside the sticky header (its own stacking

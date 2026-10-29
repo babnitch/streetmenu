@@ -9,7 +9,7 @@ import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import { useMode } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
-import { proLoginHref } from '@/lib/lastPhone'
+import { loginHref } from '@/lib/lastPhone'
 import { formatEventWhen, type EventWhen } from '@/lib/eventDate'
 import { formatFCFA, formatAmount } from '@/lib/money'
 import { formatPrepTime } from '@/lib/prepTime'
@@ -94,7 +94,7 @@ export default function HomePage() {
     return () => { cancelled = true }
   }, [city])
 
-  const partnerHref = !modeLoading && sessionRole ? '/pro' : proLoginHref('/pro')
+  const partnerHref = !modeLoading && sessionRole ? '/pro' : loginHref('/pro')
   const img = (src: string | null | undefined) => (isLowData ? null : (src || null))
 
   // "Livraison 500 FCFA · 35-50 min" / "Livraison offerte · …" / "À emporter · 20-35 min"

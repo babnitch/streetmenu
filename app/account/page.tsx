@@ -28,6 +28,7 @@ import { useDataMode } from '@/lib/dataMode'
 import { loginHref } from '@/lib/lastPhone'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel } from '@/lib/navConfig'
+import { accountItems, type ModeFlags } from '@/lib/modeSurfaces'
 import { CLIENT_LABEL, roleLabel, adminRoleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
 import { CustomerVoucher, EventReservation, Order } from '@/types'
 import { isPastEvent, formatEventDates, formatEventDay, isMultiDay } from '@/lib/eventDate'
@@ -477,10 +478,25 @@ export default function AccountPage() {
   const activeRest = myRestaurants.find(r => r.id === activeRestId)
 
   // ── Mobile profile helpers ────────────────────────────────────────────
-  // effectiveMode comes from ModeContext: 'pro' for any logged-in customer
-  // who switched to it. The restaurant tiles and rows additionally need a
-  // restaurant (inRestaurantPro).
-  const inRestaurantPro = effectiveMode === 'pro' && hasRestaurantRole
+  // effectiveMode comes from ModeContext: 'pro' only after the person chose
+  // it (ModeToggle / the ModeGate button). lib/modeSurfaces decides what
+  // each mode lists.
+
+  // Pro-only flags (door staff / organiser with an event to check, rider):
+  // fetched in Pro mode only.
+  const [checksEvents, setChecksEvents] = useState(false)
+  const [isRider, setIsRider] = useState(false)
+  useEffect(() => {
+    if (effectiveMode !== 'pro' || !user || user.role !== 'customer') return
+    fetch('/api/scan/my-events', { cache: 'no-store' }).then(r => r.json())
+      .then(d => setChecksEvents(Array.isArray(d?.events) && d.events.length > 0)).catch(() => null)
+    fetch('/api/rider/orders', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)
+      .then(d => setIsRider(d?.rider === true)).catch(() => null)
+  }, [effectiveMode, user])
+  const modeFlags: ModeFlags = {
+    hasRestaurant: hasRestaurantRole, isOwner: activeRest?.teamRole === 'owner',
+    checksEvents, isRider, canPromote, canBroadcast,
+  }
 
   // Role driving the restaurant-mode tiles. Mirrors the dashboard's
   // `effectiveRole` (app/dashboard/page.tsx:124) including its 'admin'
@@ -905,7 +921,7 @@ export default function AccountPage() {
                ══════════════════════════════════════════════════════════ */}
             {dashView === 'customer' && (
               <>
-                {welcomeVoucherCode && (
+                {welcomeVoucherCode && effectiveMode === 'client' && (
                   <div className="bg-brand-light border border-brand-badge/40 rounded-2xl p-4 mb-4 flex items-start gap-3">
                     <span className="text-2xl">🎉</span>
                     <div className="flex-1 text-sm">
@@ -936,25 +952,16 @@ export default function AccountPage() {
                     deep-links), Profile last, then optional Restaurant /
                     Team for vendors. Mobile shows 3 per row (basis-1/3
                     in TabBtn); sm+ collapses to a single row. */}
-                <div className="hidden md:flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
-                  <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
-                  <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
-                  <TabBtn icon="♥" label={bi('Favoris', 'Favourites')} active={customerTab === 'favorites'} onClick={() => setCustomerTab('favorites')} />
-                  {/* Organizing is open to every logged-in user, so this is
-                     unconditional — it used to appear only once you had an
-                     event, which hid the feature from exactly the people who
-                     hadn't found it yet. The panel carries its own empty
-                     state with a create CTA. */}
-                  <TabBtn icon="🎉" label={bi('Mes événements', 'My events')} active={false} onClick={() => router.push('/pro/events')} />
-                  <TabBtn icon="🪪" label={bi('Profil Pro', 'Pro profile')} active={false} onClick={() => router.push('/pro/profile')} />
-                  <TabBtn icon="👤" label={t('account.profileTab')}  active={customerTab === 'profile'}  onClick={() => setCustomerTab('profile')} />
-                  {myRestaurants.length > 0 && (
-                    <TabBtn icon="🏪" label={t('account.restaurantTab')} active={customerTab === 'restaurant'} onClick={() => setCustomerTab('restaurant')} />
-                  )}
-                  {myRestaurants.length > 0 && activeRest?.teamRole === 'owner' && (
-                    <TabBtn icon="👥" label={t('account.teamTab')} active={customerTab === 'team'} onClick={() => setCustomerTab('team')} />
-                  )}
-                </div>
+                {/* Desktop tab bar — Client mode only, client tabs only
+                    (Client / Pro separated). Pro mode shows the Pro list. */}
+                {effectiveMode === 'client' && (
+                  <div className="hidden md:flex flex-wrap bg-white rounded-2xl p-1 shadow-sm mb-5 gap-1">
+                    <TabBtn icon="📦" label={t('account.ordersTab')}   active={customerTab === 'orders'}   onClick={() => setCustomerTab('orders')} />
+                    <TabBtn icon="🎫" label={t('account.vouchersTab')} active={customerTab === 'vouchers'} onClick={() => setCustomerTab('vouchers')} />
+                    <TabBtn icon="♥" label={bi('Favoris', 'Favourites')} active={customerTab === 'favorites'} onClick={() => setCustomerTab('favorites')} />
+                    <TabBtn icon="👤" label={t('account.profileTab')}  active={customerTab === 'profile'}  onClick={() => setCustomerTab('profile')} />
+                  </div>
+                )}
 
                 {/* ══════════════════════════════════════════════════════════
                     MOBILE PROFILE (< md)
@@ -966,52 +973,26 @@ export default function AccountPage() {
                     own rows here. Nothing new is introduced.
                    ══════════════════════════════════════════════════════════ */}
                 {mobileSection === null && (
-                  <div className="md:hidden">
+                  // Client / Pro separated: the list comes from
+                  // lib/modeSurfaces accountItems(mode) — each mode shows only
+                  // its own items. Client: mobile only (desktop has the tab
+                  // bar). Pro: mobile AND desktop (no customer tabs there).
+                  <div className={effectiveMode === 'pro' ? '' : 'md:hidden'}>
                     {/* Name + avatar — shared with the admin view above. */}
                     <ProfileHeaderCard
                       name={user.name}
                       badges={<ProfileRoleBadges restaurants={myRestaurants} trust={organizerTrust} />}
                     />
 
-                    {/* Quick access. Client mode is the customer's own
-                        stuff; restaurant mode swaps in the three dashboard
-                        surfaces a vendor opens most. */}
-                    {effectiveMode === 'pro' && !hasRestaurantRole ? (
-                      // Pro without a restaurant: the organiser's shortcuts
-                      // and the way to add a restaurant.
+                    {effectiveMode === 'client' ? (
                       <div className="grid grid-cols-3 gap-3 mb-6">
-                        <QuickCard icon="🎉" label={bi('Mes événements', 'My events')}
-                          onClick={() => router.push('/pro/events')} />
-                        <QuickCard icon="➕" label={bi('Créer un événement', 'Create an event')}
-                          onClick={() => router.push('/events/submit')} />
-                        <QuickCard icon="🏪" label={bi('Ajouter un restaurant', 'Add a restaurant')}
-                          onClick={() => router.push('/pro/restaurants/new')} />
+                        <QuickCard icon="📦" label={t('account.ordersTab')} onClick={() => openMobileSection('orders')} />
+                        <QuickCard icon="🎟" label={bi('Réservations', 'Bookings')} onClick={() => setMobileSection('bookings')} />
+                        <QuickCard icon="🎫" label={t('account.vouchersTab')} onClick={() => openMobileSection('vouchers')} />
                       </div>
-                    ) : effectiveMode === 'client' ? (
-                      <div className="grid grid-cols-3 gap-3 mb-6">
-                        <QuickCard
-                          icon="📦"
-                          label={t('account.ordersTab')}
-                          onClick={() => openMobileSection('orders')}
-                        />
-                        {/* Events the user BOOKED as a customer — not the
-                            ones they publish; publishing is a menu row. */}
-                        <QuickCard
-                          icon="🎟"
-                          label={bi('Événements', 'Events')}
-                          onClick={() => setMobileSection('bookings')}
-                        />
-                        <QuickCard
-                          icon="🎫"
-                          label={t('account.vouchersTab')}
-                          onClick={() => openMobileSection('vouchers')}
-                        />
-                      </div>
-                    ) : (
+                    ) : hasRestaurantRole ? (
                       // The restaurant's tools (lib/navConfig RESTAURANT_TOOLS),
-                      // gated by tileRole like the dashboard strip. Dashboard
-                      // tools route through goToDashTab (context + push);
-                      // Team opens its section here.
+                      // gated by tileRole like the dashboard strip.
                       <div className="grid grid-cols-3 gap-3 mb-6">
                         {restaurantToolsFor(tileRole).map(x => (
                           <QuickCard
@@ -1023,101 +1004,41 @@ export default function AccountPage() {
                           />
                         ))}
                       </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-3 mb-6">
+                        <QuickCard icon="🎉" label={bi('Mes événements', 'My events')} onClick={() => router.push('/pro/events')} />
+                        <QuickCard icon="➕" label={bi('Créer un événement', 'Create an event')} onClick={() => router.push('/events/submit')} />
+                        <QuickCard icon="🏪" label={bi('Ajouter un restaurant', 'Add a restaurant')} onClick={() => router.push('/pro/restaurants/new')} />
+                      </div>
                     )}
 
-                    {/* Menu list. Orders, bookings and vouchers stay out of
-                        it in client mode — they're the tiles above. In
-                        restaurant mode the tiles cover orders/menu/settings
-                        and the list adds the vendor surfaces. */}
                     <MenuList>
-                      <MenuRow
-                        icon="♥"
-                        label={bi('Mes favoris', 'My favourites')}
-                        desc={bi('Vos restaurants préférés', 'Your favourite restaurants')}
-                        onClick={() => openMobileSection('favorites')}
-                      />
-                      <MenuRow
-                        icon="👤"
-                        label={t('account.profileTab')}
-                        desc={bi('Modifier vos informations', 'Edit your info')}
-                        onClick={() => openMobileSection('profile')}
-                      />
-                      {/* Unconditional — see the desktop tab above. Not
-                          mode-gated either: organizing is an Account
-                          feature reachable from client OR restaurant mode. */}
-                      <MenuRow
-                        icon="📢"
-                        label={bi('Mes événements', 'My events')}
-                        desc={bi('Créer et gérer vos événements', 'Create and manage your events')}
-                        onClick={() => router.push('/pro/events')}
-                      />
-                      <MenuRow
-                        icon="🪪"
-                        label={bi('Profil Pro', 'Pro profile')}
-                        desc={bi('Nom d\'organisateur, numéro de notifications', 'Organiser name, notification number')}
-                        href="/pro/profile"
-                      />
-
-                      {/* ── Restaurant-mode rows ───────────────────────── */}
-                      {inRestaurantPro && (
-                        <MenuRow
-                          icon="🏪"
-                          label={bi('Mon restaurant', 'My restaurant')}
-                          desc={bi('Gérer votre restaurant', 'Manage your restaurant')}
-                          href="/dashboard"
-                        />
-                      )}
-                      {/* Team management lives here on /account — the
-                          dashboard's Team tab is only a pointer back to it —
-                          so this opens the section in place rather than
-                          bouncing the user through /dashboard. Owner-only,
-                          matching the panel's own gate. */}
-                      {inRestaurantPro && activeRest?.teamRole === 'owner' && (
-                        <MenuRow
-                          icon="👥"
-                          label={t('account.teamTab')}
-                          desc={bi('Gérer les membres', 'Manage members')}
-                          onClick={() => openMobileSection('team')}
-                        />
-                      )}
-
-                      {/* Promote / Broadcast are vendor tools in restaurant
-                          mode. A publisher with no restaurant never sees
-                          that mode, so they keep them in client mode —
-                          otherwise they'd lose the only way in. */}
-                      {canPromote && (inRestaurantPro || !hasRestaurantRole) && (
-                        <MenuRow
-                          icon="📣"
-                          label={bi('Promouvoir', 'Promote')}
-                          desc={bi('Promouvoir votre restaurant ou événement', 'Promote your restaurant or event')}
-                          onClick={() => setMobileSection('promote')}
-                        />
-                      )}
-                      {canBroadcast && (inRestaurantPro || !hasRestaurantRole) && (
-                        <MenuRow
-                          icon="📢"
-                          label={bi('Diffuser', 'Broadcast')}
-                          desc={bi('Envoyer un message aux abonnés', 'Send a message to subscribers')}
-                          onClick={() => setMobileSection('broadcast')}
-                        />
-                      )}
-
-                      {/* ── Always available to every logged-in user ───── */}
-                      <MenuRow
-                        icon="🔔"
-                        label={bi('Notifications', 'Notifications')}
-                        desc={bi('Gérer vos alertes événements', 'Manage event alerts')}
-                        onClick={() => setMobileSection('notifications')}
-                      />
-                      <MenuLowDataRow />
-                      <MenuLanguageRow />
-
-                      {/* Client ⇄ Pro switcher (components/ModeToggle.tsx,
-                          the same component as the desktop banner). Every
-                          logged-in customer gets it. */}
-                      <ModeToggle variant="row" />
-
-                      <SignOutRow label={t('account.signOut')} onClick={handleSignOut} />
+                      {accountItems(effectiveMode, modeFlags).map(item => {
+                        switch (item) {
+                          // Client — orders / bookings / vouchers are the tiles above.
+                          case 'favorites': return <MenuRow key={item} icon="♥" label={bi('Mes favoris', 'My favourites')} desc={bi('Vos restaurants préférés', 'Your favourite restaurants')} onClick={() => openMobileSection('favorites')} />
+                          case 'profile': return <MenuRow key={item} icon="👤" label={t('account.profileTab')} desc={bi('Modifier vos informations', 'Edit your info')} onClick={() => openMobileSection('profile')} />
+                          case 'notifications': return <MenuRow key={item} icon="🔔" label={bi('Notifications', 'Notifications')} desc={bi('Gérer vos alertes événements', 'Manage event alerts')} onClick={() => setMobileSection('notifications')} />
+                          // Pro — events / create / add restaurant are tiles when there is no restaurant.
+                          case 'myRestaurant': return <MenuRow key={item} icon="🏪" label={bi('Mon restaurant', 'My restaurant')} desc={bi('Commandes, menu, paramètres', 'Orders, menu, settings')} href="/dashboard" />
+                          case 'team': return <MenuRow key={item} icon="👥" label={t('account.teamTab')} desc={bi('Gérer les membres', 'Manage members')} onClick={() => openMobileSection('team')} />
+                          case 'myEvents': return hasRestaurantRole ? <MenuRow key={item} icon="🎉" label={bi('Mes événements', 'My events')} desc={bi('Créer et gérer vos événements', 'Create and manage your events')} href="/pro/events" /> : null
+                          case 'createEvent': return hasRestaurantRole ? <MenuRow key={item} icon="➕" label={bi('Créer un événement', 'Create an event')} href="/events/submit" /> : null
+                          case 'doorCheck': return <MenuRow key={item} icon="🚪" label={bi("Contrôle à l'entrée", 'Door check')} desc={bi('Scanner les billets', 'Scan tickets')} href="/scanner" />
+                          case 'deliveries': return <MenuRow key={item} icon="🛵" label={bi('Mes livraisons', 'My deliveries')} href="/livraisons" />
+                          case 'proProfile': return <MenuRow key={item} icon="🪪" label={bi('Profil Pro', 'Pro profile')} desc={bi("Nom d'organisateur, numéro de notifications", 'Organiser name, notification number')} href="/pro/profile" />
+                          case 'modules': return <MenuRow key={item} icon="🧩" label={bi('Mes modules', 'My modules')} desc={bi('Ce qui est activé, demander un module', 'What is on, ask for a module')} href="/pro#modules" />
+                          case 'promote': return <MenuRow key={item} icon="📣" label={bi('Promouvoir', 'Promote')} desc={bi('Promouvoir votre restaurant ou événement', 'Promote your restaurant or event')} onClick={() => setMobileSection('promote')} />
+                          case 'broadcast': return <MenuRow key={item} icon="📢" label={bi('Diffuser', 'Broadcast')} desc={bi('Envoyer un message aux abonnés', 'Send a message to subscribers')} onClick={() => setMobileSection('broadcast')} />
+                          case 'addRestaurant': return hasRestaurantRole ? <MenuRow key={item} icon="🏪" label={bi('Ajouter un restaurant', 'Add a restaurant')} href="/pro/restaurants/new" /> : null
+                          // Both
+                          case 'lowData': return <MenuLowDataRow key={item} />
+                          case 'language': return <MenuLanguageRow key={item} />
+                          case 'modeSwitch': return <ModeToggle key={item} variant="row" />
+                          case 'signOut': return <SignOutRow key={item} label={t('account.signOut')} onClick={handleSignOut} />
+                          default: return null   // tiles above: orders, bookings, vouchers, restaurantTools
+                        }
+                      })}
                     </MenuList>
                   </div>
                 )}
@@ -1127,14 +1048,15 @@ export default function AccountPage() {
                   <SectionBackBar
                     title={mobileSectionTitle}
                     onBack={() => setMobileSection(null)}
+                    always={effectiveMode === 'pro'}
                   />
                 )}
 
                 {/* Mobile-only sections lifted out of the desktop Profile
                     tab. The desktop copies stay where they were. */}
-                {mobileSection === 'notifications' && <div className="md:hidden"><NotificationsPanel /></div>}
-                {mobileSection === 'broadcast'     && <div className="md:hidden"><BroadcastPanel /></div>}
-                {mobileSection === 'promote'       && <div className="md:hidden"><PromotePanel /></div>}
+                {mobileSection === 'notifications' && effectiveMode === 'client' && <div className="md:hidden"><NotificationsPanel /></div>}
+                {mobileSection === 'broadcast'     && effectiveMode === 'pro' && <BroadcastPanel />}
+                {mobileSection === 'promote'       && effectiveMode === 'pro' && <PromotePanel />}
 
                 {/* Event bookings — the reservations the user made as a
                     customer. Desktop shows these at the top of the Orders
@@ -1169,7 +1091,9 @@ export default function AccountPage() {
 
                 {/* The shared tab panels below render for desktop always,
                     and on mobile only once the user has drilled into one. */}
-                <div className={mobileSection !== null && isCustomerTab(mobileSection) ? '' : 'hidden md:block'}>
+                <div className={effectiveMode === 'pro'
+                  ? (mobileSection === 'team' || mobileSection === 'restaurant' ? '' : 'hidden')
+                  : (mobileSection !== null && isCustomerTab(mobileSection) ? '' : 'hidden md:block')}>
 
                 {/* Favourites (M7) */}
                 {customerTab === 'favorites' && <FavoritesList />}
@@ -1416,13 +1340,6 @@ export default function AccountPage() {
                           <NotificationsPanel />
                         </div>
 
-                        <div className="hidden md:block pt-2">
-                          <BroadcastPanel />
-                        </div>
-
-                        <div className="hidden md:block pt-2">
-                          <PromotePanel />
-                        </div>
 
                         {/* Suspension info */}
                         {profile.status === 'suspended' && profile.suspended_by && (
@@ -1437,75 +1354,6 @@ export default function AccountPage() {
                       </div>
                     ) : (
                       <p className="text-sm text-ink-tertiary">{bi('Chargement…', 'Loading…')}</p>
-                    )}
-
-                    {/* Vendor shortcuts — Team and Settings used to live on
-                        the restaurant BottomNav but were moved here to keep
-                        the bar at 4 tabs. Owners see both; managers/staff
-                        only see Settings (their team view is read-only). */}
-                    {myRestaurants.length > 0 && (
-                      <div className="pt-4 border-t border-divider space-y-2">
-                        <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide mb-2">
-                          {bi('Gestion du restaurant', 'Restaurant management')}
-                        </p>
-                        {activeRest?.teamRole === 'owner' && (
-                          <button
-                            onClick={() => setCustomerTab('team')}
-                            className="w-full bg-surface-muted hover:bg-brand-light rounded-xl px-4 py-3 flex items-center justify-between gap-3 transition-colors text-left"
-                          >
-                            <span className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
-                              <span aria-hidden="true">👥</span>
-                              {bi("Gérer l'équipe", 'Manage team')}
-                            </span>
-                            <span className="text-ink-tertiary">→</span>
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setCustomerTab('restaurant')}
-                          className="w-full bg-surface-muted hover:bg-brand-light rounded-xl px-4 py-3 flex items-center justify-between gap-3 transition-colors text-left"
-                        >
-                          <span className="flex items-center gap-2 text-sm font-semibold text-ink-primary">
-                            <span aria-hidden="true">⚙️</span>
-                            {bi('Paramètres restaurant', 'Restaurant settings')}
-                          </span>
-                          <span className="text-ink-tertiary">→</span>
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Restaurant summary */}
-                    {myRestaurants.length > 0 && (
-                      <div className="pt-4 border-t border-divider">
-                        <p className="text-xs font-semibold text-ink-secondary uppercase tracking-wide mb-3">
-                          {bi(`Mes restaurants (${myRestaurants.length})`, `My restaurants (${myRestaurants.length})`)}
-                        </p>
-                        <div className="space-y-2">
-                          {myRestaurants.map(r => (
-                            <button
-                              key={r.id}
-                              onClick={() => { setActiveRestId(r.id); setCustomerTab('restaurant') }}
-                              className="w-full bg-surface-muted hover:bg-brand-light rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 transition-colors text-left"
-                            >
-                              <div className="min-w-0">
-                                <p className="font-semibold text-sm text-ink-primary truncate">{r.name}</p>
-                                <p className="text-xs text-ink-secondary">{r.city}{r.neighborhood ? ` · ${r.neighborhood}` : ''}</p>
-                              </div>
-                              <StatusBadge status={r.deleted_at ? 'deleted' : r.status} />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Register a new restaurant (web form) */}
-                    {!accountDeletedAt && myRestaurants.length === 0 && (
-                      <div className="pt-4 border-t border-divider">
-                        <p className="text-xs text-ink-tertiary mb-3">{bi('Inscrire un restaurant', 'Register a restaurant')}</p>
-                        <Link href="/pro/restaurants/new"
-                          className="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
-                          🏪 {bi('Ajouter un restaurant', 'Add a restaurant')}
-                        </Link>
-                      </div>
                     )}
 
                     {/* Account deletion */}
@@ -2001,10 +1849,10 @@ function MenuList({ children }: { children: React.ReactNode }) {
 }
 
 // `← Title` bar shown once a mobile view has drilled into one section.
-function SectionBackBar({ title, onBack }: { title: string; onBack: () => void }) {
+function SectionBackBar({ title, onBack, always = false }: { title: string; onBack: () => void; always?: boolean }) {
   const bi = useBi()
   return (
-    <div className="md:hidden flex items-center gap-1 mb-4">
+    <div className={`${always ? '' : 'md:hidden '}flex items-center gap-1 mb-4`}>
       <button
         type="button"
         onClick={onBack}

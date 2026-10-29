@@ -14,13 +14,10 @@ import ProModulesPanel from '@/components/ProModulesPanel'
 // mode, so the Pro navigation shows.
 export default function ProHomePage() {
   const bi = useBi()
-  const { loading, canEnterPro, sessionRole, effectiveMode, setMode, hasRestaurantRole } = useMode()
+  const { loading, canEnterPro, sessionRole, hasRestaurantRole } = useMode()
   const [eventCount, setEventCount] = useState<number | null>(null)
   const [restaurants, setRestaurants] = useState<Array<{ id: string; name: string; status?: string }>>([])
 
-  useEffect(() => {
-    if (canEnterPro && effectiveMode !== 'pro') setMode('pro')
-  }, [canEnterPro, effectiveMode, setMode])
 
   useEffect(() => {
     if (!canEnterPro) return

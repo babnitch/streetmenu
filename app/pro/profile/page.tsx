@@ -21,7 +21,7 @@ const INPUT = 'w-full bg-surface-muted border border-divider rounded-xl px-3 py-
 export default function ProProfilePage() {
   const bi = useBi()
   const { locale } = useLanguage()
-  const { loading, canEnterPro, sessionRole, effectiveMode, setMode } = useMode()
+  const { loading, canEnterPro, sessionRole } = useMode()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [name, setName] = useState('')
   const [extra, setExtra] = useState('')
@@ -29,9 +29,6 @@ export default function ProProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    if (canEnterPro && effectiveMode !== 'pro') setMode('pro')
-  }, [canEnterPro, effectiveMode, setMode])
 
   useEffect(() => {
     if (!canEnterPro) return

@@ -6,7 +6,7 @@ import TopNav from '@/components/TopNav'
 import { useBi, useLanguage, pickBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
 import { useCity } from '@/lib/cityContext'
-import { proLoginHref } from '@/lib/lastPhone'
+import { loginHref } from '@/lib/lastPhone'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { RESTAURANT_CITIES, FOOD_TYPES } from '@/lib/restaurantSignup'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
@@ -22,7 +22,7 @@ export default function AddRestaurantPage() {
   const bi = useBi()
   const { locale } = useLanguage()
   const { city: browsingCity } = useCity()
-  const { loading, canEnterPro, sessionRole, effectiveMode, setMode } = useMode()
+  const { loading, canEnterPro, sessionRole } = useMode()
   const [phone, setPhone] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', city: '', neighborhood: '', cuisine_type: '' })
   const [photo, setPhoto] = useState<File | null>(null)
@@ -35,9 +35,8 @@ export default function AddRestaurantPage() {
 
   useEffect(() => {
     if (loading) return
-    if (!sessionRole) { window.location.replace(proLoginHref('/pro/restaurants/new')); return }
-    if (canEnterPro && effectiveMode !== 'pro') setMode('pro')
-  }, [loading, sessionRole, canEnterPro, effectiveMode, setMode])
+    if (!sessionRole) { window.location.replace(loginHref('/pro/restaurants/new')); return }
+  }, [loading, sessionRole])
 
   useEffect(() => {
     if (!canEnterPro) return

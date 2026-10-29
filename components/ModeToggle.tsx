@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation'
 import { useBi } from '@/lib/languageContext'
 import { useMode, type Mode } from '@/lib/modeContext'
+import { useSwitchMode } from '@/lib/useSwitchMode'
 
 // ModeToggle — THE switcher for Client ⇄ Pro, for every logged-in customer
 // (admins and logged-out visitors don't see it: `canEnterPro` is false).
@@ -20,7 +21,8 @@ import { useMode, type Mode } from '@/lib/modeContext'
 //   - "row"     — a MenuRow-shaped list item; the mobile account menu.
 //   - "compact" — a two-option switch, full width.
 export default function ModeToggle({ variant = 'compact' }: { variant?: 'banner' | 'row' | 'compact' }) {
-  const { effectiveMode, setMode, canEnterPro, hasRestaurantRole, loading, setDashboardTab } = useMode()
+  const { effectiveMode, canEnterPro, hasRestaurantRole, loading, setDashboardTab } = useMode()
+  const switchMode = useSwitchMode()
   const router   = useRouter()
   const pathname = usePathname() ?? ''
   const bi       = useBi()
@@ -30,13 +32,7 @@ export default function ModeToggle({ variant = 'compact' }: { variant?: 'banner'
 
   async function switchTo(next: Mode) {
     if (next === mode) return
-    setMode(next)
-    // Saved on the account too, so the next login (any device) opens in it.
-    fetch('/api/customer/mode', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: next }),
-    }).catch(() => { /* the browser keeps the choice either way */ })
+    switchMode(next)
 
     if (next === 'client') {
       if (pathname !== '/') router.push('/')

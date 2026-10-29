@@ -18,13 +18,10 @@ export default function ProRestaurantsPage() {
   const bi = useBi()
   const { locale } = useLanguage()
   const router = useRouter()
-  const { loading, canEnterPro, sessionRole, effectiveMode, setMode, setDashboardTab } = useMode()
+  const { loading, canEnterPro, sessionRole, setDashboardTab } = useMode()
   const [rows, setRows] = useState<Row[] | null>(null)
   const [roles, setRoles] = useState<Record<string, TeamRole>>({})
 
-  useEffect(() => {
-    if (canEnterPro && effectiveMode !== 'pro') setMode('pro')
-  }, [canEnterPro, effectiveMode, setMode])
 
   useEffect(() => {
     if (!canEnterPro) return

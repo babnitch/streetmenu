@@ -12,13 +12,10 @@ import { useMode } from '@/lib/modeContext'
 // settings. Moved here from /account (whose ?tab=events redirects here).
 export default function ProEventsPage() {
   const bi = useBi()
-  const { loading, canEnterPro, sessionRole, effectiveMode, setMode } = useMode()
+  const { loading, canEnterPro, sessionRole } = useMode()
   const [events, setEvents] = useState<MyEventsPanelEvent[] | null>(null)
   const [trust, setTrust] = useState<MyEventsPanelTrust | null>(null)
 
-  useEffect(() => {
-    if (canEnterPro && effectiveMode !== 'pro') setMode('pro')
-  }, [canEnterPro, effectiveMode, setMode])
 
   const load = useCallback(async () => {
     try {

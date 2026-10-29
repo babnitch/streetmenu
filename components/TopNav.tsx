@@ -12,6 +12,7 @@ import AddSheetHost from './AddSheet'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
+import { showProAlerts, showCustomerBadges } from '@/lib/modeSurfaces'
 import { pickBi } from '@/lib/languageContext'
 import type { Locale } from '@/lib/translations'
 import {
@@ -180,7 +181,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           navigation is the console on /account. */}
       <div className="md:hidden px-2 h-12 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 min-w-0">
-          {!isAdmin && <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />}
+          {!isAdmin && <MenuButton onClick={() => setMenuOpen(true)} badge={showProAlerts(effectiveMode) ? pendingCount : 0} label={bi('Menu', 'Menu')} />}
           <Link href={isAdmin ? '/account' : '/'} className="font-black text-brand tracking-tight truncate px-1">
             Tchop &amp; Ndjoka
           </Link>
@@ -271,7 +272,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
       {isClientBar && (
         <div className="hidden md:flex max-w-5xl mx-auto px-4 h-14 items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />
+            <MenuButton onClick={() => setMenuOpen(true)} badge={showProAlerts(effectiveMode) ? pendingCount : 0} label={bi('Menu', 'Menu')} />
             <Link href="/" className="font-black text-brand tracking-tight text-xl truncate">
               Tchop &amp; Ndjoka
             </Link>
@@ -286,7 +287,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           <div className="flex items-center gap-2 flex-shrink-0">
             <CityDropdown compact />
             <MapButton onClick={toggleMap} label={bi('Carte', 'Map')} />
-            <TopNavLink href="/order" active={pathname === '/order'} badge={totalItems}>
+            <TopNavLink href="/order" active={pathname === '/order'} badge={showCustomerBadges(effectiveMode) ? totalItems : 0}>
               <span aria-label={bi('Panier', 'Cart')}>🛒</span>
             </TopNavLink>
           </div>
@@ -298,7 +299,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           between dashboard tabs. ─────────────────────────────────────── */}
       <div className={`${isAdmin || effectiveMode === 'client' ? 'hidden' : 'hidden md:flex'} max-w-2xl mx-auto px-3 sm:px-4 h-14 items-center gap-2 sm:gap-4`}>
 
-        <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />
+        <MenuButton onClick={() => setMenuOpen(true)} badge={showProAlerts(effectiveMode) ? pendingCount : 0} label={bi('Menu', 'Menu')} />
 
         {/* Logo — orange T&N text, never hidden. Compact on mobile. */}
         <Link href="/" className="flex items-center gap-1 flex-shrink-0" aria-label="Tchop &amp; Ndjoka — home">
@@ -427,7 +428,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
 
       {!isAdmin && <AddSheetHost />}
       {!isAdmin && (
-        <SideMenu open={menuOpen} onClose={closeMenu} user={me ? { name: me.name, role: me.role } : null} pendingCount={pendingCount} />
+        <SideMenu open={menuOpen} onClose={closeMenu} user={me ? { name: me.name, role: me.role } : null} pendingCount={showProAlerts(effectiveMode) ? pendingCount : 0} />
       )}
     </header>
   )
