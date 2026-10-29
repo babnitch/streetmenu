@@ -128,12 +128,25 @@ function diff(before: string[], after: string[]): { added: string[]; removed: st
 }
 
 // ── Events (M4): an event follows its organiser's modules. An event with no
-//    organiser account (old rows) keeps working as before modules existed. ──
-export async function eventAllows(event: { organizer_id?: string | null }, m: OrganizerModule): Promise<boolean> {
-  if (!event.organizer_id) return true
+//    organiser account (old rows) keeps working as before modules existed.
+//    N3: an event the admin created and manages ("managed by Tchop &
+//    Ndjoka", no organiser yet) takes free reservations only. ──
+export const MANAGED_EVENT_MODULES: readonly OrganizerModule[] = ['reservations']
+
+type EventForModules = { id?: string | null; organizer_id?: string | null; managed_by_platform?: boolean | null }
+
+export async function eventAllows(event: EventForModules, m: OrganizerModule): Promise<boolean> {
+  if (!event.organizer_id) {
+    let managed = event.managed_by_platform
+    if (managed === undefined && event.id) {
+      const { data } = await supabaseAdmin.from('events').select('managed_by_platform').eq('id', event.id).maybeSingle()
+      managed = data?.managed_by_platform === true
+    }
+    return managed ? MANAGED_EVENT_MODULES.includes(m) : true
+  }
   return (await organizerModules(event.organizer_id)).includes(m)
 }
 
-export async function requireEventModule(event: { organizer_id?: string | null }, m: OrganizerModule): Promise<NextResponse | null> {
+export async function requireEventModule(event: EventForModules, m: OrganizerModule): Promise<NextResponse | null> {
   return (await eventAllows(event, m)) ? null : moduleOffResponse('organizer', m)
 }

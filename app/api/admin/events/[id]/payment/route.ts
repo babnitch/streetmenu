@@ -32,7 +32,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   // M4: online payment needs the organiser's Billets payants module.
   if ((hasMode && normalizeMode(body.payment_mode) !== 'reservation_only') || body.whatsapp_payment_enabled === true) {
-    const { data: ev } = await supabaseAdmin.from('events').select('organizer_id').eq('id', params.id).maybeSingle()
+    const { data: ev } = await supabaseAdmin.from('events').select('id, organizer_id, managed_by_platform').eq('id', params.id).maybeSingle()
     const off = ev ? await requireEventModule(ev, 'paid_tickets') : null
     if (off) return off
   }

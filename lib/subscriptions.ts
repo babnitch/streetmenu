@@ -12,9 +12,8 @@ import { formatFCFA } from '@/lib/money'
 // ── Constants ───────────────────────────────────────────────────────────────
 
 export const SUBSCRIPTION_CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
-export const EVENT_CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-] as const
+// The canonical list lives in lib/categoryLabels.ts (client-safe).
+export { EVENT_CATEGORIES } from '@/lib/categoryLabels'
 
 // Twilio's published WhatsApp rate is ~1 msg/sec on shared-sender, much
 // higher on dedicated. Batching 100/min keeps us well inside both.

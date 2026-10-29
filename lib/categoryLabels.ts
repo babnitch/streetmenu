@@ -10,6 +10,11 @@
 
 import type { Locale } from './translations'
 
+// The 9 canonical categories, in display order.
+export const EVENT_CATEGORIES = [
+  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
+] as const
+
 const FR_LABEL: Record<string, string> = {
   Concert:      'Concert',
   Festival:     'Festival',

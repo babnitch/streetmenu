@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!days) {
     return NextResponse.json({ error: 'Disponibilité indisponible / Availability unavailable' }, { status: 500 })
   }
-  const { data: ev } = await supabaseAdmin.from('events').select('organizer_id').eq('id', params.id).maybeSingle()
+  const { data: ev } = await supabaseAdmin.from('events').select('id, organizer_id, managed_by_platform').eq('id', params.id).maybeSingle()
   const booking = ev
     ? { reservations: await eventAllows(ev, 'reservations'), paid_tickets: await eventAllows(ev, 'paid_tickets') }
     : null

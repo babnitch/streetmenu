@@ -14,6 +14,7 @@ import ModulesSheet, { ModuleChips } from '@/components/ModulesSheet'
 import AdminModuleRequests from '@/components/AdminModuleRequests'
 import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
+import { AdminEventCreate, AdminEventOrganizer } from '@/components/AdminEventManaged'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -47,6 +48,7 @@ export default function AdminEventsPage() {
   const [tab, setTab] = useState<EventTab>('pending')
   const [saving, setSaving] = useState<string | null>(null)
   const [currentRole, setCurrentRole] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   // Only super_admin and admin may flip payment configuration (not moderator).
   const canTogglePayment = currentRole === 'super_admin' || currentRole === 'admin'
@@ -239,10 +241,24 @@ export default function AdminEventsPage() {
       )}
 
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-ink-primary">{t('admin.evtTitle')}</h1>
-        <p className="text-sm text-ink-secondary mt-0.5">{t('admin.evtSub')}</p>
+      <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-ink-primary">{t('admin.evtTitle')}</h1>
+          <p className="text-sm text-ink-secondary mt-0.5">{t('admin.evtSub')}</p>
+        </div>
+        {canTogglePayment && (
+          <button type="button" onClick={() => setCreating(true)}
+            className="bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-full text-sm font-semibold">
+            + {bi('Créer un événement', 'Create an event')}
+          </button>
+        )}
       </div>
+      {creating && (
+        <AdminEventCreate
+          onClose={() => setCreating(false)}
+          onCreated={evt => { setCreating(false); setEvents(prev => [evt, ...prev]); showToast(bi('✅ Événement créé', '✅ Event created')) }}
+        />
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -320,6 +336,7 @@ export default function AdminEventsPage() {
               submitter={evt.organizer_id ? submitters[evt.organizer_id] : undefined}
               saving={saving === evt.id}
               canTogglePayment={canTogglePayment}
+              onOrganizerChanged={fetchEvents}
               onApprove={() => approve(evt.id)}
               onReject={() => reject(evt.id)}
               onToggleFeatured={() => toggleFeatured(evt)}
@@ -381,7 +398,7 @@ export default function AdminEventsPage() {
 }
 
 function EventRow({
-  event, aggregate, submitter, saving, canTogglePayment,
+  event, aggregate, submitter, saving, canTogglePayment, onOrganizerChanged,
   onApprove, onReject, onSetMode, onToggleWhatsapp, onRevokeAutoApprove, onEditModules, onToggleFeatured,
   approveLabel, rejectLabel, organizerLabel,
   reservationsLabel, ticketsLabel, revenueLabel, commissionLabel, netLabel,
@@ -394,6 +411,7 @@ function EventRow({
   submitter?: Submitter
   saving: boolean
   canTogglePayment: boolean
+  onOrganizerChanged: () => void
   onApprove: () => void
   onReject: () => void
   onSetMode: (m: PaymentMode) => void
@@ -498,6 +516,11 @@ function EventRow({
               <p className="text-xs text-ink-tertiary font-mono">{event.whatsapp}</p>
             )}
           </div>
+
+          {/* N3: listed by us, no organiser yet. */}
+          {canTogglePayment && !event.organizer_id && event.managed_by_platform && (
+            <AdminEventOrganizer event={event} onChanged={onOrganizerChanged} />
+          )}
 
           {/* Submitter trust + auto-approve revoke. Only renders when we
               successfully joined a submitter row (rejected events lose the

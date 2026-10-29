@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { writeAudit } from '@/lib/audit'
+import { sanitizeText } from '@/lib/sanitize'
+import { normalizePhone } from '@/lib/phone'
+import { EVENT_CATEGORIES } from '@/lib/categoryLabels'
+import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
+import { EVENT_POSTER_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,4 +83,97 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ events: list, aggregates, submitters })
+}
+
+// POST /api/admin/events (N3) — an event listed by the admin, with no
+// organiser: "managed by Tchop & Ndjoka" (managed_by_platform). Nobody is
+// messaged — not the contact, not the subscribers. It takes free
+// reservations only (lib/modulesServer.ts MANAGED_EVENT_MODULES) until an
+// organiser is linked (POST …/[id]/organizer). A price is shown as the
+// entry price; there are no paid tickets or ticket tiers.
+//
+// Body: title, category, city, date, time?, end_date?, end_time?, venue?,
+// neighborhood?, description?, cover_photo (required), price?, max_tickets?,
+// whatsapp? (public contact), notify_phone? (gets the bookings),
+// organizer_name? (display), publish (default true; false = pending).
+// super_admin | admin.
+export async function POST(req: NextRequest) {
+  const session = getSessionFromRequest(req)
+  if (!session || !['super_admin', 'admin'].includes(session.role)) {
+    return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
+  }
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>
+  const title = sanitizeText(body.title, 140)
+  const city = sanitizeText(body.city, 60)
+  const category = String(body.category ?? '')
+  const date = String(body.date ?? '')
+  if (!title || !city || !date || !(EVENT_CATEGORIES as readonly string[]).includes(category)) {
+    return NextResponse.json({ error: 'Champs requis manquants / Missing required fields' }, { status: 400 })
+  }
+  if (!hasPictureUrl(body.cover_photo)) {
+    return NextResponse.json({ error: EVENT_POSTER_REQUIRED_TEXT, field: 'cover_photo' }, { status: 400 })
+  }
+  const range = {
+    date,
+    time:     body.time ? String(body.time) : null,
+    end_date: body.end_date ? String(body.end_date) : null,
+    end_time: body.end_time ? String(body.end_time) : null,
+  }
+  const rangeError = validateEventRange(range)
+  if (rangeError) return NextResponse.json({ error: eventRangeErrorText(rangeError) }, { status: 400 })
+
+  const phoneOrNull = (raw: unknown, field: string): string | null | NextResponse => {
+    const t = typeof raw === 'string' ? raw.trim() : ''
+    if (!t) return null
+    const p = normalizePhone(t)
+    return /^\+\d{8,15}$/.test(p) ? p : NextResponse.json({ error: 'Numéro invalide / Invalid number', field }, { status: 400 })
+  }
+  const whatsapp = phoneOrNull(body.whatsapp, 'whatsapp')
+  if (whatsapp instanceof NextResponse) return whatsapp
+  const notifyPhone = phoneOrNull(body.notify_phone, 'notify_phone')
+  if (notifyPhone instanceof NextResponse) return notifyPhone
+
+  const rawPrice = body.price
+  const price = rawPrice != null && rawPrice !== '' ? Math.max(0, Math.round(Number(rawPrice)) || 0) : null
+  const maxTickets = body.max_tickets != null && body.max_tickets !== '' ? Math.max(0, parseInt(String(body.max_tickets), 10) || 0) : 0
+  const publish = body.publish !== false
+
+  const { data: event, error } = await supabaseAdmin.from('events').insert({
+    title,
+    description:  sanitizeText(body.description, 2000) || null,
+    date:         range.date,
+    time:         range.time,
+    end_date:     normalizeEndDate(range.date, range.end_date),
+    end_time:     range.end_time,
+    venue:        sanitizeText(body.venue, 120) || null,
+    city,
+    neighborhood: sanitizeText(body.neighborhood, 80) || null,
+    category,
+    price,
+    ticket_price: price,
+    max_tickets:  maxTickets,
+    payment_enabled: false,
+    payment_mode: 'reservation_only',
+    whatsapp_payment_enabled: false,
+    requires_confirmation: false,
+    cover_photo:  String(body.cover_photo).trim(),
+    whatsapp,
+    notify_phone: notifyPhone,
+    organizer_name: sanitizeText(body.organizer_name, 80) || 'Tchop & Ndjoka',
+    organizer_id: null,
+    managed_by_platform: true,
+    is_active:    publish,
+    auto_approved: false,
+    event_status: 'upcoming',
+  }).select('*').single()
+  if (error || !event) {
+    console.error('[admin/events] insert failed:', error?.message)
+    return NextResponse.json({ error: error?.message ?? 'Erreur serveur / Server error' }, { status: 500 })
+  }
+  await writeAudit({
+    action: 'event_created_by_admin', targetType: 'event', targetId: event.id,
+    performedBy: session.id, performedByType: session.role,
+    metadata: { title, city, published: publish, managed: true },
+  })
+  return NextResponse.json({ ok: true, event })
 }

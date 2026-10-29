@@ -171,6 +171,10 @@ export interface Event {
   max_tickets?: number | null
   tickets_sold?: number | null
   organizer_id?: string | null
+  // N3: listed by the admin with no organiser ("managed by Tchop & Ndjoka").
+  managed_by_platform?: boolean | null
+  // Extra number that gets the bookings (supabase-c3-pro.sql).
+  notify_phone?: string | null
   event_status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
   // Capacity + approval flags (supabase-event-capacity.sql).
   // requires_confirmation defaults FALSE — auto-confirm behaviour.

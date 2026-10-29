@@ -1638,7 +1638,7 @@ export async function handleOrderCommand(
     }
     const shown = match.reservation_code ?? code.toUpperCase()
     // M4: door check-in needs the Contrôle des billets module.
-    const { data: ctlEvent } = await supabaseAdmin.from('events').select('organizer_id').eq('id', match.event_id).maybeSingle()
+    const { data: ctlEvent } = await supabaseAdmin.from('events').select('id, organizer_id, managed_by_platform').eq('id', match.event_id).maybeSingle()
     if (ctlEvent && !(await eventAllows(ctlEvent, 'ticket_control'))) {
       await sendWhatsApp(from, pickLang(
         '🔒 Le module « Contrôle des billets » n\'est pas activé. Demandez-le depuis votre espace Pro.',

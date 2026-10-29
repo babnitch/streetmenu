@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Vous n\'organisez pas cet événement / You do not organize this event' }, { status: 403 })
     }
     // M4: "À la une" needs the organiser's module.
-    const { data: ev } = await supabaseAdmin.from('events').select('organizer_id').eq('id', targetId).maybeSingle()
+    const { data: ev } = await supabaseAdmin.from('events').select('id, organizer_id, managed_by_platform').eq('id', targetId).maybeSingle()
     const featOff = ev ? await requireEventModule(ev, 'featured') : null
     if (featOff) return featOff
   }
