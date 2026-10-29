@@ -29,7 +29,7 @@ async function main(): Promise<void> {
       assertEq(effectiveEventMode('both', null), 'both', 'unknown → server decides')
     })
 
-    const org = await makeCustomer({ suiteNo: 74, name: 'M4 Organiser', extra: { organizer_modules: [], event_auto_approve: false } })
+    const org = await makeCustomer({ suiteNo: 74, name: 'M4 Organiser', extra: { organizer_modules: [], event_auto_approve: false, default_mode: 'pro' } })   // Pro mode: checking guests in is a Pro action
     const buyer = await makeCustomer({ suiteNo: 74, name: 'M4 Buyer' })
     const bc = customerCookie(buyer)
     const ev = await makeEvent({ organizerId: org.id, label: 'm4_event', isActive: true, ticketPrice: 2000,

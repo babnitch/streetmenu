@@ -46,7 +46,7 @@ async function open(cookie: string | null, mode: 'client' | 'pro', path: string)
     } catch { /* storage blocked */ }
   }, [mode, CLIENT_VERSION] as const)
   const page = await ctx.newPage()
-  await page.goto(BASE + path, { waitUntil: 'domcontentloaded', timeout: 120_000 })
+  await page.goto(BASE + path, { waitUntil: 'domcontentloaded', timeout: 240_000 })   // the dev server compiles on first hit
   return page
 }
 
