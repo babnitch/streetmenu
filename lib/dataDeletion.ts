@@ -17,6 +17,7 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
 import { normalizePhone } from '@/lib/phone'
+import { isPastEvent, EVENT_DATE_COLUMNS } from '@/lib/eventDate'
 
 export const DELETED_NAME = 'Compte supprimé'
 export const DELETED_CUSTOMER_NAME = 'Client supprimé'
@@ -66,10 +67,10 @@ export async function anonymiseAccount(requestId: string, actor: { id: string; t
     const { count: owns } = await supabaseAdmin.from('restaurant_team').select('id', { count: 'exact', head: true })
       .eq('customer_id', cust.id).eq('role', 'owner').eq('status', 'active')
     if ((owns ?? 0) > 0) return { ok: false, status: 409, error: 'Ce compte possède un restaurant : changez d\'abord le propriétaire / This account owns a restaurant: change the owner first' }
-    const today = new Date().toISOString().slice(0, 10)
-    const { count: events } = await supabaseAdmin.from('events').select('id', { count: 'exact', head: true })
-      .eq('organizer_id', cust.id).eq('is_active', true).gte('date', today)
-    if ((events ?? 0) > 0) return { ok: false, status: 409, error: 'Ce compte organise un événement à venir / This account organises an upcoming event' }
+    // Upcoming = not over yet (multi-day events count until their last day).
+    const { data: evs } = await supabaseAdmin.from('events').select(`id, ${EVENT_DATE_COLUMNS}`)
+      .eq('organizer_id', cust.id).eq('is_active', true)
+    if ((evs ?? []).some(e => !isPastEvent(e as never))) return { ok: false, status: 409, error: 'Ce compte organise un événement à venir / This account organises an upcoming event' }
   }
 
   const phones = [phone, phone.replace(/^\+/, '')]
