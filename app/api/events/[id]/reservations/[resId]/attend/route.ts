@@ -1,3 +1,4 @@
+import { requireProMode } from '@/lib/proModeServer'
 import { bookingIdOf } from '@/lib/scanLinks'
 import { dateInZone, restaurantZone } from '@/lib/offers'
 import { NextRequest, NextResponse } from 'next/server'
@@ -20,6 +21,9 @@ export async function POST(
   if (!session) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
 
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
+  // Checking a guest in is a Pro action (Client mode refused).
+  const notPro = await requireProMode(session)
+  if (notPro) return notPro
 
   const { data: event } = await supabaseAdmin
     .from('events').select('id, organizer_id, submitted_by, city').eq('id', params.id).maybeSingle()

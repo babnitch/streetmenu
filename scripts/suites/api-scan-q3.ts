@@ -30,7 +30,7 @@ async function main(): Promise<void> {
       assertEq(tokenFromScan('WIFI:S:cafe;T:WPA;P:x;;'), null, 'other QR')
     })
 
-    const org = await makeCustomer({ suiteNo: 86, name: 'Q3 Organiser' })
+    const org = await makeCustomer({ suiteNo: 86, name: 'Q3 Organiser', extra: { default_mode: 'pro' } })
     const buyer = await makeCustomer({ suiteNo: 86, name: 'Q3 Buyer', extra: { city: CITY } })
     const stranger = await makeCustomer({ suiteNo: 86, name: 'Q3 Stranger' })
     const oc = customerCookie(org)

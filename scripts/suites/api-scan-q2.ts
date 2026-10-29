@@ -43,7 +43,8 @@ async function messagesTo(phone: string, relatedId?: string): Promise<string[]> 
 
 async function main(): Promise<void> {
   try {
-    const organizer = await makeCustomer({ suiteNo: 85, name: 'Marie Organiser' })
+    // Staff validate in Pro mode (the account's saved mode).
+    const organizer = await makeCustomer({ suiteNo: 85, name: 'Marie Organiser', extra: { default_mode: 'pro' } })
     const buyer = await makeCustomer({ suiteNo: 85, name: 'Q2 Buyer', extra: { city: CITY } })
     const stranger = await makeCustomer({ suiteNo: 85, name: 'Q2 Stranger' })
     const oc = customerCookie(organizer), bc = customerCookie(buyer), sc = customerCookie(stranger)
@@ -120,7 +121,7 @@ async function main(): Promise<void> {
       track('event_reservations', unpaid!.id as string)
       assert(/Paiement non confirmé/.test((await view(await ensureScanToken('reservation', unpaid!.id as string), oc)).body.reason ?? ''), 'unpaid → refused')
 
-      const plain = await makeCustomer({ suiteNo: 85, name: 'No Control Org', extra: { organizer_modules: ['reservations'] } })
+      const plain = await makeCustomer({ suiteNo: 85, name: 'No Control Org', extra: { organizer_modules: ['reservations'], default_mode: 'pro' } })
       const ev2 = await makeEvent({ organizerId: plain.id, label: 'q2_noctl', isActive: true, date: today, city: CITY })
       const b2 = await api<{ reservation_ids?: string[] }>(`/api/events/${ev2.id}/reserve`, { cookie: bc, body: { quantity: 1 } })
       for (const id of b2.body.reservation_ids ?? []) track('event_reservations', id)
@@ -144,10 +145,10 @@ async function main(): Promise<void> {
     })
 
     // ── Orders ────────────────────────────────────────────────────────
-    const owner = await makeCustomer({ suiteNo: 85, name: 'Paul Owner' })
+    const owner = await makeCustomer({ suiteNo: 85, name: 'Paul Owner', extra: { default_mode: 'pro' } })
     const rest = await makeRestaurant({ ownerId: owner.id, label: 'q2_r' })
     const otherRest = await makeRestaurant({ label: 'q2_r_other' })
-    const otherStaff = await makeCustomer({ suiteNo: 85, name: 'Other Staff' })
+    const otherStaff = await makeCustomer({ suiteNo: 85, name: 'Other Staff', extra: { default_mode: 'pro' } })
     await addTeamMember(otherRest.id, otherStaff.id, 'staff')
     const owc = customerCookie(owner)
 

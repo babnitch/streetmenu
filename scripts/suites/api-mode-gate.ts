@@ -7,16 +7,20 @@
 //   - logged out on a Pro page → login with the return path
 //   - the account page and the ☰ menu list only their mode's rows
 //   - pro alerts (the ☰ dot for pending orders) only in Pro mode
+//   - /scan: someone allowed to validate but in Client mode gets the switch
+//     screen, then validates on the same page; owner / others unchanged
 //   - admins are not gated
 // Every phone is +999.
 
 import { chromium, type Browser, type Page } from 'playwright'
 import { assert, assertEq, step, finish } from '../testkit/assert'
-import { customerCookie, adminCookie } from '../testkit/session'
+import { api, customerCookie, adminCookie } from '../testkit/session'
 import { BASE } from '../testkit/env'
 import { CLIENT_VERSION } from '../../lib/clientVersion'
-import { makeCustomer, makeRestaurant, makeOrder } from '../testkit/fixtures'
-import { teardown } from '../testkit/ledger'
+import { makeCustomer, makeRestaurant, makeOrder, makeEvent } from '../testkit/fixtures'
+import { teardown, track } from '../testkit/ledger'
+import { ensureScanToken } from '../../lib/scanTokens'
+import { dateInZone } from '../../lib/offers'
 
 const SUITE = 'api-mode-gate'
 const PRO_PAGES = ['/pro', '/pro/events', '/pro/profile', '/pro/restaurants', '/pro/restaurants/new', '/dashboard', '/scanner', '/livraisons', '/events/submit']
@@ -141,6 +145,34 @@ async function main(): Promise<void> {
       assert(mp.includes('Commandes du restaurant') && mp.includes('Mes événements'), 'pro ☰: pro rows')
       assert(!mp.includes('Mes commandes') && !mp.includes('Mes favoris'), 'pro ☰: no customer rows')
       await p.context().close()
+    })
+
+    await step('/scan: staff in Client mode → switch screen, then validate on the same page; owner/others unchanged', async () => {
+      const org = await makeCustomer({ suiteNo: 91, name: 'Scan Organiser' })            // account in Client mode
+      const guest = await makeCustomer({ suiteNo: 91, name: 'Scan Guest' })
+      const ev = await makeEvent({ organizerId: org.id, label: 'mode_scan_ev', isActive: true, date: dateInZone('Africa/Douala') })
+      const res = await api<{ reservation_ids?: string[] }>(`/api/events/${ev.id}/reserve`, { cookie: customerCookie(guest), body: { quantity: 3 } })
+      for (const id of res.body.reservation_ids ?? []) track('event_reservations', id)
+      const path = `/scan/${await ensureScanToken('reservation', res.body.reservation_ids![0])}`
+
+      const own = await open(customerCookie(guest), 'client', path)
+      assert(await waitFor(own, 'Montrez ce QR'), 'owner (Client mode): their own ticket')
+      assert(!(await text(own)).includes(PRO_GATE), 'owner: no switch screen')
+      await own.context().close()
+
+      const anon = await open(null, 'client', path)
+      assert(await waitFor(anon, 'ne peut être validé que par'), 'logged out: neutral page')
+      await anon.context().close()
+
+      const st = await open(customerCookie(org), 'client', path)
+      assert(await waitFor(st, PRO_GATE), 'staff in Client mode: switch screen')
+      assert(!(await text(st)).includes("Valider l'entrée"), 'no validate button yet')
+      await st.click('text=Passer en mode Pro')
+      assert(await waitFor(st, "Valider l'entrée"), 'then the validate button')
+      assertEq(new URL(st.url()).pathname, path, 'same /scan page')
+      await st.click("button:has-text(\"Valider l'entrée\")")
+      assert(await waitFor(st, 'Entrée validée'), 'validated ✓')
+      await st.context().close()
     })
 
     await step('admins are not gated', async () => {

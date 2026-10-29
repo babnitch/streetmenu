@@ -7,12 +7,17 @@
 import { useCallback } from 'react'
 import { useMode, type Mode } from '@/lib/modeContext'
 
-export function useSwitchMode(): (next: Mode) => void {
+// Resolves once the account has saved it (the server checks the saved mode
+// for Pro actions, e.g. validating a QR), true when saved.
+export function useSwitchMode(): (next: Mode) => Promise<boolean> {
   const { setMode } = useMode()
-  return useCallback((next: Mode) => {
+  return useCallback(async (next: Mode) => {
     setMode(next)
-    fetch('/api/customer/mode', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: next }),
-    }).catch(() => { /* the browser keeps the choice either way */ })
+    try {
+      const r = await fetch('/api/customer/mode', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: next }),
+      })
+      return r.ok
+    } catch { return false /* the browser keeps the choice either way */ }
   }, [setMode])
 }

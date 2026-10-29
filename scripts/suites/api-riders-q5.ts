@@ -28,8 +28,8 @@ async function lastTo(phone: string, relatedId?: string): Promise<string[]> {
 
 async function main(): Promise<void> {
   try {
-    const owner = await makeCustomer({ suiteNo: 88, name: 'Q5 Owner' })
-    const staffer = await makeCustomer({ suiteNo: 88, name: 'Q5 Staff' })
+    const owner = await makeCustomer({ suiteNo: 88, name: 'Q5 Owner', extra: { default_mode: 'pro' } })
+    const staffer = await makeCustomer({ suiteNo: 88, name: 'Q5 Staff', extra: { default_mode: 'pro' } })
     const buyer = await makeCustomer({ suiteNo: 88, name: 'Q5 Buyer' })
     const oc = customerCookie(owner)
     const rest = await makeRestaurant({ ownerId: owner.id, label: 'q5_r' })
@@ -53,6 +53,7 @@ async function main(): Promise<void> {
       const row = r.body.riders!.find(x => x.phone === riderPhone)!
       rider = { id: row.id, customer_id: row.customer_id, cookie: customerCookie({ id: row.customer_id, phone: riderPhone, name: 'Jean Rider' } as never) }
       track('customers', rider.customer_id)
+      await sb.from('customers').update({ default_mode: 'pro' }).eq('id', rider.customer_id)   // riders deliver in Pro mode
       const msgs = await lastTo(riderPhone)
       assertEq(msgs.length, 1, 'one WhatsApp')
       assert(msgs[0].includes('/livraisons'), 'with "Mes livraisons" link')

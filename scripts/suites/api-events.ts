@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 
     const organizer = await makeCustomer({
       suiteNo: 34, name: 'Event Organizer',
-      extra: { event_auto_approve: false },   // interlock 2
+      extra: { event_auto_approve: false, default_mode: 'pro' },   // interlock 2; Pro mode to check guests in
     })
     const booker  = await makeCustomer({ suiteNo: 34, name: 'Event Booker' })
     const booker2 = await makeCustomer({ suiteNo: 34, name: 'Second Booker' })

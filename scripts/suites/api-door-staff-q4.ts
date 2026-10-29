@@ -21,7 +21,7 @@ interface View { access?: string; action?: string; error?: string; staff?: Array
 async function main(): Promise<void> {
   try {
     const today = dateInZone('Africa/Douala')
-    const org = await makeCustomer({ suiteNo: 87, name: 'Q4 Organiser' })
+    const org = await makeCustomer({ suiteNo: 87, name: 'Q4 Organiser', extra: { default_mode: 'pro' } })
     const buyer = await makeCustomer({ suiteNo: 87, name: 'Q4 Buyer', extra: { city: CITY } })
     const stranger = await makeCustomer({ suiteNo: 87, name: 'Q4 Stranger' })
     const oc = customerCookie(org)
@@ -43,6 +43,7 @@ async function main(): Promise<void> {
       assert(!!s, 'listed')
       door = { id: s!.customer_id, cookie: customerCookie({ id: s!.customer_id, phone: doorPhone, name: s!.name } as never) }
       track('customers', door.id)
+      await sb.from('customers').update({ default_mode: 'pro' }).eq('id', door.id)   // door staff validate in Pro mode
       const { data } = await sb.from('message_log').select('body').like('to_number', `%${doorPhone.replace('+', '')}%`)
       assertEq(data?.length, 1, 'one WhatsApp')
       assert(String(data?.[0]?.body).includes(`/scanner?event=${ev.id}`), 'with the scanner link')

@@ -1,3 +1,4 @@
+import { requireProMode } from '@/lib/proModeServer'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
+  const notPro = await requireProMode(session)
+  if (notPro) return notPro
   const hit = rateLimit({ key: `rider:code:${session.id}:${params.id}`, max: 10, windowMs: 600_000 })
   if (hit) return NextResponse.json({ error: hit.message }, { status: 429 })
   const { data: o } = await supabaseAdmin.from('orders').select('id, rider_id').eq('id', params.id).maybeSingle()

@@ -1,3 +1,4 @@
+import { requireProMode } from '@/lib/proModeServer'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/auth'
 import { rateLimit } from '@/lib/rateLimit'
@@ -11,7 +12,8 @@ export const dynamic = 'force-dynamic'
 //       and browsers pre-open links). Staff see the item and the button;
 //       the owner sees their own item; anyone else a neutral answer.
 // POST  { via?: 'scan' | 'code', restaurant_id? } — the button: check in /
-//       hand over / redeem, once (atomic). Staff only.
+//       hand over / redeem, once (atomic). Staff only, in Pro mode (403
+//       reason client_mode otherwise).
 // Rate limited per IP and per account.
 
 // A logged-in scanner: 120 a minute (a busy door: one look + one press per
@@ -44,6 +46,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   if (lim) return lim
   const target = await resolveScanToken(params.token)
   if (!target) return NextResponse.json(NOT_FOUND, { status: 404 })
+  // Validating is a Pro action: a session in Client mode is refused.
+  const notPro = await requireProMode(session)
+  if (notPro) return notPro
   const body = await req.json().catch(() => ({})) as { via?: unknown; restaurant_id?: unknown; code?: unknown }
   const r = await redeemScan(target.kind, target.id, session, {
     via: body.via === 'code' ? 'code' : 'scan',
