@@ -221,7 +221,7 @@ export default function EventsPage() {
                 <h2 id="featured-heading" className="text-xs font-bold tracking-widest text-ink-tertiary mb-2">{bi('À LA UNE', 'FEATURED')}</h2>
                 <PromoLink promo={promotedBy[featured.id]} href={`/events/${featured.id}`}
                   className="block relative rounded-2xl overflow-hidden shadow-card">
-                  <EventPoster src={featured.cover_photo} title={featured.title} category={featured.category}
+                  <EventPoster src={featured.cover_photo} title={featured.title} category={featured.category} tag={featured.category ? categoryLabel(featured.category, locale) : null}
                     className="aspect-[4/5] sm:aspect-[16/10] w-full" rounded="rounded-none" sizes="(max-width: 768px) 100vw, 768px" priority />
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent p-4 pt-16 text-white">
                     {promotedBy[featured.id] && <span className="text-[10px] font-semibold opacity-80">{bi('Sponsorisé', 'Sponsored')}</span>}
@@ -241,7 +241,7 @@ export default function EventsPage() {
                 <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {week.map(({ e }) => (
                     <PromoLink key={e.id} promo={promotedBy[e.id]} href={`/events/${e.id}`} className="flex-shrink-0 w-36 snap-start">
-                      <EventPoster src={e.cover_photo} title={e.title} category={e.category} className="aspect-[4/5] w-full shadow-sm" sizes="144px" />
+                      <EventPoster src={e.cover_photo} title={e.title} category={e.category} tag={e.category ? categoryLabel(e.category, locale) : null} className="aspect-[4/5] w-full shadow-sm" sizes="144px" />
                       <p className="mt-1.5 text-sm font-semibold text-ink-primary leading-tight line-clamp-2">{e.title}</p>
                       <p className="text-xs text-ink-tertiary">
                         {promotedBy[e.id] ? `${bi('Sponsorisé', 'Sponsored')} · ` : ''}{priceText(e.fromPrice) ?? ''}

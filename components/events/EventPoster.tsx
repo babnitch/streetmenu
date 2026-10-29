@@ -1,5 +1,6 @@
 'use client'
 
+import CardTag from '@/components/CardTag'
 import Image from 'next/image'
 import { useDataMode } from '@/lib/dataMode'
 
@@ -15,7 +16,7 @@ export const CATEGORY_EMOJI: Record<string, string> = {
 }
 
 export default function EventPoster({
-  src, title, category, sizes = '(max-width: 768px) 50vw, 300px', className = '', rounded = 'rounded-2xl', priority = false,
+  src, title, category, sizes = '(max-width: 768px) 50vw, 300px', className = '', rounded = 'rounded-2xl', priority = false, tag,
 }: {
   src: string | null | undefined
   title: string
@@ -24,6 +25,8 @@ export default function EventPoster({
   className?: string
   rounded?: string
   priority?: boolean
+  /** U4: the category pill top-left (translated label); none when empty. */
+  tag?: string | null
 }) {
   const { isLowData } = useDataMode()
   const emoji = CATEGORY_EMOJI[category ?? ''] ?? '🎉'
@@ -43,6 +46,7 @@ export default function EventPoster({
           <span className="absolute bottom-2 text-[10px] font-semibold opacity-80 tracking-wide">TCHOP &amp; NDJOKA</span>
         </div>
       )}
+      <CardTag label={tag} />
     </div>
   )
 }

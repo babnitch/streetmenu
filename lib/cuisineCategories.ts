@@ -87,3 +87,13 @@ export function matchesCuisineCategory(
 export function cuisineCategoryLabel(cat: CuisineCategory, locale: string): string {
   return locale === 'en' ? cat.en : cat.fr
 }
+
+// The card pill (U4): the first cuisine category a restaurant matches, in
+// the viewer's language; null when none.
+export function cuisineTag(
+  source: { cuisine_type?: string | null; description?: string | null; name?: string | null },
+  locale: 'fr' | 'en' | string,
+): string | null {
+  const cat = CUISINE_CATEGORIES.find(c => matchesCuisineCategory(source, c.id))
+  return cat ? (locale === 'en' ? cat.en : cat.fr) : null
+}

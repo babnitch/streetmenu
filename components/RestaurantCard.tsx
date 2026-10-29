@@ -1,10 +1,12 @@
 'use client'
 
+import CardTag from '@/components/CardTag'
+import { cuisineTag } from '@/lib/cuisineCategories'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Restaurant } from '@/types'
-import { useBi } from '@/lib/languageContext'
+import { useBi, useLanguage } from '@/lib/languageContext'
 import { useDataMode } from '@/lib/dataMode'
 import { formatPrepTime } from '@/lib/prepTime'
 
@@ -36,6 +38,7 @@ export default function RestaurantCard({
   promotionId?: string
 }) {
   const bi = useBi()
+  const { locale } = useLanguage()
   const { isLowData } = useDataMode()
   const [imgError, setImgError] = useState(false)
   const cardRef = useRef<HTMLAnchorElement>(null)
@@ -102,8 +105,10 @@ export default function RestaurantCard({
         )}
         {/* Closed chip — mobile only. The desktop card keeps its
             open/closed badge in the text block below. */}
+        {/* U4: the cuisine pill top-left; "Fermé" moves to the right. */}
+        <CardTag label={cuisineTag(restaurant, locale)} />
         {!isOpen && (
-          <span className="md:hidden absolute top-2 left-2 bg-black/70 text-white text-[10px] font-semibold px-2 py-1 rounded-full leading-none">
+          <span className="md:hidden absolute top-2 right-2 bg-black/70 text-white text-[10px] font-semibold px-2 py-1 rounded-full leading-none">
             {bi('Fermé', 'Closed')}
           </span>
         )}

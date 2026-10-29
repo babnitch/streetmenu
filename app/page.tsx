@@ -15,6 +15,9 @@ import { formatFCFA, formatAmount } from '@/lib/money'
 import { formatPrepTime } from '@/lib/prepTime'
 import { formatDeliveryTime } from '@/lib/delivery'
 import { percentOffLabel } from '@/lib/offers'
+import CardTag from '@/components/CardTag'
+import { cuisineTag } from '@/lib/cuisineCategories'
+import { categoryLabel } from '@/lib/categoryLabels'
 import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/weekend'
 
 interface PopularRestaurant {
@@ -131,6 +134,7 @@ export default function HomePage() {
             {offers.map(o => (
               <Card key={`o-${o.restaurant.id}-${o.dish?.id ?? 'delivery'}`} href={`/restaurant/${o.restaurant.id}`}
                 image={img(o.dish?.photo_url ?? o.restaurant.image)} fallback={o.dish ? '🍽️' : '🛵'}
+                tag={bi('Offre', 'Deal')}
                 badge={o.dish ? percentOffLabel(o.dish.regular_price, o.dish.offer_price) : bi('Livraison offerte', 'Free delivery')}
                 title={o.dish?.name ?? o.restaurant.name}
                 sub={o.dish ? o.restaurant.name : bi('Aujourd\'hui', 'Today')}>
@@ -149,6 +153,7 @@ export default function HomePage() {
           <Row id="popular-restaurants" title={bi(`Restaurants populaires à ${city}`, `Popular restaurants in ${city}`)} more={{ href: '/restaurants', label: bi('Tout voir', 'See all') }}>
             {popular.restaurants.map(r => (
               <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} fallback="🍽️"
+                tag={cuisineTag(r, locale)}
                 badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
                 title={r.name} sub={fulfilmentLine(r)} />
             ))}
@@ -159,6 +164,7 @@ export default function HomePage() {
           <Row id="weekend" title={bi(`Ce week-end à ${city}`, `This weekend in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
             {weekend.map(e => (
               <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
+                tag={e.category ? categoryLabel(e.category, locale) : null}
                 title={e.title} sub={formatEventWhen(e, locale, 'card')}>
                 {e.fromPrice !== null && <p className="text-[12px] font-bold text-brand-dark mt-0.5">{e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`}</p>}
               </Card>
@@ -170,6 +176,7 @@ export default function HomePage() {
           <Row id="popular-events" title={bi('Événements populaires', 'Popular events')} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
             {popular.events.map(e => (
               <Card key={`e-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
+                tag={e.category ? categoryLabel(e.category, locale) : null}
                 title={e.title} sub={formatEventWhen(e, locale, 'card')}>
                 <p className="text-[12px] font-bold text-brand-dark mt-0.5">{eventPrice(e)}</p>
               </Card>
@@ -207,8 +214,8 @@ function Row({ id, title, more, children }: { id: string; title: string; more?: 
 }
 
 // A card in a row. `poster` gives events a taller, poster-shaped image.
-function Card({ href, image, fallback, badge, title, sub, poster, children }: {
-  href: string; image: string | null; fallback: string; badge?: string; title: string; sub: string; poster?: boolean; children?: React.ReactNode
+function Card({ href, image, fallback, badge, tag, title, sub, poster, children }: {
+  href: string; image: string | null; fallback: string; badge?: string; tag?: string | null; title: string; sub: string; poster?: boolean; children?: React.ReactNode
 }) {
   return (
     <Link href={href} className={`snap-start flex-shrink-0 ${poster ? 'w-36' : 'w-44'} bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
@@ -216,8 +223,10 @@ function Card({ href, image, fallback, badge, title, sub, poster, children }: {
         {image
           ? <Image src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover" />
           : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">{fallback}</span>}
+        {/* U4: category pill top-left; the deal badge top-right. */}
+        <CardTag label={tag} />
         {badge && (
-          <span className="absolute top-2 left-2 bg-brand text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow">{badge}</span>
+          <span className="absolute top-2 right-2 bg-brand text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow">{badge}</span>
         )}
       </div>
       <div className="px-2.5 py-2">
