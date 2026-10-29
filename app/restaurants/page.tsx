@@ -20,6 +20,7 @@ import { arrangePromoted, FEED_INJECT_EVERY_RESTAURANT } from '@/lib/promotions'
 import { CUISINE_CATEGORIES, matchesCuisineCategory } from '@/lib/cuisineCategories'
 import { matchesSearch } from '@/lib/textSearch'
 import { useDishHits } from '@/lib/dishSearch'
+import { deliversNow } from '@/lib/modules'
 import SearchField from '@/components/SearchField'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
@@ -78,6 +79,8 @@ export default function HomePage() {
   const [promoOnly, setPromoOnly] = useState(false)
   const [topRated, setTopRated]   = useState(false)
   const [quickPrep, setQuickPrep] = useState(false)
+  // 🛵 Livraison (N2): delivery on now (module + the restaurant's switch).
+  const [deliveryOnly, setDeliveryOnly] = useState(false)
   const [sort, setSort]           = useState<SortKey>('default')
   // Set once the browser hands us a position; only requested when the
   // user actually picks the distance sort.
@@ -295,6 +298,7 @@ export default function HomePage() {
       .filter(r => (cuisine ? matchesCuisineCategory(r, cuisine) : true))
       .filter(r => (openOnly ? isOpenNow(r) : true))
       .filter(r => (promoOnly ? promoRestaurantIds.has(r.id) : true))
+      .filter(r => (deliveryOnly ? deliversNow(r) : true))
       .filter(r => {
         if (!topRated) return true
         const s = ratingSummary[r.id]
@@ -323,7 +327,7 @@ export default function HomePage() {
       return [...list].sort((a, b) => key(a) - key(b))
     }
     return list
-  }, [restaurants, city, query, dishHits, cuisine, openOnly, promoOnly, topRated, quickPrep,
+  }, [restaurants, city, query, dishHits, cuisine, openOnly, promoOnly, deliveryOnly, topRated, quickPrep,
       sort, userPos, ratingSummary, promoRestaurantIds, isOpenNow])
 
   // Computed open-count for the header line.
@@ -337,14 +341,15 @@ export default function HomePage() {
       cuisines: new Set(CUISINE_CATEGORIES.filter(cat => inCity.some(r => matchesCuisineCategory(r, cat.id))).map(c => c.id)),
       open:  inCity.some(r => isOpenNow(r)),
       promo: inCity.some(r => promoRestaurantIds.has(r.id)),
+      delivery: inCity.some(r => deliversNow(r)),
       top:   inCity.some(r => { const x = ratingSummary[r.id]; return !!x && x.count > 0 && x.average >= TOP_RATED_MIN }),
       quick: inCity.some(r => r.prep_time_max != null && r.prep_time_max <= QUICK_PREP_MAX),
     }
   }, [restaurants, city, isOpenNow, promoRestaurantIds, ratingSummary])
 
-  const anyFilterOn = !!cuisine || openOnly || promoOnly || topRated || quickPrep || sort !== 'default' || !!query.trim()
+  const anyFilterOn = !!cuisine || openOnly || promoOnly || deliveryOnly || topRated || quickPrep || sort !== 'default' || !!query.trim()
   const clearFilters = () => {
-    setCuisine(null); setOpenOnly(false); setPromoOnly(false)
+    setCuisine(null); setOpenOnly(false); setPromoOnly(false); setDeliveryOnly(false)
     setTopRated(false); setQuickPrep(false); setSort('default')
     setQuery('')
     if (typeof window !== 'undefined' && window.location.search) {
@@ -478,6 +483,11 @@ export default function HomePage() {
           {(promoOnly || offer.promo) && (
             <FilterPill active={promoOnly} onClick={() => setPromoOnly(v => !v)}>
               💰 {bi('Promo', 'Deals')}
+            </FilterPill>
+          )}
+          {(deliveryOnly || offer.delivery) && (
+            <FilterPill active={deliveryOnly} onClick={() => setDeliveryOnly(v => !v)}>
+              🛵 {bi('Livraison', 'Delivery')}
             </FilterPill>
           )}
           {(topRated || offer.top) && (
