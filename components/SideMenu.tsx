@@ -13,7 +13,7 @@
 //              PROFESSIONNELS (+ Commandes du restaurant for a team) …
 //              Mode économique · FR | EN · Se déconnecter
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -39,6 +39,13 @@ export default function SideMenu({
   const router = useRouter()
   const { hasRestaurantRole, setDashboardTab, resetMode } = useMode()
   const { isLowData, toggle: toggleLowData } = useDataMode()
+  // Q4: door staff (or organisers) with an event to check get an entry.
+  const [checkEvents, setCheckEvents] = useState(0)
+  useEffect(() => {
+    if (!open || !user) return
+    fetch('/api/scan/my-events', { cache: 'no-store' }).then(r => r.json())
+      .then(d => setCheckEvents(Array.isArray(d?.events) ? d.events.length : 0)).catch(() => null)
+  }, [open, user])
   const panelRef = useRef<HTMLDivElement>(null)
 
   // Close on navigation and on Escape; lock the page scroll while open.
@@ -113,6 +120,7 @@ export default function SideMenu({
           {loggedIn && <PlainItem href="/account?tab=orders" icon="🧾">{bi('Mes commandes', 'My orders')}</PlainItem>}
           {loggedIn && <PlainItem href="/account?tab=bookings" icon="🎟">{bi('Mes réservations', 'My bookings')}</PlainItem>}
           {loggedIn && <PlainItem href="/account?tab=favorites" icon="♥">{bi('Mes favoris', 'My favourites')}</PlainItem>}
+          {loggedIn && checkEvents > 0 && <Item href="/scanner" onClick={onClose} icon="🚪">{bi('Contrôler des billets', 'Check tickets')}</Item>}
 
           <Heading>{bi('Professionnels', 'Professionals')}</Heading>
           {loggedIn && hasRestaurantRole && (

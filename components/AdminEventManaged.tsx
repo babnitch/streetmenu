@@ -13,6 +13,7 @@ import { EVENT_CATEGORIES, categoryLabel } from '@/lib/categoryLabels'
 import { EVENT_POSTER_REQUIRED } from '@/lib/pictureRequired'
 import { CITIES } from '@/lib/cityContext'
 import PhoneInput from '@/components/PhoneInput'
+import DoorStaffPanel from '@/components/DoorStaffPanel'
 import type { Event } from '@/types'
 
 const INPUT = 'w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white'
@@ -189,6 +190,11 @@ export function AdminEventOrganizer({ event, onChanged }: { event: Event; onChan
         </div>
       )}
       {msg && <p className={`mt-1 ${msg.ok ? 'text-emerald-700' : 'text-danger'}`}>{msg.text}</p>}
+      {/* Q4: door staff for a managed event (scan only). */}
+      <details className="mt-2">
+        <summary className="cursor-pointer font-semibold text-ink-secondary">🚪 {bi('Contrôle à l\'entrée', 'Door staff')}</summary>
+        <div className="mt-2"><DoorStaffPanel eventId={event.id} /></div>
+      </details>
     </div>
   )
 }

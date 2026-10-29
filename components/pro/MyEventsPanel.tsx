@@ -4,6 +4,7 @@
 // tiers, promo codes, settings and subscribers. Lives on /pro/events
 // (moved out of /account, which now redirects ?tab=events here).
 
+import DoorStaffPanel from '@/components/DoorStaffPanel'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -580,6 +581,8 @@ export default function MyEventsPanel({
           className="mb-3 flex items-center justify-center gap-2 w-full bg-ink-primary hover:bg-ink-secondary text-white py-3 rounded-2xl font-bold text-sm">
           📷 {bi('Contrôler les billets (scanner)', 'Check tickets (scanner)')}
         </Link>
+        {/* Q4: who else may scan this event's tickets. */}
+        <DoorStaffPanel eventId={selected.id} />
 
         {/* Filter tabs */}
         <div className="flex gap-1 bg-surface-muted p-1 rounded-xl w-fit mb-3 overflow-x-auto">
