@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { claimRestaurantLink } from '@/lib/supportContact'
+import { usePlatformInfo } from '@/lib/usePlatformInfo'
 import MenuFilesViewer from '@/components/MenuFilesViewer'
 import { contactGreeting, type MenuFile } from '@/lib/menuFiles'
 import { useState, useEffect, useRef } from 'react'
@@ -53,6 +54,7 @@ export default function MenuPage() {
   // N4a: the paper menu (photos / PDF) and the number orders go to.
   const [menuFiles, setMenuFiles] = useState<MenuFile[]>([])
   const [orderWhatsapp, setOrderWhatsapp] = useState<string | null>(null)
+  const platformInfo = usePlatformInfo()
 
   // Old links (the bot's "rate" message) pointed at /restaurant/[id]#rate.
   useEffect(() => {
@@ -167,7 +169,7 @@ export default function MenuPage() {
   const canOrder = takes && !filesOnly
   const delivers = deliversNow(restaurant)
   const waNumber = ((filesOnly && takes ? orderWhatsapp : null) || restaurant.whatsapp || restaurant.phone || '').replace(/\D/g, '')
-  const claimLink = claimRestaurantLink(restaurant.name, restaurant.id, locale === 'en' ? 'en' : 'fr')
+  const claimLink = claimRestaurantLink(restaurant.name, restaurant.id, locale === 'en' ? 'en' : 'fr', platformInfo?.support_whatsapp)
   const callNumber = (restaurant.phone || restaurant.whatsapp || '').replace(/[^\d+]/g, '')
   const waText = filesOnly
     ? contactGreeting(locale === 'en' ? 'en' : 'fr')

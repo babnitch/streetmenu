@@ -46,6 +46,7 @@ const AdminVouchers    = dynamicLoad(() => import('@/app/admin/vouchers/page'), 
 const AdminReports     = dynamicLoad(() => import('@/app/admin/reports/page'),     { ssr: false })
 const AdminAccounts    = dynamicLoad(() => import('@/app/admin/accounts/page'),    { ssr: false })
 const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/page'), { ssr: false })
+const AdminPlatform    = dynamicLoad(() => import('@/app/admin/platform/page'),     { ssr: false })
 const AdminMessages    = dynamicLoad(() => import('@/app/admin/messages/page'),     { ssr: false })
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -97,6 +98,7 @@ const ADMIN_TAB_DESCS: Record<AdminSubTab, string> = {
   reports:      'Signalements à traiter / Reports to handle',
   accounts:     'Clients et vendeurs / Customers and vendors',
   messages:     'WhatsApp et SMS envoyés / WhatsApp and SMS sent',
+  platform:     'Infos légales, suppressions / Legal info, deletions',
   platformteam: 'Membres de la plateforme / Platform members',
   profile:      'Modifier vos informations / Edit your info',
 }
@@ -890,6 +892,7 @@ export default function AccountPage() {
                   {adminTab === 'reports'      && <AdminReports />}
                   {adminTab === 'accounts'     && <AdminAccounts />}
                   {adminTab === 'messages'     && <AdminMessages />}
+                  {adminTab === 'platform'     && <AdminPlatform />}
                   {adminTab === 'platformteam' && <AdminPlatformTeam />}
                   {adminTab === 'profile'      && <AdminProfilePanel />}
                 </div>
