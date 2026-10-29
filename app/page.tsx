@@ -15,6 +15,7 @@ import { formatFCFA, formatAmount } from '@/lib/money'
 import { formatPrepTime } from '@/lib/prepTime'
 import { formatDeliveryTime } from '@/lib/delivery'
 import { percentOffLabel } from '@/lib/offers'
+import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/weekend'
 
 interface PopularRestaurant {
   id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null
@@ -24,6 +25,11 @@ interface PopularRestaurant {
 interface PopularEvent extends EventWhen {
   id: string; title: string; category: string | null; venue: string | null; cover_photo: string | null
   price_from: number; is_free: boolean; has_tiers: boolean
+}
+interface WeekendEvent extends EventWhen {
+  id: string; title: string; category: string | null; cover_photo: string | null
+  date: string; end_date: string | null; time: string | null; end_time: string | null
+  days: Array<{ date: string }>; fromPrice: number | null
 }
 interface TodayOffer {
   kind: 'price' | 'free_delivery'
@@ -46,6 +52,8 @@ export default function HomePage() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [popular, setPopular] = useState<{ restaurants: PopularRestaurant[]; events: PopularEvent[] } | null>(null)
   const [offers, setOffers] = useState<TodayOffer[]>([])
+  // U3: "Ce week-end à {ville}" — the city's events on Friday 17:00 → Sunday.
+  const [weekend, setWeekend] = useState<WeekendEvent[]>([])
 
   // Old links: /?q=… was the restaurant search.
   useEffect(() => {
@@ -61,6 +69,21 @@ export default function HomePage() {
       .then(r => r.json())
       .then(d => { if (!cancelled) setPopular({ restaurants: d?.restaurants ?? [], events: d?.events ?? [] }) })
       .catch(() => { if (!cancelled) setPopular({ restaurants: [], events: [] }) })
+    setWeekend([])
+    fetch(`/api/events/listing?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return
+        const today = todayInDouala()
+        const w = weekendWindow(today)
+        const list = ((d?.events ?? []) as WeekendEvent[])
+          .map(e => ({ e, day: weekendDay(e, listingDays(e, today), w) }))
+          .filter((x): x is { e: WeekendEvent; day: string } => !!x.day)
+          .sort((a, b) => a.day.localeCompare(b.day) || (a.e.time ?? '').localeCompare(b.e.time ?? ''))
+          .slice(0, 10).map(x => x.e)
+        setWeekend(list)
+      })
+      .catch(() => null)
     fetch(`/api/offers/today?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => { if (!cancelled) setOffers(Array.isArray(d?.offers) ? d.offers : []) })
@@ -128,6 +151,17 @@ export default function HomePage() {
               <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} fallback="🍽️"
                 badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
                 title={r.name} sub={fulfilmentLine(r)} />
+            ))}
+          </Row>
+        )}
+
+        {weekend.length > 0 && (
+          <Row id="weekend" title={bi(`Ce week-end à ${city}`, `This weekend in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
+            {weekend.map(e => (
+              <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
+                title={e.title} sub={formatEventWhen(e, locale, 'card')}>
+                {e.fromPrice !== null && <p className="text-[12px] font-bold text-brand-dark mt-0.5">{e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`}</p>}
+              </Card>
             ))}
           </Row>
         )}

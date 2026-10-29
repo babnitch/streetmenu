@@ -14,8 +14,9 @@ import SubscribeButton from '@/components/events/SubscribeButton'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import { categoryLabel } from '@/lib/categoryLabels'
-import { addDays, localDayISO, weekdayIndex } from '@/lib/eventCalendar'
-import { eventDays as rangeDays, formatEventDates, formatEventDay } from '@/lib/eventDate'
+import { addDays } from '@/lib/eventCalendar'
+import { todayInDouala, weekendWindow, weekendDay, restOfMonth, listingDays } from '@/lib/weekend'
+import { formatEventDates, formatEventDay } from '@/lib/eventDate'
 import { eventStatus, statusText, type ListingDay } from '@/lib/eventStatus'
 import { formatFCFA } from '@/lib/money'
 
@@ -26,11 +27,10 @@ interface ListingEvent {
   days: ListingDay[]; fromPrice: number | null; recentSeats7d: number
 }
 interface Promoted { promotion_id: string; event_id: string; placement: string }
-type When = { kind: 'all' } | { kind: 'today' } | { kind: 'weekend' } | { kind: 'week' } | { kind: 'date'; day: string }
+type When = { kind: 'all' } | { kind: 'today' } | { kind: 'weekend' } | { kind: 'week' } | { kind: 'month' } | { kind: 'date'; day: string }
 
 // The event's upcoming days: from the listing (with seats), else its dates.
-const upcomingDays = (e: ListingEvent, today: string): string[] =>
-  e.days.length ? e.days.map(d => d.date) : rangeDays(e).filter(d => d >= today)
+const upcomingDays = (e: ListingEvent, today: string): string[] => listingDays(e, today)
 
 // /events — the Loisirs section (Ticketcorner-style, E2; N1):
 //   dark band (title + "+ Ajouter", Événements · Lieux switch, an events-only
@@ -52,7 +52,8 @@ export default function EventsPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const pickerRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => { setToday(localDayISO()) }, [])
+  // U3: "today" and the weekend are Africa/Douala days.
+  useEffect(() => { setToday(todayInDouala()) }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -77,11 +78,10 @@ export default function EventsPage() {
     if (when.kind === 'today') return [today]
     if (when.kind === 'date') return [when.day]
     if (when.kind === 'week') return Array.from({ length: 7 }, (_, i) => addDays(today, i))
-    const wd = weekdayIndex(today)              // 0 = Monday … 6 = Sunday
-    if (wd === 6) return [today]
-    if (wd === 5) return [today, addDays(today, 1)]
-    const sat = addDays(today, 5 - wd)
-    return [sat, addDays(sat, 1)]
+    if (when.kind === 'month') return restOfMonth(today)
+    // U3: Friday 17:00 → Sunday (the Friday is checked per event below).
+    const w = weekendWindow(today)
+    return [w.fri, w.sat, w.sun]
   }, [when, today])
 
   const categories = useMemo(
@@ -100,9 +100,11 @@ export default function EventsPage() {
   const searching = query.trim().length > 0
   const rows = useMemo(() => base.flatMap(e => {
     const days = upcomingDays(e, today)
-    const shown = range ? days.find(d => range.includes(d)) : days[0]
+    const shown = !range ? days[0]
+      : when.kind === 'weekend' ? weekendDay(e, days, weekendWindow(today))
+        : days.find(d => range.includes(d))
     return shown ? [{ e, shown }] : []
-  }).sort((a, b) => a.shown.localeCompare(b.shown)), [base, range, today])
+  }).sort((a, b) => a.shown.localeCompare(b.shown)), [base, range, today, when.kind])
 
   // Never empty: the next events after the range (else any upcoming one).
   const nextUp = useMemo(() => {
@@ -127,6 +129,7 @@ export default function EventsPage() {
   }, [events, today, promotedBy])
 
   const featured = events.find(e => e.id === data?.featuredId) ?? null
+  const filtering = searching || when.kind !== 'all' || !!category || freeOnly
   const allDays = useMemo(() => new Set(events.flatMap(e => upcomingDays(e, today))), [events, today])
 
   const priceText = (p: number | null) => p === null ? null : p === 0 ? bi('Gratuit', 'Free') : `${bi('Dès', 'From')} ${formatFCFA(p)}`
@@ -135,6 +138,7 @@ export default function EventsPage() {
       case 'today':   return bi("aujourd'hui", 'today')
       case 'weekend': return bi('ce week-end', 'this weekend')
       case 'week':    return bi('cette semaine', 'this week')
+      case 'month':   return bi('ce mois-ci', 'this month')
       case 'date':    return `${bi('le', 'on')} ${formatEventDay(when.day, locale, 'list')}`
       default:        return ''
     }
@@ -184,8 +188,35 @@ export default function EventsPage() {
           </div>
         ) : (
           <>
+            {/* U3: the date chips first, under the header. Any filter hides
+                À la une / Cette semaine and shows the matching list. */}
+            <div className="flex gap-2 overflow-x-auto pb-3 mb-4 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {([
+                  ['today', bi("Aujourd'hui", 'Today')],
+                  ['weekend', bi('Ce week-end', 'This weekend')],
+                  ['week', bi('Cette semaine', 'This week')],
+                  ['month', bi('Ce mois', 'This month')],
+                ] as const).map(([k, l]) => (
+                  <Chip key={k} active={when.kind === k} onClick={() => setWhen(when.kind === k ? { kind: 'all' } : { kind: k })}>{l}</Chip>
+                ))}
+                <button ref={pickerRef} type="button" onClick={() => setPickerOpen(true)} className={chipCls(when.kind === 'date')}>
+                  📅 {when.kind === 'date' ? formatEventDay(when.day, locale, 'compact') : bi('Choisir une date', 'Pick a date')}
+                </button>
+                {categories.length > 1 && (
+                  <select value={category ?? ''} onChange={e => setCategory(e.target.value || null)}
+                    aria-label={bi('Catégorie', 'Category')} className={chipCls(!!category)}>
+                    <option value="">{bi('Catégorie', 'Category')}</option>
+                    {categories.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+                  </select>
+                )}
+                {(freeOnly || events.some(e => e.fromPrice === 0)) && (
+                  <Chip active={freeOnly} onClick={() => setFreeOnly(v => !v)}>{bi('Gratuit', 'Free')}</Chip>
+                )}
+              </div>
+
+
             {/* À LA UNE */}
-            {featured && !searching && (
+            {featured && !filtering && (
               <section aria-labelledby="featured-heading" className="mb-7">
                 <h2 id="featured-heading" className="text-xs font-bold tracking-widest text-ink-tertiary mb-2">{bi('À LA UNE', 'FEATURED')}</h2>
                 <PromoLink promo={promotedBy[featured.id]} href={`/events/${featured.id}`}
@@ -204,7 +235,7 @@ export default function EventsPage() {
             )}
 
             {/* Cette semaine */}
-            {week.length > 0 && !searching && (
+            {week.length > 0 && !filtering && (
               <section aria-labelledby="week-heading" className="mb-7">
                 <h2 id="week-heading" className="text-base font-bold text-ink-primary mb-3">{bi('Cette semaine', 'This week')}</h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -224,29 +255,6 @@ export default function EventsPage() {
             {/* Tous les événements */}
             <section aria-labelledby="all-heading">
               <h2 id="all-heading" className="text-base font-bold text-ink-primary mb-3">{bi('Tous les événements', 'All events')}</h2>
-              <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {([
-                  ['today', bi("Aujourd'hui", 'Today')],
-                  ['weekend', bi('Ce week-end', 'This weekend')],
-                  ['week', bi('Cette semaine', 'This week')],
-                ] as const).map(([k, l]) => (
-                  <Chip key={k} active={when.kind === k} onClick={() => setWhen(when.kind === k ? { kind: 'all' } : { kind: k })}>{l}</Chip>
-                ))}
-                <button ref={pickerRef} type="button" onClick={() => setPickerOpen(true)} className={chipCls(when.kind === 'date')}>
-                  📅 {when.kind === 'date' ? formatEventDay(when.day, locale, 'compact') : bi('Choisir une date', 'Pick a date')}
-                </button>
-                {categories.length > 1 && (
-                  <select value={category ?? ''} onChange={e => setCategory(e.target.value || null)}
-                    aria-label={bi('Catégorie', 'Category')} className={chipCls(!!category)}>
-                    <option value="">{bi('Catégorie', 'Category')}</option>
-                    {categories.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
-                  </select>
-                )}
-                {(freeOnly || events.some(e => e.fromPrice === 0)) && (
-                  <Chip active={freeOnly} onClick={() => setFreeOnly(v => !v)}>{bi('Gratuit', 'Free')}</Chip>
-                )}
-              </div>
-
               {rows.length > 0 ? (
                 <ul className="mt-2 space-y-2">
                   {rows.map(({ e, shown }) => <EventRow key={e.id} e={e} shown={shown} today={today} priceText={priceText} />)}
