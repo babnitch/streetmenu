@@ -47,7 +47,7 @@ export default function ValidatePanel({ scope, children }: { scope: ValidateScop
     setBusy(true)
     const r = await fetch(`/api/scan/${token}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ via: 'code', restaurant_id: restaurantId || undefined }),
+      body: JSON.stringify({ via: 'code', code: code.trim(), restaurant_id: restaurantId || undefined }),
     }).catch(() => null)
     const d = r ? await r.json().catch(() => null) : null
     setBusy(false)

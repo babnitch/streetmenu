@@ -19,7 +19,7 @@ import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, customerCookie, adminCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeEvent, makeOrder, makeVoucher, addTeamMember, futureDateISO } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
-import { ensureScanToken } from '../../lib/scanTokens'
+import { ensureScanToken, deliveryCode } from '../../lib/scanTokens'
 import { dateInZone } from '../../lib/offers'
 
 const SUITE = 'api-scan-q2'
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
       const o1 = await makeOrder(rest.id, buyer, { status: 'ready', extra: { fulfilment: 'delivery', delivery_address: 'Rue des Tests, Bastos', delivery_fee: 500 } })
       const s = await api(`/api/orders/${o1.id}/status`, { cookie: owc, body: { status: 'out_for_delivery' } })
       assertEq(s.status, 200, `out for delivery (${s.raw.slice(0, 60)})`)
-      const code1 = o1.id.replace(/-/g, '').slice(-4).toUpperCase()
+      const code1 = deliveryCode(o1.id)   // Q5: the secret delivery code
       assert((await messagesTo(buyer.phone, o1.id)).some(m => m.includes(`*${code1}*`) && /reçu|received/.test(m)), 'customer got the code')
       assertEq((await api(`/api/orders/${o1.id}/received`, { cookie: sc, body: {} })).status, 404, 'someone else can\'t confirm')
       assertEq((await api(`/api/orders/${o1.id}/received`, { cookie: bc, body: {} })).status, 200, 'customer button')

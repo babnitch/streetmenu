@@ -2,6 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
+import RidersPanel from '@/components/RidersPanel'
+import OrderRiderSelect from '@/components/OrderRiderSelect'
 import ValidatePanel from '@/components/ValidatePanel'
 import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -920,6 +922,13 @@ export default function DashboardPage() {
                               ))}
                             </div>
                           </div>
+                          {/* Q5: give the delivery to one of the restaurant's riders. */}
+                          {order.fulfilment === 'delivery' && selectedRestaurant.riders_mode === 'app'
+                            && ['confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(order.status)
+                            && effectiveRole !== 'staff' && (
+                            <OrderRiderSelect orderId={order.id} restaurantId={selectedRestaurant.id}
+                              riderId={(order as { rider_id?: string | null }).rider_id ?? null} />
+                          )}
                         </div>
                       )
                     })}
@@ -1123,6 +1132,7 @@ export default function DashboardPage() {
                 }}
               />
               {hasModule(selectedRestaurant, 'delivery') ? (
+<>
                 <DeliveryPanel
                   restaurant={selectedRestaurant}
                   onChange={updated => {
@@ -1130,6 +1140,17 @@ export default function DashboardPage() {
                     setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                   }}
                 />
+                {/* Q5: riders on the app, or not (default). */}
+                <RidersPanel
+                  restaurantId={selectedRestaurant.id}
+                  mode={selectedRestaurant.riders_mode === 'app' ? 'app' : 'none'}
+                  onModeChange={m => {
+                    const updated = { ...selectedRestaurant, riders_mode: m }
+                    setSelectedRestaurant(updated)
+                    setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                  }}
+                />
+                </>
               ) : (
                 <ModuleLocked subject="restaurant" module="delivery" restaurantId={selectedRestaurant.id} canRequest={effectiveRole === 'owner'} />
               )}
@@ -1164,6 +1185,7 @@ export default function DashboardPage() {
                 }}
               />
               {hasModule(selectedRestaurant, 'delivery') ? (
+<>
                 <DeliveryPanel
                   restaurant={selectedRestaurant}
                   onChange={updated => {
@@ -1171,6 +1193,17 @@ export default function DashboardPage() {
                     setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                   }}
                 />
+                {/* Q5: riders on the app, or not (default). */}
+                <RidersPanel
+                  restaurantId={selectedRestaurant.id}
+                  mode={selectedRestaurant.riders_mode === 'app' ? 'app' : 'none'}
+                  onModeChange={m => {
+                    const updated = { ...selectedRestaurant, riders_mode: m }
+                    setSelectedRestaurant(updated)
+                    setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
+                  }}
+                />
+                </>
               ) : (
                 <ModuleLocked subject="restaurant" module="delivery" restaurantId={selectedRestaurant.id} canRequest={false} />
               )}

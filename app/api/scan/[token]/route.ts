@@ -44,10 +44,11 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   if (lim) return lim
   const target = await resolveScanToken(params.token)
   if (!target) return NextResponse.json(NOT_FOUND, { status: 404 })
-  const body = await req.json().catch(() => ({})) as { via?: unknown; restaurant_id?: unknown }
+  const body = await req.json().catch(() => ({})) as { via?: unknown; restaurant_id?: unknown; code?: unknown }
   const r = await redeemScan(target.kind, target.id, session, {
     via: body.via === 'code' ? 'code' : 'scan',
     restaurantId: typeof body.restaurant_id === 'string' ? body.restaurant_id : undefined,
+    code: typeof body.code === 'string' ? body.code : undefined,
   })
   return NextResponse.json({ ok: r.ok, ...r.view }, { status: r.ok ? 200 : r.status, headers: { 'Cache-Control': 'no-store' } })
 }

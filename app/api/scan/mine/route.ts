@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { scanUrl, type ScanKind } from '@/lib/scanTokens'
+import { scanUrl, deliveryCode, type ScanKind } from '@/lib/scanTokens'
 import { bookingIdOf } from '@/lib/scanLinks'
 import { orderCode, reservationCode } from '@/lib/shortCode'
 
@@ -28,9 +28,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ url: await scanUrl('reservation', bookingId), code: reservationCode(first ?? r) }, { headers: { 'Cache-Control': 'no-store' } })
     }
     if (kind === 'order') {
-      const { data: o } = await supabaseAdmin.from('orders').select('id, customer_id').eq('id', id).maybeSingle()
+      const { data: o } = await supabaseAdmin.from('orders').select('id, customer_id, fulfilment').eq('id', id).maybeSingle()
       if (!o || o.customer_id !== session.id) return notFound
-      return NextResponse.json({ url: await scanUrl('order', o.id), code: orderCode(o.id) }, { headers: { 'Cache-Control': 'no-store' } })
+      return NextResponse.json({
+        url: await scanUrl('order', o.id), code: orderCode(o.id),
+        // Q5: the secret delivery code, for the customer only.
+        delivery_code: o.fulfilment === 'delivery' ? deliveryCode(o.id) : undefined,
+      }, { headers: { 'Cache-Control': 'no-store' } })
     }
     if (kind === 'voucher') {
       const { data: cv } = await supabaseAdmin.from('customer_vouchers')

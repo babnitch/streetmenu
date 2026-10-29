@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { rateLimit } from '@/lib/rateLimit'
-import { ensureScanToken } from '@/lib/scanTokens'
+import { ensureScanToken, deliveryCode } from '@/lib/scanTokens'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { HANDOVER_FROM } from '@/lib/orderDelivery'
 
@@ -34,6 +34,14 @@ export async function POST(req: NextRequest) {
       const { count } = await supabaseAdmin.from('restaurant_team').select('id', { count: 'exact', head: true })
         .eq('restaurant_id', rid).eq('customer_id', session.id).eq('status', 'active')
       if (!count) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
+    }
+    if (/^[0-9]{4}$/.test(code)) {
+      // The customer's secret delivery code (Q5), phoned in by the rider.
+      const { data: out } = await supabaseAdmin.from('orders').select('id')
+        .eq('restaurant_id', rid).eq('fulfilment', 'delivery').in('status', ['confirmed', 'preparing', 'ready', 'out_for_delivery'])
+        .order('created_at', { ascending: false }).limit(200)
+      const hit = ((out ?? []) as Array<{ id: string }>).find(o => deliveryCode(o.id) === code)
+      if (hit) return NextResponse.json({ kind: 'order', token: await ensureScanToken('order', hit.id) })
     }
     if (/^[0-9A-F]{4}$/.test(code)) {
       const since = new Date(Date.now() - 14 * 86_400_000).toISOString()

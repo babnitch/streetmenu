@@ -379,9 +379,13 @@ export async function notifyCustomerOutForDelivery(
   opts: SendOptions = {},
 ): Promise<void> {
   const id4 = last4(order.id)
+  // Q5: the customer's secret delivery code — not the order number, which
+  // the restaurant and the rider know.
+  const { deliveryCode } = await import('@/lib/scanTokens')
+  const code = deliveryCode(order.id)
   await sendWhatsApp(customerPhone, pickLang(
-    `🛵 Votre commande #${id4} est en route — ${restaurantName}.\n\nCode de livraison : *${id4}* (à donner au livreur).\nÀ la réception, répondez *reçu*.`,
-    `🛵 Your order #${id4} is on its way — ${restaurantName}.\n\nDelivery code: *${id4}* (give it to the rider).\nWhen it arrives, reply *received*.`,
+    `🛵 Votre commande #${id4} est en route — ${restaurantName}.\n\nCode de livraison : *${code}* — donnez-le au livreur seulement à la réception.\nOu répondez *reçu* quand elle arrive.`,
+    `🛵 Your order #${id4} is on its way — ${restaurantName}.\n\nDelivery code: *${code}* — give it to the rider only when you receive it.\nOr reply *received* when it arrives.`,
     lang,
   ), { context: 'order_status_update', relatedId: order.id, ...opts })
 }

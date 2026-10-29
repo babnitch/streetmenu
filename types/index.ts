@@ -52,6 +52,8 @@ export interface Restaurant {
   managed_by_platform?: boolean | null
   // 'a_la_carte' (default) or 'daily' (Menu par jour).
   menu_type?: 'a_la_carte' | 'daily' | null
+  // Q5: riders not on the app (default) or using the app.
+  riders_mode?: 'none' | 'app' | null
 }
 
 export interface MenuItem {

@@ -21,7 +21,7 @@ export default function QrCodeButton({ kind, id, title, hint, className = '' }: 
 }) {
   const bi = useBi()
   const [open, setOpen] = useState(false)
-  const [qr, setQr] = useState<{ url: string; code: string } | null>(null)
+  const [qr, setQr] = useState<{ url: string; code: string; delivery_code?: string } | null>(null)
   const [error, setError] = useState('')
 
   async function show(e: React.MouseEvent) {
@@ -31,7 +31,7 @@ export default function QrCodeButton({ kind, id, title, hint, className = '' }: 
     setError('')
     const r = await fetch(`/api/scan/mine?kind=${kind}&id=${id}`, { cache: 'no-store' }).catch(() => null)
     const d = r ? await r.json().catch(() => null) : null
-    if (r?.ok && d?.url) setQr({ url: d.url, code: d.code })
+    if (r?.ok && d?.url) setQr({ url: d.url, code: d.code, delivery_code: d.delivery_code })
     else setError(bi('QR indisponible pour le moment.', 'QR unavailable right now.'))
   }
 
@@ -64,6 +64,12 @@ export default function QrCodeButton({ kind, id, title, hint, className = '' }: 
             {qr && (
               <p className="mt-3 text-sm text-ink-secondary">
                 {bi('Code', 'Code')} <span className="font-mono font-black text-2xl tracking-widest text-ink-primary">#{qr.code}</span>
+              </p>
+            )}
+            {qr?.delivery_code && (
+              <p className="mt-2 text-sm text-ink-secondary">
+                🛵 {bi('Code de livraison', 'Delivery code')} <span className="font-mono font-black text-xl tracking-widest text-ink-primary">{qr.delivery_code}</span>
+                <span className="block text-xs text-ink-tertiary">{bi('À donner au livreur seulement à la réception.', 'Give it to the rider only when you receive your order.')}</span>
               </p>
             )}
             <p className="mt-2 text-xs text-ink-tertiary">{hint ?? defaultHint}</p>

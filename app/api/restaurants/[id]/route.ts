@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic'
 // Body: { prep_time_min, prep_time_max }
 //    or { delivery_enabled, delivery_fee, delivery_extra_min }   (V1)
 //    or { menu_type: 'a_la_carte' | 'daily' }                    (Menu par jour)
+//    or { riders_mode: 'none' | 'app' }                           (Livreurs, Q5)
 //
 // Owner + manager (+ admin) can set the kitchen's estimated preparation
 // range — it's an operational setting like opening hours, not a commercial
@@ -44,13 +45,15 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
     prep_time_min?: unknown; prep_time_max?: unknown
     delivery_enabled?: unknown; delivery_fee?: unknown; delivery_extra_min?: unknown
     menu_type?: unknown
+    riders_mode?: unknown
   }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid json' }, { status: 400 }) }
 
   const hasPrep     = body.prep_time_min !== undefined || body.prep_time_max !== undefined
   const hasDelivery = body.delivery_enabled !== undefined || body.delivery_fee !== undefined || body.delivery_extra_min !== undefined
   const hasMenuType = body.menu_type !== undefined
-  if (!hasPrep && !hasDelivery && !hasMenuType) {
+  const hasRiders = body.riders_mode !== undefined
+  if (!hasPrep && !hasDelivery && !hasMenuType && !hasRiders) {
     return NextResponse.json({ error: 'Aucune modification / No changes' }, { status: 400 })
   }
 
@@ -78,9 +81,17 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
     updates.menu_type = mt
   }
 
+  // Q5: "Livreurs" — riders not on the app (default) or using the app.
+  if (hasRiders) {
+    if (body.riders_mode !== 'none' && body.riders_mode !== 'app') {
+      return NextResponse.json({ error: 'Réglage livreurs invalide / Invalid riders setting' }, { status: 400 })
+    }
+    updates.riders_mode = body.riders_mode
+  }
+
   const { data: before } = await supabaseAdmin
     .from('restaurants')
-    .select('prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, menu_type')
+    .select('prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, menu_type, riders_mode')
     .eq('id', params.id)
     .maybeSingle()
   if (!before) return NextResponse.json({ error: 'Restaurant introuvable / not found' }, { status: 404 })
@@ -93,7 +104,8 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
 
   const previous = Object.fromEntries(Object.keys(updates).map(k => [k, (before as Record<string, unknown>)[k]]))
   await writeAudit({
-    action:          hasMenuType && !hasPrep && !hasDelivery ? 'menu_type_updated'
+    action:          hasRiders && !hasMenuType && !hasPrep && !hasDelivery ? 'riders_mode_updated'
+                   : hasMenuType && !hasPrep && !hasDelivery ? 'menu_type_updated'
                    : hasDelivery && !hasPrep ? 'delivery_settings_updated' : 'prep_time_updated',
     targetType:      'restaurant',
     targetId:        params.id,

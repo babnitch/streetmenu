@@ -41,10 +41,14 @@ export default function SideMenu({
   const { isLowData, toggle: toggleLowData } = useDataMode()
   // Q4: door staff (or organisers) with an event to check get an entry.
   const [checkEvents, setCheckEvents] = useState(0)
+  // Q5: riders get "Mes livraisons".
+  const [isRider, setIsRider] = useState(false)
   useEffect(() => {
     if (!open || !user) return
     fetch('/api/scan/my-events', { cache: 'no-store' }).then(r => r.json())
       .then(d => setCheckEvents(Array.isArray(d?.events) ? d.events.length : 0)).catch(() => null)
+    fetch('/api/rider/orders', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)
+      .then(d => setIsRider(d?.rider === true)).catch(() => null)
   }, [open, user])
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -121,6 +125,7 @@ export default function SideMenu({
           {loggedIn && <PlainItem href="/account?tab=bookings" icon="🎟">{bi('Mes réservations', 'My bookings')}</PlainItem>}
           {loggedIn && <PlainItem href="/account?tab=favorites" icon="♥">{bi('Mes favoris', 'My favourites')}</PlainItem>}
           {loggedIn && checkEvents > 0 && <Item href="/scanner" onClick={onClose} icon="🚪">{bi('Contrôler des billets', 'Check tickets')}</Item>}
+          {loggedIn && isRider && <Item href="/livraisons" onClick={onClose} icon="🛵">{bi('Mes livraisons', 'My deliveries')}</Item>}
 
           <Heading>{bi('Professionnels', 'Professionals')}</Heading>
           {loggedIn && hasRestaurantRole && (

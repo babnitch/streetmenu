@@ -21,13 +21,14 @@ export interface DeliveryActor { id: string | null; type: 'customer' | 'admin' }
 // restaurant hasn't accepted it; not cancelled).
 export const HANDOVER_FROM = ['confirmed', 'preparing', 'ready', 'out_for_delivery'] as const
 
-export const ORDER_COLUMNS = 'id, status, restaurant_id, customer_id, customer_name, customer_phone, items, total_price, created_at, order_type, payment_status, fulfilment, delivered_at, delivered_confirmed_by, delivered_actor_id, delivered_actor_type'
+export const ORDER_COLUMNS = 'id, status, restaurant_id, customer_id, customer_name, customer_phone, items, total_price, created_at, order_type, payment_status, fulfilment, delivered_at, delivered_confirmed_by, delivered_actor_id, delivered_actor_type, rider_id'
 
 export type OrderRow = {
   id: string; status: string; restaurant_id: string; customer_id: string | null; customer_name: string | null
   customer_phone: string | null; items: unknown; total_price: number; created_at: string; order_type: string | null
   payment_status: string | null; fulfilment: string | null; delivered_at: string | null
   delivered_confirmed_by: string | null; delivered_actor_id: string | null; delivered_actor_type: string | null
+  rider_id: string | null
 }
 
 // Why an order can't be handed over now, FR / EN, or null.

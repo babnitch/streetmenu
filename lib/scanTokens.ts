@@ -78,3 +78,12 @@ export async function revokeScanToken(kind: ScanKind, id: string): Promise<void>
   const token = computeScanToken(kind, id, version)
   await supabaseAdmin.from('scan_tokens').insert({ token_hash: hashScanToken(token), kind, target_id: id, version })
 }
+
+// The customer's secret 4-digit delivery code (Q5): given only to the
+// customer (the "en route" WhatsApp, their order), never to the restaurant
+// or the rider — it proves the rider met the customer. Not the order number.
+export function deliveryCode(orderId: string): string {
+  const h = createHmac('sha256', secret()).update(`delivery:${orderId}`).digest()
+  return String(h.readUInt32BE(0) % 10000).padStart(4, '0')
+}
+

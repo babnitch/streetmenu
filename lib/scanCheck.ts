@@ -8,8 +8,8 @@
 // Who may validate:
 //   booking  the event's organiser, its door staff (Q4), an admin — and the
 //            event needs Contrôle des billets (ticket_control)
-//   order    owner / manager / staff of THAT restaurant, an admin — and the
-//            restaurant takes orders (Commandes)
+//   order    owner / manager / staff of THAT restaurant, an admin, or the
+//            rider it is assigned to (Q5) — and the restaurant takes orders
 //   voucher  a restaurant's own voucher: that restaurant's team; a voucher
 //            valid everywhere: any restaurant team (the restaurant is
 //            recorded); an admin
@@ -27,7 +27,8 @@ import { orderCode, reservationCode } from '@/lib/shortCode'
 import { isPercentDiscount } from '@/lib/vouchers'
 import { formatFCFA } from '@/lib/money'
 import { handoverRefusal, isHandedOver, markOrderDelivered, ORDER_COLUMNS, type OrderRow, type DeliveredBy } from '@/lib/orderDelivery'
-import type { ScanKind } from '@/lib/scanTokens'
+import { deliveryCode, type ScanKind } from '@/lib/scanTokens'
+import { assignedRiderId } from '@/lib/riders'
 
 export interface ScanSession { id: string; role: string; name?: string }
 export type ScanAccess = 'staff' | 'owner' | 'none'
@@ -189,6 +190,7 @@ async function orderAccess(o: OrderRow, s: ScanSession | null): Promise<ScanAcce
   if (isAdmin(s)) return 'staff'
   if (!isCustomer(s)) return 'none'
   if ((await teamRestaurants(s.id)).includes(o.restaurant_id)) return 'staff'
+  if (await assignedRiderId(o, s.id)) return 'staff'
   if (o.customer_id === s.id) return 'owner'
   return 'none'
 }
@@ -300,7 +302,7 @@ export type RedeemResult = { ok: true; view: ScanView } | { ok: false; status: n
 // The button. Re-checks everything, then one atomic write; whoever loses a
 // race gets the "already used" view.
 export async function redeemScan(
-  kind: ScanKind, id: string, s: ScanSession, opts: { via?: ScanVia; restaurantId?: string } = {},
+  kind: ScanKind, id: string, s: ScanSession, opts: { via?: ScanVia; restaurantId?: string; code?: string } = {},
 ): Promise<RedeemResult> {
   const view = await loadScan(kind, id, s)
   if (view.access !== 'staff' || view.state !== 'ready' || !view.action) {
@@ -327,8 +329,18 @@ export async function redeemScan(
       metadata: { event_id: b.event.id, day: today, people, via },
     })
   } else if (kind === 'order') {
-    const by: DeliveredBy = via === 'code' ? 'restaurant_code' : 'restaurant_scan'
-    const r = await markOrderDelivered(id, by, { id: s.id, type: actorType }, { notify: 'customer' })
+    // Who confirmed (Prompt P releases money from this): the assigned rider
+    // (not on the team) → rider. The team: a scan → restaurant_scan; a typed
+    // code → restaurant_code when it is the customer's secret delivery code
+    // (or a pickup order: the customer is there), else restaurant_manual.
+    const { data: o } = await supabaseAdmin.from('orders').select('id, restaurant_id, fulfilment, rider_id').eq('id', id).single()
+    const onTeam = isAdmin(s) || (await teamRestaurants(s.id)).includes(o!.restaurant_id as string)
+    const riderId = onTeam ? null : await assignedRiderId(o as { rider_id: string | null }, s.id)
+    const typedSecret = (opts.code ?? '').replace(/\D/g, '') === deliveryCode(id)
+    const by: DeliveredBy = riderId ? 'rider'
+      : via === 'scan' ? 'restaurant_scan'
+        : (typedSecret || o!.fulfilment !== 'delivery') ? 'restaurant_code' : 'restaurant_manual'
+    const r = await markOrderDelivered(id, by, { id: s.id, type: actorType }, { notify: 'customer', riderId })
     if (!r.ok) return { ok: false, status: 409, view: await loadScan(kind, id, s) }
   } else {
     const v = (await loadVoucher(id))!
