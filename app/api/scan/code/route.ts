@@ -1,3 +1,4 @@
+import { bookingIdOf } from '@/lib/scanLinks'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -60,10 +61,10 @@ export async function POST(req: NextRequest) {
         .eq('event_id', eid).eq('customer_id', session.id).eq('status', 'active')
       if (!count) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
     }
-    const { data: r } = await supabaseAdmin.from('event_reservations').select('id, booking_id')
+    const { data: r } = await supabaseAdmin.from('event_reservations').select('id')
       .eq('event_id', eid).eq('reservation_code', code).order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (!r) return notFound
-    const bookingId = (r.booking_id as string | null) ?? (r.id as string)
+    const bookingId = await bookingIdOf(r.id as string)
     return NextResponse.json({ kind: 'reservation', token: await ensureScanToken('reservation', bookingId) })
   }
   return NextResponse.json({ error: 'restaurant_id ou event_id requis / restaurant_id or event_id required' }, { status: 400 })

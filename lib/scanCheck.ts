@@ -22,7 +22,7 @@ import { writeAudit } from '@/lib/audit'
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { eventAllows, restaurantModules } from '@/lib/modulesServer'
 import { dateInZone, restaurantZone } from '@/lib/offers'
-import { eventDays } from '@/lib/eventDate'
+import { eventDays, formatEventDay } from '@/lib/eventDate'
 import { orderCode, reservationCode } from '@/lib/shortCode'
 import { isPercentDiscount } from '@/lib/vouchers'
 import { formatFCFA } from '@/lib/money'
@@ -125,9 +125,10 @@ function bookingDetails(b: { rows: BookingRow[]; event: EventRow }, today: strin
   const day = b.rows[0].event_date ?? (days.includes(today) ? today : days[0] ?? b.event.date)
   const idx = days.indexOf(day)
   const tiers = live.filter(r => r.tier_name).map(r => `${r.quantity} × ${r.tier_name}`)
+  const sub = (l: 'fr' | 'en') => [b.event.venue, formatEventDay(day, l, 'list')].filter(Boolean).join(' · ')
   return {
     title: b.event.title,
-    subtitle: [b.event.venue, day].filter(Boolean).join(' · '),
+    subtitle: `${sub('fr')} / ${sub('en')}`,
     code: reservationCode(b.rows[0]),
     people,
     dayLabel: days.length > 1 && idx >= 0 ? `Jour ${idx + 1} / Day ${idx + 1}` : undefined,
@@ -146,7 +147,9 @@ function bookingToday(b: { rows: BookingRow[]; event: EventRow }, today: string)
   if (live.some(r => r.reservation_status === 'pending')) return { refusal: 'En attente de confirmation par l\'organisateur / Waiting for the organiser\'s confirmation' }
   if (live.some(r => r.payment_status === 'pending' || r.payment_status === 'failed')) return { refusal: 'Paiement non confirmé / Payment not confirmed' }
   const booked = b.rows[0].event_date
-  if (booked && booked !== today) return { refusal: `Billet pour le ${booked}, pas aujourd'hui / Ticket for ${booked}, not today` }
+  if (booked && booked !== today) {
+    return { refusal: `Billet pour le ${formatEventDay(booked, 'fr', 'list')}, pas aujourd'hui / Ticket for ${formatEventDay(booked, 'en', 'list')}, not today` }
+  }
   if (!booked && !eventDays(b.event).includes(today)) return { refusal: 'L\'événement n\'a pas lieu aujourd\'hui / The event is not on today' }
   return { day: today }
 }

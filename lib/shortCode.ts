@@ -9,3 +9,10 @@ export function orderCode(orderId: string): string {
 export function reservationCode(r: { id: string; reservation_code?: string | null }): string {
   return (r.reservation_code || orderCode(r.id)).toUpperCase()
 }
+
+// The token in a scanned QR, if it is one of our /scan/<token> links (any
+// host, so a preview deployment's QR reads too); else null.
+export function tokenFromScan(data: string): string | null {
+  const m = data.trim().match(/\/scan\/([A-Za-z0-9_-]{22})(?:[?#].*)?$/)
+  return m ? m[1] : null
+}

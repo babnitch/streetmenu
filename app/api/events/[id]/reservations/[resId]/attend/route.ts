@@ -1,3 +1,5 @@
+import { bookingIdOf } from '@/lib/scanLinks'
+import { dateInZone, restaurantZone } from '@/lib/offers'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireEventModule } from '@/lib/modulesServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -20,7 +22,7 @@ export async function POST(
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
 
   const { data: event } = await supabaseAdmin
-    .from('events').select('id, organizer_id, submitted_by').eq('id', params.id).maybeSingle()
+    .from('events').select('id, organizer_id, submitted_by, city').eq('id', params.id).maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
 
   // M4: door check-in needs the Contrôle des billets module.
@@ -44,6 +46,15 @@ export async function POST(
     .from('event_reservations')
     .update({ reservation_status: 'attended', updated_at: new Date().toISOString() })
     .eq('id', r.id)
+
+  // Q2: the same check-in record as a scan, so the ticket's QR then shows
+  // "already used" today (no second entry). Booking-level; ignore a repeat.
+  const bookingId = await bookingIdOf(r.id)
+  await supabaseAdmin.from('event_checkins').upsert({
+    reservation_id: bookingId, event_id: event.id,
+    day: dateInZone(restaurantZone({ city: (event as { city?: string | null }).city ?? null })),
+    people: r.quantity, checked_in_by: session.id, checked_in_by_type: isAdmin ? 'admin' : 'customer', via: 'code',
+  }, { onConflict: 'reservation_id,day', ignoreDuplicates: true })
 
   await writeAudit({
     action:          'event_reservation_attended',

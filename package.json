@@ -24,6 +24,7 @@
     "jsonwebtoken": "^9.0.3",
     "mapbox-gl": "^3.21.0",
     "next": "14.2.35",
+    "qr-scanner": "^1.4.2",
     "qrcode.react": "^4.2.0",
     "react": "^18",
     "react-dom": "^18",

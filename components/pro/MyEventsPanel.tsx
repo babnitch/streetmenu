@@ -575,6 +575,12 @@ export default function MyEventsPanel({
           </div>
         </div>
 
+        {/* Q3: the in-app scanner / typed code for this event's tickets. */}
+        <Link href={`/scanner?event=${selected.id}`}
+          className="mb-3 flex items-center justify-center gap-2 w-full bg-ink-primary hover:bg-ink-secondary text-white py-3 rounded-2xl font-bold text-sm">
+          📷 {bi('Contrôler les billets (scanner)', 'Check tickets (scanner)')}
+        </Link>
+
         {/* Filter tabs */}
         <div className="flex gap-1 bg-surface-muted p-1 rounded-xl w-fit mb-3 overflow-x-auto">
           {(['all', 'pending', 'confirmed', 'attended'] as const).map(f => (

@@ -9,6 +9,7 @@
 import { useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import ScanResultCard, { type ScanViewClient } from '@/components/ScanResultCard'
+import QrScannerOverlay from '@/components/QrScannerOverlay'
 
 export type ValidateScope = { restaurantId: string } | { eventId: string }
 
@@ -21,6 +22,7 @@ export default function ValidatePanel({ scope, children }: { scope: ValidateScop
   const [view, setView] = useState<ScanViewClient | null>(null)
   const [done, setDone] = useState(false)
   const [restaurantId, setRestaurantId] = useState('')
+  const [scanning, setScanning] = useState(false)
 
   async function lookup() {
     const c = code.trim()
@@ -64,7 +66,13 @@ export default function ValidatePanel({ scope, children }: { scope: ValidateScop
           : bi('Scannez le billet, ou tapez son code (#AB12).', 'Scan the ticket, or type its code (#AB12).')}
       </p>
       {children}
-      <form className="flex gap-2 mt-4" onSubmit={e => { e.preventDefault(); void lookup() }}>
+      <button type="button" onClick={() => setScanning(true)}
+        className="mt-4 w-full bg-ink-primary hover:bg-ink-secondary text-white py-3.5 rounded-2xl font-bold text-base">
+        📷 {bi('Scanner', 'Scan')}
+      </button>
+      {scanning && <QrScannerOverlay onClose={() => setScanning(false)} />}
+      <p className="mt-4 text-xs text-ink-tertiary">{bi('Ou tapez le code :', 'Or type the code:')}</p>
+      <form className="flex gap-2 mt-1" onSubmit={e => { e.preventDefault(); void lookup() }}>
         <input value={code} onChange={e => { setCode(e.target.value); setError('') }} placeholder="#AB12" autoCapitalize="characters"
           aria-label={bi('Code', 'Code')}
           className="flex-1 min-w-0 border border-divider rounded-xl px-3 py-2.5 text-base font-mono uppercase outline-none focus:border-brand" />
