@@ -1,6 +1,7 @@
 // WhatsApp ordering flow — customer-side state machine + vendor order actions.
 // See docs/superpowers/specs/2026-04-18-whatsapp-ordering-design.md
 
+import { bookingQrLine, orderQrLine } from '@/lib/scanLinks'
 import { blockedForOrders, orderPhones } from '@/lib/managedRestaurant'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -37,7 +38,6 @@ import { notifyOrganizer } from '@/lib/eventRecipients'
 import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { hasRestaurantModule, eventAllows } from '@/lib/modulesServer'
 import { isSideOn, platformOffReply } from '@/lib/platformSwitch'
-import { orderLinkLine, bookingLinkLine } from '@/lib/siteLinks'
 import { isDailyMenu, restaurantWeekday, isServedOn } from '@/lib/menuDays'
 
 // An event whose organiser has no Réservations module (M4): booked with the
@@ -2469,7 +2469,7 @@ async function confirmEventReservationWhatsapp(opts: {
       ? pickLang(`🎫 Code ${voucherCode}: -${formatFCFA(discountAmount)}`, `🎫 Code ${voucherCode}: -${formatFCFA(discountAmount)}`, lang)
       : '',
     payLine,
-    bookingLinkLine(lang),
+    await bookingQrLine(reservation.id, reservationCode, lang),
   ].filter(Boolean).join('\n'))
 
   await pingOrganizer(event, customer, q, totalPrice, reservationCode)
@@ -3095,7 +3095,7 @@ async function finalizeRestaurantWhatsappOrder(opts: {
   ))
   confirmLines.push(``, pickLang(
     `💡 Envoyez 'mes commandes' pour suivre votre commande.`,
-    `💡 Send 'my orders' to track your order.`, custLang), orderLinkLine(custLang))
+    `💡 Send 'my orders' to track your order.`, custLang), await orderQrLine(newOrder.id, custLang))
   await sendWhatsApp(from, confirmLines.join('\n'))
 
   // Fan out to vendors — must be awaited. Fire-and-forget here dies with

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { Voucher } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
@@ -23,10 +23,23 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
   const { t } = useLanguage()
   const bi = useBi()
   const [showModal, setShowModal] = useState(false)
+  // Q1: the QR is a link (https://<site>/scan/<token>) the restaurant scans
+  // with any phone camera; fetched when the voucher is opened.
+  const [qrUrl, setQrUrl] = useState<string | null>(null)
 
   const isUsed = !!usedAt
   const isExpired = voucher.expires_at ? new Date(voucher.expires_at) < new Date() : false
   const isActive = !isUsed && !isExpired && voucher.is_active
+
+  useEffect(() => {
+    if (!showModal || !isActive || qrUrl) return
+    let cancelled = false
+    fetch(`/api/scan/mine?kind=voucher&id=${customerVoucherId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d?.url) setQrUrl(d.url) })
+      .catch(() => null)
+    return () => { cancelled = true }
+  }, [showModal, isActive, qrUrl, customerVoucherId])
 
   const discountLabel = isPercentDiscount(voucher.discount_type)
     ? `${voucher.discount_value}%`
@@ -135,11 +148,15 @@ export default function VoucherCard({ voucher, customerVoucherId, usedAt }: Vouc
             </p>
             <p className="text-xs text-ink-secondary mb-4">{scopeLabel}</p>
 
-            <div className="flex justify-center mb-4">
-              <div className="bg-white p-3 rounded-2xl border-2 border-brand-light inline-block">
-                <QRCodeSVG value={customerVoucherId} size={160} />
+            {isActive && (
+              <div className="flex justify-center mb-4">
+                <div className="bg-white p-3 rounded-2xl border-2 border-brand-light inline-flex items-center justify-center min-w-[186px] min-h-[186px]">
+                  {qrUrl
+                    ? <QRCodeSVG value={qrUrl} size={160} level="M" />
+                    : <span className="text-xs text-ink-tertiary">{bi('Chargement du QR…', 'Loading the QR…')}</span>}
+                </div>
               </div>
-            </div>
+            )}
 
             {voucher.min_order > 0 && (
               <p className="text-xs text-ink-tertiary mb-1">{t('voucher.minOrder')}: {formatFCFA(Number(voucher.min_order))}</p>

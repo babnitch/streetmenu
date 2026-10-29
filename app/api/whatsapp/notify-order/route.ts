@@ -1,3 +1,4 @@
+import { scanUrl } from '@/lib/scanTokens'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -87,7 +88,8 @@ export async function POST(req: NextRequest) {
 
     const items = (Array.isArray(order.items) ? order.items : []) as Array<{ name: string; quantity: number; price: number }>
     const total = Number(order.total_price)
-    const trackingUrl = ORDERS_URL
+    // Q1: the order's QR link (the account orders page if it can't be made).
+    const trackingUrl = await scanUrl('order', order.id).catch(() => ORDERS_URL)
     // Single-language prep line + customer ping per the recipient's
     // preferred_language. prepTimeLine accepts a lang so the estimate label
     // matches the rest of the message.

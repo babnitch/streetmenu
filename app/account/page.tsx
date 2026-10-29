@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import QrCodeButton from '@/components/QrCodeButton'
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -2364,6 +2365,12 @@ function EventReservationCard({
           </span>
         </div>
       </Link>
+      {/* Q1: the ticket QR (the whole booking), while it can still be used. */}
+      {!!ev && isUpcoming && (isOpen || reservation.reservation_status === 'attended') && (
+        <div className="px-3 pt-1 pb-2 flex justify-start">
+          <QrCodeButton kind="reservation" id={reservation.id} title={`🎟 ${ev.title}`} />
+        </div>
+      )}
       {canCancel && (
         <div className="px-3 pb-3 pt-1 flex justify-end">
           <button
@@ -2484,6 +2491,13 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
           </div>
         </div>
       </button>
+
+      {/* Q1: the order QR, shown at pickup or to the rider. */}
+      {['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(order.status) && (
+        <div className="mt-2">
+          <QrCodeButton kind="order" id={order.id} title={`🧾 ${order.restaurants?.name ?? ''} #${orderShortId(order.id)}`} />
+        </div>
+      )}
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-divider space-y-2">

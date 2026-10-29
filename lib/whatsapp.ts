@@ -298,8 +298,10 @@ export async function notifyCustomerOrderPlaced(
       lang,
     ),
     ``,
-    pickLang(`Suivez votre commande ici:`, `Track your order here:`, lang),
+    // Q1: trackingUrl is the order's QR link (shown at pickup / delivery).
+    pickLang(`🧾 Votre commande (QR à montrer) :`, `🧾 Your order (QR to show):`, lang),
     trackingUrl,
+    pickLang(`Code de secours : #${id4}`, `Backup code: #${id4}`, lang),
   ].join('\n')
 
   await sendWhatsApp(customerPhone, msg, {

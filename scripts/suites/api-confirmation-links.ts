@@ -1,5 +1,5 @@
-// Customer confirmations end with a website link, in the same message:
-// order received → Mon compte › commandes; booking confirmed → réservations.
+// Customer confirmations end with a website link, in the same message.
+// Since Q1 it is the QR link (https://…/scan/<token>) with the short code.
 // Every phone is +999; events use a per-run city.
 
 import { sb } from '../testkit/env'
@@ -26,7 +26,8 @@ async function main(): Promise<void> {
       assertEq(r.status, 200, 'notify-order 200')
       const b = await bodiesTo(buyer.phone, o.id)
       assertEq(b.length, 1, 'one message to the customer')
-      assert(b[0]?.includes('/account?tab=orders'), 'ends with the orders link')
+      assert(/\/scan\/[A-Za-z0-9_-]{22}/.test(b[0] ?? ''), 'ends with the order QR link')
+      assert(/#[0-9A-F]{4}/.test(b[0] ?? ''), 'with the short code')
     })
 
     await step('booking confirmed → link to my bookings, one message', async () => {
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
       assertEq(r.status, 200, `reserve 200 (${r.raw.slice(0, 100)})`)
       const b = await bodiesTo(buyer.phone, ev.id)
       assertEq(b.length, 1, 'one message to the customer')
-      assert(b[0]?.includes('/account?tab=bookings'), 'ends with the bookings link')
+      assert(/\/scan\/[A-Za-z0-9_-]{22}/.test(b[0] ?? ''), 'ends with the ticket QR link')
     })
   } catch (e) {
     assert(false, 'suite crashed', (e as Error).stack)

@@ -147,6 +147,15 @@ export async function teardown(opts: { verbose?: boolean } = {}): Promise<Teardo
   // them from the tracked parents first.
   await deleteCascades(byTable, report)
 
+  // QR tokens (Q1) of tracked bookings / orders / vouchers: keyed by the
+  // item's id, no FK, so cleared explicitly.
+  const qrTargets = ['event_reservations', 'orders', 'customer_vouchers'].flatMap(t => byTable.get(t) ?? [])
+  if (qrTargets.length > 0) {
+    const { error, count } = await sb.from('scan_tokens').delete({ count: 'exact' }).in('target_id', Array.from(new Set(qrTargets)))
+    if (error) report.errors.push(`scan_tokens: ${error.message}`)
+    else report.deleted.scan_tokens = count ?? 0
+  }
+
   for (const table of DELETE_ORDER) {
     const ids = byTable.get(table)
     if (!ids || ids.length === 0) continue

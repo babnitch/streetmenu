@@ -131,7 +131,17 @@ export async function reserveEventSeats(
   const { data, error } = await supabaseAdmin.rpc('reserve_event_seats', {
     p_event_id: eventId, p_event_date: day, p_rows: rows,
   })
-  if (!error) return { ok: true, rows: (data ?? []) as BookedRow[] }
+  if (!error) {
+    const booked = (data ?? []) as BookedRow[]
+    // Q1: the rows of one booking (one per tier) share one QR — booking_id
+    // is the first row's id. Best effort: a failure leaves rows standalone.
+    if (booked.length > 0) {
+      const { error: bErr } = await supabaseAdmin.from('event_reservations')
+        .update({ booking_id: booked[0].id }).in('id', booked.map(r => r.id))
+      if (bErr) console.error('[seats] booking_id stamp failed:', bErr.message)
+    }
+    return { ok: true, rows: booked }
+  }
 
   const d = errorDetail(error.details)
   switch (error.message) {

@@ -9,11 +9,11 @@
 // Awaits every send so Vercel can't cut the fetch short — the caller's
 // response stays open until both messages land at Twilio.
 
+import { bookingQrLine, orderQrLine } from '@/lib/scanLinks'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { vendorRecipients, prepTimeLine, deliveryInfoFromOrder, deliveryLines } from '@/lib/whatsapp/ordering'
 import { notifyOrganizer } from '@/lib/eventRecipients'
-import { orderLinkLine, bookingLinkLine } from '@/lib/siteLinks'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
 import { formatFCFA } from '@/lib/money'
@@ -71,7 +71,7 @@ export async function notifyPaidOrder(
         lang,
       ),
       ``,
-      orderLinkLine(lang),
+      await orderQrLine(order.id, lang),
     ].join('\n'), { context: 'payment_confirmation', relatedId: order.id })
     console.log(`[payment] customer notification result: ok=${r.ok} httpStatus=${r.status} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}${r.error ? ` error=${r.error.slice(0, 200)}` : ''}`)
   } else {
@@ -181,7 +181,7 @@ export async function notifyPaidReservation(
       `💰 ${formatFCFA(total)} · ${mno}`,
       ``,
       pickLang(`À bientôt!`, `See you soon!`, lang),
-      bookingLinkLine(lang),
+      await bookingQrLine(r.id, id4, lang),
     ].filter(Boolean).join('\n'), { context: 'payment_confirmation', relatedId: r.id })
     console.log(`[payment] reservation customer result: ok=${sent.ok} sid=${sent.sid ?? '-'} twilioStatus=${sent.twilioStatus ?? '-'}${sent.error ? ` error=${sent.error.slice(0, 200)}` : ''}`)
   } else {

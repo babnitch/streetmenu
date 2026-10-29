@@ -1,5 +1,5 @@
+import { bookingQrLine } from '@/lib/scanLinks'
 import { NextRequest, NextResponse } from 'next/server'
-import { bookingLinkLine } from '@/lib/siteLinks'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { isEventOrganizer } from '@/lib/eventAuth'
@@ -67,7 +67,7 @@ export async function POST(
       `📅 ${dateStr}`,
       event.venue ? `📍 ${event.venue}` : '',
       pickLang(`🎟 ${r.quantity} place(s)`, `🎟 ${r.quantity} ticket(s)`, lang),
-      bookingLinkLine(lang),
+      await bookingQrLine(r.id, r.reservation_code ?? r.id.replace(/-/g, '').slice(-4).toUpperCase(), lang),
     ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id, customerId: r.customer_id ?? null }).catch(() => null)
   }
 

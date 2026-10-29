@@ -1,7 +1,7 @@
+import { bookingQrLine } from '@/lib/scanLinks'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSideOn } from '@/lib/platformSwitch'
 import { requireEventModule } from '@/lib/modulesServer'
-import { bookingLinkLine } from '@/lib/siteLinks'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { notifyOrganizer } from '@/lib/eventRecipients'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -247,7 +247,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         pickLang(`🎟 ${quantity} place(s)`, `🎟 ${quantity} ticket(s)`, lang),
         pickLang(`🎫 Code de réservation: *#${freeRes.reservation_code}*`, `🎫 Reservation code: *#${freeRes.reservation_code}*`, lang),
         appliedVoucher ? pickLang(`🎫 Code ${appliedVoucher.code}: -${formatFCFA(discountAmount)} (gratuit!)`, `🎫 Code ${appliedVoucher.code}: -${formatFCFA(discountAmount)} (free!)`, lang) : '',
-        bookingLinkLine(lang),
+        await bookingQrLine(freeRes.id, String(freeRes.reservation_code), lang),
       ].filter(Boolean).join('\n'), { context: 'event_reservation', relatedId: event.id })
         .then(r => console.log('[reserve] WhatsApp result:', r?.ok ? 'ok' : `failed (${r?.error ?? r?.status ?? 'unknown'})`))
         .catch(e => console.warn('[reserve] WhatsApp error:', (e as Error).message))
