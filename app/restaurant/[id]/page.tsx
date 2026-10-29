@@ -3,6 +3,8 @@
 export const dynamic = 'force-dynamic'
 
 import { claimRestaurantLink } from '@/lib/supportContact'
+import MenuFilesViewer from '@/components/MenuFilesViewer'
+import { contactGreeting, type MenuFile } from '@/lib/menuFiles'
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
@@ -30,7 +32,7 @@ interface OpenInfo { open: boolean; next_kind?: string; next_at?: string }
 //   when the restaurant delivers) · fee and time boxes · categories ·
 //   dishes with "+" on the photo · floating cart.
 // Without the Commandes module (Vitrine, M2): the same menu with prices but
-// no "+", switch or cart — "Commander par WhatsApp" and "Appeler" instead.
+// no "+", switch or cart — "Commander sur WhatsApp" and "Appeler" instead.
 // Ratings, hours, address and "Donner mon avis" live on /restaurant/[id]/info.
 // Menu par jour (D3): today's dishes as usual (plat du jour as a badge), then
 // "Autres jours" greyed with "Disponible le samedi" and no "+".
@@ -48,6 +50,9 @@ export default function MenuPage() {
   const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [fulfilment, setFulfilment] = useState<Fulfilment>('delivery')
+  // N4a: the paper menu (photos / PDF) and the number orders go to.
+  const [menuFiles, setMenuFiles] = useState<MenuFile[]>([])
+  const [orderWhatsapp, setOrderWhatsapp] = useState<string | null>(null)
 
   // Old links (the bot's "rate" message) pointed at /restaurant/[id]#rate.
   useEffect(() => {
@@ -56,14 +61,17 @@ export default function MenuPage() {
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: rest }, { data: menu }, statusRes, offersRes] = await Promise.all([
+      const [{ data: rest }, { data: menu }, statusRes, offersRes, filesRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', id).single(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         // Today's offers (V2): the dish costs its offer price, the menu
         // price shows struck through. The server charges the same price.
         fetch(`/api/offers/today?restaurant_id=${id}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/restaurants/${id}/menu-files`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       ])
+      setMenuFiles(Array.isArray(filesRes?.files) ? filesRes.files : [])
+      setOrderWhatsapp(typeof filesRes?.order_whatsapp === 'string' ? filesRes.order_whatsapp : null)
       if (rest) {
         setRestaurant(rest)
         const remembered = rememberedFulfilment(id)
@@ -152,12 +160,27 @@ export default function MenuPage() {
         : bi('Ouvert', 'Open'))
     : bi('Fermé', 'Closed')
 
-  const canOrder = takesOrders(restaurant)
+  // N4a: only a paper menu (files, no dishes) → no cart; "Commander sur
+  // WhatsApp" opens a chat with the restaurant's order number instead.
+  const filesOnly = menuItems.length === 0 && menuFiles.length > 0
+  const takes = takesOrders(restaurant)
+  const canOrder = takes && !filesOnly
   const delivers = deliversNow(restaurant)
-  const waNumber = (restaurant.whatsapp || restaurant.phone || '').replace(/\D/g, '')
+  const waNumber = ((filesOnly && takes ? orderWhatsapp : null) || restaurant.whatsapp || restaurant.phone || '').replace(/\D/g, '')
   const claimLink = claimRestaurantLink(restaurant.name, restaurant.id, locale === 'en' ? 'en' : 'fr')
   const callNumber = (restaurant.phone || restaurant.whatsapp || '').replace(/[^\d+]/g, '')
-  const waText = bi(`Bonjour ${restaurant.name}, je voudrais commander : `, `Hello ${restaurant.name}, I'd like to order: `)
+  const waText = filesOnly
+    ? contactGreeting(locale === 'en' ? 'en' : 'fr')
+    : bi(`Bonjour ${restaurant.name}, je voudrais commander : `, `Hello ${restaurant.name}, I'd like to order: `)
+  // Each WhatsApp / call tap is counted for the restaurant (N4a).
+  const logContact = (kind: 'whatsapp' | 'call') => {
+    try {
+      const body = new Blob([JSON.stringify({ kind })], { type: 'application/json' })
+      if (!navigator.sendBeacon?.(`/api/restaurants/${id}/contact-click`, body)) {
+        void fetch(`/api/restaurants/${id}/contact-click`, { method: 'POST', body: JSON.stringify({ kind }), keepalive: true })
+      }
+    } catch { /* counting must never block the tap */ }
+  }
   const isDelivery = delivers && fulfilment === 'delivery'
   const fee = freeDelivery ? 0 : Number(restaurant.delivery_fee ?? 0)
   const timeLabel = isDelivery
@@ -201,17 +224,24 @@ export default function MenuPage() {
           </Link>
         </p>
 
-        {/* Vitrine (no Commandes module): order straight with the restaurant. */}
+        {/* N4a: the paper menu. */}
+        {menuFiles.length > 0 && (
+          <div className="mt-4"><MenuFilesViewer files={menuFiles} /></div>
+        )}
+
+        {/* Vitrine (no Commandes module), or only a paper menu: order /
+            contact straight with the restaurant. */}
         {!canOrder && (waNumber || callNumber) && (
           <div className="mt-4 grid grid-cols-1 gap-2">
             {waNumber && (
               <a href={`https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noopener noreferrer"
+                onClick={() => logContact('whatsapp')}
                 className={`flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-full font-semibold text-sm transition-colors`}>
-                💬 {bi('Commander par WhatsApp', 'Order on WhatsApp')}
+                💬 {bi('Commander sur WhatsApp', 'Order on WhatsApp')}
               </a>
             )}
             {callNumber && (
-              <a href={`tel:${callNumber}`}
+              <a href={`tel:${callNumber}`} onClick={() => logContact('call')}
                 className={`flex items-center justify-center gap-2 bg-surface border border-divider hover:bg-surface-muted text-ink-primary py-3 rounded-full font-semibold text-sm transition-colors`}>
                 📞 {bi('Appeler', 'Call')}
               </a>
@@ -333,7 +363,7 @@ export default function MenuPage() {
           </section>
         )}
 
-        {menuItems.length === 0 && (
+        {menuItems.length === 0 && menuFiles.length === 0 && (
           <div className="text-center py-16 text-ink-tertiary">
             <div className="text-4xl mb-3">🍽️</div>
             <p className="text-sm">{t('menu.noItems')}</p>

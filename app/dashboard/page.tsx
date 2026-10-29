@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -1054,6 +1055,9 @@ export default function DashboardPage() {
               {canEditMenu && (hasModule(selectedRestaurant, 'daily_offer')
                 ? <OffersPanel restaurant={selectedRestaurant} menuItems={menuItems} />
                 : <div className="mb-4"><ModuleLocked subject="restaurant" module="daily_offer" restaurantId={selectedRestaurant.id} canRequest={effectiveRole === 'owner'} /></div>)}
+
+              {/* N4a: the paper menu as photos or a PDF. */}
+              {canEditMenu && <MenuFilesPanel restaurantId={selectedRestaurant.id} />}
 
               {canEditMenu && (
                 <button

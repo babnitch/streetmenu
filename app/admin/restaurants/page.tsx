@@ -14,6 +14,7 @@ import ModulesSheet, { ModuleSwitches, ModuleChips } from '@/components/ModulesS
 import AdminModuleRequests from '@/components/AdminModuleRequests'
 import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
 import AdminRestaurantContacts from '@/components/AdminRestaurantContacts'
+import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
@@ -641,6 +642,7 @@ function RestaurantCard({
 }) {
   const bi = useBi()
   const [contactsOpen, setContactsOpen] = useState(false)
+  const [menuFilesOpen, setMenuFilesOpen] = useState(false)
   const within30Days = r.deleted_at
     ? new Date(r.deleted_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     : false
@@ -735,6 +737,18 @@ function RestaurantCard({
             <span aria-hidden="true">{contactsOpen ? '▲' : '▼'}</span>
           </button>
           {contactsOpen && <AdminRestaurantContacts restaurantId={r.id} onChanged={onContactsChanged} />}
+        </div>
+      )}
+
+      {/* Menu as photos / PDF (N4a). */}
+      {canTogglePayment && !r.deleted_at && (
+        <div className="border-t border-divider bg-surface">
+          <button type="button" onClick={() => setMenuFilesOpen(o => !o)} aria-expanded={menuFilesOpen}
+            className="w-full px-5 py-3 flex items-center justify-between text-xs font-semibold text-ink-secondary hover:bg-surface-muted">
+            <span>📄 {bi('Carte en photo / PDF', 'Menu as photo / PDF')}</span>
+            <span aria-hidden="true">{menuFilesOpen ? '▲' : '▼'}</span>
+          </button>
+          {menuFilesOpen && <div className="px-5 pb-4"><MenuFilesPanel restaurantId={r.id} compact /></div>}
         </div>
       )}
 
