@@ -13,6 +13,7 @@
 // retry storm over a row we can't find helps nobody. The one exception is a
 // failed signature check, which is a 403.
 
+import { missingTwilioTokenPolicy } from '@/lib/twilioWebhookAuth'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { normalizeLogNumber, type MessageStatus } from '@/lib/messageLog'
@@ -76,8 +77,8 @@ export async function POST(req: NextRequest) {
       console.error('[twilio-status] validateRequest threw:', (e as Error).message)
       return new NextResponse(EMPTY_TWIML, { status: 500, headers: TWIML_HEADERS })
     }
-  } else {
-    console.warn('[twilio-status] TWILIO_AUTH_TOKEN not set — skipping signature validation (dev mode).')
+  } else if (missingTwilioTokenPolicy('twilio-status') === 'refuse') {
+    return new NextResponse(EMPTY_TWIML, { status: 403, headers: TWIML_HEADERS })
   }
 
   const sid       = params['MessageSid'] || params['SmsSid'] || ''

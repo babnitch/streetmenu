@@ -1,9 +1,11 @@
+import { missingTwilioTokenPolicy } from '@/lib/twilioWebhookAuth'
 import { cityCentre, registeredText } from '@/lib/restaurantSignup'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, guessLang, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
+import { testGuardPrefix } from '@/lib/testGuard'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import { sendRestaurantMessage } from '@/lib/directMessaging'
 import {
@@ -346,13 +348,25 @@ async function downloadTwilioMedia(mediaUrl: string): Promise<{ buffer: Buffer; 
     console.error('[whatsapp] downloadTwilioMedia: TWILIO_API_KEY_SID/SECRET missing')
     return null
   }
+  // Our Twilio credentials go to Twilio's media host only — never to an
+  // address someone put in a webhook. The local test server (send guard on)
+  // may also read our own Storage, so suites can post a media message.
+  let host = ''
+  try { host = new URL(mediaUrl).hostname } catch { /* not a URL */ }
+  const twilioHost = host === 'api.twilio.com' || host.endsWith('.twilio.com')
+  const supabaseHost = (() => { try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').hostname } catch { return '' } })()
+  const testStorage = !!testGuardPrefix() && !!supabaseHost && host === supabaseHost
+  if (!twilioHost && !testStorage) {
+    console.error('[whatsapp] downloadTwilioMedia: refused a non-Twilio media host:', host || '(none)')
+    return null
+  }
   console.log('[whatsapp] Downloading from Twilio:', mediaUrl.slice(0, 90))
   try {
-    const res = await fetch(mediaUrl, {
+    const res = await fetch(mediaUrl, twilioHost ? {
       headers: {
         Authorization: `Basic ${Buffer.from(`${sid}:${secret}`).toString('base64')}`,
       },
-    })
+    } : {})
     if (!res.ok) {
       const body = await res.text().catch(() => '')
       console.error(`[whatsapp] downloadTwilioMedia: HTTP ${res.status} ${res.statusText}`, body.slice(0, 200))
@@ -393,6 +407,61 @@ async function uploadToStorage(bucket: string, buffer: Buffer, contentType: stri
   return data.publicUrl
 }
 
+// ── Menu file from WhatsApp (N4b) ─────────────────────────────────────────────
+// Download the media, check it against the menu-file rules, store it in the
+// menu-files bucket (photos resized for reading), record it. One reply.
+async function saveMenuFileFromWhatsApp(
+  from: string, restaurant: { id: string; name: string }, mediaUrl: string, phone: string, lang: Lang,
+): Promise<NextResponse> {
+  const { menuFileRefusal, menuFileType, MENU_FILES_BUCKET, MAX_MENU_FILES } = await import('@/lib/menuFiles')
+  const { listMenuFiles, addMenuFile, menuFilePath } = await import('@/lib/menuFilesServer')
+  const media = await downloadTwilioMedia(mediaUrl)
+  if (!media) {
+    await sendWhatsApp(from, pickLang('❌ Fichier illisible. Réessayez.', '❌ Could not read the file. Retry.', lang))
+    return ok()
+  }
+  let buffer = media.buffer
+  let contentType = media.contentType.split(';')[0].trim().toLowerCase()
+  if (contentType.startsWith('image/')) {
+    const { safeCompress } = await import('@/lib/imageOptimizer')
+    const out = await safeCompress(buffer, 'menu_page', contentType)
+    buffer = out.buffer
+    contentType = out.contentType
+  }
+  const refusal = menuFileRefusal(await listMenuFiles(restaurant.id), contentType, buffer.length)
+  if (refusal) {
+    const [fr, en] = refusal.split(' / ')
+    await sendWhatsApp(from, `❌ ${pickLang(fr, en ?? fr, lang)}`)
+    return ok()
+  }
+  const path = menuFilePath(restaurant.id, menuFileType(contentType)!.ext)
+  const { error } = await supabaseAdmin.storage.from(MENU_FILES_BUCKET)
+    .upload(path, buffer, { contentType, cacheControl: '86400', upsert: false })
+  if (error) {
+    console.error('[whatsapp] menu file upload error:', error.message)
+    await sendWhatsApp(from, pickLang('❌ Erreur lors de l\'envoi. Réessayez.', '❌ Upload error. Retry.', lang))
+    return ok()
+  }
+  const { data: who } = await supabaseAdmin.from('customers').select('id').eq('phone', phone).maybeSingle()
+  const r = await addMenuFile(restaurant.id, path, (who?.id as string | undefined) ?? null)
+  if (!r.ok) {
+    const [fr, en] = r.error.split(' / ')
+    await sendWhatsApp(from, `❌ ${pickLang(fr, en ?? fr, lang)}`)
+    return ok()
+  }
+  await writeAudit({
+    action: 'menu_file_added', targetType: 'restaurant', targetId: restaurant.id,
+    performedBy: (who?.id as string | undefined) ?? null, performedByType: 'vendor',
+    metadata: { file_id: r.file.id, kind: r.file.kind, bytes: r.file.bytes, via: 'whatsapp' },
+  })
+  const n = (await listMenuFiles(restaurant.id)).length
+  await sendWhatsApp(from, pickLang(
+    `✅ Carte ajoutée (${n}/${MAX_MENU_FILES}) 📄\nVoir : ${BASE_URL}/restaurant/${restaurant.id}`,
+    `✅ Menu added (${n}/${MAX_MENU_FILES}) 📄\nSee it: ${BASE_URL}/restaurant/${restaurant.id}`, lang),
+    { context: 'account_notice', relatedId: restaurant.id })
+  return ok()
+}
+
 // ── Menu item lookup (exact then partial, case-insensitive) ───────────────────
 async function findMenuItem(restaurantId: string, name: string) {
   const { data: exact } = await supabaseAdmin
@@ -417,8 +486,9 @@ export async function POST(req: NextRequest) {
   // Twilio signs every webhook with HMAC-SHA1(url + sorted-form-fields)
   // using the account auth token. Without this check anyone with the
   // public webhook URL can spoof messages from any phone.
-  // Skipped (with a console warning) when TWILIO_AUTH_TOKEN is missing,
-  // so dev / sandbox without the variable keeps working.
+  // Without TWILIO_AUTH_TOKEN the signature can't be checked: refused in
+  // production (403, error logged), allowed locally / in dev with a warning
+  // (lib/twilioWebhookAuth.ts).
   const authToken = process.env.TWILIO_AUTH_TOKEN
   if (authToken) {
     const sig = req.headers.get('x-twilio-signature') ?? ''
@@ -435,8 +505,8 @@ export async function POST(req: NextRequest) {
       console.error('[whatsapp] Twilio validateRequest threw:', (e as Error).message)
       return new NextResponse(EMPTY_TWIML, { status: 500, headers: TWIML_HEADERS })
     }
-  } else {
-    console.warn('[whatsapp] TWILIO_AUTH_TOKEN not set — skipping signature validation (dev mode).')
+  } else if (missingTwilioTokenPolicy('whatsapp') === 'refuse') {
+    return new NextResponse(EMPTY_TWIML, { status: 403, headers: TWIML_HEADERS })
   }
 
   // ── Per-phone rate-limit ──────────────────────────────────────────────────
@@ -468,6 +538,8 @@ export async function POST(req: NextRequest) {
   const mediaUrl  = params['MediaUrl0'] ?? ''
   const mediaType = params['MediaContentType0'] ?? ''
   const hasPhoto  = numMedia > 0 && mediaType.startsWith('image/') && !!mediaUrl
+  // N4b: a photo or a PDF can also be a menu file ("menu" caption).
+  const menuMedia = numMedia > 0 && !!mediaUrl && (mediaType.startsWith('image/') || mediaType === 'application/pdf') ? mediaType : ''
 
   const phone = normalisePhone(from)
   if (!phone) {
@@ -617,10 +689,10 @@ export async function POST(req: NextRequest) {
   if (directRestaurant?.is_active) {
     // Check if we need to prompt multi-restaurant selection
     if (activeRestaurants.length > 1 && !session) {
-      return handleMultiRestaurantSelection(from, phone, cmd, body, hasPhoto, mediaUrl, activeRestaurants)
+      return handleMultiRestaurantSelection(from, phone, cmd, body, hasPhoto, mediaUrl, activeRestaurants, menuMedia)
     }
     const restaurant = { ...directRestaurant, teamRole: 'owner' }
-    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurant)
+    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurant, menuMedia)
   }
   if (directRestaurant && !directRestaurant.is_active) {
     return handlePendingVendor(from, phone, directRestaurant.name)
@@ -628,10 +700,10 @@ export async function POST(req: NextRequest) {
 
   // Check team-based restaurant access
   if (activeRestaurants.length === 1) {
-    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, activeRestaurants[0])
+    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, activeRestaurants[0], menuMedia)
   }
   if (activeRestaurants.length > 1) {
-    return handleMultiRestaurantSelection(from, phone, cmd, body, hasPhoto, mediaUrl, activeRestaurants)
+    return handleMultiRestaurantSelection(from, phone, cmd, body, hasPhoto, mediaUrl, activeRestaurants, menuMedia)
   }
 
   if (customer) {
@@ -662,6 +734,7 @@ async function handleMultiRestaurantSelection(
   hasPhoto: boolean,
   mediaUrl: string,
   restaurants: Array<{ id: string; name: string; whatsapp: string; is_active: boolean; customer_id: string | null; teamRole: string; status: string; deleted_at: string | null; suspended_by: string | null }>,
+  menuMedia = '',
 ): Promise<NextResponse> {
   const lang = await getLangByPhone(phone)
 
@@ -685,7 +758,7 @@ async function handleMultiRestaurantSelection(
     if (!isNaN(num) && num >= 1 && num <= restaurants.length) {
       const chosen = restaurants[num - 1]
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
-      return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, chosen)
+      return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, chosen, menuMedia)
     }
     await sendWhatsApp(from, pickLang(
       `Envoyez un numéro entre 1 et ${restaurants.length}.`,
@@ -696,7 +769,7 @@ async function handleMultiRestaurantSelection(
   // If the command is a number, try to use it directly as selection
   const directNum = parseInt(cmd, 10)
   if (!isNaN(directNum) && directNum >= 1 && directNum <= restaurants.length) {
-    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurants[directNum - 1])
+    return handleVendor(from, phone, body, cmd, hasPhoto, mediaUrl, restaurants[directNum - 1], menuMedia)
   }
 
   // Ask which restaurant
@@ -1129,6 +1202,7 @@ async function handleVendor(
   hasPhoto:   boolean,
   mediaUrl:   string,
   restaurant: { id: string; name: string; whatsapp: string; is_active: boolean; customer_id: string | null; teamRole?: string; status?: string; deleted_at?: string | null; suspended_by?: string | null },
+  menuMedia = '',
 ): Promise<NextResponse> {
 
   const teamRole = restaurant.teamRole ?? 'owner'
@@ -1158,6 +1232,36 @@ async function handleVendor(
     await supabaseAdmin.from('customers').update({ preferred_language: 'fr' }).eq('phone', phone)
     await sendWhatsApp(from, `🌐 Langue définie en français. Envoyez "en" pour passer à l'anglais.`)
     return ok()
+  }
+
+  // ── MENU FILES (N4b) ─────────────────────────────────────────────────────
+  // A photo or PDF of the paper menu, caption "menu" / "carte": saved as a
+  // menu file (same rules as the web: 5 files, one PDF, 5 MB). "ajouter
+  // carte" / "add menu photo" explains how; a PDF without the caption gets
+  // a hint (a PDF is never a dish photo). Checked before the text commands:
+  // a photo captioned "menu" must not read as the "menu" command.
+  const menuCaption = /^(menu|carte|la carte|ma carte|notre carte|the menu|our menu)$/i.test(body.trim())
+  const isPdf = menuMedia === 'application/pdf'
+  if (['ajouter carte', 'carte photo', 'photo carte', 'add menu photo', 'menu photo', 'add menu'].includes(cmd)) {
+    await sendWhatsApp(from, canEditMenu
+      ? pickLang(
+          `📄 Envoyez la photo (ou le PDF) de votre carte avec la légende *menu*.\nJusqu'à 5 fichiers, un seul PDF, 5 Mo max chacun.`,
+          `📄 Send the photo (or PDF) of your menu with the caption *menu*.\nUp to 5 files, only one PDF, 5 MB max each.`, lang)
+      : pickLang('Vous n\'avez pas la permission de modifier le menu.', 'You don\'t have permission to edit the menu.', lang))
+    return ok()
+  }
+  if (menuMedia && (menuCaption || isPdf)) {
+    if (!canEditMenu) {
+      await sendWhatsApp(from, pickLang('Vous n\'avez pas la permission de modifier le menu.', 'You don\'t have permission to edit the menu.', lang))
+      return ok()
+    }
+    if (!menuCaption) {
+      await sendWhatsApp(from, pickLang(
+        '📄 Pour ajouter ce PDF à votre carte, renvoyez-le avec la légende *menu*.',
+        '📄 To add this PDF to your menu, send it again with the caption *menu*.', lang))
+      return ok()
+    }
+    return saveMenuFileFromWhatsApp(from, restaurant, mediaUrl, phone, lang)
   }
 
   // ── AIDE / HELP ──────────────────────────────────────────────────────────
@@ -1191,8 +1295,8 @@ async function handleVendor(
       en ? `🍽️ *Your menu*` : `🍽️ *Votre menu*`,
       canEditMenu
         ? (en
-            ? `Send "menu" to view it. To add a dish, send a photo with a caption like "Poulet DG - 3000".`
-            : `Envoyez "menu" pour le voir. Pour ajouter un plat, envoyez une photo avec une légende du type "Poulet DG - 3000".`)
+            ? `Send "menu" to view it. To add a dish, send a photo with a caption like "Poulet DG - 3000". Paper menu: send its photo or PDF with the caption "menu".`
+            : `Envoyez "menu" pour le voir. Pour ajouter un plat, envoyez une photo avec une légende du type "Poulet DG - 3000". Carte papier : envoyez sa photo ou son PDF avec la légende "menu".`)
         : (en
             ? `Send "menu" to view the current menu.`
             : `Envoyez "menu" pour voir le menu actuel.`),

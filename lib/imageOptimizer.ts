@@ -19,6 +19,7 @@ export type ImageKind =
   | 'restaurant_logo'     // 200×200, square
   | 'event_cover'         // 800×450, 16:9 (legacy covers)
   | 'event_poster'        // up to 1080×1350, 4:5 portrait — nothing cropped
+  | 'menu_page'           // 1600×1600 cap — a paper menu photo, kept readable (N4b)
   | 'generic'             // 1000×1000 cap, otherwise unchanged
 
 interface Dims { width: number; height: number; fit: 'cover' | 'inside' }
@@ -29,6 +30,7 @@ const DIMS: Record<ImageKind, Dims> = {
   restaurant_logo: { width: 200,  height: 200, fit: 'cover'  },
   event_cover:     { width: 800,  height: 450, fit: 'cover'  },
   event_poster:    { width: 1080, height: 1350, fit: 'inside' },
+  menu_page:       { width: 1600, height: 1600, fit: 'inside' },
   generic:         { width: 1000, height: 1000, fit: 'inside' },
 }
 
