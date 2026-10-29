@@ -13,6 +13,7 @@ import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 import ModulesSheet, { ModuleSwitches, ModuleChips } from '@/components/ModulesSheet'
 import AdminModuleRequests from '@/components/AdminModuleRequests'
 import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
+import AdminRestaurantContacts from '@/components/AdminRestaurantContacts'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
@@ -45,6 +46,7 @@ interface RestaurantRow {
   whatsapp_payment_enabled: boolean | null
   broadcast_enabled: boolean | null
   modules: string[] | null
+  managed_by_platform?: boolean | null
   owner: { id: string; name: string; phone: string } | null
 }
 
@@ -54,12 +56,14 @@ interface RestaurantForm {
   lat: string; lng: string; phone: string; whatsapp: string; logo_url: string
   owner_phone: string; owner_name: string
   modules: string[]
+  publish: boolean
 }
 const EMPTY_FORM: RestaurantForm = {
   name: '', description: '', address: '', city: '',
   lat: '', lng: '', phone: '', whatsapp: '', logo_url: '',
   owner_phone: '', owner_name: '',
   modules: DEFAULT_ON_APPROVAL.restaurant,
+  publish: true,
 }
 
 type Tab = 'all' | 'pending' | 'suspended' | 'deleted'
@@ -344,10 +348,6 @@ export default function AdminRestaurantsPage() {
       showToast(bi(RESTAURANT_PHOTO_REQUIRED.fr, RESTAURANT_PHOTO_REQUIRED.en), false)
       return
     }
-    if (!form.owner_phone) {
-      showToast(bi('Téléphone du propriétaire requis', 'Owner phone required'), false)
-      return
-    }
     setSaving(true)
     // is_open / is_active / status are set by the server, not sent from here.
     const res = await postJSON('/api/admin/restaurants', {
@@ -357,7 +357,7 @@ export default function AdminRestaurantsPage() {
       phone: form.phone.trim(), whatsapp: form.whatsapp.trim(),
       logo_url: form.logo_url,
       owner_phone: form.owner_phone.trim(), owner_name: form.owner_name.trim(),
-      modules: form.modules,
+      modules: form.modules, publish: form.publish,
     })
     const data = res.ok ? (res.data?.restaurant ?? null) : null
     setSaving(false)
@@ -459,15 +459,28 @@ export default function AdminRestaurantsPage() {
             <Field label="Description"><input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Cuisine camerounaise…" className={INPUT} /></Field>
             <Field label="Latitude *"><input type="number" step="any" value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="3.8667" className={INPUT} /></Field>
             <Field label="Longitude *"><input type="number" step="any" value={form.lng} onChange={e => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="11.5167" className={INPUT} /></Field>
-            <Field label={bi('Téléphone du propriétaire *', 'Owner phone *')}>
-              <PhoneInput value={form.owner_phone} onChange={(full) => setForm(f => ({ ...f, owner_phone: full }))} defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined} required />
-              <p className="text-[11px] text-ink-tertiary mt-1">{bi('Son compte existant, ou un nouveau compte est créé.', 'Their existing account, or a new account is created.')}</p>
+            <Field label={bi('Téléphone du propriétaire (facultatif)', 'Owner phone (optional)')}>
+              <PhoneInput value={form.owner_phone} onChange={(full) => setForm(f => ({ ...f, owner_phone: full }))} defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined} />
+              <p className="text-[11px] text-ink-tertiary mt-1">
+                {form.owner_phone
+                  ? bi('Son compte existant, ou un nouveau compte est créé.', 'Their existing account, or a new account is created.')
+                  : bi('Vide : géré par Tchop & Ndjoka (vitrine, aucun message envoyé).', 'Empty: managed by Tchop & Ndjoka (basic page, no message sent).')}
+              </p>
             </Field>
             <Field label={bi('Nom du propriétaire (nouveau numéro)', 'Owner name (new number)')}><input value={form.owner_name} onChange={e => setForm(f => ({ ...f, owner_name: e.target.value }))} placeholder="Marie Ngo" className={INPUT} /></Field>
             <Field label="WhatsApp"><PhoneInput value={form.whatsapp} onChange={(full) => setForm(f => ({ ...f, whatsapp: full }))} defaultCountry={form.city ? getCountryFromCity(form.city).iso : undefined} /></Field>
             <Field label={bi('Modules (la vitrine est toujours incluse)', 'Modules (the basic page is always included)')} className="sm:col-span-2">
               <ModuleSwitches subject="restaurant" value={form.modules} onChange={next => setForm(f => ({ ...f, modules: next }))} />
+              {!form.owner_phone && (
+                <p className="text-[11px] text-ink-tertiary mt-1">
+                  {bi("Sans propriétaire, Commandes reste coupé jusqu'à l'ajout d'un numéro de commande ou d'un membre d'équipe.", 'Without an owner, Orders stays off until an order number or a team member is added.')}
+                </p>
+              )}
             </Field>
+            <label className="sm:col-span-2 flex items-center gap-2 text-sm text-ink-primary">
+              <input type="checkbox" checked={form.publish} onChange={e => setForm(f => ({ ...f, publish: e.target.checked }))} className="w-4 h-4 accent-brand" />
+              {bi('Publier maintenant (visible par tous)', 'Publish now (visible to everyone)')}
+            </label>
             <Field label={bi('Photo * (obligatoire)', 'Photo * (required)')} className="sm:col-span-2">
               <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-ink-secondary" />
               {uploading && <span className="text-xs text-brand ml-2">Envoi…</span>}
@@ -527,6 +540,7 @@ export default function AdminRestaurantsPage() {
               onSetMode={setRestaurantMode}
               onToggleWhatsapp={toggleRestaurantWhatsapp}
               onEditModules={r => setModulesFor({ restaurant: r, mode: 'edit' })}
+              onContactsChanged={fetchRestaurants}
             />
           ))}
         </div>
@@ -608,6 +622,7 @@ function RestaurantCard({
   actionLoading,
   canTogglePayment,
   onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onSetMode, onToggleWhatsapp, onEditModules,
+  onContactsChanged,
 }: {
   restaurant: RestaurantRow
   tab: Tab
@@ -622,8 +637,10 @@ function RestaurantCard({
   onSetMode:        (r: RestaurantRow, mode: PaymentMode) => void
   onToggleWhatsapp: (r: RestaurantRow, next: boolean) => void
   onEditModules: (r: RestaurantRow) => void
+  onContactsChanged: () => void
 }) {
   const bi = useBi()
+  const [contactsOpen, setContactsOpen] = useState(false)
   const within30Days = r.deleted_at
     ? new Date(r.deleted_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     : false
@@ -667,6 +684,8 @@ function RestaurantCard({
               👤 <span className="font-medium">{r.owner.name}</span>
               <span className="font-mono text-ink-tertiary"> · {r.owner.phone}</span>
             </p>
+          ) : r.managed_by_platform ? (
+            <p className="text-xs text-ink-secondary mt-1">🏢 {bi('Géré par Tchop & Ndjoka', 'Managed by Tchop & Ndjoka')}</p>
           ) : (
             <p className="text-xs text-warning mt-1">{bi('👤 Non lié', 'Unlinked')}</p>
           )}
@@ -704,6 +723,18 @@ function RestaurantCard({
           >
             ⚙️ {bi('Gérer', 'Manage')}
           </button>
+        </div>
+      )}
+
+      {/* Contacts & owner (N3) — order numbers, team, change owner. */}
+      {canTogglePayment && !r.deleted_at && (
+        <div className="border-t border-divider bg-surface">
+          <button type="button" onClick={() => setContactsOpen(o => !o)} aria-expanded={contactsOpen}
+            className="w-full px-5 py-3 flex items-center justify-between text-xs font-semibold text-ink-secondary hover:bg-surface-muted">
+            <span>👥 {bi('Contacts & propriétaire', 'Contacts & owner')}</span>
+            <span aria-hidden="true">{contactsOpen ? '▲' : '▼'}</span>
+          </button>
+          {contactsOpen && <AdminRestaurantContacts restaurantId={r.id} onChanged={onContactsChanged} />}
         </div>
       )}
 

@@ -6,7 +6,8 @@ import { normalizePhone } from '@/lib/phone'
 import { writeAudit } from '@/lib/audit'
 import { isAdminRole } from '@/lib/adminNav'
 import { RESTAURANT_PHOTO_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
-import { validateModules } from '@/lib/modules'
+import { validateModules, toggleModule } from '@/lib/modules'
+import { findOrCreateAccount, type OwnerAccount } from '@/lib/ownerAccount'
 import { setRestaurantModules } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
@@ -58,25 +59,23 @@ export async function GET(req: NextRequest) {
 
 // POST /api/admin/restaurants
 //
-// Admin-authored restaurant, created already-live (this is the "add a venue
-// we onboarded offline" path, not the public signup queue — that's
-// /api/restaurants/submit, which forces status='pending').
-//
-// Replaces a browser-side anon-key INSERT into the restaurants table whose
-// only gate was a localStorage flag.
+// Admin-authored restaurant (the "add a venue we onboarded offline" path,
+// not the public signup queue — that's /api/restaurants/submit).
 //
 // Authorization: sm_session JWT with role super_admin | admin. Moderators
 // cannot create restaurants — same bar as approve/reject.
 //
-// Owner (body.owner_phone, required; body.owner_name when the number has no
-// account yet): like the other sign-up paths, every restaurant has an owner
-// account — customer_id is NOT NULL. An existing account is reused; a new
-// number gets an account. One restaurant per number, as on WhatsApp and the
-// web sign-up. The owner's restaurant_team row is written with it.
+// Owner (body.owner_phone, OPTIONAL since N3):
+//   - given: like the other sign-up paths — an existing account is reused, a
+//     new number gets an account (body.owner_name then required); one
+//     restaurant per number. The owner's restaurant_team row is written.
+//   - empty: "managed by Tchop & Ndjoka" (managed_by_platform). No owner, no
+//     team, nobody messaged. Vitrine: Commandes is refused until it has an
+//     order contact (lib/managedRestaurant.ts). body.whatsapp / phone are its
+//     public contact buttons.
+// body.publish (default true): listed at once ('active'), else 'pending'.
 //
-// is_open / is_active / status are server constants, not read from the body.
-// An admin is allowed a live row; it just isn't client-controlled, so a
-// crafted request can't reach any other column either.
+// is_open / is_active / status are server-set, never read from the body.
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
   if (!session || !['super_admin', 'admin'].includes(session.role)) {
@@ -99,8 +98,11 @@ export async function POST(req: NextRequest) {
   const logo_url    = typeof body.logo_url === 'string' ? body.logo_url.trim() : ''
   const lat         = Number(body.lat)
   const lng         = Number(body.lng)
-  const ownerPhone  = normalizePhone(sanitizePhone(body.owner_phone))
+  const ownerRaw    = sanitizePhone(body.owner_phone)
+  const ownerPhone  = ownerRaw ? normalizePhone(ownerRaw) : ''
   const ownerName   = sanitizeText(body.owner_name, 60)
+  const publish     = body.publish !== false
+  const actor       = { id: session.id, type: session.role }
 
   // Mirrors the form's own required-field check so the server is the one
   // enforcing it rather than trusting the client to have run it.
@@ -126,62 +128,45 @@ export async function POST(req: NextRequest) {
     modules = v.modules
   }
 
-  if (!/^\+\d{8,15}$/.test(ownerPhone)) {
-    return NextResponse.json({ error: 'Téléphone du propriétaire requis / Owner phone required', field: 'owner_phone' }, { status: 400 })
-  }
-
-  // The owner's account: reuse it, or create it for a new number.
-  const { data: found } = await supabaseAdmin
-    .from('customers').select('id, name, phone, status')
-    .in('phone', [ownerPhone, ownerPhone.slice(1)])
-    .limit(1)
-  let owner = found?.[0] ?? null
-  if (owner && owner.status === 'suspended') {
-    return NextResponse.json({ error: 'Compte du propriétaire suspendu / Owner account suspended', field: 'owner_phone' }, { status: 409 })
-  }
-  if (owner) {
-    const { data: existing } = await supabaseAdmin
-      .from('restaurants').select('id, name')
-      .or(`whatsapp.eq.${owner.phone},customer_id.eq.${owner.id}`)
-      .is('deleted_at', null).neq('status', 'deleted')
-      .limit(1)
-    if (existing && existing.length > 0) {
-      return NextResponse.json({
-        error: `Ce numéro a déjà un restaurant (${existing[0].name}). / This number already has a restaurant (${existing[0].name}).`,
-        field: 'owner_phone', restaurant_id: existing[0].id,
-      }, { status: 409 })
+  // ── Owner, or managed ────────────────────────────────────────────────────
+  let owner: OwnerAccount | null = null
+  if (ownerPhone) {
+    if (!/^\+\d{8,15}$/.test(ownerPhone)) {
+      return NextResponse.json({ error: 'Téléphone du propriétaire invalide / Invalid owner phone', field: 'owner_phone' }, { status: 400 })
     }
-  } else {
-    if (!ownerName) {
-      return NextResponse.json({
-        error: 'Nouveau numéro : nom du propriétaire requis / New number: owner name required', field: 'owner_name',
-      }, { status: 400 })
+    const acc = await findOrCreateAccount(ownerPhone, ownerName, city, actor, 'restaurant_owner')
+    if (!acc.ok) return NextResponse.json({ error: acc.error, field: acc.field }, { status: acc.status })
+    owner = acc.account
+    if (!acc.created) {
+      const { data: existing } = await supabaseAdmin
+        .from('restaurants').select('id, name')
+        .or(`whatsapp.eq.${owner.phone},customer_id.eq.${owner.id}`)
+        .is('deleted_at', null).neq('status', 'deleted')
+        .limit(1)
+      if (existing && existing.length > 0) {
+        return NextResponse.json({
+          error: `Ce numéro a déjà un restaurant (${existing[0].name}). / This number already has a restaurant (${existing[0].name}).`,
+          field: 'owner_phone', restaurant_id: existing[0].id,
+        }, { status: 409 })
+      }
     }
-    const { data: created, error: custErr } = await supabaseAdmin
-      .from('customers').insert({ phone: ownerPhone, name: ownerName, city, preferred_language: 'fr' })
-      .select('id, name, phone, status').single()
-    if (custErr || !created) {
-      console.error('[admin/restaurants] owner insert failed:', custErr?.message)
-      return NextResponse.json({ error: 'Erreur serveur / Server error' }, { status: 500 })
-    }
-    owner = created
-    await writeAudit({
-      action: 'customer_created_by_admin', targetType: 'customer', targetId: created.id,
-      performedBy: session.id, performedByType: session.role, metadata: { phone: ownerPhone, for: 'restaurant_owner' },
-    })
   }
+  const managed = owner === null
+  // A managed restaurant has no order contact yet: Vitrine.
+  if (managed && modules) modules = toggleModule('restaurant', modules, 'orders', false)
 
   const { data, error } = await supabaseAdmin
     .from('restaurants')
     .insert({
       name, description, address, city, phone, logo_url,
-      whatsapp:    whatsapp || owner.phone,
-      owner_name:  owner.name,
-      customer_id: owner.id,
+      whatsapp:    owner ? (whatsapp || owner.phone) : (whatsapp || null),
+      owner_name:  owner?.name ?? null,
+      customer_id: owner?.id ?? null,
+      managed_by_platform: managed,
       lat, lng,
       is_open:   false,
-      is_active: true,
-      status:    'active',
+      is_active: publish,
+      status:    publish ? 'active' : 'pending',
     })
     .select()
     .single()
@@ -191,16 +176,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message ?? 'Erreur serveur / Server error' }, { status: 500 })
   }
 
-  // Same owner row as the other sign-up paths (a DB trigger may already have
-  // written it; ignoreDuplicates keeps that one).
-  const { error: teamErr } = await supabaseAdmin.from('restaurant_team').upsert(
-    { restaurant_id: data.id, customer_id: owner.id, role: 'owner', status: 'active' },
-    { onConflict: 'restaurant_id,customer_id', ignoreDuplicates: true },
-  )
-  if (teamErr) console.error('[admin/restaurants] owner team row:', teamErr.message)
+  if (owner) {
+    // Same owner row as the other sign-up paths (a DB trigger may already
+    // have written it; ignoreDuplicates keeps that one).
+    const { error: teamErr } = await supabaseAdmin.from('restaurant_team').upsert(
+      { restaurant_id: data.id, customer_id: owner.id, role: 'owner', status: 'active' },
+      { onConflict: 'restaurant_id,customer_id', ignoreDuplicates: true },
+    )
+    if (teamErr) console.error('[admin/restaurants] owner team row:', teamErr.message)
+  }
 
   if (modules && modules.length > 0) {
-    const set = await setRestaurantModules(data.id, modules, { id: session.id, type: session.role }, 'created_by_admin')
+    const set = await setRestaurantModules(data.id, modules, actor, 'created_by_admin')
     if (set.ok) data.modules = set.after
     else console.error('[admin/restaurants] modules:', set.error)
   }
@@ -211,9 +198,9 @@ export async function POST(req: NextRequest) {
     targetId:        data.id,
     performedBy:     session.id,
     performedByType: session.role,
-    metadata:        { name, city, owner_id: owner.id },
+    metadata:        { name, city, owner_id: owner?.id ?? null, managed, published: publish },
   })
 
   // Same shape as the GET list rows, so the panel shows the owner at once.
-  return NextResponse.json({ ok: true, restaurant: { ...data, owner: { id: owner.id, name: owner.name, phone: owner.phone } } })
+  return NextResponse.json({ ok: true, restaurant: { ...data, owner: owner ? { id: owner.id, name: owner.name, phone: owner.phone } : null } })
 }

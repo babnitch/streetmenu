@@ -1,6 +1,7 @@
 // WhatsApp ordering flow — customer-side state machine + vendor order actions.
 // See docs/superpowers/specs/2026-04-18-whatsapp-ordering-design.md
 
+import { blockedForOrders, orderPhones } from '@/lib/managedRestaurant'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { hasActiveTiers } from '@/lib/tiers'
@@ -251,8 +252,13 @@ async function listRestaurantsForCity(city: string): Promise<Array<{ id: string;
     .contains('modules', ['orders'])   // M2: only restaurants that take orders
     .order('name')
     .limit(20)
-  const { data } = await base.eq('city', city)
-  if (data && data.length > 0) return data
+  // N3: a managed restaurant with no order contact is left out.
+  const usable = async <T extends { id: string }>(rows: T[] | null): Promise<T[]> => {
+    const blocked = await blockedForOrders((rows ?? []).map(r => r.id))
+    return (rows ?? []).filter(r => !blocked.has(r.id))
+  }
+  const data = await usable((await base.eq('city', city)).data)
+  if (data.length > 0) return data
 
   const { data: all } = await supabaseAdmin.from('restaurants')
     .select('id, name, cuisine_type, city')
@@ -262,7 +268,7 @@ async function listRestaurantsForCity(city: string): Promise<Array<{ id: string;
     .contains('modules', ['orders'])
     .order('name')
     .limit(20)
-  return all ?? []
+  return usable(all)
 }
 
 function buildRestaurantListMessage(restaurants: Array<{ name: string; cuisine_type: string; city?: string }>, scopedToCity: string | null, lang: Lang = 'fr'): string {
@@ -406,9 +412,13 @@ function buildSummaryMessage(restaurantName: string, items: CartItem[], total: n
 export async function vendorRecipients(restaurantId: string): Promise<string[]> {
   const phones: Array<string | null | undefined> = []
 
+  // N3: a managed restaurant's WhatsApp is only its public contact — its
+  // orders go to the order numbers and the team. Order numbers (any
+  // restaurant) are added below.
   const { data: rest } = await supabaseAdmin
-    .from('restaurants').select('whatsapp').eq('id', restaurantId).maybeSingle()
-  phones.push(rest?.whatsapp)
+    .from('restaurants').select('whatsapp, managed_by_platform').eq('id', restaurantId).maybeSingle()
+  if (rest?.managed_by_platform !== true) phones.push(rest?.whatsapp)
+  phones.push(...await orderPhones(restaurantId))
 
   // Name the FK — restaurant_team has two into customers (customer_id,
   // added_by), and the bare embed was failing with PGRST201, silently

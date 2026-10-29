@@ -47,7 +47,10 @@ export interface Restaurant {
   delivery_fee?: number
   delivery_extra_min?: number
   // Modules switched on (supabase-modules.sql); [] = Vitrine only.
-  modules?: string[] | null  // 'a_la_carte' (default) or 'daily' (Menu par jour).
+  modules?: string[] | null
+  // N3: listed by the admin with no owner ("managed by Tchop & Ndjoka").
+  managed_by_platform?: boolean | null
+  // 'a_la_carte' (default) or 'daily' (Menu par jour).
   menu_type?: 'a_la_carte' | 'daily' | null
 }
 

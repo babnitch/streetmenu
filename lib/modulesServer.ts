@@ -11,14 +11,22 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { writeAudit } from '@/lib/audit'
+import { managedWithoutContact, NO_ORDER_CONTACT_TEXT } from '@/lib/managedRestaurant'
 import {
-  validateModules, moduleOffText,
+  validateModules, moduleOffText, toggleModule,
   type RestaurantModule, type OrganizerModule, type ModuleSubject,
 } from '@/lib/modules'
 
+// N3: a managed restaurant with no order contact never has Commandes (nor
+// the modules that need it), whatever the column says — so every gate below
+// refuses its orders and payments.
 export async function restaurantModules(restaurantId: string): Promise<string[]> {
-  const { data } = await supabaseAdmin.from('restaurants').select('modules').eq('id', restaurantId).maybeSingle()
-  return (data?.modules as string[] | null) ?? []
+  const { data } = await supabaseAdmin.from('restaurants').select('modules, managed_by_platform').eq('id', restaurantId).maybeSingle()
+  const list = (data?.modules as string[] | null) ?? []
+  if (data?.managed_by_platform === true && list.includes('orders') && await managedWithoutContact(restaurantId, true)) {
+    return toggleModule('restaurant', list, 'orders', false)
+  }
+  return list
 }
 
 export async function organizerModules(customerId: string): Promise<string[]> {
@@ -56,10 +64,14 @@ export type SetModulesResult =
 export async function setRestaurantModules(restaurantId: string, raw: unknown, actor: Actor, reason = 'admin'): Promise<SetModulesResult> {
   const v = validateModules('restaurant', raw)
   if (!v.ok) return { ok: false, status: 400, error: v.error }
-  const { data: row } = await supabaseAdmin.from('restaurants').select('id, modules').eq('id', restaurantId).maybeSingle()
+  const { data: row } = await supabaseAdmin.from('restaurants').select('id, modules, managed_by_platform').eq('id', restaurantId).maybeSingle()
   if (!row) return { ok: false, status: 404, error: 'Restaurant introuvable / Restaurant not found' }
   const before = (row.modules as string[] | null) ?? []
   const after = v.modules
+  // N3: Commandes on a managed restaurant needs someone to receive orders.
+  if (row.managed_by_platform === true && after.includes('orders') && await managedWithoutContact(restaurantId, true)) {
+    return { ok: false, status: 409, error: NO_ORDER_CONTACT_TEXT }
+  }
   const { error } = await supabaseAdmin.from('restaurants')
     .update({ modules: after, broadcast_enabled: after.includes('broadcast') })
     .eq('id', restaurantId)
@@ -101,7 +113,6 @@ export async function setOrganizerModules(customerId: string, raw: unknown, acto
 
 // Turn one module on or off, keeping the rest (and the dependencies valid).
 export async function switchModule(subject: ModuleSubject, id: string, m: string, on: boolean, actor: Actor, reason: string): Promise<SetModulesResult> {
-  const { toggleModule } = await import('@/lib/modules')
   const current = subject === 'restaurant' ? await restaurantModules(id) : await organizerModules(id)
   const next = toggleModule(subject, current, m, on)
   return subject === 'restaurant'

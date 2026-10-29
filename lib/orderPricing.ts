@@ -13,6 +13,7 @@
 // more than the menu price); a free-delivery day makes the fee 0. "Today"
 // is the restaurant's own day, so the price changes by itself at midnight.
 
+import { managedWithoutContact } from '@/lib/managedRestaurant'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { validateVoucher, type VoucherRow } from '@/lib/vouchers'
 import { DELIVERY_OFF_TEXT, type Fulfilment } from '@/lib/delivery'
@@ -58,10 +59,13 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
   if (qty.size === 0) return { ok: false, status: 400, error: 'items requis / required', reason: 'no_items' }
 
   const { data: rest } = await supabaseAdmin.from('restaurants')
-    .select('id, delivery_enabled, delivery_fee, modules, menu_type, timezone, city').eq('id', restaurantId).maybeSingle()
+    .select('id, delivery_enabled, delivery_fee, modules, menu_type, timezone, city, managed_by_platform').eq('id', restaurantId).maybeSingle()
   if (!rest) return { ok: false, status: 404, error: 'Restaurant introuvable / Restaurant not found', reason: 'no_restaurant' }
-  // M2: a Vitrine-only restaurant takes no orders here.
-  if (!takesOrders(rest)) return { ok: false, status: 403, error: moduleOffText('restaurant', 'orders'), reason: 'module_off' }
+  // M2: a Vitrine-only restaurant takes no orders here. N3: nor does a
+  // managed one with nobody to receive the order.
+  if (!takesOrders(rest) || await managedWithoutContact(rest.id, rest.managed_by_platform === true)) {
+    return { ok: false, status: 403, error: moduleOffText('restaurant', 'orders'), reason: 'module_off' }
+  }
   const delivery = input.fulfilment === 'delivery'
   if (delivery && !hasModule(rest, 'delivery')) {
     return { ok: false, status: 403, error: moduleOffText('restaurant', 'delivery'), reason: 'module_off' }

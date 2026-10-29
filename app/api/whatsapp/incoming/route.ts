@@ -574,6 +574,9 @@ export async function POST(req: NextRequest) {
     .from('restaurants')
     .select('id, name, whatsapp, is_active, customer_id, status, deleted_at, suspended_by')
     .or(`whatsapp.eq.${phone},whatsapp.eq.${from}`)
+    // N3: a managed restaurant's number is only its public contact — no
+    // owner commands until there is a real owner.
+    .eq('managed_by_platform', false)
     .maybeSingle()
 
   // Handle suspended/deleted restaurants on direct match. Vendor's language is

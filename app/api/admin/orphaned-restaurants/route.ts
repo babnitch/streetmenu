@@ -16,6 +16,9 @@ export async function GET(req: NextRequest) {
       .from('restaurants')
       .select('id, name, city, neighborhood, whatsapp, status, created_at')
       .is('customer_id', null)
+      // N3: restaurants managed by Tchop & Ndjoka have no owner on purpose;
+      // their owner is set with "Changer le propriétaire".
+      .eq('managed_by_platform', false)
       .order('created_at', { ascending: false }),
     supabaseAdmin
       .from('customers')
@@ -47,6 +50,7 @@ export async function POST(req: NextRequest) {
       .update({ customer_id: body.customerId })
       .eq('id', body.restaurantId)
       .is('customer_id', null)
+      .eq('managed_by_platform', false)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -66,7 +70,7 @@ export async function POST(req: NextRequest) {
   // customer from the restaurant's own details when no phone match exists.
   if (body.autoLink) {
     const [{ data: orphaned }, { data: customers }] = await Promise.all([
-      supabaseAdmin.from('restaurants').select('id, name, whatsapp, city').is('customer_id', null),
+      supabaseAdmin.from('restaurants').select('id, name, whatsapp, city').is('customer_id', null).eq('managed_by_platform', false),
       supabaseAdmin.from('customers').select('id, phone'),
     ])
 
@@ -106,7 +110,7 @@ export async function POST(req: NextRequest) {
         customer_id:   customerId,
         role:          'owner',
         status:        'active',
-        added_by:      'admin',
+        // added_by is a customers id (an admin is not one): left empty.
       }, { onConflict: 'restaurant_id,customer_id' })
 
       linked++

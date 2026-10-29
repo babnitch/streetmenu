@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRestaurantModule } from '@/lib/modulesServer'
+import { inviteTeamMember } from '@/lib/teamInvite'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
-import { writeAudit } from '@/lib/audit'
 import { normalizePhone } from '@/lib/phone'
-import { wouldStripLastOwner, LAST_OWNER_ERROR } from '@/lib/vendorAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,138 +51,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Restaurant introuvable / Restaurant not found' }, { status: 404 })
   }
 
-  // Path 1: known customer → add directly to team.
-  const { data: existingCustomer } = await supabaseAdmin
-    .from('customers').select('id, name, phone, status')
-    .eq('phone', phone).maybeSingle()
-
-  if (existingCustomer && existingCustomer.status === 'active') {
-    // Same upsert as POST /team — inviting yourself at a lower role would
-    // demote the last owner.
-    if (await wouldStripLastOwner(restaurant.id, existingCustomer.id, role)) {
-      return NextResponse.json({ error: LAST_OWNER_ERROR }, { status: 409 })
-    }
-
-    const { error: insertErr } = await supabaseAdmin.from('restaurant_team').upsert({
-      restaurant_id: restaurant.id,
-      customer_id:   existingCustomer.id,
-      role,
-      added_by:      session.id,
-      status:        'active',
-    }, { onConflict: 'restaurant_id,customer_id' })
-
-    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
-
-    await writeAudit({
-      action: 'team_member_added',
-      targetType: 'restaurant_team',
-      targetId: existingCustomer.id,
-      performedBy: session.id,
-      performedByType: 'vendor',
-      metadata: {
-        restaurant_id: restaurant.id,
-        restaurant_name: restaurant.name,
-        role,
-        member_name: existingCustomer.name,
-        member_phone: existingCustomer.phone,
-        via: 'invite-endpoint-direct',
-      },
-    })
-
-    const addedLang = await getLangByPhone(existingCustomer.phone)
-    await sendWhatsApp(existingCustomer.phone, pickLang(
-      `✅ *${session.name}* vous a ajouté comme *${role}* chez *${restaurant.name}*!\n` +
-      `Connectez-vous pour voir votre restaurant.`,
-      `✅ *${session.name}* added you as *${role}* at *${restaurant.name}*!\n` +
-      `Log in to see your restaurant.`,
-      addedLang,
-    ), { context: 'team_invitation', relatedId: restaurant.id, customerId: existingCustomer.id })
-
-    return NextResponse.json({
-      ok: true,
-      mode: 'added',
-      member: { id: existingCustomer.id, name: existingCustomer.name, phone: existingCustomer.phone },
-    })
-  }
-
-  // Path 2: new number → record invitation + send invite on WhatsApp.
-  // Guard against spamming the same invitee with multiple pending rows.
-  const { data: existingPending } = await supabaseAdmin
-    .from('team_invitations')
-    .select('id, expires_at')
-    .eq('restaurant_id', restaurant.id).eq('phone', phone).eq('status', 'pending')
-    .maybeSingle()
-
-  if (existingPending && new Date(existingPending.expires_at) > new Date()) {
-    return NextResponse.json({
-      error: 'Une invitation est déjà en attente pour ce numéro / A pending invitation already exists',
-    }, { status: 409 })
-  }
-
-  // Expire any stale pending rows so the partial unique index doesn't block
-  // a fresh invitation. Lazy cleanup — the row is no longer actionable.
-  if (existingPending) {
-    await supabaseAdmin
-      .from('team_invitations')
-      .update({ status: 'expired' })
-      .eq('id', existingPending.id)
-    await writeAudit({
-      action: 'team_invitation_expired',
-      targetType: 'restaurant_team',
-      targetId: existingPending.id,
-      performedBy: session.id,
-      performedByType: 'system',
-      metadata: { restaurant_id: restaurant.id, phone, via: 'invite-endpoint-replace' },
-    })
-  }
-
-  const { data: invitation, error: invErr } = await supabaseAdmin
-    .from('team_invitations')
-    .insert({
-      restaurant_id: restaurant.id,
-      phone,
-      role,
-      invited_by: session.id,
-      status: 'pending',
-    })
-    .select('id, expires_at')
-    .single()
-
-  if (invErr || !invitation) {
-    return NextResponse.json({ error: invErr?.message ?? 'Insert failed' }, { status: 500 })
-  }
-
-  await writeAudit({
-    action: 'team_invitation_sent',
-    targetType: 'restaurant_team',
-    targetId: invitation.id,
-    performedBy: session.id,
-    performedByType: 'vendor',
-    metadata: {
-      restaurant_id: restaurant.id,
-      restaurant_name: restaurant.name,
-      role,
-      invited_phone: phone,
-      via: 'invite-endpoint',
-    },
+  const r = await inviteTeamMember(restaurant, phone, role as 'manager' | 'staff', {
+    customerId: session.id, name: session.name, actorId: session.id, actorType: 'vendor', via: 'invite-endpoint',
   })
-
-  const inviteLang = await getLangByPhone(phone)
-  await sendWhatsApp(phone, pickLang(
-    `👋 *${session.name}* vous invite comme *${role}* chez *${restaurant.name}* sur Tchop & Ndjoka!\n\n` +
-    `Envoyez *accepter* pour rejoindre. Vous serez inscrit automatiquement.\n` +
-    `Envoyez *refuser* pour décliner.`,
-    `👋 *${session.name}* invites you as *${role}* at *${restaurant.name}* on Tchop & Ndjoka!\n\n` +
-    `Send *accept* to join — you'll be registered automatically.\n` +
-    `Send *decline* to decline.`,
-    inviteLang,
-  ), { context: 'team_invitation', relatedId: restaurant.id })
-
-  return NextResponse.json({
-    ok: true,
-    mode: 'invited',
-    invitation: { id: invitation.id, phone, role, expires_at: invitation.expires_at },
-  })
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
+  return NextResponse.json(r)
 }
 
 // GET /api/restaurants/[id]/invite — list pending invitations. Owner only.

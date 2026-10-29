@@ -4,7 +4,8 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang, type Lang } from '@/lib/whatsapp'
 import { uniquePhones } from '@/lib/phone'
-import { validateModules } from '@/lib/modules'
+import { validateModules, toggleModule } from '@/lib/modules'
+import { managedWithoutContact } from '@/lib/managedRestaurant'
 import { setRestaurantModules } from '@/lib/modulesServer'
 
 export const dynamic = 'force-dynamic'
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // in the recipient set without a second query.
   const { data: before, error: readErr } = await supabaseAdmin
     .from('restaurants')
-    .select('id, name, status, whatsapp')
+    .select('id, name, status, whatsapp, managed_by_platform')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -85,7 +86,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (body?.modules !== undefined) {
     const v = validateModules('restaurant', body.modules)
     if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
-    const set = await setRestaurantModules(params.id, v.modules, { id: session.id, type: session.role }, 'approval')
+    // N3: a managed restaurant with no order contact is approved as a
+    // Vitrine (Commandes comes later, once it has one).
+    const modules = await managedWithoutContact(params.id) ? toggleModule('restaurant', v.modules, 'orders', false) : v.modules
+    const set = await setRestaurantModules(params.id, modules, { id: session.id, type: session.role }, 'approval')
     if (!set.ok) return NextResponse.json({ error: set.error }, { status: set.status })
   }
 
@@ -110,7 +114,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // accidental double-clicks). The route still returns ok — the UPDATE is
   // idempotent.
   if (!wasAlreadyActive) {
-    const recipients = await ownerRecipients(params.id, before.whatsapp ?? null)
+    // N3: a managed restaurant's WhatsApp is its public contact, not an owner.
+    const recipients = await ownerRecipients(params.id, before.managed_by_platform ? null : (before.whatsapp ?? null))
     console.log(`[approve] restaurant=${params.id} previousStatus=${before.status} recipients=${JSON.stringify(recipients)}`)
 
     if (recipients.length === 0) {

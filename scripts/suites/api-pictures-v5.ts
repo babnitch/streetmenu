@@ -78,9 +78,11 @@ async function main(): Promise<void> {
       type Created = { restaurant?: { id: string; customer_id: string; owner?: { id: string } } } & ErrBody
       const create = (b: Record<string, unknown>) => api<Created>('/api/admin/restaurants', { cookie: admin, body: { ...base, ...b } })
 
+      // N3: no owner phone → managed by Tchop & Ndjoka (api-managed-n3a).
       const noOwner = await create({ name: testName('v5_admin_noowner') })
-      assertEq(noOwner.status, 400, 'no owner phone → 400')
-      assertEq(noOwner.body.field, 'owner_phone', 'field owner_phone')
+      assertEq(noOwner.status, 200, 'no owner phone → managed restaurant')
+      if (noOwner.body.restaurant) track('restaurants', noOwner.body.restaurant.id)
+      assertEq(noOwner.body.restaurant?.customer_id ?? null, null, 'no owner')
 
       // Existing account → reused, owner team row written.
       const existing = await makeCustomer({ suiteNo: 66, name: 'V5 Existing Owner' })

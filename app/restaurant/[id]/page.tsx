@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import { claimRestaurantLink } from '@/lib/supportContact'
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
@@ -154,6 +155,7 @@ export default function MenuPage() {
   const canOrder = takesOrders(restaurant)
   const delivers = deliversNow(restaurant)
   const waNumber = (restaurant.whatsapp || restaurant.phone || '').replace(/\D/g, '')
+  const claimLink = claimRestaurantLink(restaurant.name, restaurant.id, locale === 'en' ? 'en' : 'fr')
   const callNumber = (restaurant.phone || restaurant.whatsapp || '').replace(/[^\d+]/g, '')
   const waText = bi(`Bonjour ${restaurant.name}, je voudrais commander : `, `Hello ${restaurant.name}, I'd like to order: `)
   const isDelivery = delivers && fulfilment === 'delivery'
@@ -215,6 +217,15 @@ export default function MenuPage() {
               </a>
             )}
           </div>
+        )}
+
+        {/* N3: a restaurant listed by us — its owner can claim it. */}
+        {restaurant.managed_by_platform && claimLink && (
+          <p className="mt-3 text-xs text-ink-tertiary">
+            <a href={claimLink} target="_blank" rel="noopener noreferrer" className="underline hover:text-ink-secondary">
+              {bi('C\'est votre restaurant ? Contactez-nous', 'Is this your restaurant? Contact us')}
+            </a>
+          </p>
         )}
 
         {/* Livraison | À emporter — only when the restaurant delivers. */}
