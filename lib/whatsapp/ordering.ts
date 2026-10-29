@@ -809,6 +809,18 @@ export async function handleOrderCommand(
 ): Promise<NextResponse | null> {
   const lang = normalizeLang(customer.preferred_language)
 
+  // U2: a customer's plain "supprimer" / "delete" = data deletion request.
+  if (cmd === 'supprimer' || cmd === 'delete') {
+    const { createDeletionRequest } = await import('@/lib/dataDeletion')
+    const r = await createDeletionRequest(phone, null, 'whatsapp')
+    await sendWhatsApp(from, r.ok
+      ? pickLang(
+          '🗑 Demande de suppression reçue. Notre équipe supprimera vos données personnelles (nom, numéro, adresses, messages) et vous confirmera. Les montants des commandes restent pour la comptabilité, sans votre nom.',
+          '🗑 Deletion request received. Our team will delete your personal data (name, number, addresses, messages) and confirm. Order amounts stay for accounting, without your name.', lang)
+      : pickLang('❌ Erreur. Réessayez plus tard.', '❌ Error. Please try again later.', lang))
+    return ok()
+  }
+
   // Q2: "reçu" — the customer confirms their latest order out for delivery
   // arrived (delivered_confirmed_by = customer). The restaurant is told.
   if (['reçu', 'recu', 'received', 'reçue', 'recue', "j'ai reçu", "j'ai recu"].includes(cmd)) {

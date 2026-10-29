@@ -407,6 +407,19 @@ async function uploadToStorage(bucket: string, buffer: Buffer, contentType: stri
   return data.publicUrl
 }
 
+// ── Data deletion request (U2) ─────────────────────────────────────────────────
+async function replyDeletionRequest(from: string, phone: string, cmd: string): Promise<NextResponse> {
+  const { createDeletionRequest } = await import('@/lib/dataDeletion')
+  const lang = await langFor(phone, cmd)
+  const r = await createDeletionRequest(phone, null, 'whatsapp')
+  await sendWhatsApp(from, r.ok
+    ? pickLang(
+        '🗑 Demande de suppression reçue. Notre équipe supprimera vos données personnelles (nom, numéro, adresses, messages) et vous confirmera. Les montants des commandes restent pour la comptabilité, sans votre nom.',
+        '🗑 Deletion request received. Our team will delete your personal data (name, number, addresses, messages) and confirm. Order amounts stay for accounting, without your name.', lang)
+    : pickLang('❌ Erreur. Réessayez plus tard.', '❌ Error. Please try again later.', lang))
+  return ok()
+}
+
 // ── Menu file from WhatsApp (N4b) ─────────────────────────────────────────────
 // Download the media, check it against the menu-file rules, store it in the
 // menu-files bucket (photos resized for reading), record it. One reply.
@@ -586,6 +599,11 @@ export async function POST(req: NextRequest) {
       '❌ Annulé.\n\nEnvoyez "aide" pour recommencer.',
       '❌ Cancelled.\n\nSend "help" to start over.', await langFor(phone, cmd)))
     return ok()
+  }
+
+  // U2: data deletion request — works for everyone, at any point.
+  if (['supprimer mes données', 'supprimer mes donnees', 'delete my data', 'supprimer mon compte', 'delete my account'].includes(cmd)) {
+    return replyDeletionRequest(from, phone, cmd)
   }
 
   if (session) {
