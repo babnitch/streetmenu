@@ -5,8 +5,9 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import TopNav from '@/components/TopNav'
-import CityDropdown from '@/components/CityDropdown'
-import SearchOverlay from '@/components/SearchOverlay'
+import { openAddSheet, PLACES_ENABLED } from '@/components/AddSheet'
+import { matchesSearch } from '@/lib/textSearch'
+import SearchField from '@/components/SearchField'
 import MonthPicker from '@/components/MonthPicker'
 import EventPoster from '@/components/events/EventPoster'
 import SubscribeButton from '@/components/events/SubscribeButton'
@@ -20,7 +21,7 @@ import { formatFCFA } from '@/lib/money'
 
 interface ListingEvent {
   id: string; title: string; category: string | null; venue: string | null; neighborhood: string | null
-  cover_photo: string | null; organizer_name: string | null
+  cover_photo: string | null; organizer_name: string | null; description?: string | null
   date: string; time: string | null; end_date: string | null; end_time: string | null
   days: ListingDay[]; fromPrice: number | null; recentSeats7d: number
 }
@@ -31,8 +32,9 @@ type When = { kind: 'all' } | { kind: 'today' } | { kind: 'weekend' } | { kind: 
 const upcomingDays = (e: ListingEvent, today: string): string[] =>
   e.days.length ? e.days.map(d => d.date) : rangeDays(e).filter(d => d >= today)
 
-// /events — "Sortir" (Ticketcorner-style, E2):
-//   dark band (search, city, subscribe) · À LA UNE (one big poster) ·
+// /events — the Loisirs section (Ticketcorner-style, E2; N1):
+//   dark band (title + "+ Ajouter", Événements · Lieux switch, an events-only
+//   search that filters the list in place, subscribe) · À LA UNE · 
 //   Cette semaine (swipeable posters) · Tous les événements (Quand,
 //   Catégorie, Gratuit, Ville; rows with a date block and one status line).
 // Never empty: nothing matches → "Aucun événement …" + Prochains événements.
@@ -43,7 +45,7 @@ export default function EventsPage() {
   const { city } = useCity()
   const [today, setToday] = useState<string>('')
   const [data, setData] = useState<{ events: ListingEvent[]; featuredId: string | null; promoted: Promoted[] } | null>(null)
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [when, setWhen] = useState<When>({ kind: 'all' })
   const [category, setCategory] = useState<string | null>(null)
   const [freeOnly, setFreeOnly] = useState(false)
@@ -89,8 +91,13 @@ export default function EventsPage() {
 
   // Base filters (Catégorie, Gratuit), then Quand; each row keeps the day it
   // is shown for (the first matching day).
+  // The search (N1) is one more base filter: title, organiser (artist),
+  // venue, area and description.
   const base = useMemo(() => events.filter(e =>
-    (!category || e.category === category) && (!freeOnly || e.fromPrice === 0)), [events, category, freeOnly])
+    (!category || e.category === category) && (!freeOnly || e.fromPrice === 0)
+    && matchesSearch(query, [e.title, e.organizer_name, e.venue, e.neighborhood, e.description])),
+  [events, category, freeOnly, query])
+  const searching = query.trim().length > 0
   const rows = useMemo(() => base.flatMap(e => {
     const days = upcomingDays(e, today)
     const shown = range ? days.find(d => range.includes(d)) : days[0]
@@ -136,21 +143,33 @@ export default function EventsPage() {
   return (
     <div className="min-h-screen bg-surface">
       <TopNav />
-      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} desktop />
 
-      {/* Dark band */}
+      {/* Dark band: the Loisirs section (N1) */}
       <section className="bg-ink-primary text-white">
         <div className="max-w-3xl mx-auto px-4 pt-5 pb-6">
-          <p className="text-sm text-white/80">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-black leading-tight">{bi('Loisirs', 'Leisure')}</h1>
+            <button type="button" onClick={openAddSheet}
+              className="flex-shrink-0 bg-brand hover:bg-brand-dark text-white text-sm font-bold px-4 py-2 rounded-full transition-colors">
+              + {bi('Ajouter', 'Add')}
+            </button>
+          </div>
+          {/* Événements · Lieux. Lieux arrives with N5; until then the
+              switch would have one tab, so it is not shown. */}
+          {PLACES_ENABLED && (
+            <div className="mt-3 inline-flex bg-white/10 rounded-full p-1 text-sm font-semibold" role="tablist">
+              <span role="tab" aria-selected="true" className="px-4 py-1.5 rounded-full bg-white text-ink-primary">{bi('Événements', 'Events')}</span>
+              <Link role="tab" aria-selected="false" href="/places" className="px-4 py-1.5 rounded-full text-white/80">{bi('Lieux', 'Places')}</Link>
+            </div>
+          )}
+          <p className="mt-2 text-sm text-white/80">
             {bi(`Sorties à ${city} : concerts, culture, sport, ateliers`, `Going out in ${city}: concerts, culture, sport, workshops`)}
           </p>
-          <button type="button" onClick={() => setSearchOpen(true)}
-            className="mt-3 w-full flex items-center gap-3 bg-white text-left rounded-2xl px-4 py-3.5 shadow-sm">
-            <span aria-hidden="true">🔍</span>
-            <span className="text-sm text-ink-tertiary">{bi('Rechercher un événement, un artiste, un lieu', 'Search an event, an artist, a place')}</span>
-          </button>
+          <div className="mt-3">
+            <SearchField dark value={query} onChange={setQuery}
+              placeholder={bi('Rechercher un événement, un artiste, un lieu', 'Search an event, an artist, a place')} />
+          </div>
           <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <div className="bg-white rounded-full"><CityDropdown /></div>
             <SubscribeButton />
           </div>
         </div>
@@ -166,7 +185,7 @@ export default function EventsPage() {
         ) : (
           <>
             {/* À LA UNE */}
-            {featured && (
+            {featured && !searching && (
               <section aria-labelledby="featured-heading" className="mb-7">
                 <h2 id="featured-heading" className="text-xs font-bold tracking-widest text-ink-tertiary mb-2">{bi('À LA UNE', 'FEATURED')}</h2>
                 <PromoLink promo={promotedBy[featured.id]} href={`/events/${featured.id}`}
@@ -185,7 +204,7 @@ export default function EventsPage() {
             )}
 
             {/* Cette semaine */}
-            {week.length > 0 && (
+            {week.length > 0 && !searching && (
               <section aria-labelledby="week-heading" className="mb-7">
                 <h2 id="week-heading" className="text-base font-bold text-ink-primary mb-3">{bi('Cette semaine', 'This week')}</h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -237,11 +256,13 @@ export default function EventsPage() {
                   <p className="text-sm font-semibold text-ink-primary">
                     {events.length === 0
                       ? bi(`Pas encore d'événement à ${city}.`, `No events in ${city} yet.`)
+                      : searching
+                        ? bi(`Aucun événement pour « ${query.trim()} » à ${city}.`, `No events for "${query.trim()}" in ${city}.`)
                       : when.kind === 'all'
                         ? bi('Aucun événement pour ces critères.', 'No events match.')
                         : bi(`Aucun événement ${whenLabel()}.`, `No events ${whenLabel()}.`)}
                   </p>
-                  {nextUp.length > 0 && (
+                  {nextUp.length > 0 && !searching && (
                     <>
                       <h3 className="text-sm font-bold text-ink-primary mt-4 mb-2">{bi('Prochains événements', 'Next events')}</h3>
                       <ul className="space-y-2">
@@ -253,11 +274,6 @@ export default function EventsPage() {
               )}
             </section>
 
-            <p className="text-center mt-10">
-              <Link href="/events/submit" className="text-sm font-semibold text-brand-darker hover:underline">
-                📢 {bi('Organiser un événement', 'Organise an event')} →
-              </Link>
-            </p>
           </>
         )}
       </main>

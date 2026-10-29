@@ -8,6 +8,7 @@ import { useBi, useLanguage } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
 import LanguageToggle from './LanguageToggle'
 import SideMenu from './SideMenu'
+import AddSheetHost from './AddSheet'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
@@ -110,17 +111,14 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   }, [hasRestaurantRole])
 
   const isDashboard = pathname.startsWith('/dashboard')
-  // Map icon only on the restaurant list (the one map-bearing page).
-  // In Pro mode the TopNav shows operations links instead.
+  // In Pro mode the TopNav shows operations links instead (map only there
+  // on the restaurant list, as before).
   const showMapBtn  = effectiveMode === 'client'
                     && pathname === '/restaurants'
 
   // Nav row. Same source as the mobile BottomNav — see lib/navConfig.ts.
-  // This bar renders the ROUTE destinations only: Search stays the inline
-  // form below (the overlay is mobile-only), so `openSearch` entries are
-  // filtered out here.
   const destinations: NavDestination[] =
-    navFor(effectiveMode, topRole, hasRestaurantRole).filter(d => !d.actionKey)
+    navFor(effectiveMode, topRole, hasRestaurantRole)
 
   // Tapping a dashboard-tab link flips context state and (if needed)
   // routes to /dashboard. Navigating while already on /dashboard is a
@@ -161,24 +159,25 @@ export default function TopNav({ cta }: TopNavProps = {}) {
     if (!isAccount) router.push(`/account?tab=${next}`)
   }
 
-  // Map toggle — rendered on the home and events pages. Dispatches a
-  // custom event the page listens for; keeps TopNav decoupled from the
-  // page-local showMap state.
+  // 🗺 — the restaurant map. On /restaurants it toggles the page's map
+  // (a custom event keeps TopNav decoupled from the page state); from any
+  // other page it goes there with the map open (?map=1).
   const toggleMap = () => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nt-toggle-map'))
-    }
+    if (typeof window === 'undefined') return
+    if (pathname === '/restaurants') window.dispatchEvent(new CustomEvent('nt-toggle-map'))
+    else router.push('/restaurants?map=1')
   }
+  const isClientBar = !isAdmin && effectiveMode === 'client'
 
   return (
     <header className="sticky top-0 z-30 bg-surface border-b border-divider md:shadow-sm">
 
       {/* ── Mobile bar (< md) ────────────────────────────────────────────
           ☰ menu (left, with a dot when the restaurant has orders waiting) ·
-          "Tchop & Ndjoka", nothing else (V3). Log in / account, city,
-          language, WhatsApp and the Pro entries live in the ☰ menu
-          (components/SideMenu.tsx). Admins keep a bare bar: their navigation
-          is the console on /account. */}
+          "Tchop & Ndjoka" · on customer pages 📍 city and 🗺 map on the
+          right (N1). Log in / account, language and the Pro entries live in
+          the ☰ menu (components/SideMenu.tsx). Admins keep a bare bar: their
+          navigation is the console on /account. */}
       <div className="md:hidden px-2 h-12 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 min-w-0">
           {!isAdmin && <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />}
@@ -186,6 +185,12 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             Tchop &amp; Ndjoka
           </Link>
         </div>
+        {isClientBar && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <CityDropdown compact />
+            <MapButton onClick={toggleMap} label={bi('Carte', 'Map')} />
+          </div>
+        )}
       </div>
 
       {/* ── Desktop ADMIN bar (md+) ─────────────────────────────────────
@@ -259,29 +264,32 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         </div>
       )}
 
-      {/* ── Desktop bar (md+), customer mode (V3) ──────────────────────────
-          Same as mobile: ☰ + "Tchop & Ndjoka". Everything else is in the ☰
-          menu. The one page tool kept is the map toggle on /restaurants,
-          the only way to open its map on desktop. */}
-      {!isAdmin && effectiveMode === 'client' && (
+      {/* ── Desktop bar (md+), customer mode (N1) ──────────────────────────
+          ☰ · "Tchop & Ndjoka" · Restaurants · Loisirs (there is no bottom
+          bar on desktop) · right: 📍 city · 🗺 map · 🛒 cart with its count.
+          Everything else is in the ☰ menu. */}
+      {isClientBar && (
         <div className="hidden md:flex max-w-5xl mx-auto px-4 h-14 items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <MenuButton onClick={() => setMenuOpen(true)} badge={pendingCount} label={bi('Menu', 'Menu')} />
             <Link href="/" className="font-black text-brand tracking-tight text-xl truncate">
               Tchop &amp; Ndjoka
             </Link>
+            <nav className="flex items-center gap-1 ml-3 whitespace-nowrap" aria-label={bi('Sections', 'Sections')}>
+              {destinations.filter(d => d.key === 'restaurants' || d.key === 'events').map(d => (
+                <TopNavLink key={d.key} href={d.href ?? '/'} active={d.match(pathname, dashboardTab)}>
+                  {navLabel(d, locale)}
+                </TopNavLink>
+              ))}
+            </nav>
           </div>
-          {showMapBtn && (
-            <button
-              type="button"
-              onClick={toggleMap}
-              aria-label={bi('Carte', 'Map')}
-              title={bi('Carte', 'Map')}
-              className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors"
-            >
-              🗺
-            </button>
-          )}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <CityDropdown compact />
+            <MapButton onClick={toggleMap} label={bi('Carte', 'Map')} />
+            <TopNavLink href="/order" active={pathname === '/order'} badge={totalItems}>
+              <span aria-label={bi('Panier', 'Cart')}>🛒</span>
+            </TopNavLink>
+          </div>
         </div>
       )}
 
@@ -417,6 +425,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         </div>
       </div>
 
+      {!isAdmin && <AddSheetHost />}
       {!isAdmin && (
         <SideMenu open={menuOpen} onClose={closeMenu} user={me ? { name: me.name, role: me.role } : null} pendingCount={pendingCount} />
       )}
@@ -585,6 +594,16 @@ function AdminMoreMenu({
         </div>
       )}
     </div>
+  )
+}
+
+// 🗺 — the restaurant map (see toggleMap).
+function MapButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label}
+      className="w-9 h-9 flex-shrink-0 rounded-full flex items-center justify-center bg-brand-light text-brand-dark border border-brand-badge hover:bg-brand-badge/40 transition-colors">
+      <span aria-hidden="true">🗺</span>
+    </button>
   )
 }
 

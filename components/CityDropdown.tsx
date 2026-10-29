@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { CITIES, useCity } from '@/lib/cityContext'
 
-// Pill-shaped city picker for the top nav. Closed: shows 📍 <city> ▼ on a
-// brand-light fill. Open: absolute-positioned floating panel with the four
-// cities. Dismisses on outside click or Escape.
-export default function CityDropdown() {
+// Pill-shaped city picker. Closed: shows 📍 <city> ▼ on a brand-light fill.
+// Open: absolute-positioned floating panel with the four cities. Dismisses
+// on outside click or Escape. `compact` is the header version (N1): smaller,
+// no ▼, and the panel opens under its right edge so it stays on screen.
+export default function CityDropdown({ compact = false }: { compact?: boolean } = {}) {
   const { city, setCity } = useCity()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -35,16 +36,18 @@ export default function CityDropdown() {
         onClick={() => setOpen(o => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center gap-1 bg-brand-light text-brand-dark border border-brand-badge rounded-full px-3 py-1.5 text-sm font-semibold transition-colors hover:bg-brand-badge/40"
+        aria-label={compact ? `📍 ${city}` : undefined}
+        className={`flex items-center gap-1 bg-brand-light text-brand-dark border border-brand-badge rounded-full font-semibold transition-colors hover:bg-brand-badge/40 ${
+          compact ? 'h-9 px-2.5 text-[13px]' : 'px-3 py-1.5 text-sm'}`}
       >
         <span aria-hidden="true">📍</span>
-        <span className="max-w-[6rem] truncate">{city}</span>
-        <span aria-hidden="true" className={`text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
+        <span className={`${compact ? 'max-w-[5.5rem]' : 'max-w-[6rem]'} truncate`}>{city}</span>
+        {!compact && <span aria-hidden="true" className={`text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>}
       </button>
       {open && (
         <div
           role="listbox"
-          className="absolute top-full mt-2 left-1/2 -translate-x-1/2 min-w-[10rem] bg-surface border border-divider rounded-2xl shadow-card py-1 z-50"
+          className={`absolute top-full mt-2 ${compact ? 'right-0' : 'left-1/2 -translate-x-1/2'} min-w-[10rem] bg-surface border border-divider rounded-2xl shadow-card py-1 z-50`}
         >
           {CITIES.map(c => {
             const selected = c === city

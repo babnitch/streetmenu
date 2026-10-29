@@ -1,34 +1,28 @@
 'use client'
 
-// The ☰ menu (L3), opened from the header on every page, mobile and desktop.
+// The ☰ menu (L3, cleaned up in N1), opened from the header on every page.
+// It holds only what the bottom bar does not: Restaurants, Loisirs, the
+// city and the map live in the bottom bar / header.
 //
 // Logged out:  Créer un compte (primary) · Se connecter
-//              EXPLORER       Restaurants · Événements · city
-//              PROFESSIONNELS Ajouter mon restaurant · Organiser un événement
-//                             (both through the Pro login path, landing on
-//                             the right form)
-//              Commander sur WhatsApp · FR | EN
+//              PROFESSIONNELS Ajouter mon restaurant ou bar ·
+//                             Ajouter un événement ou un lieu (the + sheet)
+//              Mode économique · FR | EN
 // Logged in:   avatar + name · Voir mon compte
-//              Restaurants · Événements · Mes commandes · Mes réservations ·
-//              Commander sur WhatsApp
-//              PROFESSIONNELS Ajouter mon restaurant · Organiser un événement
-//                             (+ Commandes du restaurant for a restaurant team)
-//                             — the Client/Pro switch stays in Mon compte
-//              FR | EN · Se déconnecter
-//
-// "Commander sur WhatsApp" only shows when NEXT_PUBLIC_WHATSAPP_BOT_NUMBER is
-// set (no public bot number yet).
+//              Mes commandes · Mes réservations · Mes favoris
+//              PROFESSIONNELS (+ Commandes du restaurant for a team) …
+//              Mode économique · FR | EN · Se déconnecter
 
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
-import { useCity, CITIES, type City } from '@/lib/cityContext'
 import { proLoginHref } from '@/lib/lastPhone'
+import { useDataMode } from '@/lib/dataMode'
 import LanguageToggle from './LanguageToggle'
-
-const BOT_NUMBER = (process.env.NEXT_PUBLIC_WHATSAPP_BOT_NUMBER ?? '').replace(/\D/g, '')
+import { openAddSheet } from './AddSheet'
 
 export interface SideMenuUser { name: string; role: string }
 
@@ -44,7 +38,7 @@ export default function SideMenu({
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const { hasRestaurantRole, setDashboardTab, resetMode } = useMode()
-  const { city, setCity } = useCity()
+  const { isLowData, toggle: toggleLowData } = useDataMode()
   const panelRef = useRef<HTMLDivElement>(null)
 
   // Close on navigation and on Escape; lock the page scroll while open.
@@ -63,7 +57,6 @@ export default function SideMenu({
 
   const loggedIn = !!user
   const addRestaurant = loggedIn ? '/pro/restaurants/new' : proLoginHref('/pro/restaurants/new')
-  const organiseEvent = loggedIn ? '/events/submit' : proLoginHref('/events/submit')
 
   async function signOut() {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null)
@@ -77,8 +70,10 @@ export default function SideMenu({
     onClose()
   }
 
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={bi('Menu', 'Menu')}>
+  // Portalled to <body>: inside the sticky header (its own stacking
+  // context) the bottom bar covered the menu's last rows.
+  return createPortal(
+    <div className="fixed inset-0 z-[55]" role="dialog" aria-modal="true" aria-label={bi('Menu', 'Menu')}>
       <button type="button" aria-label={bi('Fermer le menu', 'Close menu')} onClick={onClose}
         className="absolute inset-0 bg-black/40" />
       <div ref={panelRef} tabIndex={-1}
@@ -113,28 +108,11 @@ export default function SideMenu({
         </div>
 
         <nav className="flex-1 py-2">
-          {!loggedIn && <Heading>{bi('Explorer', 'Explore')}</Heading>}
-          <Item href="/restaurants" onClick={onClose} icon="🍽️">{bi('Restaurants', 'Restaurants')}</Item>
-          <Item href="/events" onClick={onClose} icon="🎉">{bi('Événements', 'Events')}</Item>
           {/* Plain links (full load): /account reads ?tab= when it loads, so
               a soft navigation from /account itself would not switch tab. */}
           {loggedIn && <PlainItem href="/account?tab=orders" icon="🧾">{bi('Mes commandes', 'My orders')}</PlainItem>}
           {loggedIn && <PlainItem href="/account?tab=bookings" icon="🎟">{bi('Mes réservations', 'My bookings')}</PlainItem>}
           {loggedIn && <PlainItem href="/account?tab=favorites" icon="♥">{bi('Mes favoris', 'My favourites')}</PlainItem>}
-          <label className="flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary">
-            <span aria-hidden="true" className="w-6 text-center">📍</span>
-            <span className="flex-1">{bi('Ville', 'City')}</span>
-            <select value={city} onChange={e => setCity(e.target.value as City)}
-              className="bg-surface-muted border border-divider rounded-lg px-2 py-1 text-sm">
-              {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-          {BOT_NUMBER && (
-            <a href={`https://wa.me/${BOT_NUMBER}?text=menu`} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary hover:bg-surface-muted">
-              <span aria-hidden="true" className="w-6 text-center">💬</span>{bi('Commander sur WhatsApp', 'Order on WhatsApp')}
-            </a>
-          )}
 
           <Heading>{bi('Professionnels', 'Professionals')}</Heading>
           {loggedIn && hasRestaurantRole && (
@@ -149,14 +127,26 @@ export default function SideMenu({
               )}
             </button>
           )}
-          <Item href={addRestaurant} onClick={onClose} icon="🏪">{bi('Ajouter mon restaurant', 'Add my restaurant')}</Item>
-          <Item href={organiseEvent} onClick={onClose} icon="📢">{bi('Organiser un événement', 'Organise an event')}</Item>
+          <Item href={addRestaurant} onClick={onClose} icon="🏪">{bi('Ajouter mon restaurant ou bar', 'Add my restaurant or bar')}</Item>
+          <button type="button" onClick={() => { onClose(); openAddSheet() }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary hover:bg-surface-muted text-left">
+            <span aria-hidden="true" className="w-6 text-center">📢</span>{bi('Ajouter un événement ou un lieu', 'Add an event or a place')}
+          </button>
           {loggedIn && (
             <p className="px-4 pt-1 pb-2 text-[11px] text-ink-tertiary">
               {bi('Le mode Pro s\'active dans Mon compte.', 'Switch to Pro mode in My account.')}
             </p>
           )}
         </nav>
+
+        <label className="border-t border-divider flex items-center gap-3 px-4 py-3 text-sm text-ink-primary cursor-pointer flex-shrink-0">
+          <span aria-hidden="true" className="w-6 text-center">📶</span>
+          <span className="flex-1">
+            <span className="block">{bi('Mode économique', 'Low data mode')}</span>
+            <span className="block text-[11px] text-ink-tertiary">{bi('Économise ~90% de données', 'Saves ~90% of data')}</span>
+          </span>
+          <input type="checkbox" role="switch" checked={isLowData} onChange={toggleLowData} className="w-5 h-5 accent-brand" />
+        </label>
 
         <div className="border-t border-divider px-4 py-3 flex items-center justify-between gap-3 flex-shrink-0">
           <LanguageToggle />
@@ -167,7 +157,8 @@ export default function SideMenu({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -23,13 +23,11 @@
 import type { DashboardTab, TeamRole, RoleRankShape } from './modeContext'
 
 export type NavMode   = 'client' | 'pro'
-/** Behaviour the renderer owns, rather than a route change. */
-export type NavAction = 'openSearch'
 /** Count the renderer supplies; the config only names which one. */
 export type NavBadge  = 'pendingOrders' | 'cartCount'
 
 export type NavKey =
-  | 'restaurants' | 'events' | 'search' | 'cart' | 'account'
+  | 'restaurants' | 'events' | 'cart' | 'account'
   | 'orders' | 'myRestaurants' | 'myEvents'
 
 export interface NavDestination {
@@ -38,12 +36,8 @@ export interface NavDestination {
   labelFr: string
   labelEn: string
 
-  /** Route target. Mutually exclusive with `actionKey` in practice. */
+  /** Route target. */
   href?: string
-
-  /** Renderer-owned behaviour instead of a route change (the search
-   *  overlay). See the note on `match` below. */
-  actionKey?: NavAction
 
   /** Set alongside `href: '/dashboard'`. The renderer must flip this
    *  through ModeContext and only then route, because Next.js treats
@@ -63,12 +57,7 @@ export interface NavDestination {
   badgeKey?: NavBadge
 
   /** Active-state test. Pure by design, so it can only see the route and
-   *  the dashboard tab.
-   *
-   *  A destination carrying an `actionKey` has its active state owned by
-   *  the RENDERER (the search overlay's open flag is component state, not
-   *  route state), so its `match` returns false and the renderer ORs in
-   *  its own flag. */
+   *  the dashboard tab. */
   match: (pathname: string, dashboardTab: DashboardTab) => boolean
 }
 
@@ -110,18 +99,11 @@ const CLIENT_NAV: readonly NavDestination[] = [
     match: p => p.startsWith('/restaurant'),
   },
   {
+    // The Loisirs section (N1): events today, places later (N5).
     key: 'events', icon: '🎉',
-    labelFr: 'Événements', labelEn: 'Events',
+    labelFr: 'Loisirs', labelEn: 'Leisure',
     href: '/events',
-    // Public browsing. The organizer's own events are an Account feature
-    // and deliberately have no tab in either set.
     match: p => p.startsWith('/events'),
-  },
-  {
-    key: 'search', icon: '🔍',
-    labelFr: 'Recherche', labelEn: 'Search',
-    actionKey: 'openSearch',
-    match: () => false,
   },
   {
     key: 'cart', icon: '🛒',

@@ -8,13 +8,14 @@ import { useCity } from '@/lib/cityContext'
 import RestaurantCard, { RestaurantCardSkeleton, type RatingSummary } from './RestaurantCard'
 import { normalizeCuisine } from '@/lib/cuisineCategories'
 import Link from 'next/link'
+import { useDishHits } from '@/lib/dishSearch'
 import { useLanguage } from '@/lib/languageContext'
 import { isPastEvent, formatEventWhen, EVENT_DATE_COLUMNS, type EventWhen } from '@/lib/eventDate'
 
 interface SearchEvent extends EventWhen { id: string; title: string; category: string | null; venue: string | null; neighborhood: string | null; description: string | null }
 
-// Full-screen search, opened from the BottomNav 🔍 tab (mobile) and from the
-// home page's big search field (mobile and desktop: `desktop`).
+// Full-screen search, opened from the home page's big search field (mobile
+// and desktop: `desktop`). Since N1 the home page is its only user.
 //
 // Searches five things at once:
 //   1. restaurant names       — local, over the city's restaurant list
@@ -57,9 +58,6 @@ export default function SearchOverlay({ open, onClose, desktop = false }: { open
   const [ratings, setRatings]         = useState<Record<string, RatingSummary>>({})
   const [openStatus, setOpenStatus]   = useState<Record<string, { open: boolean }>>({})
   const [loading, setLoading]         = useState(false)
-  // restaurant_id → the dish that matched, so a menu hit can explain itself.
-  const [menuHits, setMenuHits]       = useState<Record<string, string>>({})
-  const [menuSearching, setMenuSearching] = useState(false)
 
   // Auto-focus on open. The timeout lets the element mount + the sheet
   // paint first; focusing synchronously loses the keyboard on iOS.
@@ -136,33 +134,8 @@ export default function SearchOverlay({ open, onClose, desktop = false }: { open
     return () => { cancelled = true }
   }, [open, city])
 
-  // Debounced menu-item search. `menu_items` is publicly readable (see
-  // supabase-rls-policies.sql) but only for active restaurants, so the
-  // result set is already scoped for us.
-  useEffect(() => {
-    const q = query.trim()
-    if (!open || q.length < 2) { setMenuHits({}); setMenuSearching(false); return }
-    let cancelled = false
-    setMenuSearching(true)
-    const t = setTimeout(async () => {
-      try {
-        const { data } = await supabase
-          .from('menu_items')
-          .select('restaurant_id, name')
-          .ilike('name', `%${q}%`)
-          .eq('is_available', true)
-          .limit(60)
-        if (cancelled) return
-        const hits: Record<string, string> = {}
-        for (const row of (data ?? []) as Array<{ restaurant_id: string; name: string }>) {
-          if (!hits[row.restaurant_id]) hits[row.restaurant_id] = row.name
-        }
-        setMenuHits(hits)
-      } catch { if (!cancelled) setMenuHits({}) }
-      finally { if (!cancelled) setMenuSearching(false) }
-    }, 300)
-    return () => { cancelled = true; clearTimeout(t) }
-  }, [query, open])
+  // Dish-name hits (lib/dishSearch.ts, shared with the restaurant list).
+  const { hits: menuHits, searching: menuSearching } = useDishHits(query, open)
 
   const commitRecent = useCallback((raw: string) => {
     const q = raw.trim()

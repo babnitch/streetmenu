@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import TopNav from '@/components/TopNav'
-import CityDropdown from '@/components/CityDropdown'
 import SearchOverlay from '@/components/SearchOverlay'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
@@ -16,8 +15,6 @@ import { formatFCFA, formatAmount } from '@/lib/money'
 import { formatPrepTime } from '@/lib/prepTime'
 import { formatDeliveryTime } from '@/lib/delivery'
 import { percentOffLabel } from '@/lib/offers'
-
-const BOT_NUMBER = (process.env.NEXT_PUBLIC_WHATSAPP_BOT_NUMBER ?? '').replace(/\D/g, '')
 
 interface PopularRestaurant {
   id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null
@@ -35,8 +32,8 @@ interface TodayOffer {
 }
 
 // / — the landing page, for everyone (home v2, V3):
-//   promise · city chip · one search (dishes, restaurants, events) ·
-//   WhatsApp (when a bot number is set) ·
+//   promise · one search (dishes, restaurants, events) — the city picker
+//   is in the header (N1) ·
 //   "Offres du jour" · "Restaurants populaires à [ville]" ·
 //   "Événements populaires" — three horizontal rows, each hidden when empty ·
 //   partner banner.
@@ -100,20 +97,11 @@ export default function HomePage() {
           {bi('Commandez à manger et réservez vos sorties', 'Order food and book outings')}
         </h1>
 
-        <div className="mt-4"><CityDropdown /></div>
-
         <button type="button" onClick={() => setSearchOpen(true)}
           className="mt-4 w-full flex items-center gap-3 bg-white border border-divider rounded-2xl px-4 py-3.5 text-left shadow-sm hover:border-brand transition-colors">
           <span aria-hidden="true" className="text-lg">🔍</span>
           <span className="text-sm text-ink-tertiary">{bi('Un plat, un restaurant, un événement…', 'A dish, a restaurant, an event…')}</span>
         </button>
-
-        {BOT_NUMBER && (
-          <a href={`https://wa.me/${BOT_NUMBER}?text=menu`} target="_blank" rel="noopener noreferrer"
-            className="mt-3 block text-center text-sm font-semibold text-emerald-700 hover:underline">
-            💬 {bi('Ou commandez directement sur WhatsApp', 'Or order directly on WhatsApp')}
-          </a>
-        )}
 
         {offers.length > 0 && (
           <Row id="offers" title={`🏷️ ${bi('Offres du jour', "Today's offers")}`}>

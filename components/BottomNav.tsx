@@ -7,13 +7,12 @@ import { useLanguage } from '@/lib/languageContext'
 import { useCart } from '@/lib/cartContext'
 import { useMode } from '@/lib/modeContext'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
-import SearchOverlay from './SearchOverlay'
 
 // Mobile-only fixed bottom tab bar. The tab set is NOT defined here — it
 // comes from lib/navConfig.ts, the single source both this bar and the
 // desktop TopNav render from, so the two can no longer drift:
 //
-//   client  🏠 Restaurants · 🎉 Événements · 🔍 Recherche · 🛒 Panier · 👤 Compte
+//   client  🏠 Restaurants · 🎉 Loisirs · 🛒 Panier · 👤 Compte
 //   pro     📦 Commandes · 🍽️ Menu · 🎉 Mes événements · 👤 Compte   (with a restaurant)
 //           🧰 Espace Pro · 🎉 Mes événements · 👤 Compte            (without)
 //
@@ -41,7 +40,6 @@ export default function BottomNav() {
   // Gates the first render so the bar doesn't flash in on an admin
   // session before we know to hide it.
   const [authProbed, setAuthProbed] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -58,10 +56,6 @@ export default function BottomNav() {
     })()
     return () => { cancelled = true }
   }, [])
-
-  // Close the overlay on any route change so a result tap doesn't leave
-  // it hanging over the destination page.
-  useEffect(() => { setSearchOpen(false) }, [pathname])
 
   // Vendor pending-order count for the restaurant-mode Orders badge.
   // Only polled when the session actually holds a team role, so pure
@@ -104,9 +98,6 @@ export default function BottomNav() {
         : 0
 
   return (
-    <>
-      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
-
       <nav
         role="navigation"
         aria-label="Bottom navigation"
@@ -119,12 +110,7 @@ export default function BottomNav() {
         >
           {tabs.map(d => {
             const label = navLabel(d, locale)
-            // Destinations with an actionKey have renderer-owned active
-            // state — the overlay's open flag isn't route state, so
-            // navConfig's pure `match` can't see it.
-            const active = d.actionKey === 'openSearch'
-              ? searchOpen
-              : d.match(pathname, dashboardTab)
+            const active = d.match(pathname, dashboardTab)
 
             // Active tab: brand orange for both icon (full-opacity) and label.
             // Inactive: grayscale icon + tertiary label. The label layer sits
@@ -168,15 +154,8 @@ export default function BottomNav() {
               </>
             )
 
-            // Search opens an overlay and dashboard tabs flip context state,
-            // so both are buttons. Plain routes stay Links for prefetching.
-            if (d.actionKey === 'openSearch') {
-              return (
-                <button key={d.key} onClick={() => setSearchOpen(true)} className={sharedClass} aria-label={label} title={label}>
-                  {body}
-                </button>
-              )
-            }
+            // Dashboard tabs flip context state, so they are buttons.
+            // Plain routes stay Links for prefetching.
             if (d.dashboardTab) {
               const tab = d.dashboardTab
               return (
@@ -193,6 +172,5 @@ export default function BottomNav() {
           })}
         </div>
       </nav>
-    </>
   )
 }

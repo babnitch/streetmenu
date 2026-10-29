@@ -18,6 +18,9 @@ import { useCity } from '@/lib/cityContext'
 import { useDataMode } from '@/lib/dataMode'
 import { arrangePromoted, FEED_INJECT_EVERY_RESTAURANT } from '@/lib/promotions'
 import { CUISINE_CATEGORIES, matchesCuisineCategory } from '@/lib/cuisineCategories'
+import { matchesSearch } from '@/lib/textSearch'
+import { useDishHits } from '@/lib/dishSearch'
+import SearchField from '@/components/SearchField'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
@@ -67,9 +70,9 @@ export default function HomePage() {
   const { user, loading: authLoading } = useAuth()
   const { city } = useCity()
 
-  // ── Mobile filter state ────────────────────────────────────────────────
-  // All of it is rendered inside md:hidden blocks, so a desktop viewer
-  // never changes these and the desktop feed keeps its original ordering.
+  // ── Filter state ───────────────────────────────────────────────────────
+  // The pills and sort show on mobile and desktop (N1); the cuisine rail is
+  // mobile-only.
   const [cuisine, setCuisine]     = useState<string | null>(null)
   const [openOnly, setOpenOnly]   = useState(false)
   const [promoOnly, setPromoOnly] = useState(false)
@@ -163,21 +166,39 @@ export default function HomePage() {
     return () => { cancelled = true }
   }, [user, authLoading])
 
-  // TopNav desktop search submits to /restaurants?q=...#search (old /?q= links
-  // are forwarded here by the home page). Seed the local query
-  // from the URL on mount + whenever history changes. Client-only reads
-  // keep this out of Next's static-prerender path (no Suspense boundary
-  // needed as we'd get with useSearchParams).
+  // The search field (N1) keeps ?q= in the URL; old /?q= links are
+  // forwarded here by the home page. Seed the query from the URL on mount +
+  // whenever history changes. Client-only reads keep this out of Next's
+  // static-prerender path (no Suspense boundary needed as we'd get with
+  // useSearchParams). ?map=1 (the header 🗺 from another page) opens the map.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const read = () => setQuery(new URLSearchParams(window.location.search).get('q') ?? '')
     read()
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('map') === '1') {
+      setShowMap(true)
+      params.delete('map')
+      const rest = params.toString()
+      window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''))
+    }
     window.addEventListener('popstate', read)
     return () => window.removeEventListener('popstate', read)
   }, [])
 
-  // Map toggle now lives in TopNav (desktop only); it dispatches this
-  // event on click.
+  const changeQuery = useCallback((q: string) => {
+    setQuery(q)
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (q.trim()) params.set('q', q); else params.delete('q')
+    const rest = params.toString()
+    window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''))
+  }, [])
+
+  // Dish names (debounced lookup, lib/dishSearch.ts).
+  const { hits: dishHits } = useDishHits(query)
+
+  // The header 🗺 dispatches this event on /restaurants (mobile + desktop).
   useEffect(() => {
     const onToggle = () => setShowMap(prev => !prev)
     window.addEventListener('nt-toggle-map', onToggle)
@@ -269,15 +290,8 @@ export default function HomePage() {
   const filtered = useMemo(() => {
     const list = restaurants
       .filter(r => r.city === city)
-      .filter(r => {
-        if (!query.trim()) return true
-        const q = query.trim().toLowerCase()
-        return (
-          r.name.toLowerCase().includes(q) ||
-          (r.cuisine_type?.toLowerCase().includes(q) ?? false) ||
-          (r.neighborhood?.toLowerCase().includes(q) ?? false)
-        )
-      })
+      // Name, cuisine, area — or one of its dishes.
+      .filter(r => matchesSearch(query, [r.name, r.cuisine_type, r.neighborhood]) || !!dishHits[r.id])
       .filter(r => (cuisine ? matchesCuisineCategory(r, cuisine) : true))
       .filter(r => (openOnly ? isOpenNow(r) : true))
       .filter(r => (promoOnly ? promoRestaurantIds.has(r.id) : true))
@@ -309,7 +323,7 @@ export default function HomePage() {
       return [...list].sort((a, b) => key(a) - key(b))
     }
     return list
-  }, [restaurants, city, query, cuisine, openOnly, promoOnly, topRated, quickPrep,
+  }, [restaurants, city, query, dishHits, cuisine, openOnly, promoOnly, topRated, quickPrep,
       sort, userPos, ratingSummary, promoRestaurantIds, isOpenNow])
 
   // Computed open-count for the header line.
@@ -406,6 +420,12 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* ══ Search (N1): restaurants only — name, cuisine, area, dishes ═════ */}
+      <div className="max-w-6xl mx-auto px-4 pt-3 pb-1">
+        <SearchField value={query} onChange={changeQuery}
+          placeholder={bi('Rechercher un restaurant, un plat', 'Search a restaurant, a dish')} />
+      </div>
+
       {/* ══ MOBILE ONLY: cuisine icon rail ═════════════════════════════════
           Horizontal scroll, no wrap. Tapping toggles a single-select
           filter; tapping the active one clears it. */}
@@ -446,9 +466,9 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ══ MOBILE ONLY: filter pills + sort ══════════════════════════════ */}
-      <div className="md:hidden border-b border-divider">
-        <div className="flex gap-2 overflow-x-auto px-4 py-2.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* ══ Filter pills + sort (mobile and desktop) ═══════════════════════ */}
+      <div className="border-b border-divider">
+        <div className="max-w-6xl mx-auto flex gap-2 overflow-x-auto px-4 py-2.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <SortPill value={sort} onChange={chooseSort} />
           {(openOnly || offer.open) && (
             <FilterPill active={openOnly}  onClick={() => setOpenOnly(v => !v)}>
@@ -472,27 +492,8 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Active free-text query — mobile has no visible search field
-            (it lives in the BottomNav overlay), so a deep link or a
-            desktop-seeded ?q= needs somewhere to show itself. */}
-        {query.trim() && (
-          <div className="px-4 pb-2.5">
-            <button
-              onClick={() => {
-                setQuery('')
-                if (typeof window !== 'undefined' && window.location.search) {
-                  window.history.replaceState(null, '', window.location.pathname)
-                }
-              }}
-              className="inline-flex items-center gap-1.5 bg-ink-primary text-white text-xs font-semibold px-3 py-1.5 rounded-full"
-            >
-              🔍 {query.trim()} <span aria-hidden="true">✕</span>
-            </button>
-          </div>
-        )}
-
         {sort === 'distance' && geoDenied && (
-          <p className="px-4 pb-2.5 text-xs text-ink-tertiary">
+          <p className="max-w-6xl mx-auto px-4 pb-2.5 text-xs text-ink-tertiary">
             {bi('Position indisponible — tri par défaut.', 'Location unavailable — showing the default order.')}
           </p>
         )}
@@ -616,8 +617,8 @@ export default function HomePage() {
 
       </main>
 
-      {/* Map overlay — desktop only now. The TopNav map button that opens
-          it is hidden below md, so `showMap` never flips on mobile. */}
+      {/* Map overlay — opened by the header 🗺 (mobile and desktop) or by
+          /restaurants?map=1 from another page. */}
       {showMap && (
         <div className="fixed inset-0 z-50 flex flex-col bg-surface">
           <div className="h-14 flex-shrink-0 bg-surface border-b border-divider flex items-center justify-between px-4">

@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   const { data: rows, error } = await supabaseAdmin
     .from('events')
-    .select(`id, title, category, venue, neighborhood, city, cover_photo, organizer_name, is_featured, ticket_price, price, event_status, reservations_open, ${EVENT_DATE_COLUMNS}`)
+    .select(`id, title, category, venue, neighborhood, city, cover_photo, organizer_name, description, is_featured, ticket_price, price, event_status, reservations_open, ${EVENT_DATE_COLUMNS}`)
     .eq('city', city).eq('is_active', true)
     .order('date', { ascending: true })
   if (error) {
@@ -84,6 +84,8 @@ export async function GET(req: NextRequest) {
     return {
       id: e.id, title: e.title, category: e.category, venue: e.venue, neighborhood: e.neighborhood,
       cover_photo: e.cover_photo, organizer_name: e.organizer_name,
+      // For the Loisirs search (artists are usually named here); trimmed.
+      description: typeof e.description === 'string' ? e.description.slice(0, 400) : null,
       date: e.date, time: e.time, end_date: e.end_date, end_time: e.end_time,
       reservations_open: e.reservations_open !== false,
       days,

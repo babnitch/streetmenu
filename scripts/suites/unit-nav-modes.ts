@@ -13,7 +13,7 @@ const keys = (mode: 'client' | 'pro', role: 'owner' | 'manager' | 'staff' | null
 
 async function main(): Promise<void> {
   await step('client mode is the same for everyone', () => {
-    const client = ['restaurants', 'events', 'search', 'cart', 'account']
+    const client = ['restaurants', 'events', 'cart', 'account']
     assertEq(keys('client', null, false), client, 'customer')
     assertEq(keys('client', 'owner', true), client, 'restaurant owner')
   })
