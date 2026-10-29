@@ -2240,6 +2240,8 @@ const ORDER_STATUS_STYLES: Record<string, { cls: string; label: string }> = {
   confirmed: { cls: 'bg-brand-light text-brand-darker',     label: '✅ Confirmée / Confirmed' },
   preparing: { cls: 'bg-brand-light text-brand-darker', label: '👨‍🍳 En préparation / Preparing' },
   ready:     { cls: 'bg-brand-light text-brand-darker',   label: '🎉 Prête / Ready' },
+  out_for_delivery: { cls: 'bg-brand-light text-brand-darker', label: '🛵 En livraison / On its way' },
+  delivered: { cls: 'bg-surface-muted text-ink-primary',     label: '✅ Reçue / Received' },
   completed: { cls: 'bg-surface-muted text-ink-primary',     label: '🏁 Terminée / Completed' },
   cancelled: { cls: 'bg-brand-light text-danger',       label: '❌ Annulée / Cancelled' },
 }
@@ -2465,6 +2467,17 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
   const bi = useBi()
   const { locale } = useLanguage()
   const [expanded, setExpanded] = useState(false)
+  const [receiving, setReceiving] = useState(false)
+  const [receivedDone, setReceivedDone] = useState(false)
+  const [receiveError, setReceiveError] = useState('')
+  async function confirmReceived() {
+    setReceiving(true); setReceiveError('')
+    const r = await fetch(`/api/orders/${order.id}/received`, { method: 'POST' }).catch(() => null)
+    const d = r ? await r.json().catch(() => ({})) : {}
+    setReceiving(false)
+    if (r?.ok) setReceivedDone(true)
+    else setReceiveError(pickBi(d?.error ?? 'Erreur — réessayez. / Error — please try again.', locale))
+  }
   const items: Array<{ name: string; quantity: number; price?: number }> = Array.isArray(order.items) ? order.items : []
   const itemsSummary = items.map(i => `${i.quantity}× ${i.name}`).join(', ')
 
@@ -2491,6 +2504,18 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
           </div>
         </div>
       </button>
+
+      {/* Q2: the customer confirms a delivery arrived. */}
+      {order.status === 'out_for_delivery' && !receivedDone && (
+        <div className="mt-2">
+          <button type="button" onClick={confirmReceived} disabled={receiving}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-bold">
+            {receiving ? '…' : `✅ ${bi('J\'ai reçu ma commande', 'I received my order')}`}
+          </button>
+          {receiveError && <p className="text-xs text-danger mt-1">{receiveError}</p>}
+        </div>
+      )}
+      {receivedDone && <p className="mt-2 text-sm font-semibold text-emerald-700">✅ {bi('Merci ! Commande reçue.', 'Thanks! Order received.')}</p>}
 
       {/* Q1: the order QR, shown at pickup or to the rider. */}
       {['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(order.status) && (

@@ -130,8 +130,9 @@ function diff(before: string[], after: string[]): { added: string[]; removed: st
 // ── Events (M4): an event follows its organiser's modules. An event with no
 //    organiser account (old rows) keeps working as before modules existed.
 //    N3: an event the admin created and manages ("managed by Tchop &
-//    Ndjoka", no organiser yet) takes free reservations only. ──
-export const MANAGED_EVENT_MODULES: readonly OrganizerModule[] = ['reservations']
+//    Ndjoka", no organiser yet) takes free reservations only, and its
+//    tickets can be checked in (Q2: admin and door staff). ──
+export const MANAGED_EVENT_MODULES: readonly OrganizerModule[] = ['reservations', 'ticket_control']
 
 type EventForModules = { id?: string | null; organizer_id?: string | null; managed_by_platform?: boolean | null }
 

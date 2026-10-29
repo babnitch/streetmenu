@@ -369,6 +369,23 @@ export async function notifyCustomerOrderReady(
   })
 }
 
+// Q2: a delivery order leaves the restaurant ("En livraison"). The customer
+// gets the code to give the rider, and how to confirm it arrived.
+export async function notifyCustomerOutForDelivery(
+  customerPhone: string,
+  order: OrderPayload,
+  restaurantName: string,
+  lang: Lang = DEFAULT_LANG,
+  opts: SendOptions = {},
+): Promise<void> {
+  const id4 = last4(order.id)
+  await sendWhatsApp(customerPhone, pickLang(
+    `🛵 Votre commande #${id4} est en route — ${restaurantName}.\n\nCode de livraison : *${id4}* (à donner au livreur).\nÀ la réception, répondez *reçu*.`,
+    `🛵 Your order #${id4} is on its way — ${restaurantName}.\n\nDelivery code: *${id4}* (give it to the rider).\nWhen it arrives, reply *received*.`,
+    lang,
+  ), { context: 'order_status_update', relatedId: order.id, ...opts })
+}
+
 export async function notifyCustomerOrderDelivered(
   customerPhone: string,
   order: OrderPayload,

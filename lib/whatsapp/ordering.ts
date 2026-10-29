@@ -808,6 +808,25 @@ export async function handleOrderCommand(
   body: string = cmd,
 ): Promise<NextResponse | null> {
   const lang = normalizeLang(customer.preferred_language)
+
+  // Q2: "reçu" — the customer confirms their latest order out for delivery
+  // arrived (delivered_confirmed_by = customer). The restaurant is told.
+  if (['reçu', 'recu', 'received', 'reçue', 'recue', "j'ai reçu", "j'ai recu"].includes(cmd)) {
+    const { data: o } = await supabaseAdmin.from('orders').select('id')
+      .eq('customer_id', customer.id).eq('status', 'out_for_delivery')
+      .order('out_for_delivery_at', { ascending: false }).limit(1).maybeSingle()
+    if (!o) {
+      await sendWhatsApp(from, pickLang('Aucune commande en livraison pour le moment.', 'No order out for delivery right now.', lang))
+      return ok()
+    }
+    const { markOrderDelivered } = await import('@/lib/orderDelivery')
+    const r = await markOrderDelivered(o.id as string, 'customer', { id: customer.id, type: 'customer' }, { notify: 'restaurant' })
+    await sendWhatsApp(from, r.ok
+      ? pickLang(`✅ Merci ! Commande #${last4(o.id as string)} marquée comme reçue. Bon appétit !`, `✅ Thanks! Order #${last4(o.id as string)} marked as received. Enjoy!`, lang)
+      : pickLang('Cette commande est déjà marquée comme reçue.', 'This order is already marked as received.', lang))
+    return ok()
+  }
+
   if (cmd === 'commander' || cmd === 'order' || cmd === 'commande') {
     // M6: restaurants switched off for the whole platform.
     if (!(await isSideOn('restaurants'))) {
@@ -977,6 +996,7 @@ export async function handleOrderCommand(
         case 'confirmed': return en ? '✅ Confirmed — restaurant accepted your order'   : '✅ Confirmée — le restaurant a accepté votre commande'
         case 'preparing': return en ? '🍳 Preparing — your food is being prepared'      : '🍳 En préparation — votre plat est en cours de préparation'
         case 'ready':     return en ? `🎉 Ready — ready for pickup at ${rest}!`          : `🎉 Prête — prête à récupérer chez ${rest}!`
+        case 'out_for_delivery': return en ? '🛵 On its way — reply "received" when it arrives' : '🛵 En livraison — répondez « reçu » à la réception'
         case 'delivered':
         case 'completed': return en ? '📦 Picked up — enjoy your meal!'                 : '📦 Récupérée — bon appétit!'
         case 'cancelled': return en ? '❌ Cancelled'                                     : '❌ Annulée'
@@ -990,6 +1010,7 @@ export async function handleOrderCommand(
         case 'confirmed': return en ? '✅ Confirmed' : '✅ Confirmée'
         case 'preparing': return en ? '🍳 Preparing' : '🍳 En préparation'
         case 'ready':     return en ? '🎉 Ready'     : '🎉 Prête'
+        case 'out_for_delivery': return en ? '🛵 On its way' : '🛵 En livraison'
         case 'delivered':
         case 'completed': return en ? '📦 Picked up' : '📦 Récupérée'
         case 'cancelled': return en ? '❌ Cancelled' : '❌ Annulée'
@@ -3359,7 +3380,7 @@ export async function handleVendorOrderAction(
     confirmed: ['pending'],
     preparing: ['confirmed'],
     ready:     ['preparing'],
-    delivered: ['ready'],
+    delivered: ['ready', 'out_for_delivery'],
   }
   const target = intent.target!
   if (!ALLOWED_FROM[target].includes(order.status)) {
@@ -3371,7 +3392,11 @@ export async function handleVendorOrderAction(
 
   const { error: updErr } = await supabaseAdmin
     .from('orders')
-    .update({ status: target, updated_at: new Date().toISOString() })
+    .update({
+      status: target, updated_at: new Date().toISOString(),
+      // Q2: recorded like the dashboard's "Livrée / Remise".
+      ...(target === 'delivered' ? { delivered_at: new Date().toISOString(), delivered_confirmed_by: 'restaurant_manual' } : {}),
+    })
     .eq('id', order.id)
   if (updErr) {
     console.error(`[ordering] status update to ${target} failed:`, updErr.message)

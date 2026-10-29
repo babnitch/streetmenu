@@ -77,7 +77,7 @@ export interface Order {
   customer_phone: string
   items: CartItem[]
   total_price: number
-  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed'
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'completed' | 'cancelled'
   created_at: string
   // optional extended fields
   customer_id?: string

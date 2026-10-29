@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import ValidatePanel from '@/components/ValidatePanel'
 import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
@@ -32,7 +33,7 @@ import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@
 import { formatAmount, formatFCFA } from '@/lib/money'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
-type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
+type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'
 type OrderFilter = 'pending' | 'active' | 'completed' | 'all'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -40,6 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
   confirmed: 'bg-brand-light text-brand-darker',
   preparing: 'bg-brand-light text-brand-darker',
   ready:     'bg-brand-light text-brand-darker',
+  out_for_delivery: 'bg-brand-light text-brand-darker',
   delivered: 'bg-surface-muted text-ink-secondary',
   completed: 'bg-surface-muted text-ink-secondary',   // legacy alias
   cancelled: 'bg-brand-light text-danger',
@@ -50,6 +52,7 @@ const STATUS_LABEL: Record<string, string> = {
   confirmed: '✅ Confirmée / Confirmed',
   preparing: '🍳 En préparation / Preparing',
   ready: '🎉 Prête / Ready',
+  out_for_delivery: '🛵 En livraison / Out for delivery',
   delivered: '✅ Livrée / Delivered',
   completed: '✅ Terminée / Completed',     // legacy
   cancelled: '❌ Annulée / Cancelled',
@@ -67,6 +70,8 @@ interface ActionButton {
   target: TargetStatus
   roles: Array<'owner' | 'manager' | 'staff'>
   destructive?: boolean
+  // Q2: only on delivery orders.
+  deliveryOnly?: boolean
 }
 const STATUS_ACTIONS: Record<string, ActionButton[]> = {
   pending: [
@@ -82,7 +87,13 @@ const STATUS_ACTIONS: Record<string, ActionButton[]> = {
     { label: '❌ Annuler / Cancel',                    target: 'cancelled', roles: ['owner', 'manager'], destructive: true },
   ],
   ready: [
+    { label: '🛵 En livraison / Out for delivery',     target: 'out_for_delivery', roles: ['owner', 'manager', 'staff'], deliveryOnly: true },
     { label: '📦 Récupéré / Picked up',               target: 'delivered', roles: ['owner', 'manager', 'staff'] },
+  ],
+  // Q2: confirmed by the customer ("reçu" / the button), by the code in
+  // Valider, or here by hand (recorded as restaurant_manual).
+  out_for_delivery: [
+    { label: '✅ Livrée / Delivered',                 target: 'delivered', roles: ['owner', 'manager', 'staff'] },
   ],
   delivered: [],
   completed: [],
@@ -97,7 +108,7 @@ const FILTER_LABEL: Record<OrderFilter, string> = {
 }
 const FILTER_STATUSES: Record<OrderFilter, string[] | null> = {
   pending:   ['pending'],
-  active:    ['confirmed', 'preparing', 'ready'],
+  active:    ['confirmed', 'preparing', 'ready', 'out_for_delivery'],
   completed: ['delivered', 'completed', 'cancelled'],
   all:       null,
 }
@@ -173,12 +184,6 @@ export default function DashboardPage() {
       setTab(q as DashboardTab)
     }
   }, [setTab])
-  const [validateInput, setValidateInput] = useState('')
-  const [validating, setValidating] = useState(false)
-  const [validateResult, setValidateResult] = useState<null | 'ok' | 'used' | 'invalid'>(null)
-  const [validateDetails, setValidateDetails] = useState<{ code: string; discount: string; cvId: string } | null>(null)
-  const [confirming, setConfirming] = useState(false)
-  const [validateDone, setValidateDone] = useState(false)
   const [showItemForm, setShowItemForm] = useState(false)
   // Menu par jour: the Menu tab shows the list or "Menu de la semaine".
   const [menuView, setMenuView] = useState<'list' | 'week'>('list')
@@ -809,6 +814,7 @@ export default function DashboardPage() {
                         && (effectiveRole === 'admin' || effectiveRole === 'owner' || effectiveRole === 'manager')
 
                       const roleFiltered = (STATUS_ACTIONS[order.status] ?? [])
+                        .filter(a => !a.deliveryOnly || order.fulfilment === 'delivery')
                         .filter(a => effectiveRole === 'admin' || (effectiveRole && a.roles.includes(effectiveRole as 'owner' | 'manager' | 'staff')))
                       const actions = paymentFailed
                         ? []
@@ -925,121 +931,15 @@ export default function DashboardPage() {
 
           {/* Validate Tab */}
           {tab === 'validate' && (
-            <div className="bg-white rounded-2xl shadow-sm p-5">
+            <div>
               <button
                 onClick={() => setTab('vouchers')}
                 className="text-xs text-brand hover:text-brand-dark font-semibold mb-3"
               >
                 ← {bi('Retour aux bons', 'Back to vouchers')}
               </button>
-              <h3 className="font-bold text-ink-primary mb-4">{t('dash.validateTitle')}</h3>
-              <div className="flex gap-2 mb-4">
-                <input
-                  type="text"
-                  value={validateInput}
-                  onChange={e => { setValidateInput(e.target.value); setValidateResult(null); setValidateDetails(null); setValidateDone(false) }}
-                  placeholder={t('dash.validateInputPh')}
-                  className="flex-1 border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
-                />
-                <button
-                  onClick={async () => {
-                    const input = validateInput.trim()
-                    if (!input) return
-                    setValidating(true)
-                    setValidateResult(null)
-                    setValidateDetails(null)
-                    setValidateDone(false)
-
-                    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)
-                    if (isUuid) {
-                      const { data } = await supabase
-                        .from('customer_vouchers')
-                        .select('*, vouchers(*)')
-                        .eq('id', input)
-                        .maybeSingle()
-                      if (!data) { setValidateResult('invalid') }
-                      else if (data.used_at) { setValidateResult('used') }
-                      else {
-                        const v = data.vouchers
-                        setValidateResult('ok')
-                        setValidateDetails({
-                          code: v?.code ?? '',
-                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${formatFCFA(Number(v?.discount_value))}`,
-                          cvId: data.id,
-                        })
-                      }
-                    } else {
-                      const { data } = await supabase
-                        .from('customer_vouchers')
-                        .select('*, vouchers(*)')
-                        .eq('vouchers.code', input.toUpperCase())
-                        .is('used_at', null)
-                        .order('claimed_at', { ascending: false })
-                        .limit(1)
-                        .maybeSingle()
-                      if (!data || !data.vouchers) { setValidateResult('invalid') }
-                      else {
-                        const v = data.vouchers
-                        setValidateResult('ok')
-                        setValidateDetails({
-                          code: v?.code ?? '',
-                          discount: isPercentDiscount(v?.discount_type) ? `-${v?.discount_value}%` : `-${formatFCFA(Number(v?.discount_value))}`,
-                          cvId: data.id,
-                        })
-                      }
-                    }
-                    setValidating(false)
-                  }}
-                  disabled={validating || !validateInput.trim()}
-                  className="bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
-                >
-                  {validating ? t('dash.validating') : t('dash.validateBtn')}
-                </button>
-              </div>
-
-              {validateResult === 'invalid' && (
-                <div className="bg-brand-light rounded-xl p-4 text-center">
-                  <p className="text-danger font-semibold">❌ {t('dash.validateInvalid')}</p>
-                </div>
-              )}
-              {validateResult === 'used' && (
-                <div className="bg-surface-muted rounded-xl p-4 text-center">
-                  <p className="text-ink-secondary font-semibold">⚠️ {t('dash.validateUsed')}</p>
-                </div>
-              )}
-              {validateResult === 'ok' && validateDetails && !validateDone && (
-                <div className="bg-brand-light rounded-xl p-4">
-                  <p className="text-brand-darker font-bold text-lg mb-1">✓ {t('dash.validateOk')}</p>
-                  <p className="text-sm text-brand-darker mb-1">Code: <strong>{validateDetails.code}</strong></p>
-                  <p className="text-sm text-brand-darker mb-4">{t('dash.validateDiscount')}: <strong>{validateDetails.discount}</strong></p>
-                  <button
-                    onClick={async () => {
-                      setConfirming(true)
-                      // Server-side consume wraps the cv.used_at +
-                      // vouchers.uses_count writes that used to fire
-                      // directly from the browser. Required after the
-                      // RLS lockdown of both tables.
-                      await fetch('/api/vendor/vouchers/consume', {
-                        method:  'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body:    JSON.stringify({ customer_voucher_id: validateDetails.cvId }),
-                      }).catch(() => null)
-                      setConfirming(false)
-                      setValidateDone(true)
-                      setValidateResult(null)
-                    }}
-                    disabled={confirming}
-                    className="w-full bg-brand hover:bg-brand-dark disabled:bg-brand-badge text-white py-2.5 rounded-xl font-semibold text-sm transition-colors"
-                  >
-                    {confirming ? t('dash.validateConfirming') : t('dash.validateConfirm')}
-                  </button>
-                </div>
-              )}
-              {validateDone && (
-                <div className="bg-brand-light rounded-xl p-4 text-center">
-                  <p className="text-brand-darker font-bold">✅ {t('dash.validateDone')}</p>
-                </div>
-              )}
+              {/* Q2: orders, vouchers — scanned QR or typed code. */}
+              <ValidatePanel scope={{ restaurantId: selectedRestaurant.id }} />
             </div>
           )}
 

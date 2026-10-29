@@ -8,12 +8,13 @@ import {
   notifyCustomerOrderPreparing,
   notifyCustomerOrderReady,
   notifyCustomerOrderDelivered,
+  notifyCustomerOutForDelivery,
   notifyCustomerOrderCancelled,
 } from '@/lib/whatsapp'
 
 export const dynamic = 'force-dynamic'
 
-type VendorStatus = 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
+type VendorStatus = 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'
 
 // Roles allowed to apply each status transition.
 // Spec: owner + manager → full power; staff → ready + delivered only.
@@ -21,6 +22,7 @@ const ROLE_MATRIX: Record<VendorStatus, Array<'owner' | 'manager' | 'staff'>> = 
   confirmed: ['owner', 'manager'],
   preparing: ['owner', 'manager'],
   ready:     ['owner', 'manager', 'staff'],
+  out_for_delivery: ['owner', 'manager', 'staff'],
   delivered: ['owner', 'manager', 'staff'],
   cancelled: ['owner', 'manager'],
 }
@@ -31,12 +33,16 @@ const FROM_MATRIX: Record<VendorStatus, string[]> = {
   confirmed: ['pending'],
   preparing: ['pending', 'confirmed'],
   ready:     ['pending', 'confirmed', 'preparing'],
-  delivered: ['ready', 'completed'],            // completed is legacy but ready→delivered is the canonical path
-  cancelled: ['pending', 'confirmed', 'preparing', 'ready'],
+  // Q2: a delivery order goes ready → out_for_delivery ("En livraison") →
+  // delivered; "delivered" from the dashboard is recorded as
+  // delivered_confirmed_by = restaurant_manual.
+  out_for_delivery: ['confirmed', 'preparing', 'ready'],
+  delivered: ['ready', 'out_for_delivery', 'completed'],
+  cancelled: ['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'],
 }
 
 function isVendorStatus(s: unknown): s is VendorStatus {
-  return typeof s === 'string' && (['confirmed', 'preparing', 'ready', 'delivered', 'cancelled'] as const).includes(s as VendorStatus)
+  return typeof s === 'string' && (['confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'] as const).includes(s as VendorStatus)
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -128,6 +134,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const orderUpdate: Record<string, unknown> = { status: targetStatus, updated_at: now }
   if (targetStatus === 'confirmed') orderUpdate.confirmed_at = now
   if (targetStatus === 'ready')     orderUpdate.ready_at     = now
+  if (targetStatus === 'out_for_delivery') {
+    if (order.fulfilment !== 'delivery') {
+      return NextResponse.json({ error: 'Commande à emporter / Take-away order' }, { status: 409 })
+    }
+    orderUpdate.out_for_delivery_at = now
+  }
+  if (targetStatus === 'delivered') {
+    orderUpdate.delivered_at = now
+    orderUpdate.delivered_confirmed_by = 'restaurant_manual'
+    orderUpdate.delivered_actor_id = session.id
+    orderUpdate.delivered_actor_type = isAdmin ? 'admin' : 'customer'
+  }
   const { error: updErr } = await supabaseAdmin
     .from('orders')
     .update(orderUpdate)
@@ -181,6 +199,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         case 'confirmed': await notifyCustomerOrderConfirmed(order.customer_phone, payload, restaurantName, lang, log); break
         case 'preparing': await notifyCustomerOrderPreparing(order.customer_phone, payload, restaurantName, lang, log); break
         case 'ready':     await notifyCustomerOrderReady    (order.customer_phone, payload, restaurantName, lang, log); break
+        case 'out_for_delivery': await notifyCustomerOutForDelivery(order.customer_phone, payload, restaurantName, lang, log); break
         case 'delivered': await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurantName, lang, log); break
         case 'cancelled': await notifyCustomerOrderCancelled(order.customer_phone, payload, restaurantName, lang, log); break
       }
