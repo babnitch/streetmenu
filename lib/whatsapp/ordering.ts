@@ -825,9 +825,25 @@ export async function handleOrderCommand(
   // Q2: "reçu" — the customer confirms their latest order out for delivery
   // arrived (delivered_confirmed_by = customer). The restaurant is told.
   if (['reçu', 'recu', 'received', 'reçue', 'recue', "j'ai reçu", "j'ai recu"].includes(cmd)) {
-    const { data: o } = await supabaseAdmin.from('orders').select('id')
+    let { data: o } = await supabaseAdmin.from('orders').select('id')
       .eq('customer_id', customer.id).eq('status', 'out_for_delivery')
       .order('out_for_delivery_at', { ascending: false }).limit(1).maybeSingle()
+    // Protected payment: "reçu" also confirms a held order (pickup, or one
+    // already marked delivered) — that releases the money to the restaurant.
+    if (!o) {
+      const { data: held } = await supabaseAdmin.from('orders').select('id, status')
+        .eq('customer_id', customer.id).eq('funds_status', 'held').not('status', 'in', '(pending,cancelled)')
+        .order('created_at', { ascending: false }).limit(1).maybeSingle()
+      if (held && (held.status === 'delivered' || held.status === 'completed')) {
+        const { releaseOrderFunds } = await import('@/lib/protectedPayments')
+        const r = await releaseOrderFunds(held.id as string, 'customer', { id: customer.id, type: 'customer' })
+        await sendWhatsApp(from, r.ok
+          ? pickLang(`✅ Merci ! Commande #${last4(held.id as string)} confirmée reçue. Bon appétit !`, `✅ Thanks! Order #${last4(held.id as string)} confirmed received. Enjoy!`, lang)
+          : pickLang('Cette commande est déjà confirmée.', 'This order is already confirmed.', lang))
+        return ok()
+      }
+      o = held ? { id: held.id } : null
+    }
     if (!o) {
       await sendWhatsApp(from, pickLang('Aucune commande en livraison pour le moment.', 'No order out for delivery right now.', lang))
       return ok()
@@ -3242,6 +3258,10 @@ export async function handleVendorOrderAction(
   body: string,
   restaurant: { id: string; name: string },
 ): Promise<NextResponse | null> {
+  // Protected payments: "CODE 1234" (one order waiting) or "CODE A1B2 1234".
+  const codeCmd = body.trim().match(/^code\s+(?:#?([0-9a-f]{4})\s+)?(\d{4})$/i)
+  if (codeCmd) return handleVendorReleaseCode(from, restaurant, codeCmd[1] ?? null, codeCmd[2])
+
   const intent = parseVendorIntent(body)
   if (!intent) return null
 
@@ -3473,6 +3493,38 @@ export async function handleVendorOrderAction(
     if (await shouldMessageStatus(order.id, 'delivered', order.fulfilment)) {
       await notifyCustomerOrderDelivered(order.customer_phone, payload, restaurant.name, custLang)
     }
+    // Protected payment: no code → the customer is told, released later.
+    const { afterHandover } = await import('@/lib/protectedPayments')
+    await afterHandover(order.id, 'restaurant_manual', { id: restaurant.id, type: 'vendor' })
   }
+  return ok()
+}
+
+// ── Protected payments: the restaurant types the customer's code ──────────
+async function handleVendorReleaseCode(
+  from: string, restaurant: { id: string; name: string }, code4: string | null, code: string,
+): Promise<NextResponse> {
+  const { ordersAwaitingCode, releaseWithCode } = await import('@/lib/protectedPayments')
+  const lang = await getLangByPhone(from)
+  const waiting = await ordersAwaitingCode(restaurant.id)
+  const pick = code4 ? waiting.filter(o => o.code4 === code4.toUpperCase()) : waiting
+  if (pick.length === 0) {
+    await sendWhatsApp(from, pickLang(
+      code4 ? `❌ Aucune commande #${code4.toUpperCase()} en attente du code.` : `Aucune commande en attente du code.`,
+      code4 ? `❌ No order #${code4.toUpperCase()} waiting for its code.` : `No order waiting for its code.`, lang))
+    return ok()
+  }
+  if (pick.length > 1) {
+    await sendWhatsApp(from, pickLang(
+      `Plusieurs commandes attendent leur code : ${pick.slice(0, 8).map(o => '#' + o.code4).join(', ')}.\nEnvoyez "CODE ${pick[0].code4} 1234" (numéro de commande puis code du client).`,
+      `Several orders are waiting for their code: ${pick.slice(0, 8).map(o => '#' + o.code4).join(', ')}.\nSend "CODE ${pick[0].code4} 1234" (order number then the customer's code).`, lang))
+    return ok()
+  }
+  const target = pick[0]
+  const { data: me } = await supabaseAdmin.from('customers').select('id').eq('phone', from.replace(/^whatsapp:/, '')).maybeSingle()
+  const r = await releaseWithCode(target.id, code, { id: (me?.id as string | undefined) ?? null, type: 'vendor' }, 'whatsapp')
+  await sendWhatsApp(from, r.ok
+    ? pickLang(`✅ Code correct — commande #${target.code4} remise.`, `✅ Right code — order #${target.code4} handed over.`, lang)
+    : `❌ ${pickLang(r.error.split(' / ')[0], r.error.split(' / ')[1] ?? r.error, lang)}`)
   return ok()
 }

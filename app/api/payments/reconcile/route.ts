@@ -3,6 +3,7 @@ import { authorizeInternal } from '@/lib/internalAuth'
 import { runReconcile, liveReconcileDeps } from '@/lib/payments-reconcile'
 import { runMessageRetries } from '@/lib/messageRetry'
 import { reconcileRefunds } from '@/lib/refunds'
+import { runProtectedJobs } from '@/lib/protectedPayments'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -43,6 +44,16 @@ export async function POST(req: NextRequest) {
     refunds = { error: 'refund reconcile failed' }
   }
 
+  // Protected payments: timed checks (auto-release, accept timeout) — same
+  // tick, independent.
+  let protectedJobs: Awaited<ReturnType<typeof runProtectedJobs>> | { error: string }
+  try {
+    protectedJobs = await runProtectedJobs()
+  } catch (e) {
+    console.error('[reconcile] protected payments failed:', (e as Error).message)
+    protectedJobs = { error: 'protected payments failed' }
+  }
+
   let messageRetries: Awaited<ReturnType<typeof runMessageRetries>> | { error: string }
   try {
     messageRetries = await runMessageRetries()
@@ -52,7 +63,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (reconcileError) {
-    return NextResponse.json({ ok: false, error: 'reconcile failed', refunds, messageRetries }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'reconcile failed', refunds, protectedJobs, messageRetries }, { status: 500 })
   }
-  return NextResponse.json({ ok: true, ...summary, refunds, messageRetries })
+  return NextResponse.json({ ok: true, ...summary, refunds, protectedJobs, messageRetries })
 }

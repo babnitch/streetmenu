@@ -13,6 +13,7 @@ import { writeAudit } from '@/lib/audit'
 import { getLangByPhone, notifyCustomerOrderDelivered, notifyCustomerOutForDelivery, sendWhatsApp, pickLang } from '@/lib/whatsapp'
 import { vendorRecipients } from '@/lib/whatsapp/ordering'
 import { orderCode } from '@/lib/shortCode'
+import { afterHandover } from '@/lib/protectedPayments'
 
 export type DeliveredBy = 'customer' | 'rider' | 'restaurant_scan' | 'restaurant_code' | 'restaurant_manual' | 'auto'
 export interface DeliveryActor { id: string | null; type: 'customer' | 'admin' }
@@ -49,7 +50,7 @@ export type MarkResult =
 
 export async function markOrderDelivered(
   orderId: string, by: DeliveredBy, actor: DeliveryActor | null,
-  opts: { riderId?: string | null; notify?: 'customer' | 'restaurant' | 'none' } = {},
+  opts: { riderId?: string | null; notify?: 'customer' | 'restaurant' | 'none'; skipFunds?: boolean } = {},
 ): Promise<MarkResult> {
   const { data: before } = await supabaseAdmin.from('orders').select(ORDER_COLUMNS).eq('id', orderId).maybeSingle()
   if (!before) return { ok: false, reason: 'not_found', error: 'Commande introuvable / Order not found' }
@@ -99,6 +100,9 @@ export async function markOrderDelivered(
   } catch (e) {
     console.error('[orderDelivery] notify failed:', (e as Error).message)
   }
+  // Protected payment: released now (rider with the code, customer "Reçu"),
+  // or the customer is told and it is released later (lib/protectedPayments).
+  if (!opts.skipFunds) await afterHandover(after.id, by, actor)
   return { ok: true, order: after }
 }
 

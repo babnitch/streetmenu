@@ -3,6 +3,7 @@ import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
+import { afterHandover } from '@/lib/protectedPayments'
 import {
   notifyCustomerOrderConfirmed,
   notifyCustomerOrderPreparing,
@@ -207,6 +208,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     } catch (e) {
       console.error(`[order-status] whatsapp notify failed for ${targetStatus}:`, (e as Error).message)
     }
+  }
+
+  // Protected payment: "Livrée" without the code → the customer is told and
+  // the money is released after the auto-release delay (lib/protectedPayments).
+  if (targetStatus === 'delivered') {
+    await afterHandover(order.id, 'restaurant_manual', { id: session.id, type: isAdmin ? 'admin' : 'vendor' })
   }
 
   return NextResponse.json({

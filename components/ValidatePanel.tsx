@@ -10,6 +10,7 @@ import { useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import ScanResultCard, { type ScanViewClient } from '@/components/ScanResultCard'
 import QrScannerOverlay from '@/components/QrScannerOverlay'
+import AwaitingCodeList from '@/components/AwaitingCodeList'
 
 export type ValidateScope = { restaurantId: string } | { eventId: string }
 
@@ -66,6 +67,7 @@ export default function ValidatePanel({ scope, children }: { scope: ValidateScop
           : bi('Scannez le billet, ou tapez son code (#AB12).', 'Scan the ticket, or type its code (#AB12).')}
       </p>
       {children}
+      {'restaurantId' in scope && <AwaitingCodeList restaurantId={scope.restaurantId} />}
       <button type="button" onClick={() => setScanning(true)}
         className="mt-4 w-full bg-ink-primary hover:bg-ink-secondary text-white py-3.5 rounded-2xl font-bold text-base">
         📷 {bi('Scanner', 'Scan')}

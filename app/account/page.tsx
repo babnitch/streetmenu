@@ -2364,8 +2364,11 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
         </div>
       </button>
 
-      {/* Q2: the customer confirms a delivery arrived. */}
-      {order.status === 'out_for_delivery' && !receivedDone && (
+      {/* Q2: the customer confirms a delivery arrived. Protected payment:
+          also a pickup, or an order already marked delivered — it releases
+          the money to the restaurant. */}
+      {(order.status === 'out_for_delivery'
+        || (order.funds_status === 'held' && ['ready', 'delivered', 'completed'].includes(order.status))) && !receivedDone && (
         <div className="mt-2">
           <button type="button" onClick={confirmReceived} disabled={receiving}
             className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-bold">
@@ -2377,7 +2380,7 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
       {receivedDone && <p className="mt-2 text-sm font-semibold text-emerald-700">✅ {bi('Merci ! Commande reçue.', 'Thanks! Order received.')}</p>}
 
       {/* Q1: the order QR, shown at pickup or to the rider. */}
-      {['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(order.status) && (
+      {(['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(order.status) || order.funds_status === 'held') && order.status !== 'cancelled' && (
         <div className="mt-2">
           <QrCodeButton kind="order" id={order.id} title={`🧾 ${order.restaurants?.name ?? ''} #${orderShortId(order.id)}`} />
         </div>
