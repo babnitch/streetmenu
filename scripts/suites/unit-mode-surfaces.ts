@@ -15,7 +15,7 @@ const ALL: ModeFlags = { hasRestaurant: true, isOwner: true, checksEvents: true,
 const CLIENT_ONLY_ACCOUNT: AccountItem[] = ['orders', 'bookings', 'vouchers', 'favorites', 'profile', 'notifications']
 const PRO_ONLY_ACCOUNT: AccountItem[] = ['restaurantTools', 'myRestaurant', 'team', 'myEvents', 'createEvent', 'doorCheck', 'deliveries', 'proProfile', 'modules', 'promote', 'broadcast', 'addRestaurant']
 const CLIENT_ONLY_SIDE: SideItem[] = ['myOrders', 'myBookings', 'myFavorites', 'proSpace']
-const PRO_ONLY_SIDE: SideItem[] = ['restaurantOrders', 'myEvents', 'doorCheck', 'deliveries', 'addRestaurant', 'addEventOrPlace']
+const PRO_ONLY_SIDE: SideItem[] = ['restaurantOrders', 'myEvents', 'doorCheck', 'deliveries', 'addRestaurant', 'addEventOrPlace', 'proHelp']
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const f of readdirSync(dir)) {

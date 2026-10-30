@@ -1,4 +1,5 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
 
 // "🚪 Contrôle à l'entrée" (Q4) — door staff for one event: they may scan /
 // check in this event's tickets, nothing else. The organiser (or an admin,
@@ -38,7 +39,7 @@ export default function DoorStaffPanel({ eventId }: { eventId: string }) {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm p-4 mb-3">
-      <h4 className="font-bold text-ink-primary text-sm">🚪 {bi('Contrôle à l\'entrée', 'Door staff')}</h4>
+      <h4 className="font-bold text-ink-primary text-sm">🚪 {bi('Contrôle à l\'entrée', 'Door staff')} <HelpTip id="doorStaff" /></h4>
       <p className="text-xs text-ink-tertiary mt-0.5">
         {bi('Ces personnes peuvent seulement scanner les billets de cet événement (pas d\'argent, pas de modification).', 'These people can only scan this event\'s tickets (no money, no editing).')}
       </p>

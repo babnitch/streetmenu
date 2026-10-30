@@ -1,4 +1,5 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
 
 // "Mes modules" on /pro (M5): for each restaurant the user owns, and for
 // their organiser account when they run events, every module with its
@@ -37,7 +38,7 @@ export default function ProModulesPanel({ showOrganizer }: { showOrganizer: bool
 
   return (
     <section className="mt-6" aria-labelledby="pro-modules">
-      <h2 id="pro-modules" className="text-base font-bold text-ink-primary">🧩 {bi('Mes modules', 'My modules')}</h2>
+      <h2 id="pro-modules" className="text-base font-bold text-ink-primary">🧩 {bi('Mes modules', 'My modules')} <HelpTip id="modules" /></h2>
       <p className="text-xs text-ink-tertiary mb-3">
         {bi('La vitrine (page, menu, horaires, contact) est toujours incluse.', 'The basic page (page, menu, hours, contact) is always included.')}
       </p>

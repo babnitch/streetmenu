@@ -1,4 +1,5 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
 
 // Dashboard → Paramètres → "🛵 Livreurs" (Q5).
 //   ( ) Mes livreurs ne sont pas sur l'app   (default) — the customer, the
@@ -61,7 +62,7 @@ export default function RidersPanel({ restaurantId, mode, onModeChange }: {
 
   return (
     <section className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-      <h3 className="font-bold text-ink-primary">🛵 {bi('Livreurs', 'Riders')}</h3>
+      <h3 className="font-bold text-ink-primary">🛵 {bi('Livreurs', 'Riders')} <HelpTip id="riders" /></h3>
       <div className="mt-3 space-y-2">
         {radio('none', bi('Mes livreurs ne sont pas sur l\'app', 'My riders are not on the app'),
           bi('Le client confirme la réception (bouton ou « reçu »), ou vous tapez son code de livraison.', 'The customer confirms (button or "received"), or you type their delivery code.'))}

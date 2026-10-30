@@ -1,4 +1,5 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -90,7 +91,7 @@ export default function ProProfilePage() {
         ) : (
           <form onSubmit={save} className="bg-white rounded-2xl shadow-sm p-5 space-y-5">
             <div>
-              <h1 className="text-xl font-bold text-ink-primary">🪪 {bi('Profil Pro', 'Pro profile')}</h1>
+              <h1 className="text-xl font-bold text-ink-primary">🪪 {bi('Profil Pro', 'Pro profile')} <HelpTip id="proProfile" /></h1>
               <p className="text-xs text-ink-tertiary mt-1">
                 {bi('Utilisé pour pré-remplir vos événements.', 'Used to pre-fill your events.')}
               </p>

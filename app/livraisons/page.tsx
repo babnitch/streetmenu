@@ -1,4 +1,5 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
 
 // /livraisons — "Mes livraisons" (Q5): a rider sees ONLY the orders assigned
 // to them (address, landmark, customer phone, cash to collect). Their one
@@ -54,7 +55,7 @@ export default function RiderPage() {
     <div className="min-h-screen bg-surface">
       <TopNav />
       <main className="max-w-md mx-auto px-4 pt-5 pb-28">
-        <h1 className="text-xl font-black text-ink-primary">🛵 {bi('Mes livraisons', 'My deliveries')}</h1>
+        <h1 className="text-xl font-black text-ink-primary">🛵 {bi('Mes livraisons', 'My deliveries')} <HelpTip id="deliveries" /></h1>
         {loggedOut ? (
           <p className="mt-4 text-sm text-ink-secondary">
             {bi('Connectez-vous avec votre numéro de livreur.', 'Log in with your rider number.')}{' '}

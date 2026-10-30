@@ -1,9 +1,11 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import TopNav from '@/components/TopNav'
 import { proLoginHref } from '@/lib/lastPhone'
+import EventsOverview from '@/components/pro/EventsOverview'
 import MyEventsPanel, { type MyEventsPanelEvent, type MyEventsPanelTrust } from '@/components/pro/MyEventsPanel'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
@@ -51,11 +53,12 @@ export default function ProEventsPage() {
         ) : (
           <>
             <div className="flex items-center justify-between gap-3 mb-4">
-              <h1 className="text-xl font-bold text-ink-primary">🎉 {bi('Mes événements', 'My events')}</h1>
+              <h1 className="text-xl font-bold text-ink-primary">🎉 {bi('Mes événements', 'My events')} <HelpTip id="myEvents" /></h1>
               <Link href="/pro/profile" className="text-xs font-semibold text-brand hover:text-brand-dark underline underline-offset-2">
                 {bi('Profil Pro', 'Pro profile')}
               </Link>
             </div>
+            <EventsOverview />
             <MyEventsPanel events={events ?? []} trust={trust} onChanged={load} />
           </>
         )}

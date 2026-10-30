@@ -1,4 +1,6 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
+import RestaurantOverview from '@/components/pro/RestaurantOverview'
 
 export const dynamic = 'force-dynamic'
 
@@ -182,7 +184,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search).get('tab')
-    const allowed: DashboardTab[] = ['orders', 'menu', 'validate', 'vouchers', 'team', 'settings']
+    const allowed: DashboardTab[] = ['overview', 'orders', 'menu', 'validate', 'vouchers', 'team', 'settings']
     if (q && (allowed as string[]).includes(q)) {
       setTab(q as DashboardTab)
     }
@@ -730,6 +732,23 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Pro help: the active tab's title with its ⓘ. */}
+          {(() => {
+            const tool = restaurantToolsFor(effectiveRole as TeamRole | 'admin' | null).find(x => x.key === tab && !x.href)
+            const helpId = ({ overview: 'overview', orders: 'orders', menu: 'menu', vouchers: 'vouchers', validate: 'validate', settings: 'settings' } as const)[tab as 'overview']
+            return tool && helpId ? (
+              <div className="flex items-center gap-2 mb-3">
+                <h2 className="text-base font-bold text-ink-primary">{tool.icon} {toolLabel(tool, locale)}</h2>
+                <HelpTip id={helpId} />
+              </div>
+            ) : null
+          })()}
+
+          {/* Aperçu — owner + manager (the API checks too). */}
+          {tab === 'overview' && (effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin') && (
+            <RestaurantOverview restaurantId={selectedRestaurant.id} />
+          )}
+
           {/* Orders Tab */}
           {tab === 'orders' && (
             <div>
@@ -1099,7 +1118,7 @@ export default function DashboardPage() {
           {tab === 'team' && (
             <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
               <div className="text-4xl mb-3">👥</div>
-              <h3 className="font-bold text-ink-primary mb-1">{bi('Équipe', 'Team')}</h3>
+              <h3 className="font-bold text-ink-primary mb-1">{bi('Équipe', 'Team')} <HelpTip id="team" /></h3>
               <p className="text-sm text-ink-secondary mb-4">
                 {bi(
                   'Gérez les membres de votre équipe depuis Compte → Équipe.',
@@ -1134,7 +1153,7 @@ export default function DashboardPage() {
               />
               {/* I2: the restaurant's public links. */}
               <section className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-                <h3 className="font-bold text-ink-primary mb-3">🔗 {bi('Liens', 'Links')}</h3>
+                <h3 className="font-bold text-ink-primary mb-3">🔗 {bi('Liens', 'Links')} <HelpTip id="links" /></h3>
                 <RestaurantLinksForm restaurantId={selectedRestaurant.id} initial={{
                   instagram_url: selectedRestaurant.instagram_url ?? '', facebook_url: selectedRestaurant.facebook_url ?? '',
                   tiktok_url: selectedRestaurant.tiktok_url ?? '', website_url: selectedRestaurant.website_url ?? '',
@@ -1195,7 +1214,7 @@ export default function DashboardPage() {
               />
               {/* I2: the restaurant's public links. */}
               <section className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-                <h3 className="font-bold text-ink-primary mb-3">🔗 {bi('Liens', 'Links')}</h3>
+                <h3 className="font-bold text-ink-primary mb-3">🔗 {bi('Liens', 'Links')} <HelpTip id="links" /></h3>
                 <RestaurantLinksForm restaurantId={selectedRestaurant.id} initial={{
                   instagram_url: selectedRestaurant.instagram_url ?? '', facebook_url: selectedRestaurant.facebook_url ?? '',
                   tiktok_url: selectedRestaurant.tiktok_url ?? '', website_url: selectedRestaurant.website_url ?? '',
@@ -1432,7 +1451,7 @@ function OpeningHoursPanel({ restaurant }: { restaurant: Restaurant }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm p-5">
       <h2 className="text-lg font-bold text-ink-primary mb-3">
-        🕐 {bi('Horaires & disponibilité', 'Hours & availability')}
+        🕐 {bi('Horaires & disponibilité', 'Hours & availability')} <HelpTip id="hours" />
       </h2>
 
       {loading ? (
@@ -1707,7 +1726,7 @@ function PaymentSettingsPanel({
     <div className="space-y-4">
       <div className="bg-white rounded-2xl p-5 shadow-sm">
         <h3 className="font-bold text-ink-primary">
-          💳 {bi('Mode de paiement', 'Payment mode')}
+          💳 {bi('Mode de paiement', 'Payment mode')} <HelpTip id="payment" />
         </h3>
         <p className="text-xs text-ink-tertiary mt-1 mb-3">
           {bi(
@@ -1895,7 +1914,7 @@ function OffersPanel({ restaurant, menuItems }: { restaurant: Restaurant; menuIt
     <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="font-bold text-ink-primary">🏷️ {bi('Offre du jour', "Today's offer")}</h2>
+          <h2 className="font-bold text-ink-primary">🏷️ {bi('Offre du jour', "Today's offer")} <HelpTip id="offer" /></h2>
           <p className="text-xs text-ink-tertiary">{bi('Se termine toute seule après le dernier jour.', 'Ends by itself after the last day.')}</p>
         </div>
         {!open && (
@@ -2135,7 +2154,7 @@ function DeliveryPanel({
 
   return (
     <div className="bg-white rounded-2xl shadow-sm p-5">
-      <h2 className="text-lg font-bold text-ink-primary mb-1">🛵 {bi('Livraison', 'Delivery')}</h2>
+      <h2 className="text-lg font-bold text-ink-primary mb-1">🛵 {bi('Livraison', 'Delivery')} <HelpTip id="delivery" /></h2>
       <p className="text-xs text-ink-tertiary mb-4">
         {bi(
           'Votre propre livreur. La vente à emporter reste toujours possible.',
@@ -2260,7 +2279,7 @@ function PrepTimePanel({
   return (
     <div className="bg-white rounded-2xl shadow-sm p-5">
       <h2 className="text-lg font-bold text-ink-primary mb-1">
-        🕐 {bi('Temps de préparation', 'Prep time')}
+        🕐 {bi('Temps de préparation', 'Prep time')} <HelpTip id="prepTime" />
       </h2>
       <p className="text-xs text-ink-tertiary mb-4">
         {bi(

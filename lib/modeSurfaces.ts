@@ -68,7 +68,7 @@ export type SideItem =
   // Client
   | 'myOrders' | 'myBookings' | 'myFavorites' | 'proSpace'
   // Pro
-  | 'restaurantOrders' | 'myEvents' | 'doorCheck' | 'deliveries' | 'addRestaurant' | 'addEventOrPlace'
+  | 'restaurantOrders' | 'myEvents' | 'doorCheck' | 'deliveries' | 'addRestaurant' | 'addEventOrPlace' | 'proHelp'
   // Both
   | 'lowData' | 'language' | 'signOut'
 
@@ -82,7 +82,7 @@ export function sideMenuItems(mode: AppMode, loggedIn: boolean, f: ModeFlags): S
   items.push('myEvents')
   if (f.checksEvents) items.push('doorCheck')
   if (f.isRider) items.push('deliveries')
-  items.push('addRestaurant', 'addEventOrPlace', 'lowData', 'language', 'signOut')
+  items.push('addRestaurant', 'addEventOrPlace', 'proHelp', 'lowData', 'language', 'signOut')
   return items
 }
 

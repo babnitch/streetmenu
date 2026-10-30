@@ -141,6 +141,7 @@ export default function SideMenu({
                   )}
                 </button>
               )
+              case 'proHelp': return <Item key={item} href="/pro/aide" onClick={onClose} icon="❓">{bi('Aide Pro', 'Pro help')}</Item>
               case 'myEvents': return <Item key={item} href="/pro/events" onClick={onClose} icon="🎉">{bi('Mes événements', 'My events')}</Item>
               case 'doorCheck': return <Item key={item} href="/scanner" onClick={onClose} icon="🚪">{bi("Contrôle à l'entrée", 'Door check')}</Item>
               case 'deliveries': return <Item key={item} href="/livraisons" onClick={onClose} icon="🛵">{bi('Mes livraisons', 'My deliveries')}</Item>

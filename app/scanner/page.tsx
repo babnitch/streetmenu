@@ -1,4 +1,5 @@
 'use client'
+import HelpTip from '@/components/HelpTip'
 
 // /scanner?event=<id> or ?restaurant=<id> (Q3) — the check-in / hand-over
 // screen for one event or restaurant: the in-app scanner and the typed code.
@@ -36,7 +37,7 @@ export default function ScannerPage() {
         {title && <h1 className="text-xl font-black text-ink-primary mb-3">🎟 {title}</h1>}
         {scope ? <ValidatePanel scope={scope} /> : (
           <>
-            <h1 className="text-xl font-black text-ink-primary mb-3">🚪 {bi('Contrôler des billets', 'Check tickets')}</h1>
+            <h1 className="text-xl font-black text-ink-primary mb-3">🚪 {bi('Contrôler des billets', 'Check tickets')} <HelpTip id="scanner" /></h1>
             {mine === null ? <p className="text-ink-tertiary">…</p> : mine.length === 0 ? (
               <p className="text-ink-tertiary text-sm">
                 {bi('Aucun événement à contrôler. L\'organisateur doit vous ajouter au contrôle.', 'No event to check. The organiser has to add you to the door.')}{' '}
