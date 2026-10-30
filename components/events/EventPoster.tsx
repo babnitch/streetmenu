@@ -2,14 +2,15 @@
 
 import CardTag from '@/components/CardTag'
 import Image from 'next/image'
+import { useEffect, useState } from 'react'
 import { useDataMode } from '@/lib/dataMode'
 import { eventCategoryIcon } from '@/lib/categoryLabels'
 
 // An event poster in a portrait frame (4:5 by default — the recommended
 // 1080 × 1350 upload). Any image shape fits whole: it is shown "contained"
 // over a blurred, cropped copy of itself, so older 16:9 covers are not cut.
-// No image (or low-data mode): a branded placeholder with the category's
-// emoji and the event name.
+// No image (or low-data mode), or one that fails to load: a branded
+// placeholder with the category's emoji and the event name.
 
 
 export default function EventPoster({
@@ -27,14 +28,16 @@ export default function EventPoster({
 }) {
   const { isLowData } = useDataMode()
   const emoji = eventCategoryIcon(category)
-  const show = !!src && !isLowData
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { setFailed(false) }, [src])
+  const show = !!src && !isLowData && !failed
 
   return (
     <div className={`relative overflow-hidden ${rounded} bg-gradient-to-br from-brand to-brand-darker ${className}`}>
       {show ? (
         <>
-          <Image src={src!} alt="" fill sizes={sizes} className="object-cover scale-110 blur-xl opacity-60" aria-hidden="true" />
-          <Image src={src!} alt={title} fill sizes={sizes} className="object-contain" priority={priority} />
+          <Image src={src!} alt="" fill sizes={sizes} className="object-cover scale-110 blur-xl opacity-60" aria-hidden="true" onError={() => setFailed(true)} />
+          <Image src={src!} alt={title} fill sizes={sizes} className="object-contain" priority={priority} onError={() => setFailed(true)} />
         </>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center text-white">

@@ -4,7 +4,7 @@
 // (U4 style); the title and the area.
 
 import Link from 'next/link'
-import Image from 'next/image'
+import SafeImage from '@/components/SafeImage'
 import { useLanguage } from '@/lib/languageContext'
 import { useDataMode } from '@/lib/dataMode'
 import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
@@ -27,8 +27,9 @@ export default function PlaceCard({ place, compact = false }: { place: PublicPla
     <Link href={`/lieux/${place.id}`} className={`group block bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow ${compact ? 'w-44 flex-shrink-0 snap-start' : ''}`}>
       <div className={`relative ${compact ? 'h-28' : 'aspect-[16/9]'} bg-surface-muted`}>
         {place.cover_url && !isLowData
-          ? <><Image src={place.cover_url} alt="" fill sizes={compact ? '176px' : '(max-width: 768px) 100vw, 50vw'} className="object-cover" />
-              <PhotoCredit credit={place.photo_credit} url={place.photo_credit_url} compact /></>
+          ? <SafeImage src={place.cover_url} alt="" fill sizes={compact ? '176px' : '(max-width: 768px) 100vw, 50vw'} className="object-cover"
+              fallback={<GeneratedCover kind="place" title={title} area={place.area} />}
+              overlay={<PhotoCredit credit={place.photo_credit} url={place.photo_credit_url} compact />} />
           : <GeneratedCover kind="place" title={title} area={place.area} />}
         <CardTag label={placeCategoryLabel(place.category, locale)} />
       </div>

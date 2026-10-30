@@ -3,7 +3,8 @@
 import { track } from '@/lib/track'
 import { Restaurant } from '@/types'
 import Link from 'next/link'
-import Image from 'next/image'
+import SafeImage from '@/components/SafeImage'
+import GeneratedCover from '@/components/GeneratedCover'
 import { useLanguage } from '@/lib/languageContext'
 
 interface Props {
@@ -23,11 +24,12 @@ export default function RestaurantSidebar({ restaurant, onClose, openOverride }:
       {/* Header image / logo */}
       <div className="relative h-40 bg-gradient-to-br from-brand to-brand-dark flex-shrink-0">
         {restaurant.logo_url ? (
-          <Image
+          <SafeImage
             src={restaurant.logo_url}
             alt={restaurant.name}
             fill
             className="object-cover"
+            fallback={<GeneratedCover kind="restaurant" title={restaurant.name} />}
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">

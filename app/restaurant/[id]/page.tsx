@@ -5,6 +5,7 @@ import { track } from '@/lib/track'
 export const dynamic = 'force-dynamic'
 
 import GeneratedCover from '@/components/GeneratedCover'
+import SafeImage from '@/components/SafeImage'
 import { claimRestaurantLink } from '@/lib/supportContact'
 import { usePlatformInfo } from '@/lib/usePlatformInfo'
 import MenuFilesViewer from '@/components/MenuFilesViewer'
@@ -204,7 +205,8 @@ export default function MenuPage() {
       <div className="relative h-52 md:h-64 bg-gradient-to-br from-brand-light to-brand-badge md:max-w-2xl md:mx-auto md:mt-4 md:rounded-2xl">
         <div className="absolute inset-0 md:rounded-2xl overflow-hidden">
           {(restaurant.image_url || restaurant.logo_url) ? (
-            <Image src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority />
+            <SafeImage src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority
+              fallback={<GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} />} />
           ) : (
             // I1: no photo → the generated cover.
             <GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} />

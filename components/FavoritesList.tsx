@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
+import SafeImage from '@/components/SafeImage'
 import { useBi } from '@/lib/languageContext'
 
 interface Fav {
@@ -53,7 +53,8 @@ export default function FavoritesList() {
             <Link href={`/restaurant/${r.id}`} className="flex items-center gap-3 flex-1 min-w-0">
               <span className="relative w-14 h-14 rounded-xl overflow-hidden bg-brand-light flex-shrink-0">
                 {img
-                  ? <Image src={img} alt="" fill sizes="56px" className="object-cover" />
+                  ? <SafeImage src={img} alt="" fill sizes="56px" className="object-cover"
+                      fallback={<span className="absolute inset-0 flex items-center justify-center text-2xl" aria-hidden="true">🍽️</span>} />
                   : <span className="absolute inset-0 flex items-center justify-center text-2xl" aria-hidden="true">🍽️</span>}
               </span>
               <span className="min-w-0">

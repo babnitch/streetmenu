@@ -2,13 +2,13 @@
 import { useRefData } from '@/lib/useRefData'
 
 import GeneratedCover from '@/components/GeneratedCover'
+import SafeImage from '@/components/SafeImage'
 import PhotoCredit from '@/components/PhotoCredit'
 import { CompactRow, dot } from '@/components/CompactRow'
 import { eventCategoryIcon } from '@/lib/categoryLabels'
 import { placeCategory } from '@/lib/places'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import TopNav from '@/components/TopNav'
 import SearchOverlay from '@/components/SearchOverlay'
 import { useBi, useLanguage } from '@/lib/languageContext'
@@ -301,7 +301,9 @@ function Card({ href, image, fallback, badge, tag, title, sub, poster, cover, cr
     <Link href={href} className={`snap-start flex-shrink-0 ${poster ? 'w-36' : 'w-44'} bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
       <div className={`relative ${poster ? 'h-48' : 'h-28'} bg-gradient-to-br from-brand-badge to-brand`}>
         {image
-          ? <><Image src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover" />{credit && <PhotoCredit credit={credit} url={null} compact />}</>
+          ? <SafeImage src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover"
+              fallback={cover ? <GeneratedCover kind={cover.kind} title={title} area={cover.area} /> : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">{fallback}</span>}
+              overlay={credit ? <PhotoCredit credit={credit} url={null} compact /> : null} />
           : cover ? <GeneratedCover kind={cover.kind} title={title} area={cover.area} />
           : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">{fallback}</span>}
         {/* U4: category pill top-left; the deal badge top-right. */}
