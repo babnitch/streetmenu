@@ -202,6 +202,25 @@ async function main(): Promise<void> {
       }
     })
 
+    await step('"mes alertes" lists, "stop alerte" stops (old words still work)', async () => {
+      const c = await makeCustomer({ suiteNo: 52, name: 'Alert Stop' })
+      await send(c.phone, 'alerte')
+      await sleep(300)
+      const { data: subs } = await sb.from('event_subscriptions').select('id').eq('customer_id', c.id)
+      for (const x of subs ?? []) track('event_subscriptions', (x as { id: string }).id)
+      assertEq((await send(c.phone, 'mes alertes')).status, 200, "'mes alertes' accepted")
+      await send(c.phone, 'stop alerte')
+      await sleep(300)
+      const { data: after } = await sb.from('event_subscriptions').select('is_active').eq('customer_id', c.id)
+      assert((after ?? []).length > 0 && (after ?? []).every(x => !(x as { is_active: boolean }).is_active), "'stop alerte' → no active alert")
+      await send(c.phone, 'alert')
+      await sleep(300)
+      await send(c.phone, 'stop alert')
+      await sleep(300)
+      const { data: after2 } = await sb.from('event_subscriptions').select('is_active').eq('customer_id', c.id)
+      assert((after2 ?? []).every(x => !(x as { is_active: boolean }).is_active), "'stop alert' (EN) works too")
+    })
+
     // ══ #50 READ PATHS + UNSUBSCRIBE ═══════════════════════════════════════
 
     await step('#50 mes commandes is a read — it changes no order', async () => {

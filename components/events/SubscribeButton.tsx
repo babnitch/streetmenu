@@ -115,7 +115,7 @@ export default function SubscribeButton({ className = '' }: { className?: string
         const d = await res.json().catch(() => ({}))
         throw new Error(d?.error ?? 'Error')
       }
-      setSubToast(bi('🔕 Désabonné', '🔕 Unsubscribed'))
+      setSubToast(bi('🔕 Vous ne serez plus prévenu(e)', '🔕 Notifications stopped'))
       setSubModalOpen(false)
       await loadSubscriptions()
     } catch (e) {

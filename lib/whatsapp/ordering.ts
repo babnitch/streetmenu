@@ -1309,8 +1309,8 @@ export async function handleOrderCommand(
     await sendWhatsApp(from,
       `${header}\n\n${lines.join('\n')}\n\n` +
       pickLang(
-        `💡 Envoyez le numéro d'un événement pour voir les détails, ou 'abonner' pour recevoir les alertes.`,
-        `💡 Send an event number for details, or 'subscribe' for event alerts.`, lang))
+        `💡 Envoyez le numéro d'un événement pour voir les détails, ou "alerte" pour être prévenu(e) des nouveaux événements.`,
+        `💡 Send an event number for details, or "alert" to be notified of new events.`, lang))
     return ok()
   }
 

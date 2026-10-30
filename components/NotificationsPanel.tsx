@@ -78,7 +78,7 @@ export default function NotificationsPanel() {
         body: JSON.stringify({ city: sub.city }),
       })
       if (!res.ok) throw new Error()
-      flash(bi('🔕 Désabonné', '🔕 Unsubscribed'))
+      flash(bi('🔕 Vous ne serez plus prévenu(e)', '🔕 Notifications stopped'))
       await load()
     } catch {
       flash(bi('Erreur', 'Error'))
@@ -96,7 +96,7 @@ export default function NotificationsPanel() {
         body: JSON.stringify({ city: sub.city, categories: sub.categories }),
       })
       if (!res.ok) throw new Error()
-      flash(bi('🔔 Abonné', '🔔 Subscribed'))
+      flash(bi('✅ Vous serez prévenu(e)', '✅ You\'ll be notified'))
       await load()
     } catch {
       flash(bi('Erreur', 'Error'))
@@ -147,7 +147,7 @@ export default function NotificationsPanel() {
                       disabled={savingId === sub.id}
                       className="text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50"
                     >
-                      {bi('🔕 Se désabonner', '🔕 Unsubscribe')}
+                      {bi('Ne plus être prévenu(e)', 'Stop notifications')}
                     </button>
                   ) : (
                     <button

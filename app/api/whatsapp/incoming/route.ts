@@ -2688,7 +2688,7 @@ async function handleSubscriptionCommand(
   const lang = normalizeLang(customer.preferred_language)
 
   // ── List
-  if (cmd === 'mes abonnements' || cmd === 'my subscriptions' || cmd === 'mes abos') {
+  if (cmd === 'mes abonnements' || cmd === 'my subscriptions' || cmd === 'mes abos' || cmd === 'mes alertes' || cmd === 'my alerts') {
     const { data: subs } = await supabaseAdmin
       .from('event_subscriptions')
       .select('city, categories, is_active')
@@ -2698,8 +2698,8 @@ async function handleSubscriptionCommand(
     const active = (subs ?? []).filter(s => s.is_active)
     if (active.length === 0) {
       await sendWhatsApp(from, pickLang(
-        `📋 Aucun abonnement actif.\n\nEnvoyez "abonner" pour vous abonner aux événements à ${customer.city}.`,
-        `📋 No active subscriptions.\n\nSend "subscribe" to subscribe to events in ${customer.city}.`,
+        `📋 Aucune alerte active. Envoyez "alerte" pour être prévenu(e) des nouveaux événements.`,
+        `📋 No active alerts. Send "alert" to be notified of new events.`,
         lang,
       ))
       return ok()
@@ -2720,7 +2720,8 @@ async function handleSubscriptionCommand(
   }
 
   // ── Unsubscribe (all cities)
-  if (cmd === 'desabonner' || cmd === 'unsubscribe' || cmd === 'desabonnement') {
+  if (cmd === 'desabonner' || cmd === 'unsubscribe' || cmd === 'desabonnement'
+      || cmd === 'stop alerte' || cmd === 'stop alertes' || cmd === 'stop alert' || cmd === 'stop alerts') {
     const { data: rows } = await supabaseAdmin
       .from('event_subscriptions')
       .update({ is_active: false, unsubscribed_at: new Date().toISOString() })
@@ -2739,8 +2740,8 @@ async function handleSubscriptionCommand(
       })
     }
     await sendWhatsApp(from, pickLang(
-      `🔕 Désabonné. Vous ne recevrez plus de notifications d'événements.\n\nEnvoyez "abonner" pour vous réabonner.`,
-      `🔕 Unsubscribed. You won't receive event notifications anymore.\n\nSend "subscribe" to opt back in.`,
+      `🔕 Vous ne serez plus prévenu(e). Envoyez "alerte" pour réactiver.`,
+      `🔕 Notifications stopped. Send "alert" to turn them back on.`,
       lang,
     ))
     return ok()
