@@ -46,7 +46,7 @@ export type StartRefundResult =
   | { ok: false; status: number; error: string; reason?: string; refund?: RefundRow }
 
 export async function startRefund(p: {
-  kind: RefundKind; targetId: string; amount: number; reason: string; cancelAfter: boolean; adminId: string; adminRole: string
+  kind: RefundKind; targetId: string; amount: number; reason: string; cancelAfter: boolean; adminId: string | null; adminRole: string
 }): Promise<StartRefundResult> {
   const id = randomUUID()
   const { data, error } = await supabaseAdmin.rpc('start_refund', {
@@ -61,6 +61,11 @@ export async function startRefund(p: {
     return { ok: false, status: 500, error: 'Erreur — réessayez / Error — please try again' }
   }
   const refund = data as RefundRow
+  // Protected payment: while a refund runs, the held money can't be released.
+  if (p.kind === 'order') {
+    const { fundsRefunding } = await import('@/lib/protectedPayments')
+    await fundsRefunding(p.targetId)
+  }
   await writeAudit({
     action: 'refund_requested', targetType: p.kind === 'order' ? 'order' : 'event_reservation', targetId: p.targetId,
     performedBy: p.adminId, performedByType: p.adminRole,
@@ -118,6 +123,12 @@ export async function settleRefund(
     performedByType: 'system',
     metadata: { refund_id: won.id, deposit_id: won.deposit_id, amount: won.amount, via, pawapay_status: outcome.status, failure: outcome.failureReason ?? null },
   })
+  // Protected payment: the ledger follows the refund (held → customer), or a
+  // failed refund leaves the money held for an admin to decide.
+  if (won.kind === 'order' && won.order_id) {
+    const { onRefundSettled } = await import('@/lib/protectedPayments')
+    await onRefundSettled(won.order_id, won.id, won.amount, terminal)
+  }
   if (terminal === 'completed') await afterCompleted(won)
   return { id: refundId, action: terminal }
 }

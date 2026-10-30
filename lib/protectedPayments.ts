@@ -381,9 +381,115 @@ export async function autoReleaseDue(now = Date.now(), onlyIds?: string[]): Prom
   return out
 }
 
+// ── P1c: automatic refunds ─────────────────────────────────────────────────
+// The restaurant rejects or cancels a protected order, or doesn't accept it
+// in time → the whole held amount goes back to the customer (the platform
+// pays the refund fee). funds_status: held → refunding → refunded (ledger on
+// completion, lib/refunds.ts → onRefundSettled). A refund PawaPay refuses
+// leaves it 'disputed' and the admins are alerted.
+
+export type RefundWhy = 'rejected' | 'cancelled' | 'accept_timeout'
+
+const WHY_TEXT: Record<RefundWhy, { fr: string; en: string }> = {
+  rejected:       { fr: 'Commande refusée par le restaurant', en: 'Order declined by the restaurant' },
+  cancelled:      { fr: 'Commande annulée par le restaurant', en: 'Order cancelled by the restaurant' },
+  accept_timeout: { fr: 'Commande pas acceptée à temps',      en: 'Order not accepted in time' },
+}
+
+// held / disputed → refunding (start of any refund of a protected order).
+export async function fundsRefunding(orderId: string): Promise<void> {
+  await supabaseAdmin.from('orders').update({ funds_status: 'refunding' }).eq('id', orderId).in('funds_status', ['held', 'disputed'])
+}
+
+export type AutoRefundResult = { ok: true; refundId: string; amount: number } | { ok: false; reason: string; error: string }
+
+export async function refundHeldOrder(orderId: string, why: RefundWhy, actor: Actor | null): Promise<AutoRefundResult> {
+  const { data: o } = await supabaseAdmin.from('orders').select('id, funds_status, customer_phone').eq('id', orderId).maybeSingle()
+  if (!o || o.funds_status !== 'held') return { ok: false, reason: 'not_held', error: 'Paiement non retenu / Payment not held' }
+  const amount = await heldAmount(orderId)
+  if (!(amount > 0)) return { ok: false, reason: 'nothing_held', error: 'Rien à rembourser / Nothing to refund' }
+  const { startRefund } = await import('@/lib/refunds')
+  const t = WHY_TEXT[why]
+  const r = await startRefund({
+    kind: 'order', targetId: orderId, amount, reason: `${t.fr} / ${t.en}`, cancelAfter: true,
+    adminId: actor?.id && UUID_RE.test(actor.id) ? actor.id : null, adminRole: actor?.type ?? 'system',
+  })
+  await writeAudit({
+    action: r.ok ? 'funds_refund_started' : 'funds_refund_start_failed', targetType: 'order', targetId: orderId,
+    performedByType: actor?.type ?? 'system', metadata: { why, amount, refund_id: r.ok ? r.refund.id : r.refund?.id ?? null, error: r.ok ? null : r.error },
+  })
+  if (!r.ok) {
+    // Still with us: an admin decides (Admin → Commandes → Problèmes).
+    await supabaseAdmin.from('orders').update({ funds_status: 'disputed' }).eq('id', orderId).in('funds_status', ['held', 'refunding'])
+    await alertAdmins(`⚠️ Remboursement automatique impossible — commande #${last4(orderId)} (${formatFCFA(amount)}) : ${r.error.split(' / ')[0]}. L'argent reste retenu.`,
+      `⚠️ Automatic refund failed — order #${last4(orderId)} (${formatFCFA(amount)}): ${r.error.split(' / ').pop()}. The money stays held.`, orderId)
+    return { ok: false, reason: r.reason ?? 'refund_failed', error: r.error }
+  }
+  if (o.customer_phone) {
+    const lang = await getLangByPhone(o.customer_phone as string)
+    await sendWhatsApp(o.customer_phone as string, pickLang(
+      `💸 ${t.fr} (#${last4(orderId)}). Nous vous remboursons ${formatFCFA(amount)} sur votre Mobile Money. Vous recevrez un message quand c'est fait.`,
+      `💸 ${t.en} (#${last4(orderId)}). We are refunding ${formatFCFA(amount)} to your Mobile Money. You'll get a message when it's done.`, lang),
+      { context: 'payment_confirmation', relatedId: orderId }).catch(() => null)
+  }
+  return { ok: true, refundId: r.refund.id, amount }
+}
+
+// From lib/refunds.ts, once per refund (the settle winner).
+export async function onRefundSettled(orderId: string, refundId: string, amount: number, outcome: 'completed' | 'failed'): Promise<void> {
+  const { data: o } = await supabaseAdmin.from('orders').select('funds_status').eq('id', orderId).maybeSingle()
+  if (!o?.funds_status) return
+  if (outcome === 'failed') {
+    if (o.funds_status !== 'refunding') return
+    await supabaseAdmin.from('orders').update({ funds_status: 'disputed' }).eq('id', orderId).eq('funds_status', 'refunding')
+    await alertAdmins(`⚠️ Remboursement échoué — commande #${last4(orderId)} (${formatFCFA(amount)}). L'argent reste retenu : Admin → Commandes.`,
+      `⚠️ Refund failed — order #${last4(orderId)} (${formatFCFA(amount)}). The money stays held: Admin → Orders.`, orderId)
+    return
+  }
+  if (!['held', 'disputed', 'refunding'].includes(o.funds_status as string)) {
+    // Already released to the restaurant: an admin settles it (P1d / P2).
+    console.warn('[protected] refund %s completed on order %s whose funds are %s — ledger not changed', refundId, orderId, o.funds_status)
+    return
+  }
+  const { data, error } = await supabaseAdmin.rpc('order_funds_refunded', { p_order: orderId, p_refund: refundId, p_amount: amount })
+  if (error) {
+    console.error('[protected] LEDGER REFUND FAILED order=%s refund=%s: %s', orderId, refundId, error.message)
+    await alertAdmins(`⚠️ Remboursement #${last4(orderId)} : grand livre non mis à jour (${error.message}).`, `⚠️ Refund #${last4(orderId)}: ledger not updated (${error.message}).`, orderId)
+    return
+  }
+  if (data === true) {
+    await writeAudit({ action: 'funds_refunded', targetType: 'order', targetId: orderId, performedByType: 'system', metadata: { refund_id: refundId, amount } })
+  }
+}
+
+// Accept timeout: still "pending" after accept_deadline → cancelled + refunded.
+export async function acceptTimeoutDue(now = Date.now(), onlyIds?: string[]): Promise<{ checked: number; cancelled: number }> {
+  let q = supabaseAdmin.from('orders').select('id, restaurant_id')
+    .eq('funds_status', 'held').eq('status', 'pending')
+    .lte('accept_deadline', new Date(now).toISOString()).order('accept_deadline').limit(50)
+  if (onlyIds) q = q.in('id', onlyIds)
+  const { data } = await q
+  const out = { checked: 0, cancelled: 0 }
+  for (const r of (data ?? []) as Array<{ id: string; restaurant_id: string }>) {
+    out.checked++
+    const { data: won } = await supabaseAdmin.from('orders').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', r.id).eq('status', 'pending').select('id')
+    if (!(won ?? []).length) continue   // accepted meanwhile
+    out.cancelled++
+    await writeAudit({ action: 'order_cancelled', targetType: 'order', targetId: r.id, performedByType: 'system', previousData: { status: 'pending' }, metadata: { reason: 'accept_timeout' } })
+    await tellRestaurant(r.restaurant_id, r.id,
+      `⏰ Commande #${last4(r.id)} annulée : pas acceptée à temps. Le client est remboursé.`,
+      `⏰ Order #${last4(r.id)} cancelled: not accepted in time. The customer is refunded.`)
+    await refundHeldOrder(r.id, 'accept_timeout', null)
+  }
+  if (out.checked) console.log(`[protected] accept-timeout ${JSON.stringify(out)}`)
+  return out
+}
+
 // Every timed check, from the reconcile cron. Each one independent.
 export async function runProtectedJobs(now = Date.now()): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {}
+  try { out.acceptTimeout = await acceptTimeoutDue(now) } catch (e) { out.acceptTimeout = { error: (e as Error).message } }
   try { out.autoRelease = await autoReleaseDue(now) } catch (e) { out.autoRelease = { error: (e as Error).message } }
   return out
 }

@@ -3400,6 +3400,9 @@ export async function handleVendorOrderAction(
       return ok()
     }
     await writeAudit({ action: 'order_cancelled', targetType: 'order', targetId: order.id, performedBy: restaurant.id, performedByType: 'vendor' })
+    // Protected payment: refused or cancelled → the customer is refunded in full.
+    const { refundHeldOrder } = await import('@/lib/protectedPayments')
+    await refundHeldOrder(order.id, order.status === 'pending' ? 'rejected' : 'cancelled', { id: restaurant.id, type: 'vendor' })
     await sendWhatsApp(from, pickLang(
       `❌ Commande #${upper} annulée. Le client est notifié.`,
       `❌ Order #${upper} cancelled. Customer notified.`, vendorLang))

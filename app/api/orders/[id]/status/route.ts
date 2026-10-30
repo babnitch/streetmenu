@@ -3,7 +3,7 @@ import { shouldMessageStatus } from '@/lib/orderStatusMessages'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { afterHandover } from '@/lib/protectedPayments'
+import { afterHandover, refundHeldOrder } from '@/lib/protectedPayments'
 import {
   notifyCustomerOrderConfirmed,
   notifyCustomerOrderPreparing,
@@ -215,11 +215,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (targetStatus === 'delivered') {
     await afterHandover(order.id, 'restaurant_manual', { id: session.id, type: isAdmin ? 'admin' : 'vendor' })
   }
+  // Protected payment: refused or cancelled → the customer is refunded in full.
+  let refund: { ok: boolean; error?: string } | null = null
+  if (targetStatus === 'cancelled') {
+    refund = await refundHeldOrder(order.id, order.status === 'pending' ? 'rejected' : 'cancelled', { id: session.id, type: isAdmin ? session.role : 'vendor' })
+    if (!refund.ok && (refund as { reason?: string }).reason === 'not_held') refund = null
+  }
 
   return NextResponse.json({
     ok: true,
     status: targetStatus,
     previousStatus: order.status,
     customerNotified,
+    ...(refund ? { refund: refund.ok ? 'started' : 'failed' } : {}),
   })
 }
