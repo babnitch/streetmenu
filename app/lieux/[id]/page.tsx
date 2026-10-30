@@ -1,4 +1,5 @@
 'use client'
+import { track } from '@/lib/track'
 
 // /lieux/[id] — one place (I4): photo or generated cover, title, text, "Bon
 // à savoir", hours, price, Itinéraire (map app), links. Events held here
@@ -24,7 +25,7 @@ export default function PlacePage() {
 
   useEffect(() => {
     fetch(`/api/places/${id}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null)
-      .then(d => setPlace(d?.place ?? 'missing')).catch(() => setPlace('missing'))
+      .then(d => { setPlace(d?.place ?? 'missing'); if (d?.place && d.place.status === 'active') track('view', 'place', d.place.id, d.place.city) }).catch(() => setPlace('missing'))
   }, [id])
 
   if (place === null) return <div className="min-h-screen bg-surface"><TopNav /><p className="text-center mt-16 text-ink-tertiary">…</p></div>
@@ -67,7 +68,7 @@ export default function PlacePage() {
         <h1 className="text-2xl font-black text-ink-primary leading-tight">{title}</h1>
         {headline && <p className="mt-1 text-base italic text-ink-secondary">{headline}</p>}
         <p className="text-sm text-ink-secondary mt-1">📍 {[place.area, place.city].filter(Boolean).join(', ')}</p>
-        <a href={directionsUrl(place)} target="_blank" rel="noopener noreferrer"
+        <a href={directionsUrl(place)} target="_blank" rel="noopener noreferrer" onClick={() => track('click_directions', 'place', place.id, place.city)}
           className="mt-3 inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-full text-sm font-semibold">
           🧭 {bi('Itinéraire', 'Directions')}
         </a>

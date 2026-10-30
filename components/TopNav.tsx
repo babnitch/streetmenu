@@ -12,6 +12,7 @@ import AddSheetHost from './AddSheet'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import LowDataHint from '@/components/LowDataHint'
+import { trackVisit } from '@/lib/track'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
 import { showProAlerts, showCustomerBadges } from '@/lib/modeSurfaces'
 import { pickBi } from '@/lib/languageContext'
@@ -70,6 +71,12 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         if (cancelled) return
         const sessionUser = (data?.user ?? null) as SessionUser | null
         setMe(sessionUser)
+        // Anonymous visit count (once per browser per day) — not for the team.
+        if (!isAdminRole(sessionUser?.role)) {
+          let city: string | null = null
+          try { city = localStorage.getItem('tn_selected_city') } catch { /* blocked */ }
+          trackVisit(city)
+        }
         if (!sessionUser) { setVendor({ kind: 'none' }); return }
         if (isAdminRole(sessionUser.role)) {
           // Admins get the admin bar below; they have no vendor CTA and
