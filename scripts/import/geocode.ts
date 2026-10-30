@@ -39,7 +39,7 @@ export async function geocode(query: string, city: string): Promise<GeoResult | 
 const OSM_SKIP_CLASSES = new Set(['boundary', 'place', 'highway', 'landuse'])
 // The found name must share a distinctive word with ours ("Marché Mfoundi"
 // must not land on a post office that merely sits nearby).
-const GENERIC = new Set(['marche', 'musee', 'cathedrale', 'eglise', 'mosquee', 'temple', 'yaounde', 'douala', 'cameroun',
+const GENERIC = new Set(['marche', 'musee', 'cathedrale', 'eglise', 'mosquee', 'temple', 'yaounde', 'douala', 'cameroun', 'camerounais', 'cameroon',
   'boulevard', 'avenue', 'rue', 'place', 'centre', 'central', 'grand', 'grande', 'national', 'nationale', 'restaurant', 'parc', 'jardin'])
 function norm(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()

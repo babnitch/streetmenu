@@ -32,6 +32,8 @@ const FIELDS: Array<{ k: keyof AdminPlace; fr: string; en: string; area?: boolea
   { k: 'official_link', fr: 'Site officiel', en: 'Official site' }, { k: 'instagram_url', fr: 'Instagram', en: 'Instagram' },
   { k: 'facebook_url', fr: 'Facebook', en: 'Facebook' }, { k: 'tiktok_url', fr: 'TikTok', en: 'TikTok' },
   { k: 'cover_url', fr: 'Photo (URL, vide = couverture générée)', en: 'Photo (URL, empty = generated cover)' },
+  { k: 'photo_credit', fr: 'Crédit photo (auteur, licence)', en: 'Photo credit (author, licence)' },
+  { k: 'photo_credit_url', fr: 'Lien du crédit (page du fichier)', en: 'Credit link (file page)' },
   { k: 'lat', fr: 'Latitude', en: 'Latitude' }, { k: 'lng', fr: 'Longitude', en: 'Longitude' },
   { k: 'admin_note', fr: 'Note admin (privée)', en: 'Admin note (private)', area: true },
   { k: 'sources', fr: 'Sources (privées)', en: 'Sources (private)', area: true },

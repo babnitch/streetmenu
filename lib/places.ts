@@ -41,7 +41,7 @@ export interface PublicPlace {
   lat: number | null; lng: number | null; cover_url: string | null
   photo_credit: string | null; photo_credit_url: string | null
 }
-export const PUBLIC_PLACE_COLUMNS = 'id, city, area, category, title_fr, title_en, headline_fr, headline_en, description_fr, description_en, tip_fr, tip_en, hours, price, official_link, instagram_url, facebook_url, tiktok_url, lat, lng, cover_url'
+export const PUBLIC_PLACE_COLUMNS = 'id, city, area, category, title_fr, title_en, headline_fr, headline_en, description_fr, description_en, tip_fr, tip_en, hours, price, official_link, instagram_url, facebook_url, tiktok_url, lat, lng, cover_url, photo_credit, photo_credit_url'
 
 // The viewer's language, French when the English text is missing.
 export function pick(p: PublicPlace, field: 'title' | 'headline' | 'description' | 'tip', locale: string): string {
