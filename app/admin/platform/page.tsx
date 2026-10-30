@@ -2,12 +2,14 @@
 
 // Admin → ⚙️ Plateforme (U1/U2): "Infos légales et contact" (the footer,
 // /contact and the legal pages read these; empty = hidden) and "Demandes de
-// suppression" (data deletion requests).
+// suppression" (data deletion requests), "PawaPay" (R1: what the account
+// allows; R3: payout test).
 
 import { useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import { LEGAL_FIELDS, LEGAL_LABELS, type LegalInfo, type LegalField } from '@/lib/legalInfo'
 import AdminDeletionRequests from '@/components/AdminDeletionRequests'
+import AdminPawaPayPanel from '@/components/AdminPawaPayPanel'
 
 export default function AdminPlatformPage() {
   const bi = useBi()
@@ -54,6 +56,7 @@ export default function AdminPlatformPage() {
         {msg && <p className={`mt-2 text-sm ${msg.ok ? 'text-emerald-700' : 'text-danger'}`}>{msg.text}</p>}
       </section>
       <AdminDeletionRequests />
+      <AdminPawaPayPanel />
     </div>
   )
 }

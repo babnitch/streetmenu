@@ -5,6 +5,8 @@ import {
   type PawaPayCorrespondent,
 } from '@/lib/pawapay'
 import { settleDeposit } from '@/lib/payments-settle'
+import { settlePayoutTest } from '@/lib/payoutTests'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,6 +64,12 @@ export async function POST(req: NextRequest) {
 
   // ── Payout callback path (admin payouts) ───────────────────────────────────
   if (payload.payoutId && !payload.depositId) {
+    // R3: an admin payout test is settled on its own row (and audited there).
+    const { data: isTest } = await supabaseAdmin.from('payout_tests').select('id').eq('id', payload.payoutId).maybeSingle()
+    if (isTest) {
+      const test = await settlePayoutTest(payload.payoutId, payload.status ?? '', (payload as { failureReason?: { failureMessage?: string } }).failureReason?.failureMessage ?? null, (payload as { receivedByRecipient?: string }).receivedByRecipient ?? null)
+      return NextResponse.json({ ok: true, payout_test: test })
+    }
     const action = payload.status === 'COMPLETED' ? 'payout_completed' : 'payout_failed'
     await writeAudit({
       action,
