@@ -2,7 +2,7 @@
 
 // "+ Ajouter" sheet (N1): "Que voulez-vous ajouter ?"
 //   Un événement        → today's create-event flow (/events/submit)
-//   Un lieu à visiter   → N5 (hidden until places exist: PLACES_ENABLED)
+//   Un lieu à visiter   → /lieux/proposer (I4), admin approval
 //   Mon restaurant ou bar → today's add-restaurant flow
 // Opened from the Loisirs page and from the ☰ Pro entry through
 // openAddSheet(); the one host lives in TopNav, on every customer page.
@@ -15,7 +15,7 @@ import { useMode } from '@/lib/modeContext'
 import { loginHref } from '@/lib/lastPhone'
 
 const OPEN_EVENT = 'nt-open-add-sheet'
-export const PLACES_ENABLED = false
+export const PLACES_ENABLED = true
 
 export function openAddSheet(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(OPEN_EVENT))
@@ -61,7 +61,7 @@ export default function AddSheetHost() {
           <Choice href={href('/events/submit')} onClick={close} icon="🎉"
             title={bi('Un événement', 'An event')} sub={bi('Concert, soirée, atelier… avec une date', 'Concert, party, workshop… with a date')} />
           {PLACES_ENABLED && (
-            <Choice href={href('/places/submit')} onClick={close} icon="🏛️"
+            <Choice href={href('/lieux/proposer')} onClick={close} icon="🏛️"
               title={bi('Un lieu à visiter', 'A place to visit')} sub={bi('Musée, site, marché… sans date', 'Museum, site, market… no date')} />
           )}
           <Choice href={href('/pro/restaurants/new')} onClick={close} icon="🏪"

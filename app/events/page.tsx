@@ -158,12 +158,11 @@ export default function EventsPage() {
               + {bi('Ajouter', 'Add')}
             </button>
           </div>
-          {/* Événements · Lieux. Lieux arrives with N5; until then the
-              switch would have one tab, so it is not shown. */}
+          {/* Événements · Lieux (I4: /lieux). */}
           {PLACES_ENABLED && (
             <div className="mt-3 inline-flex bg-white/10 rounded-full p-1 text-sm font-semibold" role="tablist">
               <span role="tab" aria-selected="true" className="px-4 py-1.5 rounded-full bg-white text-ink-primary">{bi('Événements', 'Events')}</span>
-              <Link role="tab" aria-selected="false" href="/places" className="px-4 py-1.5 rounded-full text-white/80">{bi('Lieux', 'Places')}</Link>
+              <Link role="tab" aria-selected="false" href="/lieux" className="px-4 py-1.5 rounded-full text-white/80">{bi('Lieux', 'Places')}</Link>
             </div>
           )}
           <p className="mt-2 text-sm text-white/80">

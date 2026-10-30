@@ -94,6 +94,7 @@ export const DELETE_ORDER: string[] = [
   'event_comments',
   'event_likes',
   'events',
+  'places',
   'customer_vouchers',
   'vouchers',
   'team_invitations',

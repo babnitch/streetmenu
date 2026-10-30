@@ -99,11 +99,11 @@ const CLIENT_NAV: readonly NavDestination[] = [
     match: p => p.startsWith('/restaurant'),
   },
   {
-    // The Loisirs section (N1): events today, places later (N5).
+    // The Loisirs section (N1): events, and places (I4: /lieux).
     key: 'events', icon: '🎉',
     labelFr: 'Loisirs', labelEn: 'Leisure',
     href: '/events',
-    match: p => p.startsWith('/events'),
+    match: p => p.startsWith('/events') || p.startsWith('/lieux'),
   },
   {
     key: 'cart', icon: '🛒',

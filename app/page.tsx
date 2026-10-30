@@ -20,6 +20,7 @@ import CardTag from '@/components/CardTag'
 import { cuisineTag } from '@/lib/cuisineCategories'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/weekend'
+import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
 
 interface PopularRestaurant {
   id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null
@@ -58,6 +59,8 @@ export default function HomePage() {
   const [offers, setOffers] = useState<TodayOffer[]>([])
   // U3: "Ce week-end à {ville}" — the city's events on Friday 17:00 → Sunday.
   const [weekend, setWeekend] = useState<WeekendEvent[]>([])
+  // I4: "Que faire à {ville} ?" — the city's places.
+  const [places, setPlaces] = useState<PublicPlace[]>([])
 
   // Old links: /?q=… was the restaurant search.
   useEffect(() => {
@@ -87,6 +90,11 @@ export default function HomePage() {
           .slice(0, 10).map(x => x.e)
         setWeekend(list)
       })
+      .catch(() => null)
+    setPlaces([])
+    fetch(`/api/places?city=${encodeURIComponent(city)}&limit=10`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setPlaces(Array.isArray(d?.places) ? d.places : []) })
       .catch(() => null)
     fetch(`/api/offers/today?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
       .then(r => r.json())
@@ -186,6 +194,16 @@ export default function HomePage() {
                 title={e.title} sub={formatEventWhen(e, locale, 'card')}>
                 <p className="text-[12px] font-bold text-brand-dark mt-0.5">{eventPrice(e)}</p>
               </Card>
+            ))}
+          </Row>
+        )}
+
+        {places.length > 0 && (
+          <Row id="places" title={bi(`Que faire à ${city} ?`, `What to do in ${city}?`)} more={{ href: '/lieux', label: bi('Tout voir', 'See all') }}>
+            {places.map(p => (
+              <Card key={`p-${p.id}`} href={`/lieux/${p.id}`} image={img(p.cover_url)} fallback="🏛️"
+                cover={{ kind: 'place', area: p.area }} tag={placeCategoryLabel(p.category, locale)}
+                title={pick(p, 'title', locale)} sub={p.area ?? ''} />
             ))}
           </Row>
         )}
