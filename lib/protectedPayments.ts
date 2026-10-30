@@ -498,6 +498,10 @@ export async function runProtectedJobs(now = Date.now()): Promise<Record<string,
   const out: Record<string, unknown> = {}
   try { out.acceptTimeout = await acceptTimeoutDue(now) } catch (e) { out.acceptTimeout = { error: (e as Error).message } }
   try { out.autoRelease = await autoReleaseDue(now) } catch (e) { out.autoRelease = { error: (e as Error).message } }
+  try {
+    const { reconcileProPayouts } = await import('@/lib/proPayouts')
+    out.payouts = await reconcileProPayouts(now)
+  } catch (e) { out.payouts = { error: (e as Error).message } }
   return out
 }
 

@@ -32,6 +32,7 @@ import { useMode, type DashboardTab, type TeamRole } from '@/lib/modeContext'
 import { restaurantToolsFor, toolLabel } from '@/lib/navConfig'
 import TopNav from '@/components/TopNav'
 import PaymentBadge from '@/components/PaymentBadge'
+import MyMoneyPanel from '@/components/MyMoneyPanel'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
@@ -747,7 +748,12 @@ export default function DashboardPage() {
 
           {/* Aperçu — owner + manager (the API checks too). */}
           {tab === 'overview' && (effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin') && (
-            <RestaurantOverview restaurantId={selectedRestaurant.id} />
+            <>
+              {hasModule(selectedRestaurant, 'payments_protected') && (
+                <MyMoneyPanel restaurantId={selectedRestaurant.id} isOwner={effectiveRole === 'owner'} />
+              )}
+              <RestaurantOverview restaurantId={selectedRestaurant.id} />
+            </>
           )}
 
           {/* Orders Tab */}

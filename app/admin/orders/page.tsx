@@ -10,6 +10,7 @@ import PaymentBadge from '@/components/PaymentBadge'
 import RefundButton, { RefundStatusPill } from '@/components/RefundButton'
 import AdminPaidTickets from '@/components/AdminPaidTickets'
 import AdminProblems from '@/components/AdminProblems'
+import AdminToPay from '@/components/AdminToPay'
 import { formatFCFA } from '@/lib/money'
 
 const STATUS_STYLES: Record<string, string> = {
@@ -24,7 +25,7 @@ type OrderWithRestaurant = Order & { restaurants: { name: string; city: string }
 
 export default function AdminOrdersPage() {
   const { t, locale } = useLanguage()
-  const [view, setView] = useState<'orders' | 'tickets' | 'problems'>('orders')
+  const [view, setView] = useState<'orders' | 'tickets' | 'problems' | 'topay'>('orders')
   const [orders, setOrders] = useState<OrderWithRestaurant[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,13 +79,13 @@ export default function AdminOrdersPage() {
       </div>
 
       {/* R2: orders · tickets paid by Mobile Money */}
-      <div className="inline-flex bg-surface-muted rounded-xl p-1 mb-5 text-sm font-semibold" role="tablist">
-        {([['orders', locale === 'en' ? 'Orders' : 'Commandes'], ['tickets', locale === 'en' ? 'Paid tickets' : 'Billets payés'], ['problems', locale === 'en' ? 'Problems' : 'Problèmes']] as const).map(([k, label]) => (
+      <div className="flex max-w-full overflow-x-auto w-fit bg-surface-muted rounded-xl p-1 mb-5 text-sm font-semibold whitespace-nowrap" role="tablist">
+        {([['orders', locale === 'en' ? 'Orders' : 'Commandes'], ['tickets', locale === 'en' ? 'Paid tickets' : 'Billets payés'], ['problems', locale === 'en' ? 'Problems' : 'Problèmes'], ['topay', locale === 'en' ? 'To pay' : 'À payer']] as const).map(([k, label]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
             className={`px-4 py-2 rounded-lg ${view === k ? 'bg-white shadow-sm text-ink-primary' : 'text-ink-secondary'}`}>{label}</button>
         ))}
       </div>
-      {view === 'problems' ? <AdminProblems /> : view === 'tickets' ? <AdminPaidTickets /> : (<>
+      {view === 'topay' ? <AdminToPay /> : view === 'problems' ? <AdminProblems /> : view === 'tickets' ? <AdminPaidTickets /> : (<>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">

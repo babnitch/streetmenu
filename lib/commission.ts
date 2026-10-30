@@ -13,3 +13,15 @@ export function percentOf(amount: number, pct: number): number {
 export function orderCommission(releasedAmount: number, commissionOrderPct: number): number {
   return percentOf(releasedAmount, commissionOrderPct)
 }
+
+// Tickets (events): events.commission_rate, 10 % when unset (or 0, as
+// before). Same formula the three ticket paths used.
+export const DEFAULT_EVENT_COMMISSION_RATE = 0.10
+
+export function eventCommissionRate(rate: unknown): number {
+  return Number(rate ?? DEFAULT_EVENT_COMMISSION_RATE) || DEFAULT_EVENT_COMMISSION_RATE
+}
+
+export function ticketCommission(total: number, rate: number): number {
+  return total > 0 ? Math.round(total * rate) : 0
+}

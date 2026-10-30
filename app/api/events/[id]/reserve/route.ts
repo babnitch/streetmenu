@@ -16,6 +16,7 @@ import { reserveEventSeats, type SeatRequestRow } from '@/lib/eventSeats'
 import { validateVoucher, consumeVoucherForReservation } from '@/lib/vouchers'
 import { samePhone } from '@/lib/phone'
 import { formatFCFA } from '@/lib/money'
+import { eventCommissionRate, ticketCommission } from '@/lib/commission'
 
 export const dynamic = 'force-dynamic'
 
@@ -158,7 +159,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const useTiers = items.length > 0
   const needsApproval = event.requires_confirmation === true
   const initialStatus: 'pending' | 'confirmed' = needsApproval ? 'pending' : 'confirmed'
-  const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
+  const commissionRate = eventCommissionRate(event.commission_rate)
 
   // Build the row list to insert. The legacy path is fully isomorphic
   // with a one-element item list whose tier_id is null. Capacity is NOT
@@ -200,7 +201,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       rowsToInsert.push({
         quantity:          item.quantity,
         total_price:       linePrice,
-        commission_amount: linePrice > 0 ? Math.round(linePrice * commissionRate) : 0,
+        commission_amount: ticketCommission(linePrice, commissionRate),
         tier_id:           tier.id,
         tier_name:         tier.name,
         tier_price:        tier.price,
@@ -218,7 +219,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     rowsToInsert.push({
       quantity,
       total_price:       linePrice,
-      commission_amount: linePrice > 0 ? Math.round(linePrice * commissionRate) : 0,
+      commission_amount: ticketCommission(linePrice, commissionRate),
       tier_id:           null,
       tier_name:         null,
       tier_price:        null,
@@ -254,7 +255,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       rowDiscounts[idx]   = share
       rowVoucherCode[idx] = vres.voucher.code
       r.total_price       = Math.max(0, r.total_price - share)
-      r.commission_amount = r.total_price > 0 ? Math.round(r.total_price * commissionRate) : 0
+      r.commission_amount = ticketCommission(r.total_price, commissionRate)
     })
   }
   const finalTotal = Math.max(0, totalPrice - discountTotal)

@@ -19,6 +19,7 @@ import { depositFailure } from '@/lib/whatsapp/ordering'
 import { randomUUID } from 'crypto'
 import { samePhone } from '@/lib/phone'
 import { formatFCFA } from '@/lib/money'
+import { eventCommissionRate, ticketCommission } from '@/lib/commission'
 
 export const dynamic = 'force-dynamic'
 
@@ -185,7 +186,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const totalPrice = ticketPrice * quantity
-  const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
+  const commissionRate = eventCommissionRate(event.commission_rate)
 
   // ── Promo code / voucher ───────────────────────────────────────────────────
   // Validated against THIS event; discount reduces the charged amount and
@@ -206,7 +207,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     console.warn('[events/pay] price mismatch event=%s: page=%s server=%d', event.id, body.expected_total, finalTotal)
     return NextResponse.json({ error: PRICE_CHANGED_BOOKING_TEXT, reason: 'price_mismatch', total_price: finalTotal }, { status: 409 })
   }
-  const commissionAmount = finalTotal > 0 ? Math.round(finalTotal * commissionRate) : 0
+  const commissionAmount = ticketCommission(finalTotal, commissionRate)
 
   // A 100%-off voucher makes the ticket free — PawaPay can't take a 0 deposit,
   // so confirm it as a free reservation and skip the payment step entirely.

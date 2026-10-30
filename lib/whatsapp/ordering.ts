@@ -63,6 +63,7 @@ function ordersOffText(restaurantName: string, lang: Lang): string {
 import { isEventOrganizer } from '@/lib/eventAuth'
 import { isPastEvent, PAST_EVENT_MESSAGE_FR, PAST_EVENT_MESSAGE_EN, EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, isMultiDay, resolveBookingDay, todayISO } from '@/lib/eventDate'
 import { formatAmount, formatFCFA } from '@/lib/money'
+import { eventCommissionRate, ticketCommission } from '@/lib/commission'
 
 // Every send from this module is a reply in the WhatsApp bot conversation,
 // so it lands in the message log as 'bot_reply' unless the call site says
@@ -2073,8 +2074,8 @@ export async function handleEventSession(
     }
 
     const totalPrice = ticketPrice * q
-    const commissionRate = Number(event.commission_rate ?? 0.10) || 0.10
-    const commissionAmount = totalPrice > 0 ? Math.round(totalPrice * commissionRate) : 0
+    const commissionRate = eventCommissionRate(event.commission_rate)
+    const commissionAmount = ticketCommission(totalPrice, commissionRate)
 
     // Effective WhatsApp mode: free events and vendors who haven't enabled
     // WhatsApp payment collapse to reservation_only.
@@ -2134,7 +2135,7 @@ export async function handleEventSession(
     const eventId   = data?.event_id as string | undefined
     const q         = Number(data?.quantity ?? 0)
     const baseTotal = Number(data?.base_total ?? 0)
-    const commissionRate = Number(data?.commission_rate ?? 0.10) || 0.10
+    const commissionRate = eventCommissionRate(data?.commission_rate)
     if (!eventId || !q) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('Session expirée.', 'Session expired.', lang))
@@ -2161,7 +2162,7 @@ export async function handleEventSession(
     if (['oui', 'yes', 'o', 'y', 'ok'].includes(cmd)) {
       const discount   = Number(data?.discount_amount ?? 0)
       const total      = Math.max(0, baseTotal - discount)
-      const commission = total > 0 ? Math.round(total * commissionRate) : 0
+      const commission = ticketCommission(total, commissionRate)
       return confirmEventReservationWhatsapp({
         from, phone, customer, event: event as EventReserveRow, q,
         totalPrice: total, commissionAmount: commission, ticketPrice, lang,

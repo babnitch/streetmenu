@@ -70,6 +70,13 @@ export async function POST(req: NextRequest) {
       const test = await settlePayoutTest(payload.payoutId, payload.status ?? '', (payload as { failureReason?: { failureMessage?: string } }).failureReason?.failureMessage ?? null, (payload as { receivedByRecipient?: string }).receivedByRecipient ?? null)
       return NextResponse.json({ ok: true, payout_test: test })
     }
+    // P2: a payout to a pro (protected payments) — settled once on its row.
+    const { data: isPro } = await supabaseAdmin.from('pro_payouts').select('id').eq('id', payload.payoutId).maybeSingle()
+    if (isPro) {
+      const { settleProPayout } = await import('@/lib/proPayouts')
+      const pro = await settleProPayout(payload.payoutId, payload.status ?? '', payload.failureReason?.failureMessage ?? null)
+      return NextResponse.json({ ok: true, pro_payout: pro })
+    }
     const action = payload.status === 'COMPLETED' ? 'payout_completed' : 'payout_failed'
     await writeAudit({
       action,
