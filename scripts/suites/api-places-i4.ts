@@ -76,6 +76,21 @@ async function main(): Promise<void> {
       assertEq([mine?.admin_note, mine?.submitter?.phone], ['vérifié', user.phone], 'admin list: note + who proposed')
     })
 
+    await step('home row: pictures first (?pictures_first=1), /lieux stays A–Z', async () => {
+      const mk = async (label: string, cover: string | null) => {
+        const r = await api<{ place: { id: string } }>('/api/admin/places', { method: 'POST', cookie: admin, body: { title_fr: testName(label), city: CITY, category: 'museums', ...(cover ? { cover_url: cover } : {}) } })
+        track('places', r.body.place?.id)
+        return r.body.place.id
+      }
+      const a = await mk('pf_a_nophoto', null)
+      const z = await mk('pf_z_photo', 'https://example.org/photo.jpg')
+      const home = await api<{ places: Array<{ id: string }> }>(`/api/places?city=${CITY}&limit=10&pictures_first=1`)
+      const order = home.body.places.map(p => p.id).filter(id => id === a || id === z)
+      assertEq(order, [z, a], 'the one with a photo comes first')
+      const plain = await api<{ places: Array<{ id: string }> }>(`/api/places?city=${CITY}`)
+      assertEq(plain.body.places.map(p => p.id).filter(id => id === a || id === z), [a, z], '/lieux order unchanged (A–Z)')
+    })
+
     await step('admin hides; admin creates', async () => {
       assertEq((await api(`/api/admin/places/${id}`, { method: 'PATCH', cookie: admin, body: { status: 'hidden' } })).status, 200, 'hidden')
       assertEq((await api(`/api/places/${id}`)).status, 404, 'hidden → 404')

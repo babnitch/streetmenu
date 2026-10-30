@@ -6,7 +6,7 @@ import { loadTodayOffers } from '@/lib/offersServer'
 import { getPlatformStatus } from '@/lib/platformSwitch'
 import { deliversNow, hasModule } from '@/lib/modules'
 import { todayInDouala } from '@/lib/weekend'
-import { rankWithFill, eventStartKey } from '@/lib/popularRanking'
+import { rankWithFill, eventStartKey, hasPicture } from '@/lib/popularRanking'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,9 +77,13 @@ export async function GET(req: NextRequest) {
   const today = todayInDouala()
   const restRank = rankWithFill(restaurants, r => orders[r.id] ?? 0, (a, b) =>
     Number(hasModule(b, 'featured')) - Number(hasModule(a, 'featured'))
-    || String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')), LIMIT)
+    || String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')), LIMIT,
+    // Home: a real photo first, then the generated cover.
+    r => (hasPicture(r.image_url) || hasPicture(r.logo_url) ? 0 : 1))
   const evRank = rankWithFill(events, e => seats[e.id] ?? 0, (a, b) =>
-    eventStartKey(a as never, today).localeCompare(eventStartKey(b as never, today)), LIMIT)
+    eventStartKey(a as never, today).localeCompare(eventStartKey(b as never, today)), LIMIT,
+    // Home: a real poster first (an event without one shows no picture).
+    e => (hasPicture((e as { cover_photo?: string | null }).cover_photo) ? 0 : 2))
   const topRestaurants = restRank.list
   const topEvents = evRank.list
 

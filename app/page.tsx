@@ -25,6 +25,7 @@ import { cuisineTag, cuisineIcon } from '@/lib/cuisineCategories'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/weekend'
 import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
+import { picturesFirst, hasPicture } from '@/lib/popularRanking'
 
 interface PopularRestaurant {
   id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null
@@ -91,18 +92,24 @@ export default function HomePage() {
           .map(e => ({ e, day: weekendDay(e, listingDays(e, today), w) }))
           .filter((x): x is { e: WeekendEvent; day: string } => !!x.day)
           .sort((a, b) => a.day.localeCompare(b.day) || (a.e.time ?? '').localeCompare(b.e.time ?? ''))
-          .slice(0, 10).map(x => x.e)
-        setWeekend(list)
+          .map(x => x.e)
+        // Home: a real poster first, date order kept inside each group.
+        setWeekend(picturesFirst(list, e => (hasPicture(e.cover_photo) ? 0 : 2)).slice(0, 10))
       })
       .catch(() => null)
     setPlaces([])
-    fetch(`/api/places?city=${encodeURIComponent(city)}&limit=10`, { cache: 'no-store' })
+    fetch(`/api/places?city=${encodeURIComponent(city)}&limit=10&pictures_first=1`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => { if (!cancelled) setPlaces(Array.isArray(d?.places) ? d.places : []) })
       .catch(() => null)
     fetch(`/api/offers/today?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
       .then(r => r.json())
-      .then(d => { if (!cancelled) setOffers(Array.isArray(d?.offers) ? d.offers : []) })
+      .then(d => {
+        if (cancelled) return
+        // Home: offers with a picture (dish photo, else restaurant photo) first.
+        const list: TodayOffer[] = Array.isArray(d?.offers) ? d.offers : []
+        setOffers(picturesFirst(list, o => (hasPicture(o.dish?.photo_url) || hasPicture(o.restaurant.image) ? 0 : 2)))
+      })
       .catch(() => null)
     return () => { cancelled = true }
   }, [city])

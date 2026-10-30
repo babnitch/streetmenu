@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { picturesFirst, hasPicture } from '@/lib/popularRanking'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { rateLimit } from '@/lib/rateLimit'
@@ -17,10 +18,17 @@ export async function GET(req: NextRequest) {
   const city = req.nextUrl.searchParams.get('city') ?? ''
   const limit = Math.min(100, Math.max(1, Number(req.nextUrl.searchParams.get('limit') ?? 100) || 100))
   if (!city) return NextResponse.json({ error: 'city' }, { status: 400 })
+  // ?pictures_first=1 (the home row): places with a photo first, then the
+  // generated covers, alphabetical inside each — before the limit, so the
+  // row is filled photo-first. The /lieux page keeps the plain A–Z order.
+  const picturesFirstParam = req.nextUrl.searchParams.get('pictures_first') === '1'
   const { data, error } = await supabaseAdmin.from('places').select(PUBLIC_PLACE_COLUMNS)
-    .eq('city', city).eq('status', 'active').order('title_fr').limit(limit)
+    .eq('city', city).eq('status', 'active').order('title_fr').limit(picturesFirstParam ? 100 : limit)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ places: data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
+  const places = picturesFirstParam
+    ? picturesFirst((data ?? []) as unknown as Array<{ cover_url: string | null }>, p => (hasPicture(p.cover_url) ? 0 : 1)).slice(0, limit)
+    : (data ?? [])
+  return NextResponse.json({ places }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(req: NextRequest) {

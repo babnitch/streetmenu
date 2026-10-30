@@ -3,7 +3,7 @@
 // a running event counting from today) — no duplicates; `popular` only when
 // something really is.
 
-import { rankWithFill, eventStartKey } from '@/lib/popularRanking'
+import { rankWithFill, eventStartKey, picturesFirst, hasPicture } from '@/lib/popularRanking'
 import { assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-popular-ranking'
@@ -46,6 +46,15 @@ async function main(): Promise<void> {
     assertEq(ids(r.list), ['running', 'tonight', 'tomorrow', 'later'], 'running (today 10:00), tonight, tomorrow, later')
   })
 
+  await step('home: pictures first, order kept inside each group', () => {
+    const xs = [{ id: 'a', t: 2 }, { id: 'b', t: 0 }, { id: 'c', t: 1 }, { id: 'd', t: 0 }, { id: 'e', t: 2 }]
+    assertEq(ids(picturesFirst(xs, x => x.t)), ['b', 'd', 'c', 'a', 'e'], 'photo, then cover, then none — stable')
+    const items = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id, i) => ({ id, n: i, photo: ['c', 'f', 'h'].includes(id) }))
+    const r = rankWithFill(items, x => (x.id === 'a' ? 5 : 0), (p, q) => p.n - q.n, 4, x => (x.photo ? 0 : 1))
+    assertEq(ids(r.list), ['c', 'f', 'h', 'a'], 'free slots filled photo-first; the popular one keeps its slot, after the photos')
+    assertEq(r.popular, true, 'still popular')
+    assertEq([hasPicture('https://x/y.jpg'), hasPicture(''), hasPicture(null)], [true, false, false], 'hasPicture')
+  })
   finish(SUITE)
 }
 
