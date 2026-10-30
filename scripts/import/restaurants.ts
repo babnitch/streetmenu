@@ -1,13 +1,14 @@
-// I3 — import data/import/restaurants_yaounde.csv.
+// I3 / D3 — import a restaurants CSV (data/import/, never committed).
 //
-//   npx tsx scripts/import/restaurants.ts            dry run (report only)
-//   npx tsx scripts/import/restaurants.ts --apply    write
+//   npx tsx scripts/import/restaurants.ts [--file data/import/restaurants_douala.csv]            dry run
+//   npx tsx scripts/import/restaurants.ts [--file …] --apply    write
+// Default file: restaurants_yaounde.csv. The city comes from each row.
 //
 // Each row → a restaurant managed by Tchop & Ndjoka (no owner, no team),
 // Vitrine (no Commandes), category from cuisine_type, area, links; the
 // phone goes to the ADMIN-ONLY restaurant_admin_notes (never used for orders
 // or WhatsApp — restaurants.whatsapp stays empty). Map point from Mapbox,
-// kept only when found inside Yaoundé, else 0,0 (= no pin). publish_now yes
+// kept only when found inside the row's city (CITY_BOX), else 0,0 (= no pin). publish_now yes
 // → published, no → hidden ("À compléter" in admin). No photo: the generated
 // cover shows. Nobody is messaged.
 //
@@ -22,7 +23,9 @@ import { validateLinks } from '../../lib/restaurantLinks'
 import { parseCsv } from './csv'
 
 const APPLY = process.argv.includes('--apply')
-const FILE = 'data/import/restaurants_yaounde.csv'
+const fileArg = process.argv.indexOf('--file')
+const FILE = fileArg > 0 ? process.argv[fileArg + 1] : 'data/import/restaurants_yaounde.csv'
+const SOURCE = FILE.split('/').pop()!.replace(/\.csv$/, '')
 
 interface Row {
   name: string; city: string; area: string; cuisine_type: string; geocode_query: string
@@ -64,7 +67,7 @@ async function main(): Promise<void> {
     if (found) report.update++; else report.create++
     if (publish) report.publish++; else report.hidden++
 
-    const note = [r.notes.trim(), r.match_confidence ? `confiance: ${r.match_confidence}` : '', 'import CSV restaurants_yaounde'].filter(Boolean).join(' · ')
+    const note = [r.notes.trim(), r.match_confidence ? `confiance: ${r.match_confidence}` : '', `import CSV ${SOURCE}`].filter(Boolean).join(' · ')
     if (!APPLY) continue
 
     const common = {
@@ -91,7 +94,7 @@ async function main(): Promise<void> {
 
   console.log(`rows: ${report.total} · new: ${report.create} · already there (update): ${report.update}`)
   console.log(`published: ${report.publish} · hidden ("À compléter"): ${report.hidden}`)
-  console.log(`map point found in Yaoundé: ${report.located} · no point (no pin): ${report.noPoint.length}`)
+  console.log(`map point found in the city: ${report.located} · no point (no pin): ${report.noPoint.length}`)
   if (report.noPoint.length) console.log(`  no point: ${report.noPoint.join(' · ')}`)
   if (report.badLinks.length) console.log(`links dropped: ${report.badLinks.join(' · ')}`)
   if (report.errors.length) console.log(`ERRORS: ${report.errors.join(' · ')}`)

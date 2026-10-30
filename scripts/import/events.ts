@@ -1,11 +1,12 @@
-// I6 — import 8 chosen events from data/import/events_yaounde.csv, as
+// I6 / D4 — import chosen events from a CSV in data/import/, as
 // "Infos seulement" (no booking, payment or QR on the platform; a
 // "Billets / Infos" link), managed by Tchop & Ndjoka, published, with the
 // generated poster. Written straight to the table: nobody is messaged — not
 // the organiser, not the subscribers (the fan-out only runs on approval).
 //
-//   npx tsx scripts/import/events.ts            dry run (report only)
-//   npx tsx scripts/import/events.ts --apply    write
+//   npx tsx scripts/import/events.ts [--city Douala]            dry run (report only)
+//   npx tsx scripts/import/events.ts [--city Douala] --apply    write
+// --city picks the file and the chosen titles below (default Yaoundé).
 //
 // Idempotent: matched on title + city + start date.
 
@@ -16,16 +17,28 @@ import { validateEventRange, normalizeEndDate } from '../../lib/eventDate'
 import { EVENT_CATEGORIES } from '../../lib/categoryLabels'
 
 const APPLY = process.argv.includes('--apply')
-const FILE = 'data/import/events_yaounde.csv'
-const CITY = 'Yaoundé'
+const cityArg = process.argv.indexOf('--city')
+const CITY = cityArg > 0 ? process.argv[cityArg + 1] : 'Yaoundé'
 
-// The 8 titles chosen (the CSV's titles are longer).
-const WANTED = [
-  'Univers. Homme. Intelligence', 'Yaoundé Jazz Festival 2026', 'The Divine Tour by Phido', 'Afro Kavod',
-  'DevFest Yaoundé 2026', 'Écrans Noirs – 30e édition', 'Semaine internationale des fous du livre', 'Christmas Night',
-]
+// The titles chosen per city (the CSV's titles can be longer).
+const CHOSEN: Record<string, { file: string; titles: string[] }> = {
+  'Yaoundé': { file: 'data/import/events_yaounde.csv', titles: [
+    'Univers. Homme. Intelligence', 'Yaoundé Jazz Festival 2026', 'The Divine Tour by Phido', 'Afro Kavod',
+    'DevFest Yaoundé 2026', 'Écrans Noirs – 30e édition', 'Semaine internationale des fous du livre', 'Christmas Night',
+  ] },
+  'Douala': { file: 'data/import/events_douala.csv', titles: [
+    'Charlotte Dipanda – Racines et Symphonie', 'Douala Série 3 – Festival Panafricain de Série de Douala',
+    'Auger Kotto – Concert live au BÔJ', 'DevFest Douala 2026', "L'Arc-en-Ciel Monochrome – Yvon Ngassam",
+    'Merry Bold Market', 'Dixiades 2026 (Jeux nationaux)', 'Fally Ipupa en concert', 'Douala Fiesta 2026 (7e édition)',
+    'Beri Pheno Fest 004 – Vegedream',
+  ] },
+}
+if (!CHOSEN[CITY]) throw new Error(`no chosen titles for ${CITY}`)
+const FILE = CHOSEN[CITY].file
+const WANTED = CHOSEN[CITY].titles
 const CATEGORY: Record<string, string> = {
-  Exposition: 'Culture', 'Cinéma': 'Culture', 'Conférence': 'Business', 'Soirée': 'BT/Club', Concert: 'Concert', Festival: 'Festival',
+  Exposition: 'Culture', 'Cinéma': 'Culture', 'Théâtre': 'Culture', 'Conférence': 'Business', 'Soirée': 'BT/Club',
+  Concert: 'Concert', Festival: 'Festival', Sport: 'Sport', 'Foire/Marché': 'Autre', Autre: 'Autre',
 }
 
 interface Row {
@@ -73,7 +86,7 @@ async function main(): Promise<void> {
     const fields = {
       title: r.title.trim().slice(0, 140), category, city: CITY,
       date: range.date, time: range.time, end_date: endDate, end_time: null,
-      venue: r.venue.trim().slice(0, 120) || null, neighborhood: r.area.trim().slice(0, 80) || null,
+      venue: r.venue.replace(/\s*\((?:selon|indiqué)[^)]*\)/gi, '').trim().slice(0, 120) || null, neighborhood: r.area.trim().slice(0, 80) || null,
       description: r.description_fr.trim().slice(0, 2000) || null,
       price: p.price, ticket_price: p.price, price_is_from: p.from,
       booking_mode: 'info', info_link: /^https?:\/\/\S+$/.test(link) ? link : null,
