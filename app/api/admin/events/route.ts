@@ -5,7 +5,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sanitizeText } from '@/lib/sanitize'
 import { normalizePhone } from '@/lib/phone'
-import { refOffered } from '@/lib/refData'
+import { chooseCity, chooseCategory, recordProposal } from '@/lib/refChoice'
 import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
 import { EVENT_POSTER_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
 
@@ -110,12 +110,14 @@ export async function POST(req: NextRequest) {
   }
   const body = await req.json().catch(() => ({})) as Record<string, unknown>
   const title = sanitizeText(body.title, 140)
-  const city = sanitizeText(body.city, 60)
-  const category = String(body.category ?? '')
   const date = String(body.date ?? '')
-  if (!title || !city || !date || !refOffered('event_category', category)) {
+  const cityPick = chooseCity(body.city, body.city_other)
+  const catPick = chooseCategory('event_category', body.category, body.category_other)
+  if (!title || !date || !cityPick.ok || !catPick.ok) {
     return NextResponse.json({ error: 'Champs requis manquants / Missing required fields' }, { status: 400 })
   }
+  const city = cityPick.city
+  const category = catPick.category
   // I1: a managed event may have no poster — the generated cover shows
   // until a real one is uploaded. A given poster must be a real picture URL.
   const cover = typeof body.cover_photo === 'string' && body.cover_photo.trim() ? body.cover_photo.trim() : null
@@ -145,7 +147,8 @@ export async function POST(req: NextRequest) {
   const rawPrice = body.price
   const price = rawPrice != null && rawPrice !== '' ? Math.max(0, Math.round(Number(rawPrice)) || 0) : null
   const maxTickets = body.max_tickets != null && body.max_tickets !== '' ? Math.max(0, parseInt(String(body.max_tickets), 10) || 0) : 0
-  const publish = body.publish !== false
+  // A proposed city is not live until accepted / mapped: kept unpublished.
+  const publish = body.publish !== false && !cityPick.proposed
   const bookingMode = body.booking_mode === 'platform' ? 'platform' : 'info'
   const infoLink = typeof body.info_link === 'string' ? body.info_link.trim() : ''
   if (infoLink && (!/^https?:\/\/\S+$/.test(infoLink) || infoLink.length > 500)) {
@@ -187,6 +190,8 @@ export async function POST(req: NextRequest) {
     console.error('[admin/events] insert failed:', error?.message)
     return NextResponse.json({ error: error?.message ?? 'Erreur serveur / Server error' }, { status: 500 })
   }
+  if (cityPick.proposed) await recordProposal({ kind: 'city', proposed: cityPick.proposed, by: null, targetType: 'event', targetId: event.id, savedAs: city })
+  if (catPick.proposed) await recordProposal({ kind: 'event_category', proposed: catPick.proposed, by: null, targetType: 'event', targetId: event.id, savedAs: category })
   await writeAudit({
     action: 'event_created_by_admin', targetType: 'event', targetId: event.id,
     performedBy: session.id, performedByType: session.role,

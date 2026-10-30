@@ -1,4 +1,5 @@
 'use client'
+import RefPicker, { pickerBody } from '@/components/RefPicker'
 import { useRefData } from '@/lib/useRefData'
 
 // Admin → Événements (N3): events listed by Tchop & Ndjoka, with no organiser.
@@ -9,9 +10,7 @@ import { useRefData } from '@/lib/useRefData'
 //                        bookings, or link an organiser account.
 
 import { useState } from 'react'
-import { useBi, useLanguage } from '@/lib/languageContext'
-import { eventCategories, categoryLabel } from '@/lib/categoryLabels'
-import { visibleCities } from '@/lib/cities'
+import { useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import DoorStaffPanel from '@/components/DoorStaffPanel'
 import type { Event } from '@/types'
@@ -29,7 +28,7 @@ async function postJSON(url: string, body: unknown): Promise<{ ok: boolean; erro
 }
 
 const EMPTY = {
-  title: '', category: 'Concert', city: 'Yaoundé', venue: '', neighborhood: '',
+  title: '', category: 'Concert', category_other: '', city: 'Yaoundé', city_other: '', venue: '', neighborhood: '',
   date: '', time: '', end_date: '', end_time: '', price: '', max_tickets: '',
   description: '', organizer_name: '', whatsapp: '', notify_phone: '', publish: true,
   // I6: "Infos seulement" by default — no booking here, a link instead.
@@ -39,7 +38,6 @@ const EMPTY = {
 export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event) => void; onClose: () => void }) {
   const bi = useBi()
   useRefData()
-  const { locale } = useLanguage()
   const [f, setF] = useState(EMPTY)
   const [photo, setPhoto] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
@@ -62,7 +60,7 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
       if (r.ok && typeof j?.url === 'string') cover = j.url
     } catch { /* handled below */ }
     if (photo && !cover) { setBusy(false); setError(bi('L\'envoi de l\'affiche a échoué, réessayez.', 'The poster upload failed, please try again.')); return }
-    const r = await postJSON('/api/admin/events', { ...f, cover_photo: cover, ...(f.booking_mode === 'info' ? { max_tickets: '', notify_phone: '' } : { info_link: '', price_is_from: false }) })
+    const r = await postJSON('/api/admin/events', { ...f, ...pickerBody('city', f.city, f.city_other), ...pickerBody('category', f.category, f.category_other), cover_photo: cover, ...(f.booking_mode === 'info' ? { max_tickets: '', notify_phone: '' } : { info_link: '', price_is_from: false }) })
     setBusy(false)
     if (!r.ok) { setError(r.error || bi('Erreur', 'Error')); return }
     onCreated(r.data.event as unknown as Event)
@@ -94,14 +92,12 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <L label={bi('Titre *', 'Title *')} wide><input value={f.title} onChange={e => set('title', e.target.value)} className={INPUT} /></L>
           <L label={bi('Catégorie *', 'Category *')}>
-            <select value={f.category} onChange={e => set('category', e.target.value)} className={INPUT}>
-              {eventCategories().map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
-            </select>
+            <RefPicker kind="event_category" className={INPUT} value={f.category} other={f.category_other}
+              onChange={(v, o) => setF(p => ({ ...p, category: v, category_other: o }))} />
           </L>
           <L label={bi('Ville *', 'City *')}>
-            <select value={f.city} onChange={e => set('city', e.target.value)} className={INPUT}>
-              {visibleCities().map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <RefPicker kind="city" className={INPUT} value={f.city} other={f.city_other}
+              onChange={(v, o) => setF(p => ({ ...p, city: v, city_other: o }))} />
           </L>
           <L label={bi('Lieu', 'Venue')}><input value={f.venue} onChange={e => set('venue', e.target.value)} className={INPUT} /></L>
           <L label={bi('Quartier', 'Area')}><input value={f.neighborhood} onChange={e => set('neighborhood', e.target.value)} className={INPUT} /></L>

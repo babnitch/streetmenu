@@ -1,5 +1,5 @@
 'use client'
-import { eventCategories } from '@/lib/categoryLabels'
+import RefPicker, { OTHER, pickerBody } from '@/components/RefPicker'
 import { useRefData } from '@/lib/useRefData'
 
 export const dynamic = 'force-dynamic'
@@ -8,7 +8,6 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useLanguage, useBi } from '@/lib/languageContext'
-import { categoryLabel } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
 import { proLoginHref } from '@/lib/lastPhone'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
@@ -17,7 +16,6 @@ import { validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDa
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { EVENT_POSTER_REQUIRED } from '@/lib/pictureRequired'
 
-import { visibleCities } from '@/lib/cities'
 
 
 interface SessionUser { id: string; name: string; phone: string; role: string }
@@ -84,6 +82,8 @@ export default function SubmitEventPage() {
     whatsapp_payment_enabled: false,
     requires_confirmation: false,
   })
+  const [cityOther, setCityOther] = useState('')
+  const [categoryOther, setCategoryOther] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -162,7 +162,8 @@ export default function SubmitEventPage() {
     e.preventDefault()
     setError('')
 
-    if (!form.title || !form.date || !form.city || !form.category || !form.organizer_name) {
+    if (!form.title || !form.date || !form.city || !form.category || !form.organizer_name
+        || (form.city === OTHER && cityOther.trim().length < 2) || (form.category === OTHER && !categoryOther.trim())) {
       setError(t('evt.errorRequired'))
       return
     }
@@ -245,9 +246,9 @@ export default function SubmitEventPage() {
         end_date:        form.end_date || null,
         end_time:        form.end_time || null,
         venue:           form.venue,
-        city:            form.city,
+        ...pickerBody('city', form.city, cityOther),
         neighborhood:    form.neighborhood,
-        category:        form.category,
+        ...pickerBody('category', form.category, categoryOther),
         ticket_price:    form.price ? Math.round(Number(form.price)) : null,
         max_tickets:     form.max_tickets ? parseInt(form.max_tickets, 10) : 0,
         payment_mode:    form.payment_mode,
@@ -427,10 +428,8 @@ export default function SubmitEventPage() {
           {/* City + Neighborhood */}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t('evt.cityLbl')}>
-              <select className={INPUT} value={form.city} onChange={e => set('city', e.target.value)}>
-                <option value="">{t('evt.cityPh')}</option>
-                {visibleCities().map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <RefPicker kind="city" className={INPUT} value={form.city} other={cityOther}
+                onChange={(v, o) => { set('city', v); setCityOther(o) }} />
             </Field>
             <Field label={t('evt.neighborLbl')}>
               <input className={INPUT} value={form.neighborhood} onChange={e => set('neighborhood', e.target.value)} placeholder={t('evt.neighborPh')} />
@@ -439,10 +438,8 @@ export default function SubmitEventPage() {
 
           {/* Category */}
           <Field label={t('evt.catLbl')}>
-            <select className={INPUT} value={form.category} onChange={e => set('category', e.target.value)}>
-              <option value="">{t('evt.catPh')}</option>
-              {eventCategories().map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
-            </select>
+            <RefPicker kind="event_category" className={INPUT} value={form.category} other={categoryOther}
+              onChange={(v, o) => { set('category', v); setCategoryOther(o) }} />
           </Field>
 
           {/* Single-price or multi-tier mode. The toggle preserves the

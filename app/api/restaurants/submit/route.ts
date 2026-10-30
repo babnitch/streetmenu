@@ -6,7 +6,9 @@ import { sanitizeText } from '@/lib/sanitize'
 import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
 import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone } from '@/lib/whatsapp'
-import { cityCentre, isFoodType, acceptPosition, registeredText } from '@/lib/restaurantSignup'
+import { cityCentre, acceptPosition, registeredText } from '@/lib/restaurantSignup'
+import { getRefData } from '@/lib/refDataServer'
+import { chooseCity, chooseCuisine, recordProposal } from '@/lib/refChoice'
 import { RESTAURANT_PHOTO_REQUIRED_TEXT } from '@/lib/pictureRequired'
 
 export const dynamic = 'force-dynamic'
@@ -35,7 +37,9 @@ function safeImageUrl(input: unknown): string | null {
 // One restaurant per number, as on WhatsApp (the bot recognises a vendor by
 // that number). A half-finished WhatsApp signup for the number is cleared.
 //
-// Body: { name, city, neighborhood, cuisine_type, image_url, lat?, lng? }
+// Body: { name, city | city_other, neighborhood, cuisine_type? | cuisine_other?,
+//         image_url, lat?, lng? }. Cuisine is optional. "Autre…" → a proposal
+// (lib/refChoice.ts): a proposed city has no centre → no pin until mapped.
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
 
@@ -51,15 +55,18 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}))
   const name         = sanitizeText(body?.name, 120)
-  const city         = sanitizeText(body?.city, 40)
   const neighborhood = sanitizeText(body?.neighborhood, 80)
-  const cuisine      = body?.cuisine_type
   if (name.length < 2 || neighborhood.length < 2) {
     return NextResponse.json({ error: 'Nom et quartier requis / Name and neighbourhood required' }, { status: 400 })
   }
-  const centre = cityCentre(city)
-  if (!centre) return NextResponse.json({ error: 'Ville invalide / Invalid city' }, { status: 400 })
-  if (!isFoodType(cuisine)) return NextResponse.json({ error: 'Type de cuisine invalide / Invalid food type' }, { status: 400 })
+  await getRefData()
+  const cityPick = chooseCity(body?.city, body?.city_other)
+  if (!cityPick.ok) return NextResponse.json({ error: cityPick.error, field: 'city' }, { status: 400 })
+  const cuisinePick = chooseCuisine(body?.cuisine_type, body?.cuisine_other)
+  if (!cuisinePick.ok) return NextResponse.json({ error: cuisinePick.error, field: 'cuisine_type' }, { status: 400 })
+  const city = cityPick.city
+  const cuisine = cuisinePick.cuisine
+  const centre = cityCentre(city)   // null for a proposed city
   const imageUrl = safeImageUrl(body?.image_url)
   if (!imageUrl) return NextResponse.json({ error: RESTAURANT_PHOTO_REQUIRED_TEXT, field: 'image_url' }, { status: 400 })
 
@@ -81,7 +88,7 @@ export async function POST(req: NextRequest) {
     }, { status: 409 })
   }
 
-  const pos = acceptPosition(city, body?.lat, body?.lng) ?? centre
+  const pos = acceptPosition(city, body?.lat, body?.lng) ?? centre ?? { lat: 0, lng: 0 }
   const { data: created, error } = await supabaseAdmin
     .from('restaurants')
     .insert({
@@ -106,6 +113,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Erreur — réessayez. / Error — please try again.' }, { status: 500 })
   }
 
+  if (cityPick.proposed) await recordProposal({ kind: 'city', proposed: cityPick.proposed, by: me.id, targetType: 'restaurant', targetId: created.id, savedAs: city })
+  if (cuisinePick.proposed) await recordProposal({ kind: 'cuisine', proposed: cuisinePick.proposed, by: me.id, targetType: 'restaurant', targetId: created.id, savedAs: cuisine })
+
   await supabaseAdmin.from('signup_sessions').delete().eq('phone', me.phone)
   const { error: teamErr } = await supabaseAdmin.from('restaurant_team').upsert(
     { restaurant_id: created.id, customer_id: me.id, role: 'owner', status: 'active' },
@@ -116,7 +126,7 @@ export async function POST(req: NextRequest) {
   await writeAudit({
     action: 'restaurant_submitted', targetType: 'restaurant', targetId: created.id,
     performedBy: me.id, performedByType: 'customer',
-    metadata: { name, city, cuisine_type: cuisine, via: 'web', pin: pos === centre ? 'city_centre' : 'device' },
+    metadata: { name, city, cuisine_type: cuisine, via: 'web', pin: !centre ? 'none (proposed city)' : pos === centre ? 'city_centre' : 'device' },
   })
 
   const lang = await getLangByPhone(me.phone)

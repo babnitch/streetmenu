@@ -9,7 +9,8 @@ import { useMode } from '@/lib/modeContext'
 import { useCity } from '@/lib/cityContext'
 import { loginHref } from '@/lib/lastPhone'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
-import { restaurantCities, FOOD_TYPES } from '@/lib/restaurantSignup'
+import { restaurantCities } from '@/lib/restaurantSignup'
+import RefPicker, { OTHER, pickerBody } from '@/components/RefPicker'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 
 const INPUT = 'w-full bg-surface-muted border border-divider rounded-xl px-3 py-2.5 text-sm text-ink-primary outline-none focus:border-brand'
@@ -27,6 +28,8 @@ export default function AddRestaurantPage() {
   const { loading, canEnterPro, sessionRole } = useMode()
   const [phone, setPhone] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', city: '', neighborhood: '', cuisine_type: '' })
+  const [cityOther, setCityOther] = useState('')
+  const [cuisineOther, setCuisineOther] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null)
   const [posState, setPosState] = useState<'idle' | 'asking' | 'ok' | 'denied'>('idle')
@@ -79,7 +82,7 @@ export default function AddRestaurantPage() {
       const r = await fetch('/api/restaurants/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, image_url, ...(pos ?? {}) }),
+        body: JSON.stringify({ ...form, ...pickerBody('city', form.city, cityOther), ...pickerBody('cuisine_type', form.cuisine_type, cuisineOther), image_url, ...(pos ?? {}) }),
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) {
@@ -95,7 +98,7 @@ export default function AddRestaurantPage() {
     }
   }
 
-  const ready = form.name.trim().length >= 2 && form.city && form.neighborhood.trim().length >= 2 && form.cuisine_type
+  const ready = form.name.trim().length >= 2 && form.city && (form.city !== OTHER || cityOther.trim().length >= 2) && form.neighborhood.trim().length >= 2
 
   return (
     <div className="min-h-screen bg-surface">
@@ -135,9 +138,8 @@ export default function AddRestaurantPage() {
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-xs font-semibold text-ink-secondary">{bi('Ville', 'City')}</span>
-                <select className={`${INPUT} mt-1`} value={form.city} onChange={e => { set('city', e.target.value); setPos(null); setPosState('idle') }}>
-                  {restaurantCities().map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                </select>
+                <RefPicker kind="city" className={`${INPUT} mt-1`} value={form.city} other={cityOther}
+                  onChange={(v, o) => { set('city', v); setCityOther(o); setPos(null); setPosState('idle') }} />
               </label>
               <label className="block">
                 <span className="text-xs font-semibold text-ink-secondary">{bi('Quartier', 'Neighbourhood')}</span>
@@ -147,11 +149,9 @@ export default function AddRestaurantPage() {
             </div>
 
             <label className="block">
-              <span className="text-xs font-semibold text-ink-secondary">{bi('Type de cuisine', 'Food type')}</span>
-              <select className={`${INPUT} mt-1`} value={form.cuisine_type} onChange={e => set('cuisine_type', e.target.value)}>
-                <option value="">{bi('Choisir…', 'Choose…')}</option>
-                {FOOD_TYPES.map(f => <option key={f.value} value={f.value}>{locale === 'en' ? f.en : f.fr}</option>)}
-              </select>
+              <span className="text-xs font-semibold text-ink-secondary">{bi('Type de cuisine (facultatif)', 'Type of cuisine (optional)')}</span>
+              <RefPicker kind="cuisine" optional className={`${INPUT} mt-1`} value={form.cuisine_type} other={cuisineOther}
+                onChange={(v, o) => { set('cuisine_type', v); setCuisineOther(o) }} />
             </label>
 
             <div>

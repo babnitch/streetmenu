@@ -1,4 +1,5 @@
 'use client'
+import RefPicker, { OTHER, pickerBody } from '@/components/RefPicker'
 import { useRefData } from '@/lib/useRefData'
 
 // /lieux/proposer — "+ Ajouter → Un lieu à visiter" (I4). Any logged-in
@@ -9,10 +10,8 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import TopNav from '@/components/TopNav'
-import { useBi, useLanguage } from '@/lib/languageContext'
+import { useBi } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
-import { visibleCities } from '@/lib/cities'
-import { placeCategories } from '@/lib/places'
 import { loginHref } from '@/lib/lastPhone'
 
 const input = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand/40'
@@ -20,11 +19,12 @@ const input = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm bg-wh
 export default function ProposePlacePage() {
   const bi = useBi()
   useRefData()
-  const { locale } = useLanguage()
   const { city: currentCity } = useCity()
   const fileRef = useRef<HTMLInputElement>(null)
   const [logged, setLogged] = useState<boolean | null>(null)
   const [f, setF] = useState({ title_fr: '', city: '', area: '', category: '', description_fr: '', tip_fr: '', hours: '', price: '', official_link: '' })
+  const [cityOther, setCityOther] = useState('')
+  const [categoryOther, setCategoryOther] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -44,7 +44,8 @@ export default function ProposePlacePage() {
     e.preventDefault()
     setError(null)
     if (!f.title_fr.trim()) return setError(bi('Le nom du lieu est requis.', 'The place name is required.'))
-    if (!f.category) return setError(bi('Choisissez une catégorie.', 'Pick a category.'))
+    if (!f.category || (f.category === OTHER && !categoryOther.trim())) return setError(bi('Choisissez une catégorie.', 'Pick a category.'))
+    if (f.city === OTHER && cityOther.trim().length < 2) return setError(bi('Indiquez la ville.', 'Enter the city.'))
     setBusy(true)
     try {
       let cover_url = ''
@@ -58,7 +59,7 @@ export default function ProposePlacePage() {
       }
       const r = await fetch('/api/places', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...f, ...(cover_url ? { cover_url } : {}) }),
+        body: JSON.stringify({ ...f, ...pickerBody('city', f.city, cityOther), ...pickerBody('category', f.category, categoryOther), ...(cover_url ? { cover_url } : {}) }),
       })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) { setError(j?.error ?? bi('Erreur, réessayez.', 'Error, please try again.')); return }
@@ -104,15 +105,13 @@ export default function ProposePlacePage() {
             <input className={input} value={f.title_fr} onChange={set('title_fr')} maxLength={140} required /></label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block"><span className="text-sm font-semibold">{bi('Ville', 'City')} *</span>
-              <select className={input} value={f.city} onChange={set('city')}>{visibleCities().map(c => <option key={c} value={c}>{c}</option>)}</select></label>
+              <RefPicker kind="city" className={input} value={f.city} other={cityOther} onChange={(v, o) => { setF(x => ({ ...x, city: v })); setCityOther(o) }} /></label>
             <label className="block"><span className="text-sm font-semibold">{bi('Quartier', 'Area')}</span>
               <input className={input} value={f.area} onChange={set('area')} maxLength={80} /></label>
           </div>
           <label className="block"><span className="text-sm font-semibold">{bi('Catégorie', 'Category')} *</span>
-            <select className={input} value={f.category} onChange={set('category')} required>
-              <option value="">{bi('Choisir…', 'Choose…')}</option>
-              {placeCategories().map(c => <option key={c.id} value={c.id}>{c.icon} {locale === 'en' ? c.en : c.fr}</option>)}
-            </select></label>
+            <RefPicker kind="place_category" className={input} value={f.category} other={categoryOther}
+              onChange={(v, o) => { setF(x => ({ ...x, category: v })); setCategoryOther(o) }} /></label>
           <label className="block"><span className="text-sm font-semibold">{bi('Description', 'Description')}</span>
             <textarea className={input} rows={4} value={f.description_fr} onChange={set('description_fr')} maxLength={4000} /></label>
           <label className="block"><span className="text-sm font-semibold">{bi('Bon à savoir', 'Good to know')}</span>

@@ -18,7 +18,7 @@
 // credentials, and that fails harmlessly against +999 numbers. Everything
 // asserted here is a DB effect (§1d).
 
-import { sb } from '../testkit/env'
+import { sb, testName } from '../testkit/env'
 import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import { api } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeMenuItem } from '../testkit/fixtures'
@@ -59,9 +59,11 @@ async function waitForOrder(customerId: string, expectedStatus: string, timeoutM
 
 async function main(): Promise<void> {
   try {
-    const customer = await makeCustomer({ suiteNo: 22, name: 'WA Customer' })
+    // Same made-up city as the test restaurant (the bot lists the customer's city).
+    const testCity = testName('city')
+    const customer = await makeCustomer({ suiteNo: 22, name: 'WA Customer', city: testCity })
     const vendor   = await makeCustomer({ suiteNo: 22, name: 'WA Vendor' })
-    const rest = await makeRestaurant({ ownerId: vendor.id, label: 'ordering_restaurant', whatsapp: vendor.phone })
+    const rest = await makeRestaurant({ ownerId: vendor.id, label: 'ordering_restaurant', whatsapp: vendor.phone, city: testCity })
 
     // Menu is read back alphabetically, so Eru (2000) sorts before Ndolé (2500).
     await makeMenuItem(rest.id, { name: 'Ndolé', price: 2500 })

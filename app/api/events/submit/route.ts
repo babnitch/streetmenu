@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
+import { chooseCity, chooseCategory, recordProposal } from '@/lib/refChoice'
 import { requireSideOn } from '@/lib/platformSwitch'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -41,11 +43,17 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   console.log('[events/submit] received from customer=%s: title=%s date=%s city=%s category=%s price=%s',
     session.id, body?.title, body?.date, body?.city, body?.category, body?.ticket_price ?? body?.price)
-  if (!body?.title || !body?.date || !body?.city || !body?.category) {
+  if (!body?.title || !body?.date || !(body?.city || body?.city_other) || !(body?.category || body?.category_other)) {
     return NextResponse.json({
       error: 'Champs requis manquants / Missing required fields',
     }, { status: 400 })
   }
+  // City / category from the reference data, or "Autre…" (a proposal).
+  await getRefData()
+  const cityPick = chooseCity(body.city, body.city_other)
+  if (!cityPick.ok) return NextResponse.json({ error: cityPick.error, field: 'city' }, { status: 400 })
+  const catPick = chooseCategory('event_category', body.category, body.category_other)
+  if (!catPick.ok) return NextResponse.json({ error: catPick.error, field: 'category' }, { status: 400 })
 
   if (!hasPictureUrl(body?.cover_photo)) {
     return NextResponse.json({ error: EVENT_POSTER_REQUIRED_TEXT, field: 'cover_photo' }, { status: 400 })
@@ -73,7 +81,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Compte introuvable / Account not found' }, { status: 404 })
   }
   // M4: the Auto-approbation module (kept in step with event_auto_approve).
-  const autoApprove = ((submitter.organizer_modules as string[] | null) ?? []).includes('auto_approve')
+  // A proposed city is not live until an admin accepts or maps it: the
+  // event waits for review even for a trusted organiser.
+  const autoApprove = ((submitter.organizer_modules as string[] | null) ?? []).includes('auto_approve') && !cityPick.proposed
 
   // Contact numbers (C3): the event's WhatsApp contact is the organiser's
   // own account phone (verified at login, not typed). An optional extra
@@ -120,9 +130,9 @@ export async function POST(req: NextRequest) {
     end_date:        normalizeEndDate(range.date, range.end_date),
     end_time:        range.end_time,
     venue:           body.venue || null,
-    city:            body.city,
+    city:            cityPick.city,
     neighborhood:    body.neighborhood || null,
-    category:        body.category,
+    category:        catPick.category,
     price:           ticketPrice,        // legacy display column
     ticket_price:    ticketPrice,
     max_tickets:     maxTickets,
@@ -147,6 +157,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insErr?.message ?? 'Erreur / Error' }, { status: 500 })
   }
   console.log('[events/submit] insert ok: event_id=%s is_active=%s auto_approved=%s', event.id, autoApprove, autoApprove)
+  if (cityPick.proposed) await recordProposal({ kind: 'city', proposed: cityPick.proposed, by: submitter.id, targetType: 'event', targetId: event.id, savedAs: cityPick.city })
+  if (catPick.proposed) await recordProposal({ kind: 'event_category', proposed: catPick.proposed, by: submitter.id, targetType: 'event', targetId: event.id, savedAs: catPick.category })
 
   // Tier inserts — when the submit form sent a non-empty tiers[]
   // payload, create one event_ticket_tiers row per entry. Failures

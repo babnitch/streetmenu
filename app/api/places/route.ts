@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { chooseCity, chooseCategory, recordProposal } from '@/lib/refChoice'
 import { getRefData } from '@/lib/refDataServer'
 import { picturesFirst, hasPicture } from '@/lib/popularRanking'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -41,6 +42,14 @@ export async function POST(req: NextRequest) {
   if (hit) return NextResponse.json({ error: hit.message }, { status: 429 })
   const body = await req.json().catch(() => ({})) as Record<string, unknown>
   // A proposal sets the visible fields only; status / notes are the admin's.
+  // City / category: a listed value, or "Autre…" (a proposal; the place is
+  // pending anyway, so a proposed city is never live by itself).
+  const cityPick = chooseCity(body.city, body.city_other)
+  if (!cityPick.ok) return NextResponse.json({ error: cityPick.error, field: 'city' }, { status: 400 })
+  const catPick = chooseCategory('place_category', body.category, body.category_other)
+  if (!catPick.ok) return NextResponse.json({ error: catPick.error, field: 'category' }, { status: 400 })
+  body.city = cityPick.city
+  body.category = catPick.category
   const allowed = ['city', 'area', 'category', 'title_fr', 'description_fr', 'tip_fr', 'hours', 'price', 'official_link', 'instagram_url', 'facebook_url', 'tiktok_url', 'cover_url']
   const v = validatePlace(Object.fromEntries(allowed.filter(k => k in body).map(k => [k, body[k]])), true)
   if (!v.ok) return NextResponse.json({ error: v.error, field: v.field }, { status: 400 })
@@ -51,6 +60,8 @@ export async function POST(req: NextRequest) {
     const dup = /duplicate|unique/i.test(error.message)
     return NextResponse.json({ error: dup ? 'Ce lieu existe déjà / This place already exists' : error.message }, { status: dup ? 409 : 500 })
   }
+  if (cityPick.proposed) await recordProposal({ kind: 'city', proposed: cityPick.proposed, by: session.id, targetType: 'place', targetId: data.id as string, savedAs: cityPick.city })
+  if (catPick.proposed) await recordProposal({ kind: 'place_category', proposed: catPick.proposed, by: session.id, targetType: 'place', targetId: data.id as string, savedAs: catPick.category })
   await writeAudit({ action: 'place_proposed', targetType: 'place', targetId: data.id as string, performedBy: session.id, performedByType: 'customer', metadata: { title: v.place.title_fr, city: v.place.city } })
   return NextResponse.json({ ok: true, id: data.id })
 }

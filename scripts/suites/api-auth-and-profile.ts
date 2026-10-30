@@ -240,10 +240,10 @@ async function main(): Promise<void> {
     await step('Ajouter un restaurant (web): owner = account, city-centre pin, one per number', async () => {
       const owner = await makeCustomer({ suiteNo: 28, name: 'Resto Owner' })
       const cookie = customerCookie(owner)
-      const body = { name: testName('c3_resto'), city: 'Dakar', neighborhood: 'Plateau', cuisine_type: 'Grillades', image_url: testPictureUrl() }
+      const body = { name: testName('c3_resto'), city: 'Douala', neighborhood: 'Akwa', cuisine_type: 'Grillades', image_url: testPictureUrl() }
       assertEq((await api('/api/restaurants/submit', { body })).status, 401, 'logged out → 401')
       assertEq((await api('/api/restaurants/submit', { cookie, body: { ...body, city: 'Paris' } })).status, 400, 'unknown city → 400')
-      assertEq((await api('/api/restaurants/submit', { cookie, body: { ...body, cuisine_type: 'Pizza' } })).status, 400, 'unknown food type → 400')
+      assertEq((await api('/api/restaurants/submit', { cookie, body: { ...body, cuisine_type: 'NotACuisine' } })).status, 400, 'unknown cuisine → 400')
       const r = await api<{ restaurant?: { id: string } }>('/api/restaurants/submit', { cookie, body: { ...body, lat: 48.85, lng: 2.35 } })
       assertEq(r.status, 200, `HTTP 200 (${r.raw.slice(0, 120)})`)
       track('restaurants', r.body.restaurant?.id)
@@ -254,7 +254,7 @@ async function main(): Promise<void> {
       assertEq(x.whatsapp, owner.phone, 'WhatsApp = the account phone')
       assertEq(x.status, 'pending', 'pending approval')
       assertEq(x.is_active, false, 'not live yet')
-      assertEq([x.lat, x.lng], [14.6937, -17.4441], 'a position far from Dakar is ignored → city centre')
+      assertEq([x.lat, x.lng], [4.0511, 9.7679], 'a position far from Douala is ignored → city centre')
       const { data: team } = await sb.from('restaurant_team').select('role, status').eq('restaurant_id', r.body.restaurant?.id ?? '').eq('customer_id', owner.id)
       assertEq((team as Array<{ role: string }> | null)?.[0]?.role, 'owner', 'owner team row')
       const second = await api('/api/restaurants/submit', { cookie, body: { ...body, name: testName('c3_resto2') } })

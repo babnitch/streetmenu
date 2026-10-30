@@ -1,7 +1,7 @@
 // I4 — Lieux (places to visit). A logged-in user (either mode) proposes a
 // place → pending, invisible until an admin publishes it; the admin edits,
 // publishes, hides. Public reads never carry admin_note, sources or who
-// proposed. Uses the made-up city "Testville" so nothing shows in a real
+// proposed. Uses the tests' made-up city so nothing shows in a real
 // city's list. Every phone is +999.
 
 import { sb } from '../testkit/env'
@@ -12,7 +12,7 @@ import { teardown, track } from '../testkit/ledger'
 import { testName } from '../testkit/env'
 
 const SUITE = 'api-places-i4'
-const CITY = 'Testville'
+const CITY = testName('city')   // the tests' made-up city (accepted on the test server only)
 
 async function main(): Promise<void> {
   try {

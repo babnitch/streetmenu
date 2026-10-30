@@ -28,7 +28,7 @@ const input = 'w-full border border-divider rounded-lg px-2 py-1.5 text-sm bg-wh
 
 export default function AdminReferencePage() {
   const bi = useBi()
-  const [kind, setKind] = useState<Kind>('city')
+  const [kind, setKind] = useState<Kind | 'proposals'>('city')
   const [rows, setRows] = useState<Row[] | null>(null)
   const [error, setError] = useState('')
   const load = useCallback(() => {
@@ -51,14 +51,16 @@ export default function AdminReferencePage() {
           <button key={k} type="button" role="tab" aria-selected={kind === k} onClick={() => setKind(k)}
             className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${kind === k ? 'bg-ink-primary text-white border-ink-primary' : 'bg-white border-divider text-ink-secondary'}`}>{bi(fr, en)}</button>
         ))}
+        <button type="button" role="tab" aria-selected={kind === 'proposals'} onClick={() => setKind('proposals')}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${kind === 'proposals' ? 'bg-ink-primary text-white border-ink-primary' : 'bg-white border-divider text-ink-secondary'}`}>💡 {bi('Propositions', 'Proposals')}</button>
       </div>
       {error && <p className="text-sm text-danger">{error}</p>}
-      {rows === null ? <p className="text-sm text-ink-tertiary">…</p> : (
+      {kind === 'proposals' ? <Proposals values={rows ?? []} onChanged={load} /> : rows === null ? <p className="text-sm text-ink-tertiary">…</p> : (
         <>
           <ul className="space-y-2">
             {list.map((r, i) => <ValueRow key={r.id} row={r} first={i === 0} last={i === list.length - 1} onChanged={load} />)}
           </ul>
-          <AddValue kind={kind} onAdded={load} />
+          <AddValue kind={kind as Kind} onAdded={load} />
         </>
       )}
     </div>
@@ -169,5 +171,106 @@ function AddValue({ kind, onAdded }: { kind: Kind; onAdded: () => void }) {
         <button type="button" onClick={() => setOpen(false)} className="text-sm px-3 py-1.5">{bi('Annuler', 'Cancel')}</button>
       </div>
     </div>
+  )
+}
+
+interface Proposal {
+  id: string; kind: Kind; proposed: string; status: string; resolved_code: string | null; saved_as: string | null
+  target_type: string; target: string | null; by: { name: string | null; phone: string | null } | null; created_at: string
+}
+const KIND_LABEL: Record<Kind, [string, string]> = { city: ['Ville', 'City'], cuisine: ['Cuisine', 'Cuisine'], event_category: ['Catégorie d\'événement', 'Event category'], place_category: ['Catégorie À visiter', 'To-visit category'] }
+const TARGET_LABEL: Record<string, [string, string]> = { restaurant: ['restaurant', 'restaurant'], event: ['événement', 'event'], place: ['lieu', 'place'], customer: ['profil', 'profile'] }
+
+function Proposals({ values, onChanged }: { values: Row[]; onChanged: () => void }) {
+  const bi = useBi()
+  const [list, setList] = useState<Proposal[] | null>(null)
+  const load = useCallback(() => {
+    fetch('/api/admin/ref/proposals', { cache: 'no-store' }).then(r => r.json()).then(d => setList(d.proposals ?? [])).catch(() => setList([]))
+  }, [])
+  useEffect(load, [load])
+  if (list === null) return <p className="text-sm text-ink-tertiary">…</p>
+  const pending = list.filter(p => p.status === 'pending')
+  const done = list.filter(p => p.status !== 'pending')
+  return (
+    <div className="space-y-4">
+      {pending.length === 0 && <p className="text-sm text-ink-tertiary">{bi('Aucune proposition en attente.', 'No pending proposals.')}</p>}
+      <ul className="space-y-2">
+        {pending.map(p => <ProposalRow key={p.id} p={p} values={values} onDone={() => { load(); onChanged() }} />)}
+      </ul>
+      {done.length > 0 && (
+        <details>
+          <summary className="text-sm font-semibold text-ink-secondary cursor-pointer">{bi('Déjà traitées', 'Already handled')} ({done.length})</summary>
+          <ul className="mt-2 text-xs space-y-1">
+            {done.map(p => (
+              <li key={p.id} className="text-ink-secondary">
+                {bi(...KIND_LABEL[p.kind])} « {p.proposed} » → {p.status === 'rejected' ? bi('refusée', 'rejected') : `${p.status === 'accepted' ? bi('acceptée', 'accepted') : bi('rattachée', 'mapped')} : ${p.resolved_code}`}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
+}
+
+function ProposalRow({ p, values, onDone }: { p: Proposal; values: Row[]; onDone: () => void }) {
+  const bi = useBi()
+  const { locale } = useLanguage()
+  const [mode, setMode] = useState<null | 'accept' | 'map'>(null)
+  const [f, setF] = useState({ label_fr: p.proposed, label_en: p.proposed, icon: '', keywords: '', country: '', lat: '', lng: '' })
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const existing = values.filter(v => v.kind === p.kind).sort((a, b) => a.sort_order - b.sort_order)
+  async function send(body: Record<string, unknown>) {
+    setBusy(true); setMsg('')
+    const r = await fetch(`/api/admin/ref/proposals/${p.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
+    const d = r ? await r.json().catch(() => ({})) : {}
+    setBusy(false)
+    if (!r?.ok) { setMsg(pickBi(d.error ?? 'Erreur / Error', locale)); return }
+    onDone()
+  }
+  return (
+    <li className="rounded-xl border border-divider bg-white p-3">
+      <p className="text-sm"><span className="text-xs font-semibold text-ink-tertiary">{bi(...KIND_LABEL[p.kind])}</span> · <strong>« {p.proposed} »</strong></p>
+      <p className="text-xs text-ink-tertiary mt-0.5">
+        {bi('par', 'by')} {p.by?.name ?? '—'}{p.by?.phone ? ` (${p.by.phone})` : ''} · {bi(...(TARGET_LABEL[p.target_type] ?? ['', '']))} : {p.target ?? '—'}
+        {p.saved_as ? ` · ${bi('enregistré comme', 'saved as')} « ${p.saved_as} »` : ''}
+      </p>
+      {!mode && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" disabled={busy} onClick={() => setMode('accept')} className="text-xs font-bold px-3 py-1.5 rounded-full bg-green-600 text-white">✓ {bi('Accepter', 'Accept')}</button>
+          <button type="button" disabled={busy} onClick={() => setMode('map')} className="text-xs font-bold px-3 py-1.5 rounded-full border border-divider bg-white">↪ {bi('Rattacher à une valeur', 'Map to a value')}</button>
+          <button type="button" disabled={busy} onClick={() => send({ action: 'reject' })} className="text-xs font-bold px-3 py-1.5 rounded-full border border-divider bg-white text-danger">✕ {bi('Refuser', 'Reject')}</button>
+        </div>
+      )}
+      {mode === 'accept' && (
+        <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {p.kind !== 'city' && <label className="text-[11px] text-ink-tertiary">{bi('Icône', 'Icon')}<input className={input} value={f.icon} onChange={e => setF({ ...f, icon: e.target.value })} maxLength={8} /></label>}
+          <label className="text-[11px] text-ink-tertiary">FR *<input className={input} value={f.label_fr} onChange={e => setF({ ...f, label_fr: e.target.value })} /></label>
+          <label className="text-[11px] text-ink-tertiary">EN *<input className={input} value={f.label_en} onChange={e => setF({ ...f, label_en: e.target.value })} /></label>
+          {p.kind === 'city' && <>
+            <label className="text-[11px] text-ink-tertiary">{bi('Pays (CM)', 'Country (CM)')}<input className={input} value={f.country} onChange={e => setF({ ...f, country: e.target.value })} maxLength={2} /></label>
+            <label className="text-[11px] text-ink-tertiary">{bi('Centre (lat, lng) *', 'Centre (lat, lng) *')}<span className="flex gap-1"><input className={input} value={f.lat} onChange={e => setF({ ...f, lat: e.target.value })} /><input className={input} value={f.lng} onChange={e => setF({ ...f, lng: e.target.value })} /></span></label>
+          </>}
+          {p.kind === 'cuisine' && <label className="text-[11px] text-ink-tertiary col-span-2">{bi('Mots-clés', 'Keywords')}<input className={input} value={f.keywords} onChange={e => setF({ ...f, keywords: e.target.value })} /></label>}
+          <div className="col-span-2 sm:col-span-4 flex gap-2">
+            <button type="button" disabled={busy} onClick={() => send({ action: 'accept', ...f, ...(p.kind === 'city' ? { zoom: 13 } : {}) })} className="text-xs font-bold px-3 py-1.5 rounded-full bg-green-600 text-white">{bi('Ajouter et appliquer', 'Add and apply')}</button>
+            <button type="button" onClick={() => setMode(null)} className="text-xs px-3 py-1.5">{bi('Annuler', 'Cancel')}</button>
+          </div>
+        </div>
+      )}
+      {mode === 'map' && (
+        <div className="mt-2 flex flex-wrap gap-2 items-center">
+          <select className={`${input} w-auto`} value={code} onChange={e => setCode(e.target.value)}>
+            <option value="">{bi('Choisir…', 'Choose…')}</option>
+            {existing.map(v => <option key={v.code} value={v.code}>{locale === 'en' ? v.label_en : v.label_fr}{v.visible ? '' : bi(' (masquée)', ' (hidden)')}</option>)}
+          </select>
+          <button type="button" disabled={busy || !code} onClick={() => send({ action: 'map', code })} className="text-xs font-bold px-3 py-1.5 rounded-full bg-ink-primary text-white disabled:opacity-50">{bi('Appliquer', 'Apply')}</button>
+          <button type="button" onClick={() => setMode(null)} className="text-xs px-3 py-1.5">{bi('Annuler', 'Cancel')}</button>
+        </div>
+      )}
+      {msg && <p className="text-xs text-danger mt-1">{msg}</p>}
+    </li>
   )
 }

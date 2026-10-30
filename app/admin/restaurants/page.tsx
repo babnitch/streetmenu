@@ -1,4 +1,5 @@
 'use client'
+import RefPicker, { pickerBody } from '@/components/RefPicker'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,14 +55,14 @@ interface RestaurantRow {
 
 // ── Form for adding a new restaurant ─────────────────────────────────────────
 interface RestaurantForm {
-  name: string; description: string; address: string; city: string
+  name: string; description: string; address: string; city: string; city_other: string; cuisine_type: string; cuisine_other: string
   lat: string; lng: string; phone: string; whatsapp: string; logo_url: string
   owner_phone: string; owner_name: string
   modules: string[]
   publish: boolean
 }
 const EMPTY_FORM: RestaurantForm = {
-  name: '', description: '', address: '', city: '',
+  name: '', description: '', address: '', city: '', city_other: '', cuisine_type: '', cuisine_other: '',
   lat: '', lng: '', phone: '', whatsapp: '', logo_url: '',
   owner_phone: '', owner_name: '',
   modules: DEFAULT_ON_APPROVAL.restaurant,
@@ -355,7 +356,8 @@ export default function AdminRestaurantsPage() {
     // is_open / is_active / status are set by the server, not sent from here.
     const res = await postJSON('/api/admin/restaurants', {
       name: form.name.trim(), description: form.description.trim(),
-      address: form.address.trim(), city: form.city.trim(),
+      address: form.address.trim(),
+      ...pickerBody('city', form.city, form.city_other), ...pickerBody('cuisine_type', form.cuisine_type, form.cuisine_other),
       lat: parseFloat(form.lat), lng: parseFloat(form.lng),
       phone: form.phone.trim(), whatsapp: form.whatsapp.trim(),
       logo_url: form.logo_url,
@@ -461,7 +463,8 @@ export default function AdminRestaurantsPage() {
           <h2 className="font-bold text-ink-primary mb-4">{t('admin.newRest')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label={bi('Nom', 'Name *')}><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Chez Mama Afrika" className={INPUT} /></Field>
-            <Field label={bi('Ville', 'City *')}><input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Yaoundé" className={INPUT} /></Field>
+            <Field label={bi('Ville *', 'City *')}><RefPicker kind="city" className={INPUT} value={form.city} other={form.city_other} onChange={(v, o) => setForm(f => ({ ...f, city: v, city_other: o }))} /></Field>
+            <Field label={bi('Type de cuisine (facultatif)', 'Type of cuisine (optional)')}><RefPicker kind="cuisine" optional className={INPUT} value={form.cuisine_type} other={form.cuisine_other} onChange={(v, o) => setForm(f => ({ ...f, cuisine_type: v, cuisine_other: o }))} /></Field>
             <Field label={bi('Adresse', 'Address')}><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Rue…" className={INPUT} /></Field>
             <Field label="Description"><input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Cuisine camerounaise…" className={INPUT} /></Field>
             <Field label="Latitude *"><input type="number" step="any" value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="3.8667" className={INPUT} /></Field>

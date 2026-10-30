@@ -5,7 +5,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-import { isOfferedCity } from '@/lib/cities'
+import { chooseCity, recordProposal } from '@/lib/refChoice'
 
 // POST { name?, city? } — update editable profile fields for the current
 // customer. Phone is NEVER updatable here (it's the account identifier).
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const patch: { name?: string; city?: string } = {}
+  const patch: { name?: string; city?: string | null } = {}
 
   if (typeof body.name === 'string') {
     const trimmed = body.name.trim()
@@ -27,11 +27,17 @@ export async function POST(req: NextRequest) {
     patch.name = trimmed
   }
 
-  if (typeof body.city === 'string') {
-    if (!isOfferedCity(body.city)) {
-      return NextResponse.json({ error: 'Ville invalide / Invalid city' }, { status: 400 })
+  // City: a listed one, or "Autre…" (a proposal; saved as typed).
+  let proposedCity: string | null = null
+  if (typeof body.city === 'string' || typeof body.city_other === 'string') {
+    if (!body.city && !(typeof body.city_other === 'string' && body.city_other.trim())) {
+      patch.city = null
+    } else {
+      const pick = chooseCity(body.city, body.city_other)
+      if (!pick.ok) return NextResponse.json({ error: 'Ville invalide / Invalid city' }, { status: 400 })
+      patch.city = pick.city
+      proposedCity = pick.proposed
     }
-    patch.city = body.city
   }
 
   if (Object.keys(patch).length === 0) {
@@ -48,5 +54,6 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data)  return NextResponse.json({ error: 'Profil introuvable / Profile not found' }, { status: 404 })
 
+  if (proposedCity) await recordProposal({ kind: 'city', proposed: proposedCity, by: session.id, targetType: 'customer', targetId: session.id, savedAs: String(patch.city) })
   return NextResponse.json({ ok: true, profile: data })
 }

@@ -2,6 +2,10 @@ import { missingTwilioTokenPolicy } from '@/lib/twilioWebhookAuth'
 import { cityCentre, registeredText } from '@/lib/restaurantSignup'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 import { NextRequest, NextResponse } from 'next/server'
+import { cityMenu, parseCityReply, cuisineMenu, parseCuisineReply } from '@/lib/botRef'
+import { recordProposal } from '@/lib/refChoice'
+import { getRefData } from '@/lib/refDataServer'
+import { refList } from '@/lib/refData'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, guessLang, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
@@ -43,29 +47,7 @@ function normalisePhone(raw: string): string {
   return raw.replace(/^whatsapp:/i, '').replace(/[^\d+]/g, '')
 }
 
-const CITY_MAP: Record<string, string> = {
-  'yaoundé': 'Yaoundé', 'yaounde': 'Yaoundé', '1': 'Yaoundé',
-  'abidjan': 'Abidjan',                        '2': 'Abidjan',
-  'dakar':   'Dakar',                          '3': 'Dakar',
-  'lomé':    'Lomé',    'lome':    'Lomé',     '4': 'Lomé',
-  'douala':  'Douala',                         '5': 'Douala',
-}
-function parseCity(input: string): string | null {
-  return CITY_MAP[input.toLowerCase().trim()] ?? null
-}
-
-const CUISINE_MAP: Record<string, string> = {
-  'camerounaise':            'Camerounaise', '1': 'Camerounaise',
-  'sénégalaise':             'Sénégalaise',
-  'senegalaise':             'Sénégalaise',  '2': 'Sénégalaise',
-  'ivoirienne':              'Ivoirienne',   '3': 'Ivoirienne',
-  'fast-food': 'Fast-food', 'fast food': 'Fast-food', 'fastfood': 'Fast-food', '4': 'Fast-food',
-  'grillades':               'Grillades',    '5': 'Grillades',
-  'autre':                   'Autre',        '6': 'Autre',
-}
-function parseCuisine(input: string): string | null {
-  return CUISINE_MAP[input.toLowerCase().trim()] ?? null
-}
+// City and cuisine menus: lib/botRef.ts (reference data).
 
 // The account's language when there is one, else the guess.
 async function langFor(phone: string, text: string): Promise<Lang> {
@@ -493,6 +475,7 @@ async function findMenuItem(restaurantId: string, name: string) {
 // MAIN HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  await getRefData()   // fresh city / cuisine menus (60 s cache)
   const rawBody = await req.text()
   const params  = Object.fromEntries(new URLSearchParams(rawBody))
 
@@ -864,17 +847,18 @@ async function handleSession(
         step: 2, data: { ...data, name }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, pickLang(
-        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Tapez le nom ou le chiffre._`,
-        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Type the name or the number._`, L))
+        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n${cityMenu('fr')}`,
+        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n${cityMenu('en')}`, L))
       return ok()
     }
 
     if (step === 2) {
-      const city = parseCity(body)
-      if (!city) {
-        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé  5️⃣ Douala')
+      const cityReply = parseCityReply(body)
+      if (!cityReply) {
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n' + cityMenu(L))
         return ok()
       }
+      const city = cityReply.city
       const name = data.name ?? 'Ami'
       const { data: newCustomer, error } = await supabaseAdmin
         .from('customers').insert({ phone, name, city, preferred_language: L }).select('id').single()
@@ -884,6 +868,7 @@ async function handleSession(
         await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Please retry.', L))
         return ok()
       }
+      if (cityReply.proposed) await recordProposal({ kind: 'city', proposed: cityReply.proposed, by: newCustomer.id, targetType: 'customer', targetId: newCustomer.id, savedAs: city })
       const { assignWelcomeVoucher } = await import('@/lib/vouchers')
       await assignWelcomeVoucher(newCustomer.id)
       await sendWhatsApp(from, pickLang(
@@ -915,17 +900,18 @@ async function handleSession(
         step: 2, data: { ...data, name }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, pickLang(
-        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Tapez le nom ou le chiffre._`,
-        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Type the name or the number._`, L))
+        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n${cityMenu('fr')}`,
+        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n${cityMenu('en')}`, L))
       return ok()
     }
 
     if (step === 2) {
-      const city = parseCity(body)
-      if (!city) {
-        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé  5️⃣ Douala')
+      const cityReply = parseCityReply(body)
+      if (!cityReply) {
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n' + cityMenu(L))
         return ok()
       }
+      const city = cityReply.city
       const name = data.name ?? 'Ami'
       const invitationIds = (data.invitation_ids as unknown as string[] | undefined) ?? []
 
@@ -937,6 +923,8 @@ async function handleSession(
         await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Please retry.', L))
         return ok()
       }
+
+      if (cityReply.proposed) await recordProposal({ kind: 'city', proposed: cityReply.proposed, by: newCustomer.id, targetType: 'customer', targetId: newCustomer.id, savedAs: city })
 
       // Reload the (still-pending) invitations by ID — guards against a row
       // being cancelled while the user was typing their name/city.
@@ -976,19 +964,20 @@ async function handleSession(
         step: 2, data: { ...data, restaurant_name: restaurantName }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, `*${restaurantName}* — ${pickLang('super', 'great', L)}! 👍\n\n` +
-        pickLang('Dans quelle *ville*?', 'Which *city*?', L) + '\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala')
+        pickLang('Dans quelle *ville*?', 'Which *city*?', L) + '\n\n' + cityMenu(L))
       return ok()
     }
 
     // Step 2: city
     if (step === 2) {
-      const city = parseCity(body)
-      if (!city) {
-        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé  5️⃣ Douala')
+      const cityReply = parseCityReply(body)
+      if (!cityReply) {
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n' + cityMenu(L))
         return ok()
       }
+      const city = cityReply.city
       await supabaseAdmin.from('signup_sessions').update({
-        step: 3, data: { ...data, city }, expires_at: sessionExpiry(),
+        step: 3, data: { ...data, city, ...(cityReply.proposed ? { city_proposed: cityReply.proposed } : {}) }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, pickLang('Dans quel *quartier*?', 'Which *neighbourhood*?', L) + '\n_Ex: Bastos, Plateau, Cocody, Médina…_')
       return ok()
@@ -1004,23 +993,19 @@ async function handleSession(
       await supabaseAdmin.from('signup_sessions').update({
         step: 4, data: { ...data, neighborhood }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
-      await sendWhatsApp(from, pickLang(
-        'Type de *cuisine*?\n\n1️⃣ Camerounaise\n2️⃣ Sénégalaise\n3️⃣ Ivoirienne\n4️⃣ Fast-food\n5️⃣ Grillades\n6️⃣ Autre\n\n_Tapez le nom ou le chiffre._',
-        '*Food* type?\n\n1️⃣ Cameroonian\n2️⃣ Senegalese\n3️⃣ Ivorian\n4️⃣ Fast food\n5️⃣ Grills\n6️⃣ Other\n\n_Type the number._', L))
+      await sendWhatsApp(from, cuisineMenu(L))
       return ok()
     }
 
     // Step 4: cuisine type
     if (step === 4) {
-      const cuisine = parseCuisine(body)
-      if (!cuisine) {
-        await sendWhatsApp(from, pickLang(
-          'Choisissez :\n1 Camerounaise  2 Sénégalaise  3 Ivoirienne\n4 Fast-food  5 Grillades  6 Autre',
-          'Choose:\n1 Cameroonian  2 Senegalese  3 Ivorian\n4 Fast food  5 Grills  6 Other', L))
+      const cuisineReply = parseCuisineReply(body)
+      if (!cuisineReply) {
+        await sendWhatsApp(from, cuisineMenu(L))
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({
-        step: 5, data: { ...data, cuisine_type: cuisine }, expires_at: sessionExpiry(),
+        step: 5, data: { ...data, cuisine_type: cuisineReply.cuisine ?? '', ...(cuisineReply.proposed ? { cuisine_proposed: cuisineReply.proposed } : {}) }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, pickLang(
         '📸 Envoyez une *photo de votre restaurant* (obligatoire) : la devanture, la salle ou un plat.',
@@ -1055,7 +1040,7 @@ async function handleSession(
 
       const restaurantName = data.restaurant_name ?? 'Restaurant'
       const neighborhood   = data.neighborhood    ?? ''
-      const cuisine        = data.cuisine_type    ?? 'Autre'
+      const cuisine        = data.cuisine_type    || null   // optional: no default
       const city           = data.city            ?? ''
       const customerId     = data.customer_id     ?? null
 
@@ -1084,6 +1069,8 @@ async function handleSession(
         return ok()
       }
 
+      if (data.city_proposed) await recordProposal({ kind: 'city', proposed: String(data.city_proposed), by: customerId, targetType: 'restaurant', targetId: newRestaurant.id, savedAs: city })
+      if (data.cuisine_proposed) await recordProposal({ kind: 'cuisine', proposed: String(data.cuisine_proposed), by: customerId, targetType: 'restaurant', targetId: newRestaurant.id, savedAs: cuisine })
       await sendWhatsApp(from, registeredText(restaurantName, `${BASE_URL}/restaurant/${newRestaurant.id}`, L))
       return ok()
     }
@@ -2673,7 +2660,10 @@ function parseSubscribeCategories(tail: string): string[] | null {
   if (tokens.some(t => SUB_ALL_TOKENS.has(t))) return null
   const cats = new Set<string>()
   for (const t of tokens) {
+    // The aliases, else a category's code or label (reference data — so a
+    // category added in admin works too).
     const c = SUB_KEYWORD_TO_CATEGORY[t]
+      ?? refList('event_category').find(v => [v.code, v.label_fr, v.label_en].some(x => x.toLowerCase() === t))?.code
     if (c) cats.add(c)
   }
   return cats.size > 0 ? Array.from(cats) : null

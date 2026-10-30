@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
+import { chooseCity, chooseCuisine, recordProposal } from '@/lib/refChoice'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { sanitizeText, sanitizePhone } from '@/lib/sanitize'
@@ -92,7 +94,6 @@ export async function POST(req: NextRequest) {
   const name        = sanitizeText(body.name, 120)
   const description = sanitizeText(body.description, 500)
   const address     = sanitizeText(body.address, 200)
-  const city        = sanitizeText(body.city, 60)
   const phone       = sanitizeText(body.phone, 32)
   const whatsapp    = sanitizeText(body.whatsapp, 32)
   const logo_url    = typeof body.logo_url === 'string' ? body.logo_url.trim() : ''
@@ -106,9 +107,14 @@ export async function POST(req: NextRequest) {
 
   // Mirrors the form's own required-field check so the server is the one
   // enforcing it rather than trusting the client to have run it.
-  if (!name || !city) {
-    return NextResponse.json({ error: 'Nom et ville requis / Name and city required' }, { status: 400 })
+  await getRefData()
+  const cityPick = chooseCity(body.city, body.city_other)
+  const cuisinePick = chooseCuisine(body.cuisine_type, body.cuisine_other)
+  if (!name || !cityPick.ok) {
+    return NextResponse.json({ error: !name ? 'Nom et ville requis / Name and city required' : (cityPick as { error: string }).error, field: !name ? 'name' : 'city' }, { status: 400 })
   }
+  if (!cuisinePick.ok) return NextResponse.json({ error: cuisinePick.error, field: 'cuisine_type' }, { status: 400 })
+  const city = cityPick.city
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({ error: 'lat et lng requis / lat and lng required' }, { status: 400 })
   }
@@ -161,6 +167,7 @@ export async function POST(req: NextRequest) {
     .from('restaurants')
     .insert({
       name, description, address, city, phone, logo_url: logo_url || null,
+      cuisine_type: cuisinePick.cuisine,
       whatsapp:    owner ? (whatsapp || owner.phone) : (whatsapp || null),
       owner_name:  owner?.name ?? null,
       customer_id: owner?.id ?? null,
@@ -193,6 +200,9 @@ export async function POST(req: NextRequest) {
     if (set.ok) data.modules = set.after
     else console.error('[admin/restaurants] modules:', set.error)
   }
+
+  if (cityPick.proposed) await recordProposal({ kind: 'city', proposed: cityPick.proposed, by: null, targetType: 'restaurant', targetId: data.id, savedAs: city })
+  if (cuisinePick.proposed) await recordProposal({ kind: 'cuisine', proposed: cuisinePick.proposed, by: null, targetType: 'restaurant', targetId: data.id, savedAs: cuisinePick.cuisine })
 
   await writeAudit({
     action:          'restaurant_created_by_admin',

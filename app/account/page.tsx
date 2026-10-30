@@ -1,4 +1,5 @@
 'use client'
+import RefPicker, { pickerBody } from '@/components/RefPicker'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +19,6 @@ import LanguageToggle from '@/components/LanguageToggle'
 import ModeToggle from '@/components/ModeToggle'
 import VoucherCard from '@/components/VoucherCard'
 import AdminProfilePanel from '@/components/AdminProfilePanel'
-import { visibleCities } from '@/lib/cities'
 import { useRefData } from '@/lib/useRefData'
 import PaymentBadge from '@/components/PaymentBadge'
 import NotificationsPanel from '@/components/NotificationsPanel'
@@ -253,12 +253,12 @@ export default function AccountPage() {
   const [profileEditing,  setProfileEditing]  = useState(false)
   const [profileName,     setProfileName]     = useState('')
   const [profileCity,     setProfileCity]     = useState('')
+  const [profileCityOther, setProfileCityOther] = useState('')
   const [profileNickname, setProfileNickname] = useState('')
   const [savingNickname,  setSavingNickname]  = useState(false)
   const [savingProfile,   setSavingProfile]   = useState(false)
   useRefData()
   // Offered cities; a city the profile already has stays listed even if hidden.
-  const PROFILE_CITIES = Array.from(new Set([...visibleCities(), ...(profileCity ? [profileCity] : [])]))
 
   // Modals
   type VendorModal = 'suspend-rest' | 'delete-rest' | 'delete-account' | null
@@ -711,11 +711,11 @@ export default function AccountPage() {
       const res = await fetch('/api/auth/update-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: profileName, city: profileCity }),
+        body: JSON.stringify({ name: profileName, ...pickerBody('city', profileCity, profileCityOther) }),
       })
       const data = await res.json()
       if (res.ok) {
-        setProfile(p => (p ? { ...p, name: profileName, city: profileCity } : p))
+        setProfile(p => (p ? { ...p, name: profileName, city: data?.profile?.city ?? profileCity } : p))
         setProfileEditing(false)
         showToast(bi('✅ Profil mis à jour', 'Profile updated'))
       } else {
@@ -1266,14 +1266,9 @@ export default function AccountPage() {
                         <div>
                           <label className="block text-xs text-ink-tertiary mb-1">{bi('Ville', 'City')}</label>
                           {profileEditing ? (
-                            <select
-                              value={profileCity}
-                              onChange={e => setProfileCity(e.target.value)}
-                              className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white"
-                            >
-                              <option value="">—</option>
-                              {PROFILE_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
+                            <RefPicker kind="city" optional value={profileCity} other={profileCityOther}
+                              onChange={(v, o) => { setProfileCity(v); setProfileCityOther(o) }}
+                              className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white" />
                           ) : (
                             <p className="font-semibold text-ink-primary">{profile.city || '—'}</p>
                           )}
