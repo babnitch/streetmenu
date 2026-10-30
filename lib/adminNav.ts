@@ -42,7 +42,7 @@ export const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
   restaurants:  'Restaurants',
   orders:       'Commandes / Orders',
   events:       'Événements / Events',
-  places:       'Lieux / Places',
+  places:       'À visiter / To visit',
   stats:        'Statistiques / Statistics',
   reference:    'Données de référence / Reference data',
   broadcasts:   'Diffusions / Broadcasts',
@@ -85,9 +85,12 @@ export const ADMIN_TAB_ICONS: Record<AdminSubTab, string> = {
 // change: TILES are the primary links, ROWS are the ⋯ menu, in this order.
 // Keep the two arrays as the ordering authority for BOTH surfaces so the bar
 // and the (still-live) mobile grid can never present the items differently.
-export const ADMIN_TILES: readonly AdminSubTab[] = ['accounts', 'restaurants', 'events']
+// Order by use (2026-10-30): Commandes, Restaurants, Événements, À visiter,
+// Comptes — then the rest. The top bar shows as many as fit, in this order,
+// and puts the others under ⋯ (components/AdminBar.tsx).
+export const ADMIN_TILES: readonly AdminSubTab[] = ['orders', 'restaurants', 'events', 'places', 'accounts']
 export const ADMIN_ROWS:  readonly AdminSubTab[] = [
-  'orders', 'places', 'stats', 'reference', 'reports', 'broadcasts', 'promotions', 'vouchers', 'messages', 'platform', 'platformteam', 'profile',
+  'stats', 'reference', 'reports', 'broadcasts', 'promotions', 'vouchers', 'messages', 'platform', 'platformteam', 'profile',
 ]
 export const ADMIN_TABS:  readonly AdminSubTab[] = [...ADMIN_TILES, ...ADMIN_ROWS]
 

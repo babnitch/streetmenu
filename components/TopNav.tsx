@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useCart } from '@/lib/cartContext'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import CityDropdown from './CityDropdown'
@@ -12,15 +12,11 @@ import AddSheetHost from './AddSheet'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
 import LowDataHint from '@/components/LowDataHint'
+import AdminBar from '@/components/AdminBar'
 import { trackVisit } from '@/lib/track'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
 import { showProAlerts, showCustomerBadges } from '@/lib/modeSurfaces'
-import { pickBi } from '@/lib/languageContext'
-import type { Locale } from '@/lib/translations'
-import {
-  ADMIN_TILES, ADMIN_ROWS, ADMIN_TAB_LABELS, ADMIN_TAB_ICONS,
-  isAdminRole, visibleAdminTabs, type AdminSubTab,
-} from '@/lib/adminNav'
+import { isAdminRole, type AdminSubTab } from '@/lib/adminNav'
 
 interface TopNavProps {
   // Retained for compatibility with pages that pass a Join CTA. New layout
@@ -147,16 +143,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
   const isAdmin = isAdminRole(me?.role)
   const isAccount = pathname === '/account'
 
-  // ONE filter, applied to each half. ADMIN_TILES are the primary links and
-  // ADMIN_ROWS the ⋯ contents; the split and the ordering both come from
-  // lib/adminNav.ts, which is also what the account page renders from, so
-  // the bar and the panels cannot disagree about what exists.
-  //
-  // A role that may not open a tab sees it in NEITHER surface — a moderator
-  // gets 2 primary (no Accounts) and 5 in the ⋯. Presentation only: the
-  // admin API routes do their own authorization regardless.
-  const adminPrimary = visibleAdminTabs(me?.role, ADMIN_TILES)
-  const adminMore    = visibleAdminTabs(me?.role, ADMIN_ROWS)
+  // The admin bar (items that fit + ⋯) is components/AdminBar.tsx.
 
   // Structurally identical to goToDashTab above, for the identical reason:
   // Next treats /account?tab=a and ?tab=b as one route and skips the
@@ -187,7 +174,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           right (N1). Log in / account, language and the Pro entries live in
           the ☰ menu (components/SideMenu.tsx). Admins keep a bare bar: their
           navigation is the console on /account. */}
-      <div className="md:hidden px-2 h-12 flex items-center justify-between gap-2">
+      {!isAdmin && <div className="md:hidden px-2 h-12 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 min-w-0">
           {!isAdmin && <MenuButton onClick={() => setMenuOpen(true)} badge={showProAlerts(effectiveMode) ? pendingCount : 0} label={bi('Menu', 'Menu')} />}
           <Link href={isAdmin ? '/account' : '/'} className="font-black text-brand tracking-tight truncate px-1">
@@ -200,7 +187,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
             <MapButton onClick={toggleMap} label={bi('Carte', 'Map')} />
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── Desktop ADMIN bar (md+) ─────────────────────────────────────
           The admin nav, in the top bar, as the SINGLE place it lives on
@@ -223,54 +210,11 @@ export default function TopNav({ cta }: TopNavProps = {}) {
           account page's own md+ hello header, which is shared with the
           customer and vendor views and is left untouched. */}
       {isAdmin && (
-        <div className="hidden max-w-5xl mx-auto px-3 sm:px-4 h-14 md:flex items-center gap-2 sm:gap-4">
-          {/* Points at /account, not / — middleware.ts bounces an admin from
-              / straight back to /account, so a logo linking there would be a
-              visible round trip to nowhere. */}
-          <Link href="/account" className="flex items-center gap-1 flex-shrink-0" aria-label="Tchop &amp; Ndjoka — admin console">
-            <span className="text-brand font-black tracking-tight text-lg sm:text-xl">T&amp;N</span>
-            <span className="hidden lg:inline font-bold text-ink-primary text-sm">Tchop &amp; Ndjoka</span>
-          </Link>
-
-          <nav className="flex items-center gap-1 flex-1 whitespace-nowrap" aria-label={bi('Navigation administration', 'Admin navigation')}>
-            {adminPrimary.map(tab => (
-              <TopNavButton
-                key={tab}
-                onClick={() => goToAdminTab(tab)}
-                // Only /account renders a panel, so nothing is "current"
-                // while the admin is off on a public page.
-                active={isAccount && adminTab === tab}
-              >
-                {ADMIN_TAB_ICONS[tab]} {pickBi(ADMIN_TAB_LABELS[tab], locale)}
-              </TopNavButton>
-            ))}
-
-            {adminMore.length > 0 && (
-              <AdminMoreMenu
-                tabs={adminMore}
-                current={isAccount ? adminTab : null}
-                locale={locale}
-                label={bi('Plus', 'More')}
-                onSelect={goToAdminTab}
-              />
-            )}
-          </nav>
-
-          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-            {isLowData && (
-              <button
-                type="button"
-                onClick={toggleLowData}
-                title={bi('Mode économique actif', 'Low-data mode on')}
-                aria-label={bi('Mode économique actif', 'Low-data mode on')}
-                className="w-9 h-9 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-              >
-                📶
-              </button>
-            )}
-            <LanguageToggle />
-          </div>
-        </div>
+        <AdminBar role={me?.role} current={isAccount ? adminTab : null} onSelect={goToAdminTab}
+          extra={isLowData ? (
+            <button type="button" onClick={toggleLowData} title={bi('Mode économique actif', 'Low-data mode on')} aria-label={bi('Mode économique actif', 'Low-data mode on')}
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">📶</button>
+          ) : null} />
       )}
 
       {/* ── Desktop bar (md+), customer mode (N1) ──────────────────────────
@@ -518,94 +462,6 @@ function TopNavButton({
   )
 }
 
-// ── The ⋯ menu ──────────────────────────────────────────────────────────────
-// Holds the eight secondary admin destinations, filtered by the caller.
-//
-// Deliberately the SAME pattern as components/CityDropdown.tsx rather than a
-// new one: a ref'd root, mousedown-outside and Escape to close, a real
-// <button> per item so Tab and Enter work without any key handling of our
-// own, and aria-haspopup/aria-expanded on the trigger. Nothing here depends
-// on focus trapping, portals or a click-away library.
-function AdminMoreMenu({
-  tabs, current, locale, label, onSelect,
-}: {
-  tabs: AdminSubTab[]
-  /** The open panel, or null when the admin is off /account and nothing is
-   *  current. Drives the ✓ and the highlight. */
-  current: AdminSubTab | null
-  locale: Locale
-  label: string
-  onSelect: (t: AdminSubTab) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onDocClick(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDocClick)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  // A selection inside the menu is also active state on the trigger, so the
-  // admin can tell at a glance that the open panel came from in here.
-  const currentIsInside = current != null && tabs.includes(current)
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={label}
-        title={label}
-        className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-          currentIsInside || open
-            ? 'bg-brand-light text-brand-darker'
-            : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-muted'
-        }`}
-      >
-        <span aria-hidden="true">⋯</span>
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute top-full mt-2 left-0 min-w-[14rem] bg-surface border border-divider rounded-2xl shadow-card py-1 z-50"
-        >
-          {tabs.map(tab => {
-            const selected = tab === current
-            return (
-              <button
-                key={tab}
-                role="menuitem"
-                onClick={() => { onSelect(tab); setOpen(false) }}
-                className={`w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2 ${
-                  selected
-                    ? 'bg-brand-light text-brand-darker font-semibold'
-                    : 'text-ink-primary hover:bg-surface-muted'
-                }`}
-              >
-                <span aria-hidden="true">{ADMIN_TAB_ICONS[tab]}</span>
-                <span className="flex-1">{pickBi(ADMIN_TAB_LABELS[tab], locale)}</span>
-                {selected && <span aria-hidden="true">✓</span>}
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
 
 // 🗺 — the restaurant map (see toggleMap).
 function MapButton({ onClick, label }: { onClick: () => void; label: string }) {
