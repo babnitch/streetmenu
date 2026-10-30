@@ -1,6 +1,10 @@
 'use client'
 
 import GeneratedCover from '@/components/GeneratedCover'
+import PhotoCredit from '@/components/PhotoCredit'
+import { CompactRow, dot } from '@/components/CompactRow'
+import { CATEGORY_EMOJI } from '@/components/events/EventPoster'
+import { placeCategory } from '@/lib/places'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -17,7 +21,7 @@ import { formatPrepTime } from '@/lib/prepTime'
 import { formatDeliveryTime } from '@/lib/delivery'
 import { percentOffLabel } from '@/lib/offers'
 import CardTag from '@/components/CardTag'
-import { cuisineTag } from '@/lib/cuisineCategories'
+import { cuisineTag, cuisineIcon } from '@/lib/cuisineCategories'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/weekend'
 import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
@@ -32,7 +36,7 @@ interface PopularEvent extends EventWhen {
   price_from: number; is_free: boolean; has_tiers: boolean; price_unknown?: boolean; price_is_from?: boolean
 }
 interface WeekendEvent extends EventWhen {
-  id: string; title: string; category: string | null; cover_photo: string | null
+  id: string; title: string; category: string | null; venue?: string | null; cover_photo: string | null
   date: string; end_date: string | null; time: string | null; end_time: string | null
   days: Array<{ date: string }>; fromPrice: number | null
 }
@@ -106,6 +110,18 @@ export default function HomePage() {
   const partnerHref = !modeLoading && sessionRole ? '/pro' : loginHref('/pro')
   const img = (src: string | null | undefined) => (isLowData ? null : (src || null))
 
+  // Mode économique rows say "Ouvert / Fermé": the same bulk status as the
+  // Restaurants page, fetched only in that mode.
+  const [openNow, setOpenNow] = useState<Record<string, boolean>>({})
+  const restIds = (popular?.restaurants ?? []).map(r => r.id).join(',')
+  useEffect(() => {
+    if (!isLowData || !restIds) return
+    fetch(`/api/restaurants/open-status?ids=${restIds}`).then(r => r.json())
+      .then(d => setOpenNow(Object.fromEntries(Object.entries((d?.status ?? {}) as Record<string, { open?: boolean }>).map(([k, v]) => [k, !!v?.open]))))
+      .catch(() => null)
+  }, [isLowData, restIds])
+  const openLabel = (id: string) => id in openNow ? (openNow[id] ? bi('Ouvert', 'Open') : bi('Fermé', 'Closed')) : null
+
   // "Livraison 500 FCFA · 35-50 min" / "Livraison offerte · …" / "À emporter · 20-35 min"
   const fulfilmentLine = (r: PopularRestaurant) => {
     if (r.delivery_enabled) {
@@ -147,7 +163,10 @@ export default function HomePage() {
                 tag={bi('Offre', 'Deal')}
                 badge={o.dish ? percentOffLabel(o.dish.regular_price, o.dish.offer_price) : bi('Livraison offerte', 'Free delivery')}
                 title={o.dish?.name ?? o.restaurant.name}
-                sub={o.dish ? o.restaurant.name : bi('Aujourd\'hui', 'Today')}>
+                sub={o.dish ? o.restaurant.name : bi('Aujourd\'hui', 'Today')}
+                icon="🏷️" line={o.dish
+                  ? <>{o.restaurant.name} · <b className="text-ink-primary">{formatFCFA(o.dish.offer_price)}</b> <s>{formatAmount(o.dish.regular_price)}</s></>
+                  : dot(o.restaurant.name, bi('Livraison offerte aujourd\'hui', 'Free delivery today'))}>
                 {o.dish && (
                   <p className="text-[12px] mt-0.5">
                     <span className="font-bold text-brand-dark">{formatFCFA(o.dish.offer_price)}</span>{' '}
@@ -168,7 +187,8 @@ export default function HomePage() {
                 cover={{ kind: 'restaurant', area: r.neighborhood }}
                 tag={cuisineTag(r, locale)}
                 badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
-                title={r.name} sub={fulfilmentLine(r)} />
+                title={r.name} sub={fulfilmentLine(r)}
+                icon={cuisineIcon(r)} line={dot(r.neighborhood, openLabel(r.id), r.delivery_enabled ? bi('Livraison', 'Delivery') : bi('À emporter', 'Take-away'))} />
             ))}
           </Row>
         )}
@@ -178,7 +198,9 @@ export default function HomePage() {
             {weekend.map(e => (
               <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
                 tag={e.category ? categoryLabel(e.category, locale) : null}
-                title={e.title} sub={formatEventWhen(e, locale, 'card')}>
+                title={e.title} sub={formatEventWhen(e, locale, 'card')}
+                icon={CATEGORY_EMOJI[e.category ?? ''] ?? '🎉'}
+                line={dot(e.venue, formatEventWhen(e, locale, 'card'), e.fromPrice === null ? null : e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`)}>
                 {e.fromPrice !== null && <p className="text-[12px] font-bold text-brand-dark mt-0.5">{e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`}</p>}
               </Card>
             ))}
@@ -192,7 +214,8 @@ export default function HomePage() {
             {popular.events.map(e => (
               <Card key={`e-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
                 tag={e.category ? categoryLabel(e.category, locale) : null}
-                title={e.title} sub={formatEventWhen(e, locale, 'card')}>
+                title={e.title} sub={formatEventWhen(e, locale, 'card')}
+                icon={CATEGORY_EMOJI[e.category ?? ''] ?? '🎉'} line={dot(e.venue, formatEventWhen(e, locale, 'card'), eventPrice(e))}>
                 <p className="text-[12px] font-bold text-brand-dark mt-0.5">{eventPrice(e)}</p>
               </Card>
             ))}
@@ -202,9 +225,10 @@ export default function HomePage() {
         {places.length > 0 && (
           <Row id="places" title={bi(`Que faire à ${city} ?`, `What to do in ${city}?`)} more={{ href: '/lieux', label: bi('Tout voir', 'See all') }}>
             {places.map(p => (
-              <Card key={`p-${p.id}`} href={`/lieux/${p.id}`} image={img(p.cover_url)} fallback="🏛️"
+              <Card key={`p-${p.id}`} href={`/lieux/${p.id}`} image={img(p.cover_url)} fallback="🏛️" credit={p.photo_credit}
                 cover={{ kind: 'place', area: p.area }} tag={placeCategoryLabel(p.category, locale)}
-                title={pick(p, 'title', locale)} sub={p.area ?? ''} />
+                title={pick(p, 'title', locale)} sub={p.area ?? ''}
+                icon={placeCategory(p.category)?.icon ?? '🏛️'} line={dot(p.area, placeCategoryLabel(p.category, locale), p.price)} />
             ))}
           </Row>
         )}
@@ -225,6 +249,19 @@ export default function HomePage() {
 // One horizontal row: a heading (with "Tout voir" when given) and cards that
 // scroll sideways, edge to edge on a phone.
 function Row({ id, title, more, children }: { id: string; title: string; more?: { href: string; label: string }; children: React.ReactNode }) {
+  const { isLowData } = useDataMode()
+  if (isLowData) {
+    // Mode économique: a short vertical list, 5 items at most.
+    return (
+      <section className="mt-6" aria-labelledby={`${id}-heading`}>
+        <div className="flex items-baseline justify-between gap-3 mb-2">
+          <h2 id={`${id}-heading`} className="text-base font-bold text-ink-primary">{title}</h2>
+          {more && <Link href={more.href} className="text-sm font-semibold text-brand-dark hover:underline flex-shrink-0">{more.label} →</Link>}
+        </div>
+        <div className="flex flex-col gap-2">{(Array.isArray(children) ? children : [children]).flat().slice(0, 5)}</div>
+      </section>
+    )
+  }
   return (
     <section className="mt-8" aria-labelledby={`${id}-heading`}>
       <div className="flex items-baseline justify-between gap-3 mb-3">
@@ -239,17 +276,24 @@ function Row({ id, title, more, children }: { id: string; title: string; more?: 
 }
 
 // A card in a row. `poster` gives events a taller, poster-shaped image.
-function Card({ href, image, fallback, badge, tag, title, sub, poster, cover, children }: {
+function Card({ href, image, fallback, badge, tag, title, sub, poster, cover, credit, icon, line, children }: {
   href: string; image: string | null; fallback: string; badge?: string; tag?: string | null; title: string; sub: string; poster?: boolean
   /** I1: no image → the generated cover of this kind (with the area). */
   cover?: { kind: 'restaurant' | 'event' | 'place'; area?: string | null }
+  /** The photo's credit (Lieux from Wikimedia Commons), shown on the photo. */
+  credit?: string | null
+  /** Mode économique row: its icon and grey line. */
+  icon?: string
+  line?: React.ReactNode
   children?: React.ReactNode
 }) {
+  const { isLowData } = useDataMode()
+  if (isLowData) return <CompactRow href={href} icon={icon ?? fallback} title={title} line={line ?? sub} />
   return (
     <Link href={href} className={`snap-start flex-shrink-0 ${poster ? 'w-36' : 'w-44'} bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
       <div className={`relative ${poster ? 'h-48' : 'h-28'} bg-gradient-to-br from-brand-badge to-brand`}>
         {image
-          ? <Image src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover" />
+          ? <><Image src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover" />{credit && <PhotoCredit credit={credit} url={null} compact />}</>
           : cover ? <GeneratedCover kind={cover.kind} title={title} area={cover.area} />
           : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">{fallback}</span>}
         {/* U4: category pill top-left; the deal badge top-right. */}

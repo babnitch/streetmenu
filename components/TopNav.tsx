@@ -11,6 +11,7 @@ import SideMenu from './SideMenu'
 import AddSheetHost from './AddSheet'
 import { useMode, type DashboardTab } from '@/lib/modeContext'
 import { useDataMode } from '@/lib/dataMode'
+import LowDataHint from '@/components/LowDataHint'
 import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
 import { showProAlerts, showCustomerBadges } from '@/lib/modeSurfaces'
 import { pickBi } from '@/lib/languageContext'
@@ -426,6 +427,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
         </div>
       </div>
 
+      {!isAdmin && <LowDataHint />}
       {!isAdmin && <AddSheetHost />}
       {!isAdmin && (
         <SideMenu open={menuOpen} onClose={closeMenu} user={me ? { name: me.name, role: me.role } : null} pendingCount={showProAlerts(effectiveMode) ? pendingCount : 0} />

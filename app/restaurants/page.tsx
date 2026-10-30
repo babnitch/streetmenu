@@ -18,6 +18,8 @@ import { formatPrepTime } from '@/lib/prepTime'
 import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
 import { useDataMode } from '@/lib/dataMode'
+import { CompactRow, dot } from '@/components/CompactRow'
+import { cuisineIcon } from '@/lib/cuisineCategories'
 import { arrangePromoted, FEED_INJECT_EVERY_RESTAURANT } from '@/lib/promotions'
 import { CUISINE_CATEGORIES, matchesCuisineCategory } from '@/lib/cuisineCategories'
 import { matchesSearch } from '@/lib/textSearch'
@@ -55,6 +57,7 @@ function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: numb
 
 export default function HomePage() {
   const bi = useBi()
+  const { isLowData } = useDataMode()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
   const [openStatus, setOpenStatus] = useState<Record<string, { open: boolean }>>({})
@@ -520,11 +523,20 @@ export default function HomePage() {
             <h2 className="text-lg font-bold text-ink-primary mb-3">
               {bi('Commander à nouveau', 'Order again')}
             </h2>
-            <div className="flex gap-3 overflow-x-auto -mx-4 px-4 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {reorderRestaurants.map(r => (
-                <ReorderCard key={r.id} restaurant={r} />
-              ))}
-            </div>
+            {isLowData ? (
+              <div className="flex flex-col gap-2">
+                {reorderRestaurants.slice(0, 5).map(r => (
+                  <CompactRow key={r.id} href={`/restaurant/${r.id}`} icon={cuisineIcon(r)} title={r.name}
+                    line={dot(r.neighborhood, formatPrepTime(r.prep_time_min, r.prep_time_max))} />
+                ))}
+              </div>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto -mx-4 px-4 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {reorderRestaurants.map(r => (
+                  <ReorderCard key={r.id} restaurant={r} />
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -559,7 +571,7 @@ export default function HomePage() {
         )}
 
         {!loading && filtered.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-2 md:gap-6 lg:grid-cols-3">
+          <div className={isLowData ? 'flex flex-col gap-2' : 'grid grid-cols-2 gap-3 md:grid-cols-2 md:gap-6 lg:grid-cols-3'}>
             {arranged.map((entry, idx) => (
               <RestaurantCard
                 key={`${entry.item.id}-${entry.promotionId ?? 'reg'}-${idx}`}

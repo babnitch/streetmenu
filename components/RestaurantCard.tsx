@@ -2,7 +2,9 @@
 
 import GeneratedCover from '@/components/GeneratedCover'
 import CardTag from '@/components/CardTag'
-import { cuisineTag } from '@/lib/cuisineCategories'
+import { cuisineTag, cuisineIcon } from '@/lib/cuisineCategories'
+import { CompactRow, dot } from '@/components/CompactRow'
+import { deliversNow } from '@/lib/modules'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -74,6 +76,20 @@ export default function RestaurantCard({
   // the user's bandwidth budget stays predictable. The gradient + initial
   // fallback already shipped as the empty-image state — we reuse it.
   const showImage = !isLowData && heroImage && !imgError
+
+  // Mode économique: a text row (the parent lays rows out as a list).
+  if (isLowData) {
+    return (
+      <CompactRow href={`/restaurant/${restaurant.id}`} icon={cuisineIcon(restaurant)} title={restaurant.name}
+        onClick={() => { if (promotionId) import('@/lib/promoTracking').then(m => m.fireClick(promotionId)) }}
+        line={dot(
+          neighborhood,
+          isOpen ? bi('Ouvert', 'Open') : bi('Fermé', 'Closed'),
+          deliversNow(restaurant) ? bi('Livraison', 'Delivery') : bi('À emporter', 'Take-away'),
+          promotionId ? bi('Sponsorisé', 'Sponsored') : null,
+        )} />
+    )
+  }
 
   return (
     <Link

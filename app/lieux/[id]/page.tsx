@@ -9,6 +9,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import TopNav from '@/components/TopNav'
 import GeneratedCover from '@/components/GeneratedCover'
+import PhotoCredit from '@/components/PhotoCredit'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useDataMode } from '@/lib/dataMode'
 import { directionsUrl, pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
@@ -50,7 +51,8 @@ export default function PlacePage() {
       <TopNav />
       <div className="relative h-56 md:h-72 md:max-w-2xl md:mx-auto md:mt-4 md:rounded-2xl overflow-hidden bg-surface-muted">
         {place.cover_url && !isLowData
-          ? <Image src={place.cover_url} alt={title} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority />
+          ? <><Image src={place.cover_url} alt={title} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority />
+              <PhotoCredit credit={place.photo_credit} url={place.photo_credit_url} /></>
           : <GeneratedCover kind="place" size="hero" title={title} area={place.area} category={placeCategoryLabel(place.category, locale)} />}
         <button onClick={() => router.back()} aria-label={bi('Retour', 'Back')}
           className="absolute top-4 left-4 bg-surface/95 rounded-full w-10 h-10 flex items-center justify-center text-ink-primary shadow-card">←</button>

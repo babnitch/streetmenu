@@ -10,16 +10,25 @@ import { useDataMode } from '@/lib/dataMode'
 import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
 import GeneratedCover from '@/components/GeneratedCover'
 import CardTag from '@/components/CardTag'
+import PhotoCredit from '@/components/PhotoCredit'
+import { CompactRow, dot } from '@/components/CompactRow'
+import { placeCategory } from '@/lib/places'
 
 export default function PlaceCard({ place, compact = false }: { place: PublicPlace; compact?: boolean }) {
   const { locale } = useLanguage()
   const { isLowData } = useDataMode()
   const title = pick(place, 'title', locale)
+  // Mode économique: a text row (category · price), no photo.
+  if (isLowData) {
+    return <CompactRow href={`/lieux/${place.id}`} icon={placeCategory(place.category)?.icon ?? '🏛️'} title={title}
+      line={dot(place.area, placeCategoryLabel(place.category, locale), place.price)} />
+  }
   return (
     <Link href={`/lieux/${place.id}`} className={`group block bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow ${compact ? 'w-44 flex-shrink-0 snap-start' : ''}`}>
       <div className={`relative ${compact ? 'h-28' : 'aspect-[16/9]'} bg-surface-muted`}>
         {place.cover_url && !isLowData
-          ? <Image src={place.cover_url} alt="" fill sizes={compact ? '176px' : '(max-width: 768px) 100vw, 50vw'} className="object-cover" />
+          ? <><Image src={place.cover_url} alt="" fill sizes={compact ? '176px' : '(max-width: 768px) 100vw, 50vw'} className="object-cover" />
+              <PhotoCredit credit={place.photo_credit} url={place.photo_credit_url} compact /></>
           : <GeneratedCover kind="place" title={title} area={place.area} />}
         <CardTag label={placeCategoryLabel(place.category, locale)} />
       </div>

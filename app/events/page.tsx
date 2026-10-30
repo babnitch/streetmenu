@@ -4,6 +4,9 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { CompactRow, dot } from '@/components/CompactRow'
+import { useDataMode } from '@/lib/dataMode'
+import { CATEGORY_EMOJI } from '@/components/events/EventPoster'
 import TopNav from '@/components/TopNav'
 import { openAddSheet, PLACES_ENABLED } from '@/components/AddSheet'
 import { matchesSearch } from '@/lib/textSearch'
@@ -42,6 +45,7 @@ const upcomingDays = (e: ListingEvent, today: string): string[] => listingDays(e
 export default function EventsPage() {
   const bi = useBi()
   const { locale } = useLanguage()
+  const { isLowData } = useDataMode()
   const { city } = useCity()
   const [today, setToday] = useState<string>('')
   const [data, setData] = useState<{ events: ListingEvent[]; featuredId: string | null; promoted: Promoted[] } | null>(null)
@@ -215,7 +219,15 @@ export default function EventsPage() {
 
 
             {/* À LA UNE */}
-            {featured && !filtering && (
+            {featured && !filtering && isLowData && (
+              <section aria-labelledby="featured-heading" className="mb-5">
+                <h2 id="featured-heading" className="text-xs font-bold tracking-widest text-ink-tertiary mb-2">{bi('À LA UNE', 'FEATURED')}</h2>
+                <CompactRow href={`/events/${featured.id}`} icon={CATEGORY_EMOJI[featured.category ?? ''] ?? '🎉'} title={featured.title}
+                  onClick={() => { const pr = promotedBy[featured.id]; if (pr) import('@/lib/promoTracking').then(m => m.fireClick(pr.promotion_id)) }}
+                  line={dot(formatEventDates(featured, locale, 'card'), featured.venue, priceText(featured.fromPrice), promotedBy[featured.id] ? bi('Sponsorisé', 'Sponsored') : null)} />
+              </section>
+            )}
+            {featured && !filtering && !isLowData && (
               <section aria-labelledby="featured-heading" className="mb-7">
                 <h2 id="featured-heading" className="text-xs font-bold tracking-widest text-ink-tertiary mb-2">{bi('À LA UNE', 'FEATURED')}</h2>
                 <PromoLink promo={promotedBy[featured.id]} href={`/events/${featured.id}`}
@@ -234,7 +246,7 @@ export default function EventsPage() {
             )}
 
             {/* Cette semaine */}
-            {week.length > 0 && !filtering && (
+            {week.length > 0 && !filtering && !isLowData && (
               <section aria-labelledby="week-heading" className="mb-7">
                 <h2 id="week-heading" className="text-base font-bold text-ink-primary mb-3">{bi('Cette semaine', 'This week')}</h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -314,6 +326,7 @@ function EventRow({ e, shown, today, priceText }: {
 }) {
   const bi = useBi()
   const { locale } = useLanguage()
+  const { isLowData } = useDataMode()
   const days = upcomingDays(e, today)
   const multi = days.length > 1 || (!!e.end_date && e.end_date !== e.date)
   const d = new Date(`${shown}T00:00:00Z`)
@@ -323,6 +336,16 @@ function EventRow({ e, shown, today, priceText }: {
   const status = statusText(eventStatus(e.days, shown, e.recentSeats7d), today, locale, iso => formatEventDay(iso, locale, 'compact'))
   const statusTone = status && /Épuisé|Sold out/.test(status) ? 'text-danger' : 'text-amber-700'
 
+  // Mode économique: one text row (date · place · price).
+  if (isLowData) {
+    return (
+      <li>
+        <CompactRow href={`/events/${e.id}`} icon={CATEGORY_EMOJI[e.category ?? ''] ?? '🎉'} title={e.title}
+          line={dot(multi ? formatEventDates({ date: days[0] ?? e.date, end_date: days[days.length - 1] ?? e.end_date }, locale, 'compact') : formatEventDay(shown, locale, 'compact'),
+            e.venue, priceText(e.fromPrice), status)} />
+      </li>
+    )
+  }
   return (
     <li>
       <Link href={`/events/${e.id}`} className="flex gap-3 bg-white rounded-2xl border border-divider p-3 hover:shadow-sm transition-shadow">

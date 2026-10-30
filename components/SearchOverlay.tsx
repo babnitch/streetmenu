@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { Restaurant } from '@/types'
 import { useBi } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
+import { useDataMode } from '@/lib/dataMode'
 import RestaurantCard, { RestaurantCardSkeleton, type RatingSummary } from './RestaurantCard'
 import { normalizeCuisine } from '@/lib/cuisineCategories'
 import Link from 'next/link'
@@ -47,6 +48,7 @@ function writeRecents(list: string[]) {
 
 export default function SearchOverlay({ open, onClose, desktop = false }: { open: boolean; onClose: () => void; desktop?: boolean }) {
   const bi = useBi()
+  const { isLowData } = useDataMode()
   const { locale } = useLanguage()
   const [events, setEvents] = useState<SearchEvent[]>([])
   const { city } = useCity()
@@ -289,7 +291,7 @@ export default function SearchOverlay({ open, onClose, desktop = false }: { open
                   {bi('résultat(s)', 'result(s)')} · {city}
                   {menuSearching && <span className="text-ink-tertiary"> · {bi('recherche des plats…', 'searching dishes…')}</span>}
                 </p>
-                <div className={`grid grid-cols-2 ${desktop ? 'md:grid-cols-4' : ''} gap-3`}>
+                <div className={isLowData ? 'flex flex-col gap-2' : `grid grid-cols-2 ${desktop ? 'md:grid-cols-4' : ''} gap-3`}>
                   {results.map(r => (
                     <div key={r.id}>
                       <RestaurantCard

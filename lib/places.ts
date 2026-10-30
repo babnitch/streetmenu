@@ -39,6 +39,7 @@ export interface PublicPlace {
   tip_fr: string | null; tip_en: string | null; hours: string | null; price: string | null
   official_link: string | null; instagram_url: string | null; facebook_url: string | null; tiktok_url: string | null
   lat: number | null; lng: number | null; cover_url: string | null
+  photo_credit: string | null; photo_credit_url: string | null
 }
 export const PUBLIC_PLACE_COLUMNS = 'id, city, area, category, title_fr, title_en, headline_fr, headline_en, description_fr, description_en, tip_fr, tip_en, hours, price, official_link, instagram_url, facebook_url, tiktok_url, lat, lng, cover_url'
 
@@ -59,9 +60,9 @@ export type PlaceValidation = { ok: true; place: Record<string, string | number 
 
 const TEXT_LIMITS: Record<string, number> = {
   city: 60, area: 80, title_fr: 140, title_en: 140, headline_fr: 200, headline_en: 200, description_fr: 4000, description_en: 4000,
-  tip_fr: 1000, tip_en: 1000, hours: 300, price: 200, admin_note: 2000, sources: 4000,
+  tip_fr: 1000, tip_en: 1000, photo_credit: 300, hours: 300, price: 200, admin_note: 2000, sources: 4000,
 }
-const LINKS = ['official_link', 'instagram_url', 'facebook_url', 'tiktok_url', 'cover_url'] as const
+const LINKS = ['official_link', 'instagram_url', 'facebook_url', 'tiktok_url', 'cover_url', 'photo_credit_url'] as const
 
 // Validates the fields present (all required ones when `create`).
 export function validatePlace(raw: PlaceInput, create: boolean): PlaceValidation {

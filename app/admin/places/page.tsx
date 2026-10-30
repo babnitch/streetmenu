@@ -19,7 +19,7 @@ interface AdminPlace {
   title_fr: string; title_en: string | null; headline_fr: string | null; headline_en: string | null; description_fr: string | null; description_en: string | null
   tip_fr: string | null; tip_en: string | null; hours: string | null; price: string | null
   official_link: string | null; instagram_url: string | null; facebook_url: string | null; tiktok_url: string | null
-  cover_url: string | null; lat: number | null; lng: number | null; admin_note: string | null; sources: string | null
+  cover_url: string | null; photo_credit: string | null; photo_credit_url: string | null; lat: number | null; lng: number | null; admin_note: string | null; sources: string | null
   created_at: string; submitter: { name: string | null; phone: string | null } | null
 }
 const FIELDS: Array<{ k: keyof AdminPlace; fr: string; en: string; area?: boolean }> = [

@@ -12,12 +12,14 @@ import { openAddSheet } from '@/components/AddSheet'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import { matchesSearch } from '@/lib/textSearch'
+import { useDataMode } from '@/lib/dataMode'
 import { PLACE_CATEGORIES, placeCategoryLabel, type PublicPlace } from '@/lib/places'
 
 export default function PlacesPage() {
   const bi = useBi()
   const { locale } = useLanguage()
   const { city } = useCity()
+  const { isLowData } = useDataMode()
   const [places, setPlaces] = useState<PublicPlace[] | null>(null)
   const [category, setCategory] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -76,7 +78,7 @@ export default function PlacesPage() {
             {places.length === 0 ? bi(`Pas encore de lieu à ${city}.`, `No places in ${city} yet.`) : bi('Aucun lieu pour ces critères.', 'No places match.')}
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className={isLowData ? 'flex flex-col gap-2' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
             {shown.map(p => <PlaceCard key={p.id} place={p} />)}
           </div>
         )}

@@ -90,6 +90,11 @@ export function cuisineCategoryLabel(cat: CuisineCategory, locale: string): stri
 
 // The card pill (U4): the first cuisine category a restaurant matches, in
 // the viewer's language; null when none.
+// The category's icon (Mode économique rows), 🍽️ when none matches.
+export function cuisineIcon(source: { cuisine_type?: string | null; description?: string | null; name?: string | null }): string {
+  return CUISINE_CATEGORIES.find(c => matchesCuisineCategory(source, c.id))?.icon ?? '🍽️'
+}
+
 export function cuisineTag(
   source: { cuisine_type?: string | null; description?: string | null; name?: string | null },
   locale: 'fr' | 'en' | string,
