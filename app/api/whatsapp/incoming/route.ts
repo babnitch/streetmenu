@@ -652,6 +652,9 @@ export async function POST(req: NextRequest) {
     // N3: a managed restaurant's number is only its public contact — no
     // owner commands until there is a real owner.
     .eq('managed_by_platform', false)
+    // A rejected application is kept but is no longer theirs.
+    .neq('status', 'rejected')
+    .order('created_at', { ascending: false }).limit(1)
     .maybeSingle()
 
   // Handle suspended/deleted restaurants on direct match. Vendor's language is
@@ -1093,7 +1096,8 @@ async function handleSession(
     const { data: restaurant } = await supabaseAdmin
       .from('restaurants').select('id, name')
       .or(`whatsapp.eq.${phone},whatsapp.eq.whatsapp:${phone}`)
-      .maybeSingle()
+      .is('deleted_at', null)
+      .limit(1).maybeSingle()
 
     const media = await downloadTwilioMedia(mediaUrl)
     const imageUrl = media

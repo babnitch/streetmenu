@@ -42,6 +42,8 @@ interface RestaurantRow {
   suspended_by: string | null
   suspension_reason: string | null
   deleted_at: string | null
+  rejected_at?: string | null
+  rejection_reason?: string | null
   created_at: string
   customer_id: string | null
   payment_enabled: boolean
@@ -69,7 +71,7 @@ const EMPTY_FORM: RestaurantForm = {
   publish: true,
 }
 
-type Tab = 'all' | 'pending' | 'tocomplete' | 'suspended' | 'deleted'
+type Tab = 'all' | 'pending' | 'tocomplete' | 'suspended' | 'deleted' | 'rejected'
 
 // Small POST wrapper for the admin write routes. Every restaurant mutation
 // on this page goes through app/api/** with the service-role client — and as
@@ -218,16 +220,20 @@ export default function AdminRestaurantsPage() {
     return null
   }
 
-  // ── Pending: reject (hard delete) ──
+  // ── Pending: reject (kept, shown under Rejetés) ──
   async function rejectRestaurant(r: RestaurantRow) {
+    setModalReason('')
     setModal({ type: 'reject', restaurant: r })
   }
   async function confirmReject(r: RestaurantRow) {
     setModal(null)
     setActionLoading(r.id + '-reject')
-    const res = await postJSON(`/api/admin/restaurants/${r.id}/reject`)
+    const res = await postJSON(`/api/admin/restaurants/${r.id}/reject`, { reason: modalReason })
     if (res.ok) {
-      setRestaurants(prev => prev.filter(x => x.id !== r.id))
+      const now = new Date().toISOString()
+      setRestaurants(prev => prev.map(x => x.id === r.id
+        ? { ...x, status: 'rejected', is_active: false, is_open: false, deleted_at: now, rejected_at: now, rejection_reason: modalReason.trim() || null }
+        : x))
       showToast(`🗑️ ${r.name} rejeté / rejected`)
     } else {
       showToast(res.error || bi('Erreur', 'Error'), false)
@@ -383,9 +389,12 @@ export default function AdminRestaurantsPage() {
   const toComplete = restaurants.filter(r => !r.is_active && !r.deleted_at && !!r.managed_by_platform && r.status !== 'suspended')
   const active    = restaurants.filter(r => r.is_active && !r.deleted_at && r.status !== 'suspended')
   const suspended = restaurants.filter(r => r.status === 'suspended' && !r.deleted_at)
-  const deleted   = restaurants.filter(r => !!r.deleted_at)
+  // Rejected sign-ups also carry deleted_at (hidden everywhere) but have
+  // their own tab, never "Supprimés" (no 30-day undo).
+  const rejected  = restaurants.filter(r => r.status === 'rejected')
+  const deleted   = restaurants.filter(r => !!r.deleted_at && r.status !== 'rejected')
 
-  const tabList = tab === 'pending' ? pending : tab === 'tocomplete' ? toComplete : tab === 'suspended' ? suspended : tab === 'deleted' ? deleted : active
+  const tabList = tab === 'pending' ? pending : tab === 'tocomplete' ? toComplete : tab === 'suspended' ? suspended : tab === 'deleted' ? deleted : tab === 'rejected' ? rejected : active
   const cities  = ['all', ...Array.from(new Set(active.map(r => r.city).filter(Boolean)))]
 
   const filtered = tabList.filter(r => {
@@ -429,6 +438,7 @@ export default function AdminRestaurantsPage() {
             ['tocomplete', bi('À compléter', 'To complete'), toComplete.length],
             ['suspended', bi('Suspendus', 'Suspended'), suspended.length],
             ['deleted', bi('Supprimés', 'Deleted'), deleted.length],
+            ['rejected', bi('Rejetés', 'Rejected'), rejected.length],
           ] as [Tab, string, number][]).map(([key, label, count]) => (
           <button
             key={key}
@@ -615,10 +625,16 @@ export default function AdminRestaurantsPage() {
           onCancel={() => setModal(null)}
           onConfirm={() => confirmReject(modal.restaurant)}
         >
-          <p className="text-sm text-ink-secondary">
-            Le restaurant sera définitivement supprimé.<br/>
-            The restaurant will be permanently deleted.
+          <p className="text-sm text-ink-secondary mb-2">
+            {bi('Il sera retiré et gardé sous « Rejetés ».', 'It is removed and kept under "Rejected".')}
           </p>
+          <textarea
+            value={modalReason}
+            onChange={e => setModalReason(e.target.value)}
+            placeholder={bi('Raison (optionnel)', 'Reason (optional)')}
+            rows={3}
+            className="w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand"
+          />
         </ConfirmModal>
       )}
     </div>
@@ -704,7 +720,13 @@ function RestaurantCard({
           {r.suspension_reason && (
             <p className="text-xs text-warning mt-1">Raison: {r.suspension_reason}</p>
           )}
-          {r.deleted_at && (
+          {r.status === 'rejected' && (
+            <p className="text-xs text-danger mt-1">
+              ❌ {bi('Rejeté le', 'Rejected on')} {new Date(r.rejected_at ?? r.deleted_at ?? r.created_at).toLocaleDateString('fr-FR')}
+              {r.rejection_reason ? ` · ${r.rejection_reason}` : ''}
+            </p>
+          )}
+          {r.deleted_at && r.status !== 'rejected' && (
             <p className="text-xs text-danger mt-1">
               Supprimé le {new Date(r.deleted_at).toLocaleDateString('fr-FR')}
               {within30Days && ' · annulable / reversible'}
@@ -868,6 +890,7 @@ function ActionBtn({ label, className, loading, onClick }: {
 
 function StatusBadge({ r }: { r: RestaurantRow }) {
   const bi = useBi()
+  if (r.status === 'rejected') return <Badge label={bi('Rejeté', 'Rejected')} cls="bg-surface-muted text-danger" />
   if (r.deleted_at) return <Badge label={bi('Supprimé', 'Deleted')} cls="bg-brand-light text-danger" />
   if (r.status === 'suspended') return <Badge label={bi('Suspendu', 'Suspended')} cls="bg-brand-light text-warning" />
   if (!r.is_active) return <Badge label={bi('En attente', 'Pending')} cls="bg-surface-muted text-ink-secondary" />

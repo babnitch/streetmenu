@@ -918,6 +918,7 @@ function AccountStatusBadge({ a }: { a: EnrichedCustomer }) {
 }
 
 function RestaurantStatusBadge({ r }: { r: RestaurantRow }) {
+  if (r.status === 'rejected')  return <Badge label="Rejeté / Rejected" cls="bg-surface-muted text-danger" />
   if (r.deleted_at)             return <Badge label="Supprimé"  cls="bg-brand-light text-danger" />
   if (r.status === 'suspended') return <Badge label="Suspendu"  cls="bg-brand-light text-warning" />
   if (r.status === 'pending')   return <Badge label="En attente" cls="bg-brand-light text-warning" />

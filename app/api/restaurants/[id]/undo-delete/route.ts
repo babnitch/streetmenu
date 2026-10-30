@@ -12,11 +12,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const restaurantId = params.id
 
   const { data: restaurant } = await supabaseAdmin
-    .from('restaurants').select('id, name, customer_id, deleted_at')
+    .from('restaurants').select('id, name, customer_id, deleted_at, status')
     .eq('id', restaurantId).maybeSingle()
 
   if (!restaurant) return NextResponse.json({ error: 'Restaurant introuvable / Not found' }, { status: 404 })
   if (!restaurant.deleted_at) return NextResponse.json({ error: 'Pas supprimé / Not deleted' }, { status: 400 })
+  if (restaurant.status === 'rejected') return NextResponse.json({ error: 'Restaurant rejeté / Rejected restaurant' }, { status: 409 })
 
   // Check 30-day window
   const deletedAt = new Date(restaurant.deleted_at)
