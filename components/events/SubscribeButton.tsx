@@ -89,8 +89,8 @@ export default function SubscribeButton({ className = '' }: { className?: string
         throw new Error(d?.error ?? 'Error')
       }
       setSubToast(bi(
-        '🔔 Vous recevrez les nouveaux événements par WhatsApp!',
-        '🔔 You\'ll receive new events via WhatsApp!',
+        `✅ C'est fait ! Vous recevrez les nouveaux événements de ${city} sur WhatsApp.`,
+        `✅ Done! You'll get new ${city} events on WhatsApp.`,
       ))
       setSubModalOpen(false)
       await loadSubscriptions()
@@ -128,16 +128,23 @@ export default function SubscribeButton({ className = '' }: { className?: string
 
   return (
     <>
-      <button
-        onClick={openSubModal}
-        className={`text-xs font-semibold px-3 py-2 rounded-xl transition-colors whitespace-nowrap ${
-          currentSub ? 'bg-white/15 text-white hover:bg-white/25' : 'bg-brand text-white hover:bg-brand-dark'
-        } ${className}`}
-      >
-        {currentSub
-          ? bi('🔕 Gérer mon abonnement', '🔕 Manage subscription')
-          : bi('🔔 Recevoir les nouveaux événements', '🔔 Get new events')}
-      </button>
+      <div className="flex flex-col items-start gap-1">
+        <button
+          onClick={openSubModal}
+          className={`text-xs font-semibold px-3 py-2 rounded-xl transition-colors whitespace-nowrap ${
+            currentSub ? 'bg-white/15 text-white hover:bg-white/25' : 'bg-brand text-white hover:bg-brand-dark'
+          } ${className}`}
+        >
+          {currentSub
+            ? bi('✅ Vous serez prévenu(e) · Gérer', '✅ You\'ll be notified · Manage')
+            : bi('🔔 Me prévenir des nouveaux événements', '🔔 Notify me of new events')}
+        </button>
+        {!currentSub && (
+          <span className="text-[11px] text-white/70">
+            {bi(`Sur WhatsApp · gratuit · ${city} · arrêt à tout moment`, `On WhatsApp · free · ${city} · stop anytime`)}
+          </span>
+        )}
+      </div>
 
       {/* Subscription modal */}
       {subModalOpen && (
@@ -145,14 +152,12 @@ export default function SubscribeButton({ className = '' }: { className?: string
           <div className="bg-white rounded-2xl shadow-card max-w-md w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5">
               <h3 className="text-lg font-bold text-ink-primary mb-1">
-                {currentSub
-                  ? bi('🔕 Gérer mon abonnement', '🔕 Manage subscription')
-                  : bi('🔔 S\'abonner aux notifications', '🔔 Subscribe to notifications')}
+                {bi('Alertes événements sur WhatsApp', 'Event alerts on WhatsApp')}
               </h3>
               <p className="text-sm text-ink-tertiary mb-4">
                 {bi(
-                  `Recevez les nouveaux événements à ${city} par WhatsApp.`,
-                  `Get new events in ${city} on WhatsApp.`,
+                  `Recevez un message WhatsApp quand un nouvel événement est publié à ${city}.`,
+                  `Get a WhatsApp message when a new event is published in ${city}.`,
                 )}
               </p>
 
@@ -207,7 +212,7 @@ export default function SubscribeButton({ className = '' }: { className?: string
                     ? '…'
                     : currentSub
                       ? bi('💾 Mettre à jour', '💾 Update')
-                      : bi('✅ S\'abonner', '✅ Subscribe')}
+                      : bi('✅ Me prévenir', '✅ Notify me')}
                 </button>
                 {currentSub && (
                   <button
@@ -215,7 +220,7 @@ export default function SubscribeButton({ className = '' }: { className?: string
                     disabled={subSaving}
                     className="w-full bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-600 font-semibold py-2.5 rounded-xl text-sm transition-colors"
                   >
-                    {bi('🔕 Se désabonner', '🔕 Unsubscribe')}
+                    {bi('Ne plus être prévenu(e)', 'Stop notifications')}
                   </button>
                 )}
                 <button

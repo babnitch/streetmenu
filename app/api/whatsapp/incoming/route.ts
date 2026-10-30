@@ -2465,7 +2465,7 @@ async function handleCustomer(
         `🎫 *Use a discount code*\n` +
         `Send "my vouchers" to see your available promo codes.\n\n` +
         `🔔 *Get event alerts*\n` +
-        `Send "subscribe" to be notified about new events.\n\n` +
+        `Send "alert" to be notified of new events.\n\n` +
         `🏪 *Own a restaurant?*\n` +
         `Send "restaurant" to register it on the platform.\n\n` +
         `🌐 Switch to French → send 'fr'\n\n` +
@@ -2481,7 +2481,7 @@ async function handleCustomer(
         `🎫 *Utiliser un bon de réduction*\n` +
         `Envoyez "mes bons" pour voir vos codes promo disponibles.\n\n` +
         `🔔 *Recevoir des alertes*\n` +
-        `Envoyez "abonner" pour être notifié des nouveaux événements.\n\n` +
+        `Envoyez "alerte" pour être prévenu(e) des nouveaux événements.\n\n` +
         `🏪 *Vous avez un restaurant?*\n` +
         `Envoyez "restaurant" pour l'inscrire sur la plateforme.\n\n` +
         `🌐 Passer en anglais → envoyez 'en'\n\n` +
@@ -2516,8 +2516,8 @@ async function handleCustomer(
           `→ open/close reservations [code] · confirm/reject reservation [code]`,
           ``,
           `🔔 *Notifications*`,
-          `Get alerted when new events are published in your city.`,
-          `→ subscribe · unsubscribe · my subscriptions`,
+          `Send "alert" to be notified of new events.`,
+          `→ alert · unsubscribe · my subscriptions`,
           ``,
           `🏪 *Own a restaurant?*`,
           `Register your restaurant on the platform.`,
@@ -2548,8 +2548,8 @@ async function handleCustomer(
           `→ ouvrir/fermer reservations [code] · confirmer/rejeter reservation [code]`,
           ``,
           `🔔 *Notifications*`,
-          `Soyez alerté quand de nouveaux événements sont publiés dans votre ville.`,
-          `→ abonner · desabonner · mes abonnements`,
+          `Envoyez "alerte" pour être prévenu(e) des nouveaux événements.`,
+          `→ alerte · desabonner · mes abonnements`,
           ``,
           `🏪 *Vous avez un restaurant?*`,
           `Inscrivez votre restaurant sur la plateforme.`,
@@ -2747,8 +2747,9 @@ async function handleSubscriptionCommand(
   }
 
   // ── Subscribe (optionally with a category whitelist tail)
-  const subMatch = cmd.match(/^(?:abonner|subscribe|abonnement|abonne)\s*(.*)$/i)
-  if (subMatch && (cmd.startsWith('abonner') || cmd.startsWith('subscribe') || cmd.startsWith('abonne') || cmd === 'abonnement')) {
+  // "alerte" / "alert" (the word shown in the help) work like "abonner".
+  const subMatch = cmd.match(/^(?:abonner|subscribe|abonnement|abonne|alertes?|alert)\s*(.*)$/i)
+  if (subMatch && (cmd.startsWith('abonner') || cmd.startsWith('subscribe') || cmd.startsWith('abonne') || cmd === 'abonnement' || /^alert(e|es)?(\s|$)/i.test(cmd))) {
     if (!customer.city) {
       await sendWhatsApp(from, pickLang(
         `❌ Ville inconnue. Mettez à jour votre ville sur ${BASE_URL}/account.`,

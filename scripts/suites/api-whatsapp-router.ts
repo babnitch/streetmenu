@@ -190,6 +190,18 @@ async function main(): Promise<void> {
       assertEq(await sessionsFor(c.phone), 0, 'and leaves nothing behind')
     })
 
+    await step('"alerte" / "alert" subscribe like "abonner"', async () => {
+      for (const word of ['alerte', 'alert', 'abonner']) {
+        const c = await makeCustomer({ suiteNo: 52, name: `Alert ${word}` })
+        await send(c.phone, word)
+        await sleep(300)
+        const { data: subs } = await sb.from('event_subscriptions').select('id, is_active, city').eq('customer_id', c.id)
+        for (const x of subs ?? []) track('event_subscriptions', (x as { id: string }).id)
+        assert((subs ?? []).some(x => (x as { is_active: boolean }).is_active), `'${word}' → an active subscription`)
+        await send(c.phone, 'annuler')
+      }
+    })
+
     // ══ #50 READ PATHS + UNSUBSCRIBE ═══════════════════════════════════════
 
     await step('#50 mes commandes is a read — it changes no order', async () => {
