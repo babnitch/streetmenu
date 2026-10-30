@@ -4,20 +4,27 @@ import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
 import { EVENT_DATE_COLUMNS, isPastEvent } from '@/lib/eventDate'
 import { loadTodayOffers } from '@/lib/offersServer'
 import { getPlatformStatus } from '@/lib/platformSwitch'
-import { deliversNow } from '@/lib/modules'
+import { deliversNow, hasModule } from '@/lib/modules'
+import { todayInDouala } from '@/lib/weekend'
+import { rankWithFill, eventStartKey } from '@/lib/popularRanking'
 
 export const dynamic = 'force-dynamic'
 
 const WINDOW_DAYS = 30
 const LIMIT = 6
 
-// GET /api/popular?city=Yaoundé — the home page's "Populaires à [ville]".
+// GET /api/popular?city=Yaoundé — the home page's two rows (up to 6 each).
 //   restaurants: live restaurants of the city with the most orders in the last
-//                30 days (at least one), most first;
-//   events:      the city's upcoming events with the most bookings (seats
-//                held) in the last 30 days, most first.
-// Public: only public fields and counts' ORDER (never the counts or who
-// ordered). Empty lists → the home page hides the section.
+//                30 days, most first; filled up to 6 with the city's other
+//                live restaurants — Mise en avant (featured module) first,
+//                then the newest. restaurants_popular: at least one has orders.
+//   events:      the city's upcoming approved events with the most bookings
+//                (seats held) in the last 30 days, most first; filled up to 6
+//                with the soonest upcoming ones. events_popular: at least one
+//                has bookings. Never a past event.
+// The home page titles the rows "populaires" only when something is, and
+// hides a row only when the city has nothing at all.
+// Public: only public fields and the ORDER (never the counts or who ordered).
 //
 // V3: restaurants carry what the card shows — delivery on/off, fee (0 on a
 // free-delivery day, free_delivery true), prep and ride minutes; events carry
@@ -31,7 +38,7 @@ export async function GET(req: NextRequest) {
 
   const [restRes, evRes] = await Promise.all([
     supabaseAdmin.from('restaurants')
-      .select('id, name, cuisine_type, neighborhood, image_url, logo_url, prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, modules')
+      .select('id, name, cuisine_type, neighborhood, image_url, logo_url, prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, modules, created_at')
       .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null),
     supabaseAdmin.from('events')
       .select(`id, title, category, venue, cover_photo, ticket_price, ${EVENT_DATE_COLUMNS}`)
@@ -65,10 +72,16 @@ export async function GET(req: NextRequest) {
   const orders = count(ordRes.data as Array<Record<string, unknown>> | null, 'restaurant_id')
   const seats  = count(resvRes.data as Array<Record<string, unknown>> | null, 'event_id', 'quantity')
 
-  const topRestaurants = restaurants.filter(r => (orders[r.id] ?? 0) > 0)
-    .sort((a, b) => (orders[b.id] ?? 0) - (orders[a.id] ?? 0)).slice(0, LIMIT)
-  const topEvents = events.filter(e => (seats[e.id] ?? 0) > 0)
-    .sort((a, b) => (seats[b.id] ?? 0) - (seats[a.id] ?? 0)).slice(0, LIMIT)
+  // Most popular first, then filled up to LIMIT (no duplicates):
+  // restaurants Mise en avant first, then the newest; events the soonest.
+  const today = todayInDouala()
+  const restRank = rankWithFill(restaurants, r => orders[r.id] ?? 0, (a, b) =>
+    Number(hasModule(b, 'featured')) - Number(hasModule(a, 'featured'))
+    || String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')), LIMIT)
+  const evRank = rankWithFill(events, e => seats[e.id] ?? 0, (a, b) =>
+    eventStartKey(a as never, today).localeCompare(eventStartKey(b as never, today)), LIMIT)
+  const topRestaurants = restRank.list
+  const topEvents = evRank.list
 
   const [offers, tiersRes] = await Promise.all([
     loadTodayOffers(topRestaurants.map(r => r.id)),
@@ -85,10 +98,12 @@ export async function GET(req: NextRequest) {
   // M6: a side switched off shows nothing on the home page.
   const platform = await getPlatformStatus()
   return NextResponse.json({
+    restaurants_popular: restRank.popular,
+    events_popular: evRank.popular,
     restaurants: !platform.restaurants ? [] : topRestaurants.map(r => {
       // M2: delivery only with the Livraison module; modules stay server-side.
-      const { modules: _m, ...pub } = r
-      void _m
+      const { modules: _m, created_at: _c, ...pub } = r
+      void _m; void _c
       const delivers = deliversNow(r)
       const free = offers[r.id]?.freeDelivery === true && delivers
       return { ...pub, delivery_enabled: delivers, delivery_fee: free ? 0 : r.delivery_fee, free_delivery: free }

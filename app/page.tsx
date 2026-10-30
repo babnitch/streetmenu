@@ -53,7 +53,7 @@ export default function HomePage() {
   const { sessionRole, loading: modeLoading } = useMode()
   const { isLowData } = useDataMode()
   const [searchOpen, setSearchOpen] = useState(false)
-  const [popular, setPopular] = useState<{ restaurants: PopularRestaurant[]; events: PopularEvent[] } | null>(null)
+  const [popular, setPopular] = useState<{ restaurants: PopularRestaurant[]; events: PopularEvent[]; restaurantsPopular: boolean; eventsPopular: boolean } | null>(null)
   const [offers, setOffers] = useState<TodayOffer[]>([])
   // U3: "Ce week-end à {ville}" — the city's events on Friday 17:00 → Sunday.
   const [weekend, setWeekend] = useState<WeekendEvent[]>([])
@@ -70,8 +70,8 @@ export default function HomePage() {
     setOffers([])
     fetch(`/api/popular?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
       .then(r => r.json())
-      .then(d => { if (!cancelled) setPopular({ restaurants: d?.restaurants ?? [], events: d?.events ?? [] }) })
-      .catch(() => { if (!cancelled) setPopular({ restaurants: [], events: [] }) })
+      .then(d => { if (!cancelled) setPopular({ restaurants: d?.restaurants ?? [], events: d?.events ?? [], restaurantsPopular: d?.restaurants_popular === true, eventsPopular: d?.events_popular === true }) })
+      .catch(() => { if (!cancelled) setPopular({ restaurants: [], events: [], restaurantsPopular: false, eventsPopular: false }) })
     setWeekend([])
     fetch(`/api/events/listing?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
       .then(r => r.json())
@@ -150,7 +150,9 @@ export default function HomePage() {
         )}
 
         {popular && popular.restaurants.length > 0 && (
-          <Row id="popular-restaurants" title={bi(`Restaurants populaires à ${city}`, `Popular restaurants in ${city}`)} more={{ href: '/restaurants', label: bi('Tout voir', 'See all') }}>
+          <Row id="popular-restaurants" title={popular.restaurantsPopular
+            ? bi(`Restaurants populaires à ${city}`, `Popular restaurants in ${city}`)
+            : bi(`Restaurants à ${city}`, `Restaurants in ${city}`)} more={{ href: '/restaurants', label: bi('Tout voir', 'See all') }}>
             {popular.restaurants.map(r => (
               <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} fallback="🍽️"
                 tag={cuisineTag(r, locale)}
@@ -173,7 +175,9 @@ export default function HomePage() {
         )}
 
         {popular && popular.events.length > 0 && (
-          <Row id="popular-events" title={bi('Événements populaires', 'Popular events')} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
+          <Row id="popular-events" title={popular.eventsPopular
+            ? bi(`Événements populaires à ${city}`, `Popular events in ${city}`)
+            : bi(`Prochains événements à ${city}`, `Upcoming events in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
             {popular.events.map(e => (
               <Card key={`e-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
                 tag={e.category ? categoryLabel(e.category, locale) : null}
