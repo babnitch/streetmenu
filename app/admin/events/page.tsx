@@ -27,7 +27,8 @@ interface EventAggregate { reservations_count: number; tickets_count: number; re
 // today (or already marked completed), whatever the stored status — never a
 // cancelled one; Pending = awaiting approval and not finished; Active = live
 // and not finished; All = everything, with pending pinned to the top.
-type EventTab = 'all' | 'pending' | 'active' | 'completed'
+// Rejetés = rejected events (kept, never deleted) — only in that tab.
+type EventTab = 'all' | 'pending' | 'active' | 'completed' | 'rejected'
 interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean; organizer_modules: string[] | null }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -194,7 +195,13 @@ export default function AdminEventsPage() {
         body: JSON.stringify({ reason: reason || null }),
       })
       if (res.ok) {
-        setEvents(prev => prev.filter(e => e.id !== id))
+        setEvents(prev => prev.map(e => e.id === id
+          ? { ...e, is_active: false, is_featured: false, event_status: 'rejected', rejected_at: new Date().toISOString(), rejection_reason: reason || null }
+          : e))
+        showToast(bi('Événement rejeté', 'Event rejected'))
+      } else {
+        const d = await res.json().catch(() => ({}))
+        showToast(d?.error ?? bi('Erreur', 'Error'), false)
       }
     } finally {
       setSaving(null)
@@ -217,13 +224,15 @@ export default function AdminEventsPage() {
 
   const today = todayInDouala()
   const isCompleted = (e: Event) => isFinishedEvent(e, today)
-  const pending   = events.filter(e => !e.is_active && !isCompleted(e))
-  const active    = events.filter(e => e.is_active && !isCompleted(e))
-  const completed = events.filter(isCompleted)
+  const rejected  = events.filter(e => e.event_status === 'rejected')
+  const kept      = events.filter(e => e.event_status !== 'rejected')
+  const pending   = kept.filter(e => !e.is_active && !isCompleted(e))
+  const active    = kept.filter(e => e.is_active && !isCompleted(e))
+  const completed = kept.filter(isCompleted)
 
   // "All" pins pending events to the top so approvals never get buried under
   // the (usually larger) pile of already-live events.
-  const allSorted = [...events].sort((a, b) => {
+  const allSorted = [...kept].sort((a, b) => {
     const ap = a.is_active ? 1 : 0
     const bp = b.is_active ? 1 : 0
     return ap - bp
@@ -233,6 +242,7 @@ export default function AdminEventsPage() {
     tab === 'pending'   ? pending   :
     tab === 'active'    ? active    :
     tab === 'completed' ? completed :
+    tab === 'rejected'  ? rejected  :
     allSorted
 
   return (
@@ -268,7 +278,7 @@ export default function AdminEventsPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <p className="text-xs text-ink-secondary font-medium">{bi('Total', 'All')}</p>
-          <p className="text-2xl font-bold text-ink-primary mt-1">{events.length}</p>
+          <p className="text-2xl font-bold text-ink-primary mt-1">{kept.length}</p>
         </div>
         <div className={`bg-white rounded-2xl p-4 shadow-sm ${pending.length > 0 ? 'ring-2 ring-brand' : ''}`}>
           <p className="text-xs text-ink-secondary font-medium">{bi('En attente', 'Pending')}</p>
@@ -289,10 +299,11 @@ export default function AdminEventsPage() {
       {/* Tabs */}
       <div className="flex gap-1 bg-surface-muted p-1 rounded-xl w-fit mb-5 flex-wrap">
         {([
-          ['all',       bi('Tous', 'All'),          events.length],
+          ['all',       bi('Tous', 'All'),          kept.length],
           ['pending',   bi('En attente', 'Pending'), pending.length],
           ['active',    bi('Actifs', 'Active'),      active.length],
           ['completed', bi('Terminés', 'Completed'), completed.length],
+          ['rejected',  bi('Rejetés', 'Rejected'),   rejected.length],
         ] as [EventTab, string, number][]).map(([value, label, count]) => (
           <button
             key={value}
@@ -462,10 +473,19 @@ function EventRow({
 
   // Pending (is_active=false) rows get an amber ring + banner so approvals
   // stand out from the pile of already-live events.
-  const isPending = !event.is_active
+  // Rejected rows (Rejetés tab) are read-only: who / when / why, no actions.
+  const isRejected = event.event_status === 'rejected'
+  const isPending = !event.is_active && !isRejected
 
   return (
     <div className={`bg-white rounded-2xl shadow-sm overflow-hidden ${isPending ? 'ring-2 ring-amber-400' : ''}`}>
+      {isRejected && (
+        <div className="bg-surface-muted text-danger text-xs font-semibold px-4 py-1.5 border-b border-divider">
+          ❌ {bi('Rejeté', 'Rejected')}
+          {event.rejected_at ? ` · ${new Date(event.rejected_at).toLocaleDateString(locale === 'en' ? 'en-GB' : 'fr-FR')}` : ''}
+          {event.rejection_reason ? ` · ${event.rejection_reason}` : ''}
+        </div>
+      )}
       {isPending && (
         <div className="bg-amber-50 text-amber-800 text-xs font-semibold px-4 py-1.5 border-b border-amber-200">
           {pendingLabel}
@@ -591,7 +611,7 @@ function EventRow({
       </div>
 
       {/* Payment mode control — admin/super_admin only, hidden for free events. */}
-      {canTogglePayment && !isFree && (
+      {canTogglePayment && !isFree && !isRejected && (
         <div className="border-t border-divider px-4 py-3 bg-surface flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-ink-secondary mr-1">{bi('Paiement', 'Payment')}:</span>
           <div className="inline-flex rounded-xl bg-surface-muted p-0.5">
@@ -629,6 +649,7 @@ function EventRow({
       )}
 
       {/* Actions */}
+      {!isRejected && (
       <div className="border-t border-divider px-4 py-3 flex items-center justify-end gap-2">
         {!isPending && (
           <button
@@ -659,6 +680,7 @@ function EventRow({
           </button>
         )}
       </div>
+      )}
     </div>
   )
 }

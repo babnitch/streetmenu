@@ -294,6 +294,7 @@ async function loadAvailableMenu(restaurantId: string): Promise<MenuItemRef[]> {
       .select('id, name, price, available_days')
       .eq('restaurant_id', restaurantId)
       .eq('is_available', true)
+      .is('deleted_at', null)
       .order('name'),
     supabaseAdmin.from('restaurants').select('menu_type, timezone, city').eq('id', restaurantId).maybeSingle(),
   ])
@@ -874,12 +875,14 @@ export async function handleOrderCommand(
 
   // ── Voucher commands ──────────────────────────────────────────────────────
   if (cmd === 'mes bons' || cmd === 'my vouchers') {
-    const { data } = await supabaseAdmin
+    const { data: claims } = await supabaseAdmin
       .from('customer_vouchers')
-      .select('id, used_at, vouchers(id, code, discount_type, discount_value, expires_at, min_order, is_active, restaurant_id, restaurants(name))')
+      .select('id, used_at, vouchers(id, code, discount_type, discount_value, expires_at, min_order, is_active, deleted_at, restaurant_id, restaurants(name))')
       .eq('customer_id', customer.id)
       .order('claimed_at', { ascending: false })
       .limit(10)
+    // A deleted voucher's unused claims are hidden; used ones stay as history.
+    const data = (claims ?? []).filter(cv => cv.used_at || !(cv.vouchers as unknown as { deleted_at?: string | null } | null)?.deleted_at)
 
     if (!data || data.length === 0) {
       await sendWhatsApp(from, pickLang(
@@ -1323,7 +1326,7 @@ export async function handleOrderCommand(
     // Constrain to events the caller organizes.
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, date, organizer_id, whatsapp')
-      .or(organizerScope(customer.id)).limit(50)
+      .or(organizerScope(customer.id)).neq('event_status', 'rejected').limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(
@@ -1368,7 +1371,7 @@ export async function handleOrderCommand(
   if (editMatch) {
     const code4 = editMatch[1].toLowerCase()
     const { data: candidates } = await supabaseAdmin
-      .from('events').select('id, title, organizer_id').or(organizerScope(customer.id)).limit(50)
+      .from('events').select('id, title, organizer_id').or(organizerScope(customer.id)).neq('event_status', 'rejected').limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(
@@ -1394,7 +1397,7 @@ export async function handleOrderCommand(
     const { data: candidates } = await supabaseAdmin
       .from('events')
       .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, organizer_name`)
-      .or(organizerScope(customer.id)).limit(50)
+      .or(organizerScope(customer.id)).neq('event_status', 'rejected').limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(
@@ -1424,7 +1427,7 @@ export async function handleOrderCommand(
     const code4 = tarifsMatch[1].toLowerCase()
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, organizer_id')
-      .or(organizerScope(customer.id)).limit(50)
+      .or(organizerScope(customer.id)).neq('event_status', 'rejected').limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
@@ -1462,7 +1465,7 @@ export async function handleOrderCommand(
 
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, organizer_id')
-      .or(organizerScope(customer.id)).limit(50)
+      .or(organizerScope(customer.id)).neq('event_status', 'rejected').limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
@@ -1523,7 +1526,7 @@ export async function handleOrderCommand(
     const open = (verb === 'ouvrir' || verb === 'open')
     const { data: candidates } = await supabaseAdmin
       .from('events').select('id, title, reservations_open')
-      .or(organizerScope(customer.id)).limit(50)
+      .or(organizerScope(customer.id)).neq('event_status', 'rejected').limit(50)
     const event = (candidates ?? []).find(e => e.id.replace(/-/g, '').toLowerCase().endsWith(code4))
     if (!event) {
       await sendWhatsApp(from, pickLang(`❌ Événement #${code4.toUpperCase()} introuvable.`, `❌ Event #${code4.toUpperCase()} not found.`, lang))
@@ -1858,7 +1861,7 @@ export async function handleOrderCommand(
     const { data } = await supabaseAdmin
       .from('events')
       .select(`id, title, ${EVENT_DATE_COLUMNS}, is_active, auto_approved, event_status`)
-      .or(organizerScope(customer.id))
+      .or(organizerScope(customer.id)).neq('event_status', 'rejected')
       .order('date', { ascending: false })
       .limit(10)
 

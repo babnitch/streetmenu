@@ -27,6 +27,7 @@ async function loadScopedItem(restaurantId: string, itemId: string) {
     .select('id, restaurant_id, name, price, is_available')
     .eq('id', itemId)
     .eq('restaurant_id', restaurantId)
+    .is('deleted_at', null)
     .maybeSingle()
 }
 
@@ -140,11 +141,13 @@ export async function DELETE(
     return NextResponse.json({ error: 'Article introuvable / Item not found' }, { status: 404 })
   }
 
+  // Soft delete: hidden from every menu, old orders keep the dish.
   const { error } = await supabaseAdmin
     .from('menu_items')
-    .delete()
+    .update({ deleted_at: new Date().toISOString(), deleted_by: session.id, is_available: false })
     .eq('id', params.itemId)
     .eq('restaurant_id', params.id)
+    .is('deleted_at', null)
 
   if (error) {
     console.error('[menu DELETE] delete failed:', error.message)

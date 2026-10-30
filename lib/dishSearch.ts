@@ -25,6 +25,7 @@ export function useDishHits(query: string, enabled = true): { hits: Record<strin
           .select('restaurant_id, name')
           .ilike('name', `%${q.replace(/[%_,()]/g, ' ')}%`)
           .eq('is_available', true)
+          .is('deleted_at', null)
           .limit(60)
         if (cancelled) return
         const next: Record<string, string> = {}

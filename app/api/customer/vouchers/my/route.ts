@@ -27,5 +27,7 @@ export async function GET(req: NextRequest) {
     .order('claimed_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ vouchers: data ?? [] })
+  // A deleted voucher's unused claims are hidden; used ones stay as history.
+  const vouchers = (data ?? []).filter(cv => cv.used_at || !(cv.vouchers as { deleted_at?: string | null } | null)?.deleted_at)
+  return NextResponse.json({ vouchers })
 }

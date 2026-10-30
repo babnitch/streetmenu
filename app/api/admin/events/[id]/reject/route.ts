@@ -9,8 +9,9 @@ export const dynamic = 'force-dynamic'
 
 // POST /api/admin/events/[id]/reject
 // Body: { reason?: string }
-// Admin/moderator deletes the row (keeps the public events table free of
-// rejected drafts), audits the action with the reason, pings the submitter.
+// Admin/moderator rejects: never deleted (soft deletion rule). The event is
+// hidden (is_active=false), event_status='rejected' + who / when / why, and
+// shows only in Admin → Événements → Rejetés. Audited, submitter pinged.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = getSessionFromRequest(req)
   if (!session || !['super_admin', 'admin', 'moderator'].includes(session.role)) {
@@ -22,18 +23,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select('id, title, organizer_id, is_active, whatsapp, notify_phone')
+    .select('id, title, organizer_id, is_active, event_status, whatsapp, notify_phone')
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
+  if (event.event_status === 'rejected') {
+    return NextResponse.json({ error: 'Déjà rejeté / Already rejected' }, { status: 409 })
+  }
 
-  // Capture submitter before the delete so we can ping them — the ON DELETE
-  // SET NULL on organizer_id would lose the link otherwise.
-  // Account phone + the event's extra notification number, read now.
+  // Account phone + the event's extra notification number.
   const organizerNumbers = await organizerPhones(event)
 
-  const { error: delErr } = await supabaseAdmin.from('events').delete().eq('id', event.id)
-  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
+  const { error: upErr } = await supabaseAdmin.from('events').update({
+    is_active: false, is_featured: false, event_status: 'rejected',
+    rejected_at: new Date().toISOString(), rejected_by: session.id, rejection_reason: reason,
+  }).eq('id', event.id)
+  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 })
 
   await writeAudit({
     action:          'event_rejected',
@@ -41,7 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     targetId:        event.id,
     performedBy:     session.id,
     performedByType: session.role,
-    previousData:    { title: event.title, organizer_id: event.organizer_id, is_active: event.is_active },
+    previousData:    { title: event.title, organizer_id: event.organizer_id, is_active: event.is_active, event_status: event.event_status },
     metadata:        { reason },
   })
 

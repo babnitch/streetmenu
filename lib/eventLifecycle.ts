@@ -12,13 +12,13 @@ export async function completeFinishedEvents(today: string = todayInDouala()): P
   // start is before today (the last day can't be earlier than the start).
   const { data, error } = await supabaseAdmin.from('events')
     .select(`id, event_status, ${EVENT_DATE_COLUMNS}`)
-    .not('event_status', 'in', '(completed,cancelled)').lt('date', today).range(0, 4999)
+    .not('event_status', 'in', '(completed,cancelled,rejected)').lt('date', today).range(0, 4999)
   if (error) throw new Error(`[events] completion query failed: ${error.message}`)
   const ids = ((data ?? []) as unknown as Array<{ id: string; event_status: string | null; date: string; end_date: string | null }>)
     .filter(e => isFinishedEvent(e as never, today)).map(e => e.id)
   if (ids.length) {
     const { error: upErr } = await supabaseAdmin.from('events').update({ event_status: 'completed' })
-      .in('id', ids).not('event_status', 'in', '(completed,cancelled)')
+      .in('id', ids).not('event_status', 'in', '(completed,cancelled,rejected)')
     if (upErr) throw new Error(`[events] completion update failed: ${upErr.message}`)
   }
   await writeAudit({

@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from('vouchers')
     .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id, event_id, created_at, restaurants(name), events(title)')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

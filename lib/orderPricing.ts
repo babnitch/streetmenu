@@ -85,6 +85,7 @@ export async function priceOrder(input: OrderPricingInput): Promise<OrderPricing
     .from('menu_items')
     .select('id, name, price, photo_url, is_available, available_days')
     .eq('restaurant_id', restaurantId)
+    .is('deleted_at', null)
     .in('id', Array.from(qty.keys()))
   if (error) return { ok: false, status: 500, error: 'Erreur / Error', reason: 'lookup_failed' }
   const byId = new Map((rows ?? []).map(r => [r.id as string, r]))

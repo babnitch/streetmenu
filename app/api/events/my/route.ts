@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   let query = supabaseAdmin
     .from('events')
     .select(`id, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, city, cover_photo, notify_phone, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, organizer_id, organizer_name, event_status, is_active, requires_confirmation, reservations_open, created_at`)
+    .neq('event_status', 'rejected')
     .order('date', { ascending: false })
     .limit(50)
   if (!isAdmin) {

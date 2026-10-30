@@ -29,10 +29,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select(`id, title, is_active, organizer_id, ${EVENT_DATE_COLUMNS}, venue, city, category, price, ticket_price`)
+    .select(`id, title, is_active, event_status, organizer_id, ${EVENT_DATE_COLUMNS}, venue, city, category, price, ticket_price`)
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
+  if (event.event_status === 'rejected') {
+    return NextResponse.json({ error: 'Événement rejeté — ne peut pas être approuvé / Rejected event — cannot be approved' }, { status: 409 })
+  }
 
   const wasInactive = !event.is_active
 

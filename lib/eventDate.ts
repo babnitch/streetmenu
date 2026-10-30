@@ -78,7 +78,7 @@ export function isPastEvent(event: EventWhen, now: Date = new Date()): boolean {
 // never "finished" (it stays cancelled), whatever its dates; one already
 // marked completed is finished.
 export function isFinishedEvent(event: EventWhen & { event_status?: string | null }, today: string): boolean {
-  if (event.event_status === 'cancelled') return false
+  if (event.event_status === 'cancelled' || event.event_status === 'rejected') return false
   if (event.event_status === 'completed') return true
   const lastDay = effectiveEndDate(event)
   return !!lastDay && lastDay < today

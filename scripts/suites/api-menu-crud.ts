@@ -176,7 +176,7 @@ async function main(): Promise<void> {
     })
 
     // ── 3. DELETE ──────────────────────────────────────────────────────────
-    await step('owner deletes an item and the row is gone', async () => {
+    await step('owner deletes an item: kept with deleted_at, hidden from the menu', async () => {
       const created = await createItem(restA.id, { name: 'Delete me', price: 600 }, cookies.owner)
       const id = trackItem(created.body)
       auditIds.deleted = id
@@ -185,8 +185,13 @@ async function main(): Promise<void> {
       assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 160)})`)
       assertEq(r.body.ok, true, 'ok=true')
 
-      const { data } = await sb.from('menu_items').select('id').eq('id', id).maybeSingle()
-      assertEq(data, null, 'the row is gone from menu_items')
+      const { data } = await sb.from('menu_items').select('id, deleted_at, deleted_by, is_available').eq('id', id).maybeSingle()
+      const row = data as { deleted_at: string | null; deleted_by: string | null; is_available: boolean } | null
+      assert(!!row, 'the row is kept (soft delete)')
+      assert(!!row?.deleted_at && !!row?.deleted_by, 'deleted_at + deleted_by set')
+      assertEq(row?.is_available, false, 'no longer available')
+      const again = await deleteItem(restA.id, id, cookies.owner)
+      assertEq(again.status, 404, 'a deleted item is not found again')
     })
 
     await step('manager can delete', async () => {
@@ -194,8 +199,23 @@ async function main(): Promise<void> {
       const id = trackItem(created.body)
       const r = await deleteItem(restA.id, id, cookies.manager)
       assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 160)})`)
-      const { data } = await sb.from('menu_items').select('id').eq('id', id).maybeSingle()
-      assertEq(data, null, 'the row is gone')
+      const { data } = await sb.from('menu_items').select('deleted_at').eq('id', id).maybeSingle()
+      assert(!!(data as { deleted_at: string | null } | null)?.deleted_at, 'soft-deleted')
+    })
+
+    await step('WhatsApp "supprimer <plat>": kept with deleted_at, audited, gone from the bot menu', async () => {
+      const item = await makeMenuItem(restA.id, { name: 'Bot Zzdelete', price: 900 })
+      await api('/api/whatsapp/incoming', { form: { From: `whatsapp:${owner.phone}`, Body: 'supprimer Bot Zzdelete' } })
+      const { data } = await sb.from('menu_items').select('deleted_at, deleted_by, is_available').eq('id', item.id).maybeSingle()
+      const row = data as { deleted_at: string | null; deleted_by: string | null; is_available: boolean } | null
+      assert(!!row, 'the row is kept')
+      assert(!!row?.deleted_at, 'deleted_at set')
+      assertEq([row?.deleted_by, row?.is_available], [owner.id, false], 'by the owner, unavailable')
+      const { data: audit } = await sb.from('audit_log').select('action').eq('target_id', item.id).eq('action', 'menu_item_deleted')
+      assertEq((audit ?? []).length, 1, 'audited')
+      await api('/api/whatsapp/incoming', { form: { From: `whatsapp:${owner.phone}`, Body: 'dispo Bot Zzdelete' } })
+      const { data: still } = await sb.from('menu_items').select('is_available').eq('id', item.id).maybeSingle()
+      assertEq((still as { is_available: boolean } | null)?.is_available, false, '"dispo" cannot bring a deleted dish back')
     })
 
     // ── 4. AUTHZ ───────────────────────────────────────────────────────────

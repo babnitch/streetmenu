@@ -59,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (body?.kind === 'price') {
     const itemId = typeof body?.menu_item_id === 'string' ? body.menu_item_id : ''
     const { data: item } = itemId
-      ? await supabaseAdmin.from('menu_items').select('id, price').eq('id', itemId).eq('restaurant_id', params.id).maybeSingle()
+      ? await supabaseAdmin.from('menu_items').select('id, price').eq('id', itemId).eq('restaurant_id', params.id).is('deleted_at', null).maybeSingle()
       : { data: null }
     if (!item) return NextResponse.json({ error: 'Plat introuvable / Dish not found' }, { status: 404 })
     regular = Math.round(Number(item.price))

@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     .filter(e => {
       if (seen.has(e.id)) return false
       seen.add(e.id)
-      return e.event_status !== 'cancelled' && !isPastEvent(e as never)
+      return e.event_status !== 'cancelled' && e.event_status !== 'rejected' && !isPastEvent(e as never)
     })
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
     .map(e => ({ id: e.id, title: e.title, venue: e.venue, date: e.date, end_date: e.end_date, role: e.role }))

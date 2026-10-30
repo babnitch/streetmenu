@@ -96,6 +96,20 @@ async function main(): Promise<void> {
         assert(/^TCHOP-[A-Z0-9]{4}$/.test(created.code), `auto code matches TCHOP-XXXX (got ${created.code})`)
         const del = await api(`/api/admin/vouchers/${created.id}`, { method: 'DELETE', cookie: admin })
         assertEq(del.status, 200, 'an unused auto-code voucher deletes cleanly')
+        // Soft delete: the row stays, hidden and inactive; its code is never reused.
+        const { data: kept } = await sb.from('vouchers').select('deleted_at, deleted_by, is_active').eq('id', created.id).maybeSingle()
+        const k = kept as { deleted_at: string | null; deleted_by: string | null; is_active: boolean } | null
+        assert(!!k?.deleted_at && !!k?.deleted_by, 'kept with deleted_at + deleted_by')
+        assertEq(k?.is_active, false, 'inactive')
+        const list = await api<{ vouchers: Array<{ id: string }> }>('/api/admin/vouchers', { cookie: admin })
+        assert(!(list.body.vouchers ?? []).some(v => v.id === created.id), 'not in the admin list')
+        const reuse = await api('/api/admin/vouchers', {
+          cookie: admin, body: { code: created.code, discount_type: 'percent', discount_value: 5, per_customer_max: 1 },
+        })
+        assertEq(reuse.status, 409, 'its code cannot be reused')
+        assertEq((await api(`/api/admin/vouchers/${created.id}`, { method: 'PATCH', cookie: admin, body: { is_active: true } })).status, 404, 'cannot be re-activated')
+        const { data: audit } = await sb.from('audit_log').select('action').eq('target_id', created.id).eq('action', 'voucher_deleted')
+        assertEq((audit ?? []).length, 1, 'audited')
       }
     })
 

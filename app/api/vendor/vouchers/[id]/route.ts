@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 
 async function callerOwnsVoucher(customerId: string, voucherId: string): Promise<{ ok: true; restaurantId: string } | { ok: false }> {
   const { data: v } = await supabaseAdmin
-    .from('vouchers').select('id, restaurant_id').eq('id', voucherId).maybeSingle()
+    .from('vouchers').select('id, restaurant_id').eq('id', voucherId).is('deleted_at', null).maybeSingle()
   if (!v || !v.restaurant_id) return { ok: false }  // missing or platform-wide
 
   // Direct ownership
@@ -61,8 +61,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 // DELETE — only when the voucher has never been used. Same rule as the
-// admin route; lets vendors clean up typos without losing audit history
-// on real usage.
+// admin route. Soft delete: the row stays, so the code can never be reused.
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') {
@@ -77,7 +76,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Bon déjà utilisé / Voucher already used' }, { status: 409 })
   }
 
-  const { error } = await supabaseAdmin.from('vouchers').delete().eq('id', params.id)
+  const { error } = await supabaseAdmin.from('vouchers')
+    .update({ deleted_at: new Date().toISOString(), deleted_by: session.id, is_active: false })
+    .eq('id', params.id).is('deleted_at', null)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   await writeAudit({

@@ -75,19 +75,23 @@ export default function AdminPlatformTeamPage() {
   }
 
   async function handleDelete(member: TeamMember) {
-    if (!confirm(bi(`Supprimer ${member.name} ?`, `Delete ${member.name}?`))) return
+    if (!confirm(bi(`Retirer ${member.name} ? Il ne pourra plus se connecter.`, `Remove ${member.name}? They will no longer be able to log in.`))) return
     setActionLoading(member.id + '-delete')
     await fetch(`/api/admin/team/${member.id}`, { method: 'DELETE' })
     await fetchTeam()
     setActionLoading(null)
   }
 
+  // Removed members stay listed ("Retiré"), at the bottom.
+  const activeCount = team.filter(m => m.status !== 'removed').length
+  const shownTeam = [...team].sort((a, b) => Number(a.status === 'removed') - Number(b.status === 'removed'))
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-ink-primary">{bi('Équipe plateforme', 'Platform Team')}</h1>
-          <p className="text-sm text-ink-secondary mt-0.5">{team.length} {bi(team.length > 1 ? 'membres' : 'membre', team.length > 1 ? 'members' : 'member')}</p>
+          <p className="text-sm text-ink-secondary mt-0.5">{activeCount} {bi(activeCount > 1 ? 'membres' : 'membre', activeCount > 1 ? 'members' : 'member')}</p>
         </div>
         <button
           onClick={() => { setShowForm(v => !v); setError('') }}
@@ -147,20 +151,24 @@ export default function AdminPlatformTeamPage() {
         <p className="text-center py-12 text-ink-tertiary">…</p>
       ) : (
         <div className="space-y-3">
-          {team.map(member => {
+          {shownTeam.map(member => {
             const self = member.id === currentAdminId
-            const editable = !self && member.role !== 'super_admin'
+            const removed = member.status === 'removed'
+            const editable = !self && member.role !== 'super_admin' && !removed
             return (
-              <div key={member.id} className="bg-white rounded-2xl shadow-sm p-4">
+              <div key={member.id} className={`bg-white rounded-2xl shadow-sm p-4 ${removed ? 'opacity-60' : ''}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-ink-primary text-sm">{member.name}</p>
                       <RoleBadge role={member.role} />
+                      {removed && (
+                        <span className="text-xs bg-surface-muted text-ink-secondary px-2 py-0.5 rounded-full font-medium">{bi('Retiré', 'Removed')}</span>
+                      )}
                       {member.status === 'suspended' && (
                         <span className="text-xs bg-brand-light text-warning px-2 py-0.5 rounded-full font-medium">{bi('Désactivé', 'Disabled')}</span>
                       )}
-                      {member.must_change_password && (
+                      {member.must_change_password && !removed && (
                         <span className="text-xs bg-surface-muted text-ink-secondary px-2 py-0.5 rounded-full font-medium">{bi('Mot de passe temporaire', 'Temporary password')}</span>
                       )}
                     </div>
@@ -180,7 +188,7 @@ export default function AdminPlatformTeamPage() {
                       </button>
                       <button onClick={() => handleDelete(member)} disabled={actionLoading === member.id + '-delete'}
                         className="text-xs bg-brand-light text-danger border border-divider px-3 py-1.5 rounded-lg font-medium">
-                        {actionLoading === member.id + '-delete' ? '…' : bi('Supprimer', 'Delete')}
+                        {actionLoading === member.id + '-delete' ? '…' : bi('Retirer', 'Remove')}
                       </button>
                     </div>
                   )}

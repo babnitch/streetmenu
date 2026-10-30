@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const today = todayInDouala()
   const { data: evs } = await supabaseAdmin.from('events')
     .select(`id, title, city, ${EVENT_DATE_COLUMNS}, max_tickets, is_active, event_status`)
-    .or(`organizer_id.eq.${s.id},submitted_by.eq.${s.id}`).neq('event_status', 'cancelled').limit(200)
+    .or(`organizer_id.eq.${s.id},submitted_by.eq.${s.id}`).not('event_status', 'in', '(cancelled,rejected)').limit(200)
   const upcoming = ((evs ?? []) as unknown as Array<{ id: string; title: string; city: string; date: string; end_date: string | null; max_tickets: number | null; is_active: boolean }>)
     .filter(e => !isPastEvent(e as never))
     .sort((a, b) => a.date.localeCompare(b.date))

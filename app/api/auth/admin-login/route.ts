@@ -60,9 +60,9 @@ export async function POST(req: NextRequest) {
   }
 
   // The password is proven from here on, so the precise reason can be told.
-  if (admin.status === 'suspended') {
-    await recordAttempt({ ...base, adminId: admin.id, success: false, reason: 'suspended' })
-    return NextResponse.json({ error: 'Compte suspendu / Account suspended' }, { status: 403 })
+  if (admin.status !== 'active') {
+    await recordAttempt({ ...base, adminId: admin.id, success: false, reason: admin.status === 'removed' ? 'removed' : 'suspended' })
+    return NextResponse.json({ error: admin.status === 'removed' ? 'Compte retiré / Account removed' : 'Compte suspendu / Account suspended' }, { status: 403 })
   }
   if (!admin.phone) {
     await recordAttempt({ ...base, adminId: admin.id, success: false, reason: 'no_phone' })

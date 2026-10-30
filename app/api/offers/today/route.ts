@@ -59,7 +59,7 @@ async function cityOffers(city: string) {
 
   const dishIds = Object.values(today).flatMap(t => Object.keys(t.prices))
   const { data: dishes } = dishIds.length
-    ? await supabaseAdmin.from('menu_items').select('id, name, photo_url, price, is_available, available_days').in('id', dishIds)
+    ? await supabaseAdmin.from('menu_items').select('id, name, photo_url, price, is_available, available_days').in('id', dishIds).is('deleted_at', null)
     : { data: [] as Array<{ id: string; name: string; photo_url: string | null; price: number; is_available: boolean }> }
   const dishById = new Map((dishes ?? []).map(d => [d.id as string, d]))
 

@@ -68,7 +68,7 @@ export default function MenuPage() {
     async function fetchData() {
       const [{ data: rest }, { data: menu }, statusRes, offersRes, filesRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', id).single(),
-        supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).order('is_daily_special', { ascending: false }),
+        supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).is('deleted_at', null).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         // Today's offers (V2): the dish costs its offer price, the menu
         // price shows struck through. The server charges the same price.

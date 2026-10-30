@@ -53,7 +53,10 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     if (error.code === '23505') {
-      return NextResponse.json({ error: 'Email déjà utilisé / Email already in use' }, { status: 409 })
+      const { data: taken } = await supabaseAdmin.from('admin_users').select('status').eq('email', email).maybeSingle()
+      return NextResponse.json({ error: taken?.status === 'removed'
+        ? 'Email d\'un membre retiré — utilisez un autre email / Email of a removed member — use another email'
+        : 'Email déjà utilisé / Email already in use' }, { status: 409 })
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

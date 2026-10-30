@@ -187,7 +187,9 @@ export interface Event {
   place_id?: string | null
   // Extra number that gets the bookings (supabase-c3-pro.sql).
   notify_phone?: string | null
-  event_status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
+  event_status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled' | 'rejected'
+  rejected_at?: string | null
+  rejection_reason?: string | null
   // Capacity + approval flags (supabase-event-capacity.sql).
   // requires_confirmation defaults FALSE — auto-confirm behaviour.
   // reservations_open    defaults TRUE  — public reserve flow open.

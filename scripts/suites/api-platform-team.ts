@@ -96,6 +96,22 @@ async function main(): Promise<void> {
       const other = staffCookie({ id, email, name: 'PT', role: 'super_admin' })
       assertEq((await api(`/api/admin/team/${(sa as { id: string }).id}`, { method: 'PATCH', cookie: other, body: { role: 'moderator' } })).status, 403, 'a super admin is not editable here')
     })
+
+    await step('remove: kept as "Retiré", cannot log in, audited', async () => {
+      const r = await api(`/api/admin/team/${id}`, { method: 'DELETE', cookie: admin })
+      assertEq(r.status, 200, `removed (${r.raw.slice(0, 80)})`)
+      const { data: row } = await sb.from('admin_users').select('status, deleted_at, deleted_by').eq('id', id).maybeSingle()
+      const m = row as { status: string; deleted_at: string | null; deleted_by: string | null } | null
+      assertEq(m?.status, 'removed', 'row kept, status removed')
+      assert(!!m?.deleted_at && !!m?.deleted_by, 'deleted_at + deleted_by set')
+      const login = await post('/api/auth/admin-login', { email, password: 'Reset-Pass-1' })
+      assertEq(login.status, 403, 'removed → cannot log in')
+      const list = await api<{ team: Array<{ id: string; status: string }> }>('/api/admin/team', { cookie: admin })
+      assertEq((list.body.team ?? []).find(t => t.id === id)?.status, 'removed', 'still in the list')
+      assertEq((await api(`/api/admin/team/${id}`, { method: 'PATCH', cookie: admin, body: { status: 'active' } })).status, 409, 'cannot be edited back')
+      const { data: audit } = await sb.from('audit_log').select('action').eq('target_id', id).eq('action', 'admin_user_removed')
+      assertEq((audit ?? []).length, 1, 'audit: admin_user_removed')
+    })
   } catch (e) {
     assert(false, 'suite crashed', (e as Error).stack)
   } finally {

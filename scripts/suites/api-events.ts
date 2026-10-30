@@ -315,6 +315,24 @@ async function main(): Promise<void> {
       assertEq((await readEvent(ev.id))?.is_active, false, 'and it stays unpublished')
     })
 
+    await step('soft delete: rejecting keeps the event (rejected + who / when / why), audited, never approvable', async () => {
+      const ev = await makeEvent({ organizerId: organizer.id, label: 'reject_soft', city: TEST_CITY, category: TEST_CATEGORY })
+      assertEq((await api(`/api/admin/events/${ev.id}/reject`, { method: 'POST', cookie: bookerCookie, body: { reason: 'x' } })).status, 401, 'a customer session → 401')
+      const r = await api(`/api/admin/events/${ev.id}/reject`, { method: 'POST', cookie: admin, body: { reason: 'Photo floue' } })
+      assertEq(r.status, 200, `HTTP 200 (body ${r.raw.slice(0, 160)})`)
+      const { data } = await sb.from('events').select('is_active, event_status, rejected_at, rejected_by, rejection_reason').eq('id', ev.id).maybeSingle()
+      const row = data as { is_active: boolean; event_status: string; rejected_at: string | null; rejected_by: string | null; rejection_reason: string | null } | null
+      assert(!!row, 'the row is still there')
+      assertEq([row?.is_active, row?.event_status, row?.rejection_reason], [false, 'rejected', 'Photo floue'], 'hidden, rejected, reason kept')
+      assert(!!row?.rejected_at && !!row?.rejected_by, 'when + who stored')
+      const { data: audit } = await sb.from('audit_log').select('action').eq('target_id', ev.id).eq('action', 'event_rejected')
+      assertEq((audit ?? []).length, 1, 'one event_rejected audit row')
+      assertEq((await api(`/api/admin/events/${ev.id}/reject`, { method: 'POST', cookie: admin, body: {} })).status, 409, 'rejecting twice → 409')
+      assertEq((await approve(ev.id, admin)).status, 409, 'a rejected event cannot be approved')
+      const listed = await api<{ events: Array<{ id: string }> }>('/api/events/my', { cookie: orgCookie })
+      assert(!(listed.body.events ?? []).some(e => e.id === ev.id), "not in the organiser's list")
+    })
+
     // ── RESERVE ────────────────────────────────────────────────────────────
     await step('#34 reserving creates a row with a code and bumps tickets_sold', async () => {
       const before = await readEvent(submittedId)

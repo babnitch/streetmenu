@@ -396,6 +396,7 @@ export default function DashboardPage() {
       .from('menu_items')
       .select('*')
       .eq('restaurant_id', restaurantId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
     if (data) setMenuItems(data)
   }, [])

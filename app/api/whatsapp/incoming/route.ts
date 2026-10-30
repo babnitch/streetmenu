@@ -459,15 +459,16 @@ async function saveMenuFileFromWhatsApp(
 }
 
 // ── Menu item lookup (exact then partial, case-insensitive) ───────────────────
+// Deleted dishes (deleted_at) are never found.
 async function findMenuItem(restaurantId: string, name: string) {
   const { data: exact } = await supabaseAdmin
-    .from('menu_items').select('id, name')
-    .eq('restaurant_id', restaurantId).ilike('name', name.trim()).maybeSingle()
+    .from('menu_items').select('id, name, price')
+    .eq('restaurant_id', restaurantId).is('deleted_at', null).ilike('name', name.trim()).limit(1).maybeSingle()
   if (exact) return exact
 
   const { data: partials } = await supabaseAdmin
-    .from('menu_items').select('id, name')
-    .eq('restaurant_id', restaurantId).ilike('name', `%${name.trim()}%`).limit(1)
+    .from('menu_items').select('id, name, price')
+    .eq('restaurant_id', restaurantId).is('deleted_at', null).ilike('name', `%${name.trim()}%`).limit(1)
   return partials?.[0] ?? null
 }
 
@@ -1946,7 +1947,7 @@ async function handleVendor(
   if (cmd === 'menu') {
     const { data: items } = await supabaseAdmin
       .from('menu_items').select('name, price, is_available')
-      .eq('restaurant_id', restaurant.id).order('name')
+      .eq('restaurant_id', restaurant.id).is('deleted_at', null).order('name')
     if (!items || items.length === 0) {
       await sendWhatsApp(from, pickLang(
         'Votre menu est vide.\n\n' +
@@ -2123,7 +2124,22 @@ async function handleVendor(
       await sendWhatsApp(from, pickLang(`❌ "${itemName}" introuvable.`, `❌ "${itemName}" not found.`, lang))
       return ok()
     }
-    await supabaseAdmin.from('menu_items').delete().eq('id', item.id)
+    // Soft delete: hidden from every menu, old orders keep the dish.
+    const { data: me } = await supabaseAdmin.from('customers').select('id').eq('phone', phone).maybeSingle()
+    const { error: delErr } = await supabaseAdmin.from('menu_items')
+      .update({ deleted_at: new Date().toISOString(), deleted_by: me?.id ?? null, is_available: false })
+      .eq('id', item.id).eq('restaurant_id', restaurant.id).is('deleted_at', null)
+    if (delErr) {
+      console.error('[whatsapp] menu item delete failed:', delErr.message)
+      await sendWhatsApp(from, pickLang('❌ Erreur. Réessayez.', '❌ Error. Please retry.', lang))
+      return ok()
+    }
+    await writeAudit({
+      action: 'menu_item_deleted', targetType: 'menu_item', targetId: item.id,
+      performedBy: me?.id ?? null, performedByType: 'vendor',
+      previousData: { name: item.name, price: item.price },
+      metadata: { restaurant_id: restaurant.id, via: 'whatsapp' },
+    })
     await sendWhatsApp(from, pickLang(`🗑️ *${item.name}* supprimé du menu`, `🗑️ *${item.name}* removed from menu`, lang))
     return ok()
   }

@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
     .from('vouchers')
     .select('restaurant_id, city, expires_at, max_uses, uses_count')
     .eq('is_active', true)
+    .is('deleted_at', null)
     .not('restaurant_id', 'is', null)
 
   if (city) q = q.or(`city.is.null,city.eq.${city}`)

@@ -34,6 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .from('vouchers')
     .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, per_customer_max, is_active, expires_at, event_id, created_at')
     .eq('event_id', params.id)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
 
   const vouchers = (data ?? []).map(v => ({ ...v, status: deriveStatus(v) }))

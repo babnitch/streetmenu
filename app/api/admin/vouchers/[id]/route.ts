@@ -20,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const { data: before } = await supabaseAdmin
     .from('vouchers').select('id, code, is_active, discount_type, discount_value')
-    .eq('id', params.id).maybeSingle()
+    .eq('id', params.id).is('deleted_at', null).maybeSingle()
 
   if (!before) return NextResponse.json({ error: 'Bon introuvable / Voucher not found' }, { status: 404 })
 
@@ -48,8 +48,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 // DELETE /api/admin/vouchers/[id]
-// Only allowed when the voucher has never been used. Otherwise callers are
-// expected to deactivate. Prevents orphaning orders.voucher_code references.
+// Only allowed when the voucher has never been used (a used one is
+// deactivated instead). Soft delete: deleted_at + inactive, the row stays so
+// its code can never be reused.
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = getSessionFromRequest(req)
   if (!session || !['super_admin', 'admin'].includes(session.role)) {
@@ -57,7 +58,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   }
 
   const { data: before } = await supabaseAdmin
-    .from('vouchers').select('id, code, current_uses').eq('id', params.id).maybeSingle()
+    .from('vouchers').select('id, code, current_uses').eq('id', params.id).is('deleted_at', null).maybeSingle()
   if (!before) return NextResponse.json({ error: 'Bon introuvable / Voucher not found' }, { status: 404 })
 
   if ((before.current_uses ?? 0) > 0) {
@@ -66,9 +67,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     }, { status: 409 })
   }
 
-  // Clean up any still-unused claims before removing the voucher itself.
-  await supabaseAdmin.from('customer_vouchers').delete().eq('voucher_id', params.id).is('used_at', null)
-  const { error } = await supabaseAdmin.from('vouchers').delete().eq('id', params.id)
+  // Unused claims stay; customer lists hide claims of a deleted voucher.
+  const { error } = await supabaseAdmin.from('vouchers')
+    .update({ deleted_at: new Date().toISOString(), deleted_by: session.id, is_active: false })
+    .eq('id', params.id).is('deleted_at', null)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   await writeAudit({

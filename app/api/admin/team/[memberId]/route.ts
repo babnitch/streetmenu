@@ -30,6 +30,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { memberId: 
   if (before.role === 'super_admin') {
     return NextResponse.json({ error: 'Un super admin ne se modifie pas ici / A super admin cannot be edited here' }, { status: 403 })
   }
+  if (before.status === 'removed') {
+    return NextResponse.json({ error: 'Membre retiré / Member removed' }, { status: 409 })
+  }
 
   const update: Record<string, unknown> = {}
   const changes: Array<{ action: string; previous: Record<string, unknown>; next: Record<string, unknown> }> = []
@@ -74,7 +77,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { memberId: 
   return NextResponse.json({ ok: true, member, changed: changes.map(c => c.action) })
 }
 
-// DELETE: remove admin user
+// DELETE: remove a member. Never deleted (soft deletion rule): status
+// 'removed' + deleted_at / deleted_by. They cannot log in (every login step
+// needs status 'active') and stay in the list as "Retiré".
 export async function DELETE(req: NextRequest, { params }: { params: { memberId: string } }) {
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'super_admin') {
@@ -87,16 +92,24 @@ export async function DELETE(req: NextRequest, { params }: { params: { memberId:
   const { data: before } = await supabaseAdmin
     .from('admin_users').select('email, name, role, status, created_at')
     .eq('id', params.memberId).maybeSingle()
+  if (!before) return NextResponse.json({ error: 'Membre introuvable / Member not found' }, { status: 404 })
+  if (before.role === 'super_admin') {
+    return NextResponse.json({ error: 'Un super admin ne se retire pas ici / A super admin cannot be removed here' }, { status: 403 })
+  }
+  if (before.status === 'removed') return NextResponse.json({ ok: true })
 
-  await supabaseAdmin.from('admin_users').delete().eq('id', params.memberId)
+  const { error } = await supabaseAdmin.from('admin_users')
+    .update({ status: 'removed', deleted_at: new Date().toISOString(), deleted_by: session.id })
+    .eq('id', params.memberId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   await writeAudit({
-    action: 'admin_user_deleted',
+    action: 'admin_user_removed',
     targetType: 'admin_user',
     targetId: params.memberId,
     performedBy: session.id,
     performedByType: session.role,
-    previousData: before ?? null,
+    previousData: before,
   })
 
   return NextResponse.json({ ok: true })
