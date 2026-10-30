@@ -440,6 +440,9 @@ export async function onRefundSettled(orderId: string, refundId: string, amount:
   const { data: o } = await supabaseAdmin.from('orders').select('funds_status').eq('id', orderId).maybeSingle()
   if (!o?.funds_status) return
   if (outcome === 'failed') {
+    // A refund an admin decided on a problem failed: the problem is open again.
+    await supabaseAdmin.from('order_problems').update({ status: 'open', refund_id: null, resolved_at: null, resolved_by: null })
+      .eq('refund_id', refundId).in('status', ['refunded', 'partly_refunded'])
     if (o.funds_status !== 'refunding') return
     await supabaseAdmin.from('orders').update({ funds_status: 'disputed' }).eq('id', orderId).eq('funds_status', 'refunding')
     await alertAdmins(`⚠️ Remboursement échoué — commande #${last4(orderId)} (${formatFCFA(amount)}). L'argent reste retenu : Admin → Commandes.`,
@@ -459,6 +462,10 @@ export async function onRefundSettled(orderId: string, refundId: string, amount:
   }
   if (data === true) {
     await writeAudit({ action: 'funds_refunded', targetType: 'order', targetId: orderId, performedByType: 'system', metadata: { refund_id: refundId, amount } })
+    // Problem decided "refund X, release the rest": the rest goes now.
+    const { data: pr } = await supabaseAdmin.from('order_problems').select('id, resolved_by')
+      .eq('refund_id', refundId).eq('status', 'partly_refunded').maybeSingle()
+    if (pr) await releaseOrderFunds(orderId, 'admin', { id: (pr.resolved_by as string | null) ?? null, type: 'admin' })
   }
 }
 
@@ -492,4 +499,110 @@ export async function runProtectedJobs(now = Date.now()): Promise<Record<string,
   try { out.acceptTimeout = await acceptTimeoutDue(now) } catch (e) { out.acceptTimeout = { error: (e as Error).message } }
   try { out.autoRelease = await autoReleaseDue(now) } catch (e) { out.autoRelease = { error: (e as Error).message } }
   return out
+}
+
+// ── P1d: problems ───────────────────────────────────────────────────────────
+// The customer reports a problem (order page button, or WhatsApp
+// "probleme"): the money stays held (funds 'disputed'), auto-release stops,
+// the admins are alerted. An admin decides in Admin → Commandes →
+// Problèmes: release, full refund, or partial (refund X, release the rest).
+
+export type ProblemResult = { ok: true; id: string } | { ok: false; status: number; error: string }
+
+export async function reportProblem(orderId: string, customerId: string | null, via: 'web' | 'whatsapp', reason: string): Promise<ProblemResult> {
+  const { data: o } = await supabaseAdmin.from('orders').select('id, restaurant_id, funds_status').eq('id', orderId).maybeSingle()
+  if (!o) return { ok: false, status: 404, error: 'Commande introuvable / Order not found' }
+  if (o.funds_status !== 'held' && o.funds_status !== 'disputed') {
+    return { ok: false, status: 409, error: 'Le paiement de cette commande n\'est plus retenu — contactez-nous / This order\'s payment is no longer held — contact us' }
+  }
+  const text = reason.trim().slice(0, 500) || 'Signalé sans détail / Reported without details'
+  const { data: row, error } = await supabaseAdmin.from('order_problems')
+    .insert({ order_id: orderId, reported_by: customerId && UUID_RE.test(customerId) ? customerId : null, via, reason: text })
+    .select('id').single()
+  if (error) {
+    if (/order_problems_one_open|duplicate key/i.test(error.message)) return { ok: false, status: 409, error: 'Un problème est déjà signalé pour cette commande / A problem is already reported for this order' }
+    return { ok: false, status: 500, error: 'Erreur — réessayez / Error — please try again' }
+  }
+  await supabaseAdmin.from('orders').update({ funds_status: 'disputed' }).eq('id', orderId).eq('funds_status', 'held')
+  await writeAudit({ action: 'order_problem_reported', targetType: 'order', targetId: orderId, performedBy: customerId && UUID_RE.test(customerId) ? customerId : null, performedByType: 'customer', metadata: { problem_id: row.id, via, reason: text } })
+  await alertAdmins(`⚠️ *Problème signalé* — commande #${last4(orderId)}\n📝 ${text}\n\nL'argent reste retenu. Décider : Admin → Commandes → Problèmes.`,
+    `⚠️ *Problem reported* — order #${last4(orderId)}\n📝 ${text}\n\nThe money stays held. Decide: Admin → Orders → Problems.`, orderId)
+  await tellRestaurant(o.restaurant_id as string, orderId,
+    `⚠️ Le client a signalé un problème avec la commande #${last4(orderId)}. Le paiement reste retenu ; Tchop & Ndjoka vous contacte.`,
+    `⚠️ The customer reported a problem with order #${last4(orderId)}. The payment stays held; Tchop & Ndjoka will contact you.`)
+  return { ok: true, id: row.id as string }
+}
+
+export interface ProblemRow {
+  id: string; order_id: string; code4: string; via: string; reason: string; status: string; created_at: string
+  resolved_at: string | null; note: string | null; refund_id: string | null
+  restaurant: string | null; customer_name: string | null; customer_phone: string | null
+  total_price: number; held: number; funds_status: string | null; order_status: string
+}
+
+export async function listProblems(): Promise<ProblemRow[]> {
+  const { data } = await supabaseAdmin.from('order_problems')
+    .select('id, order_id, via, reason, status, created_at, resolved_at, note, refund_id, orders(customer_name, customer_phone, total_price, funds_status, status, restaurants(name))')
+    .order('created_at', { ascending: false }).limit(100)
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown> & { orders: Record<string, unknown> & { restaurants: { name?: string } | null } | null }>
+  const out: ProblemRow[] = []
+  for (const r of rows) {
+    const o = r.orders
+    out.push({
+      id: r.id as string, order_id: r.order_id as string, code4: last4(r.order_id as string), via: r.via as string,
+      reason: r.reason as string, status: r.status as string, created_at: r.created_at as string,
+      resolved_at: (r.resolved_at as string | null) ?? null, note: (r.note as string | null) ?? null, refund_id: (r.refund_id as string | null) ?? null,
+      restaurant: o?.restaurants?.name ?? null, customer_name: (o?.customer_name as string | null) ?? null, customer_phone: (o?.customer_phone as string | null) ?? null,
+      total_price: Number(o?.total_price ?? 0), held: r.status === 'open' ? await heldAmount(r.order_id as string) : 0,
+      funds_status: (o?.funds_status as string | null) ?? null, order_status: (o?.status as string) ?? '',
+    })
+  }
+  return out
+}
+
+export type Decision = { kind: 'release' } | { kind: 'refund' } | { kind: 'partial'; amount: number }
+
+export async function resolveProblem(problemId: string, d: Decision, admin: { id: string; type: string }, note: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const { data: p } = await supabaseAdmin.from('order_problems').select('id, order_id, status').eq('id', problemId).maybeSingle()
+  if (!p) return { ok: false, status: 404, error: 'Problème introuvable / Problem not found' }
+  if (p.status !== 'open') return { ok: false, status: 409, error: 'Déjà décidé / Already decided' }
+  const orderId = p.order_id as string
+  const held = await heldAmount(orderId)
+  const adminId = UUID_RE.test(admin.id) ? admin.id : null
+  const now = new Date().toISOString()
+  const close = async (status: string, refundId: string | null) => {
+    const { data: won } = await supabaseAdmin.from('order_problems')
+      .update({ status, resolved_by: adminId, resolved_at: now, refund_id: refundId, note: note.slice(0, 500) || null })
+      .eq('id', problemId).eq('status', 'open').select('id')
+    return (won ?? []).length > 0
+  }
+
+  if (d.kind === 'release') {
+    if (!(await close('released', null))) return { ok: false, status: 409, error: 'Déjà décidé / Already decided' }
+    const r = await releaseOrderFunds(orderId, 'admin', { id: adminId, type: admin.type })
+    if (!r.ok) {
+      await supabaseAdmin.from('order_problems').update({ status: 'open', resolved_at: null, resolved_by: null }).eq('id', problemId)
+      return { ok: false, status: 409, error: r.error }
+    }
+  } else {
+    const amount = d.kind === 'refund' ? held : Math.round(d.amount)
+    if (!(amount > 0) || amount > held || (d.kind === 'partial' && amount === held)) {
+      return { ok: false, status: 400, error: `Montant invalide (1 – ${held - 1} pour un remboursement partiel) / Invalid amount` }
+    }
+    const { startRefund } = await import('@/lib/refunds')
+    const r = await startRefund({
+      kind: 'order', targetId: orderId, amount, cancelAfter: false, adminId, adminRole: admin.type,
+      reason: d.kind === 'refund' ? 'Problème avec la commande / Problem with the order' : 'Problème — remboursement partiel / Problem — partial refund',
+    })
+    if (!r.ok) return { ok: false, status: r.status, error: r.error }
+    if (!(await close(d.kind === 'refund' ? 'refunded' : 'partly_refunded', r.refund.id))) return { ok: false, status: 409, error: 'Déjà décidé / Already decided' }
+    // The refund may have completed before the problem was closed: then
+    // release the rest here (onRefundSettled didn't see the problem yet).
+    if (d.kind === 'partial') {
+      const { data: rf } = await supabaseAdmin.from('refunds').select('status').eq('id', r.refund.id).maybeSingle()
+      if (rf?.status === 'completed') await releaseOrderFunds(orderId, 'admin', { id: adminId, type: admin.type })
+    }
+  }
+  await writeAudit({ action: 'order_problem_resolved', targetType: 'order', targetId: orderId, performedBy: adminId, performedByType: admin.type, metadata: { problem_id: problemId, decision: d, note, held } })
+  return { ok: true }
 }

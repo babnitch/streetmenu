@@ -2322,6 +2322,49 @@ function NicknameRow({
   )
 }
 
+// "Problème avec ma commande" (protected payments): the payment stays held
+// and Tchop & Ndjoka decides.
+function ProblemReport({ orderId }: { orderId: string }) {
+  const bi = useBi()
+  const { locale } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState('')
+  async function send() {
+    setBusy(true); setError('')
+    const r = await fetch(`/api/orders/${orderId}/problem`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }).catch(() => null)
+    const d = r ? await r.json().catch(() => ({})) : {}
+    setBusy(false)
+    if (r?.ok) setDone(true)
+    else setError(pickBi(d?.error ?? 'Erreur — réessayez. / Error — please try again.', locale))
+  }
+  if (done) return <p className="mt-2 text-sm font-semibold text-amber-700">⚠️ {bi('Problème signalé. Le paiement reste retenu ; nous vous contactons.', 'Problem reported. The payment stays held; we will contact you.')}</p>
+  return (
+    <div className="mt-2">
+      {!open ? (
+        <button type="button" onClick={() => setOpen(true)} className="w-full border border-amber-300 text-amber-800 py-2 rounded-xl text-sm font-semibold hover:bg-amber-50">
+          ⚠️ {bi('Problème avec ma commande', 'Problem with my order')}
+        </button>
+      ) : (
+        <div className="border border-amber-200 bg-amber-50 rounded-xl p-3">
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} maxLength={500}
+            placeholder={bi('Ce qui ne va pas (plat manquant, pas reçue…)', 'What is wrong (missing dish, not received…)')}
+            className="w-full border border-divider rounded-lg px-3 py-2 text-base bg-white outline-none focus:border-brand" />
+          <div className="flex gap-2 mt-2">
+            <button type="button" onClick={() => setOpen(false)} className="flex-1 border border-divider bg-white py-2 rounded-lg text-sm font-semibold text-ink-secondary">{bi('Annuler', 'Cancel')}</button>
+            <button type="button" onClick={send} disabled={busy || reason.trim().length < 3}
+              className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold">{busy ? '…' : bi('Signaler', 'Report')}</button>
+          </div>
+          {error && <p className="text-xs text-danger mt-1">{error}</p>}
+          <p className="text-xs text-amber-800 mt-2">{bi('Le paiement reste retenu jusqu\'à notre décision.', 'The payment stays held until we decide.')}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string }) {
   const bi = useBi()
   const { locale } = useLanguage()
@@ -2378,6 +2421,11 @@ function OrderCard({ order, orderAtLabel }: { order: Order; orderAtLabel: string
         </div>
       )}
       {receivedDone && <p className="mt-2 text-sm font-semibold text-emerald-700">✅ {bi('Merci ! Commande reçue.', 'Thanks! Order received.')}</p>}
+
+      {/* Protected payment: the money is still held → report a problem. */}
+      {order.funds_status === 'held' && !['pending', 'cancelled'].includes(order.status) && !receivedDone && (
+        <ProblemReport orderId={order.id} />
+      )}
 
       {/* Q1: the order QR, shown at pickup or to the rider. */}
       {(['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(order.status) || order.funds_status === 'held') && order.status !== 'cancelled' && (

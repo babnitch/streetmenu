@@ -822,6 +822,27 @@ export async function handleOrderCommand(
     return ok()
   }
 
+  // Protected payments: "probleme [what is wrong]" — the latest held order.
+  const problemMatch = body.trim().match(/^(?:probl[eè]me|problem)\b[\s:,-]*([\s\S]*)$/i)
+  if (problemMatch) {
+    const { data: held } = await supabaseAdmin.from('orders').select('id')
+      .eq('customer_id', customer.id).eq('funds_status', 'held').not('status', 'in', '(pending,cancelled)')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    if (!held) {
+      await sendWhatsApp(from, pickLang(
+        'Aucune commande avec paiement retenu. Pour toute question, écrivez-nous ici.',
+        'No order with a held payment. For any question, write to us here.', lang))
+      return ok()
+    }
+    const { reportProblem } = await import('@/lib/protectedPayments')
+    const r = await reportProblem(held.id as string, customer.id, 'whatsapp', problemMatch[1] ?? '')
+    await sendWhatsApp(from, r.ok
+      ? pickLang(`⚠️ Problème enregistré pour la commande #${last4(held.id as string)}. Le paiement reste retenu ; Tchop & Ndjoka vous contacte.\nVous pouvez nous écrire ce qui ne va pas ici.`,
+          `⚠️ Problem recorded for order #${last4(held.id as string)}. The payment stays held; Tchop & Ndjoka will contact you.\nYou can write what is wrong here.`, lang)
+      : pickLang(r.error.split(' / ')[0], r.error.split(' / ')[1] ?? r.error, lang))
+    return ok()
+  }
+
   // Q2: "reçu" — the customer confirms their latest order out for delivery
   // arrived (delivered_confirmed_by = customer). The restaurant is told.
   if (['reçu', 'recu', 'received', 'reçue', 'recue', "j'ai reçu", "j'ai recu"].includes(cmd)) {
