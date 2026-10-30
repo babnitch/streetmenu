@@ -186,6 +186,8 @@ export interface RestaurantTool {
 }
 
 export const RESTAURANT_TOOLS: readonly RestaurantTool[] = [
+  // Aperçu: the figures (owner + manager).
+  { key: 'overview', icon: '📊', labelFr: 'Aperçu',     labelEn: 'Overview', minRole: 'manager' },
   { key: 'orders',   icon: '📦', labelFr: 'Commandes',  labelEn: 'Orders' },
   { key: 'menu',     icon: '🍽️', labelFr: 'Menu',       labelEn: 'Menu',     minRole: 'manager' },
   { key: 'vouchers', icon: '🎫', labelFr: 'Bons',       labelEn: 'Vouchers', minRole: 'manager' },

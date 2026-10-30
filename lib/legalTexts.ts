@@ -128,6 +128,7 @@ export const LEGAL_TEXTS: Record<LegalPageKey, { fr: LegalText; en: LegalText }>
           'Contenus des professionnels : photos, cartes et menus, informations du restaurant ou de l\'événement.',
           'Avis, commentaires, signalements, bons de réduction utilisés, favoris ; les clics « Commander sur WhatsApp / Appeler » sur une page restaurant (pour indiquer au restaurant combien de clients nous lui envoyons).',
           'Sur votre appareil : un cookie de session (connexion) et des préférences locales (ville, langue, panier, mode économique). Votre position n\'est utilisée que si vous triez par distance, sur votre appareil, et n\'est pas enregistrée.',
+          'Statistiques de fréquentation : nous comptons de façon anonyme, par jour, les visites, les pages vues, certains clics (WhatsApp, Appeler, Billets, Itinéraire, Voir la carte) et les mots recherchés — sans cookie, sans adresse IP, sans identifiant.',
         ] },
         { h: 'Pourquoi', p: [
           'Vous connecter, faire fonctionner commandes, réservations et paiements, vous envoyer confirmations et suivis, permettre aux restaurants et organisateurs de vous servir, lutter contre la fraude et les abus, et tenir une comptabilité.',
@@ -158,6 +159,7 @@ export const LEGAL_TEXTS: Record<LegalPageKey, { fr: LegalText; en: LegalText }>
           'Professionals\' content: photos, menus, restaurant or event information.',
           'Reviews, comments, reports, vouchers used, favourites; "Order on WhatsApp / Call" taps on a restaurant page (to tell the restaurant how many customers we send).',
           'On your device: a session cookie (login) and local preferences (city, language, cart, low-data mode). Your location is only used if you sort by distance, on your device, and is not stored.',
+          'Audience statistics: we count, anonymously and per day, visits, page views, some taps (WhatsApp, Call, Tickets, Directions, See the menu) and the words searched — no cookie, no IP address, no identifier.',
         ] },
         { h: 'Why', p: [
           'To log you in, run orders, bookings and payments, send confirmations and updates, let restaurants and organisers serve you, fight fraud and abuse, and keep accounts.',

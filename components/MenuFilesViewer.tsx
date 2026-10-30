@@ -11,7 +11,7 @@ import { useBi } from '@/lib/languageContext'
 import { useDataMode } from '@/lib/dataMode'
 import type { MenuFile } from '@/lib/menuFiles'
 
-export default function MenuFilesViewer({ files }: { files: MenuFile[] }) {
+export default function MenuFilesViewer({ files, onOpen }: { files: MenuFile[]; /** "Voir la carte" tapped (stats). */ onOpen?: () => void }) {
   const bi = useBi()
   const { isLowData } = useDataMode()
   const [open, setOpen] = useState(false)
@@ -35,7 +35,7 @@ export default function MenuFilesViewer({ files }: { files: MenuFile[] }) {
   // Only a PDF: the button opens it directly.
   if (photos.length === 0 && pdf) {
     return (
-      <a href={pdf.url} target="_blank" rel="noopener noreferrer" className={btn}>
+      <a href={pdf.url} target="_blank" rel="noopener noreferrer" className={btn} onClick={() => onOpen?.()}>
         <span className="w-12 h-12 rounded-xl bg-surface-muted flex items-center justify-center text-2xl" aria-hidden="true">📄</span>
         <span className="flex-1 font-semibold text-ink-primary">{label}</span>
         <span className="text-xs text-ink-tertiary">PDF</span>
@@ -45,7 +45,7 @@ export default function MenuFilesViewer({ files }: { files: MenuFile[] }) {
 
   return (
     <>
-      <button type="button" onClick={() => { setIndex(0); setOpen(true) }} className={btn}>
+      <button type="button" onClick={() => { setIndex(0); setOpen(true); onOpen?.() }} className={btn}>
         <span className="relative w-12 h-12 rounded-xl overflow-hidden bg-surface-muted flex items-center justify-center text-2xl flex-shrink-0" aria-hidden="true">
           {isLowData
             ? '📄'

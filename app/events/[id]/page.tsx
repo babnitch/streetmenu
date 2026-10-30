@@ -1,4 +1,5 @@
 'use client'
+import { track } from '@/lib/track'
 
 export const dynamic = 'force-dynamic'
 
@@ -133,6 +134,7 @@ export default function EventDetailPage() {
     async function fetchEvent() {
       const { data } = await supabase.from('events').select('*').eq('id', id).single()
       setEvent(data)
+      if (data) track('view', 'event', id, data.city)
       setLoading(false)
       // Tiers are fetched separately so the event card renders without
       // waiting for them — empty list is a valid public state.
@@ -618,7 +620,7 @@ export default function EventDetailPage() {
               {bi('Pas de réservation sur Tchop & Ndjoka pour cet événement.', 'No booking on Tchop & Ndjoka for this event.')}
             </p>
             {event.info_link && (
-              <a href={event.info_link} target="_blank" rel="noopener noreferrer"
+              <a href={event.info_link} target="_blank" rel="noopener noreferrer" onClick={() => track('click_tickets', 'event', event.id, event.city)}
                 className="flex items-center justify-center gap-2 bg-brand hover:bg-brand-dark text-white py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card">
                 🎟️ {bi('Billets / Infos', 'Tickets / Info')} ↗
               </a>
@@ -657,11 +659,11 @@ export default function EventDetailPage() {
             <div className="bg-white rounded-2xl shadow-sm p-4">
               <p className="text-sm font-bold text-ink-primary mb-3">{bi('Réservez auprès de l\'organisateur', 'Book with the organiser')}</p>
               <div className="grid grid-cols-1 gap-2">
-                <a href={`https://wa.me/${wa}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer"
+                <a href={`https://wa.me/${wa}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer" onClick={() => track('click_whatsapp', 'event', event.id, event.city)}
                   className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-full font-semibold text-sm transition-colors">
                   💬 {bi('Contacter sur WhatsApp', 'Contact on WhatsApp')}
                 </a>
-                <a href={`tel:+${wa}`}
+                <a href={`tel:+${wa}`} onClick={() => track('click_call', 'event', event.id, event.city)}
                   className="flex items-center justify-center gap-2 bg-surface border border-divider hover:bg-surface-muted text-ink-primary py-3 rounded-full font-semibold text-sm transition-colors">
                   📞 {bi('Appeler', 'Call')}
                 </a>
@@ -875,6 +877,7 @@ export default function EventDetailPage() {
         {whatsappNumber && (
           <a
             href={whatsappUrl}
+            onClick={() => track('click_whatsapp', 'event', event.id, event.city)}
             target="_blank"
             rel="noopener noreferrer"
             className="block w-full bg-white border border-divider hover:bg-surface-muted text-ink-primary text-center py-3 rounded-2xl text-sm font-semibold transition-colors"

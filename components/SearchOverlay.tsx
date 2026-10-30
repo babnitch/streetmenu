@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { Restaurant } from '@/types'
 import { useBi } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
+import { trackSearch } from '@/lib/track'
 import { useDataMode } from '@/lib/dataMode'
 import RestaurantCard, { RestaurantCardSkeleton, type RatingSummary } from './RestaurantCard'
 import { normalizeCuisine } from '@/lib/cuisineCategories'
@@ -139,15 +140,18 @@ export default function SearchOverlay({ open, onClose, desktop = false }: { open
   // Dish-name hits (lib/dishSearch.ts, shared with the restaurant list).
   const { hits: menuHits, searching: menuSearching } = useDishHits(query, open)
 
+  // Anonymous search count (words only), once per distinct search.
+  const lastCounted = useRef('')
   const commitRecent = useCallback((raw: string) => {
     const q = raw.trim()
     if (q.length < 2) return
+    if (q.toLowerCase() !== lastCounted.current) { lastCounted.current = q.toLowerCase(); trackSearch(q, city) }
     setRecents(prev => {
       const next = [q, ...prev.filter(r => r.toLowerCase() !== q.toLowerCase())].slice(0, RECENTS_MAX)
       writeRecents(next)
       return next
     })
-  }, [])
+  }, [city])
 
   // Local matches first (name / cuisine / neighborhood), then restaurants
   // reached only through a menu-item hit — so a dish search still finds

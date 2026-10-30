@@ -31,8 +31,8 @@ async function main(): Promise<void> {
   await step('restaurant tools follow the role', () => {
     const tools = (r: Parameters<typeof restaurantToolsFor>[0]) => restaurantToolsFor(r).map(t => t.key)
     assertEq(tools('staff'), ['orders', 'validate'], 'staff: orders + validate')
-    assertEq(tools('manager'), ['orders', 'menu', 'vouchers', 'validate', 'settings'], 'manager: no Team')
-    assertEq(tools('owner'), ['orders', 'menu', 'vouchers', 'validate', 'settings', 'team'], 'owner: everything')
+    assertEq(tools('manager'), ['overview', 'orders', 'menu', 'vouchers', 'validate', 'settings'], 'manager: no Team')
+    assertEq(tools('owner'), ['overview', 'orders', 'menu', 'vouchers', 'validate', 'settings', 'team'], 'owner: everything')
     assertEq(tools('admin'), tools('owner'), 'platform admin = owner')
     assertEq(tools(null), ['orders', 'validate'], 'no role: the floor tools only')
   })

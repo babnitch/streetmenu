@@ -1,5 +1,6 @@
 'use client'
 
+import { track } from '@/lib/track'
 export const dynamic = 'force-dynamic'
 
 import { LINK_FIELDS, LINK_LABELS } from '@/lib/restaurantLinks'
@@ -109,7 +110,7 @@ export default function RestaurantInfoPage() {
             <Row icon="📍">
               <div className="flex items-start justify-between gap-3">
                 <span className="text-sm text-ink-primary">{address || '—'}</span>
-                <a href={directions} target="_blank" rel="noopener noreferrer"
+                <a href={directions} target="_blank" rel="noopener noreferrer" onClick={() => track('click_directions', 'restaurant', r.id, r.city)}
                   className="flex-shrink-0 text-sm font-semibold text-brand-dark hover:underline">
                   {bi('Itinéraire', 'Directions')}
                 </a>
@@ -132,7 +133,7 @@ export default function RestaurantInfoPage() {
             </Row>
             {whatsapp && (
               <Row icon="💬">
-                <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noopener noreferrer"
+                <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noopener noreferrer" onClick={() => track('click_whatsapp', 'restaurant', r.id, r.city)}
                   className="text-sm font-semibold text-emerald-700 hover:underline">
                   {bi('Contacter sur WhatsApp', 'Contact on WhatsApp')}
                 </a>

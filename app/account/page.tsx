@@ -47,6 +47,7 @@ const AdminPromotions  = dynamicLoad(() => import('@/app/admin/promotions/page')
 const AdminVouchers    = dynamicLoad(() => import('@/app/admin/vouchers/page'),    { ssr: false })
 const AdminReports     = dynamicLoad(() => import('@/app/admin/reports/page'),     { ssr: false })
 const AdminPlaces      = dynamicLoad(() => import('@/app/admin/places/page'),      { ssr: false })
+const AdminStats       = dynamicLoad(() => import('@/app/admin/stats/page'),       { ssr: false })
 const AdminAccounts    = dynamicLoad(() => import('@/app/admin/accounts/page'),    { ssr: false })
 const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/page'), { ssr: false })
 const AdminPlatform    = dynamicLoad(() => import('@/app/admin/platform/page'),     { ssr: false })
@@ -96,6 +97,7 @@ const ADMIN_TAB_DESCS: Record<AdminSubTab, string> = {
   orders:       'Toutes les commandes / All orders',
   events:       'Modérer les événements / Moderate events',
   places:       'Lieux à visiter, propositions / Places to visit, suggestions',
+  stats:        'Visites, vues, clics, recherches / Visits, views, clicks, searches',
   broadcasts:   'Diffusions envoyées / Sent broadcasts',
   promotions:   'Promotions payantes / Paid promotions',
   vouchers:     'Bons de réduction / Discount vouchers',
@@ -909,6 +911,7 @@ export default function AccountPage() {
                   {adminTab === 'promotions'   && <AdminPromotions />}
                   {adminTab === 'vouchers'     && <AdminVouchers />}
                   {adminTab === 'places'       && <AdminPlaces />}
+                  {adminTab === 'stats'        && <AdminStats />}
                   {adminTab === 'reports'      && <AdminReports />}
                   {adminTab === 'accounts'     && <AdminAccounts />}
                   {adminTab === 'messages'     && <AdminMessages />}

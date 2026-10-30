@@ -17,7 +17,7 @@ import {
 
 export type Mode     = 'client' | 'pro'
 export type TeamRole = 'owner' | 'manager' | 'staff'
-export type DashboardTab = 'orders' | 'menu' | 'validate' | 'vouchers' | 'team' | 'settings'
+export type DashboardTab = 'overview' | 'orders' | 'menu' | 'validate' | 'vouchers' | 'team' | 'settings'
 
 interface ModeContextValue {
   mode: Mode

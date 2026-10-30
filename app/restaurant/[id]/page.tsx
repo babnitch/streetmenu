@@ -1,5 +1,6 @@
 'use client'
 
+import { track } from '@/lib/track'
 export const dynamic = 'force-dynamic'
 
 import GeneratedCover from '@/components/GeneratedCover'
@@ -77,6 +78,7 @@ export default function MenuPage() {
       setOrderWhatsapp(typeof filesRes?.order_whatsapp === 'string' ? filesRes.order_whatsapp : null)
       if (rest) {
         setRestaurant(rest)
+        track('view', 'restaurant', id, rest.city)
         const remembered = rememberedFulfilment(id)
         setFulfilment(deliversNow(rest) ? (remembered ?? 'delivery') : 'pickup')
       }
@@ -177,6 +179,7 @@ export default function MenuPage() {
     : bi(`Bonjour ${restaurant.name}, je voudrais commander : `, `Hello ${restaurant.name}, I'd like to order: `)
   // Each WhatsApp / call tap is counted for the restaurant (N4a).
   const logContact = (kind: 'whatsapp' | 'call') => {
+    track(kind === 'whatsapp' ? 'click_whatsapp' : 'click_call', 'restaurant', id, restaurant?.city)
     try {
       const body = new Blob([JSON.stringify({ kind })], { type: 'application/json' })
       if (!navigator.sendBeacon?.(`/api/restaurants/${id}/contact-click`, body)) {
@@ -230,7 +233,7 @@ export default function MenuPage() {
 
         {/* N4a: the paper menu. */}
         {menuFiles.length > 0 && (
-          <div className="mt-4"><MenuFilesViewer files={menuFiles} /></div>
+          <div className="mt-4"><MenuFilesViewer files={menuFiles} onOpen={() => track('click_map', 'restaurant', id, restaurant?.city)} /></div>
         )}
 
         {/* Vitrine (no Commandes module), or only a paper menu: order /

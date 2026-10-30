@@ -1,5 +1,6 @@
 'use client'
 
+import { track } from '@/lib/track'
 import { Restaurant } from '@/types'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -61,6 +62,7 @@ export default function RestaurantSidebar({ restaurant, onClose, openOverride }:
         {restaurant.phone && (
           <a
             href={`tel:${restaurant.phone}`}
+            onClick={() => track('click_call', 'restaurant', restaurant.id, restaurant.city)}
             className="flex items-center gap-2 text-sm text-ink-secondary mb-2 hover:text-brand transition-colors"
           >
             <span>📞</span> {restaurant.phone}
@@ -70,6 +72,7 @@ export default function RestaurantSidebar({ restaurant, onClose, openOverride }:
         {restaurant.whatsapp && (
           <a
             href={`https://wa.me/${restaurant.whatsapp.replace(/\D/g, '')}`}
+            onClick={() => track('click_whatsapp', 'restaurant', restaurant.id, restaurant.city)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 text-sm text-brand-darker mb-4 hover:text-brand-darker transition-colors"
