@@ -35,6 +35,7 @@ export default function PlacePage() {
     )
   }
   const title = pick(place, 'title', locale)
+  const headline = pick(place, 'headline', locale)
   const description = pick(place, 'description', locale)
   const tip = pick(place, 'tip', locale)
   const links = [
@@ -62,6 +63,7 @@ export default function PlacePage() {
         )}
         <p className="mt-4 text-xs font-bold uppercase tracking-wide text-brand-darker">{placeCategoryLabel(place.category, locale)}</p>
         <h1 className="text-2xl font-black text-ink-primary leading-tight">{title}</h1>
+        {headline && <p className="mt-1 text-base italic text-ink-secondary">{headline}</p>}
         <p className="text-sm text-ink-secondary mt-1">📍 {[place.area, place.city].filter(Boolean).join(', ')}</p>
         <a href={directionsUrl(place)} target="_blank" rel="noopener noreferrer"
           className="mt-3 inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-full text-sm font-semibold">

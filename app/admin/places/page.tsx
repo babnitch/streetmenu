@@ -16,7 +16,7 @@ import { PLACE_CATEGORIES, placeCategoryLabel } from '@/lib/places'
 type Status = 'pending' | 'active' | 'hidden'
 interface AdminPlace {
   id: string; status: Status; city: string; area: string | null; category: string
-  title_fr: string; title_en: string | null; description_fr: string | null; description_en: string | null
+  title_fr: string; title_en: string | null; headline_fr: string | null; headline_en: string | null; description_fr: string | null; description_en: string | null
   tip_fr: string | null; tip_en: string | null; hours: string | null; price: string | null
   official_link: string | null; instagram_url: string | null; facebook_url: string | null; tiktok_url: string | null
   cover_url: string | null; lat: number | null; lng: number | null; admin_note: string | null; sources: string | null
@@ -24,6 +24,7 @@ interface AdminPlace {
 }
 const FIELDS: Array<{ k: keyof AdminPlace; fr: string; en: string; area?: boolean }> = [
   { k: 'title_fr', fr: 'Nom (FR)', en: 'Name (FR)' }, { k: 'title_en', fr: 'Nom (EN)', en: 'Name (EN)' },
+  { k: 'headline_fr', fr: 'Accroche (FR)', en: 'Headline (FR)' }, { k: 'headline_en', fr: 'Accroche (EN)', en: 'Headline (EN)' },
   { k: 'area', fr: 'Quartier', en: 'Area' },
   { k: 'description_fr', fr: 'Texte (FR)', en: 'Text (FR)', area: true }, { k: 'description_en', fr: 'Texte (EN)', en: 'Text (EN)', area: true },
   { k: 'tip_fr', fr: 'Bon à savoir (FR)', en: 'Good to know (FR)', area: true }, { k: 'tip_en', fr: 'Bon à savoir (EN)', en: 'Good to know (EN)', area: true },

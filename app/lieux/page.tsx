@@ -33,7 +33,7 @@ export default function PlacesPage() {
   const present = useMemo(() => new Set((places ?? []).map(p => p.category)), [places])
   const shown = useMemo(() => (places ?? []).filter(p =>
     (!category || p.category === category)
-    && matchesSearch(query, [p.title_fr, p.title_en, p.area, p.description_fr, p.description_en, placeCategoryLabel(p.category, locale)])),
+    && matchesSearch(query, [p.title_fr, p.title_en, p.headline_fr, p.headline_en, p.area, p.description_fr, p.description_en, placeCategoryLabel(p.category, locale)])),
   [places, category, query, locale])
 
   return (

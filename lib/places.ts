@@ -35,15 +35,15 @@ export function placeCategoryLabel(id: string | null | undefined, locale: string
 
 export interface PublicPlace {
   id: string; city: string; area: string | null; category: string
-  title_fr: string; title_en: string | null; description_fr: string | null; description_en: string | null
+  title_fr: string; title_en: string | null; headline_fr: string | null; headline_en: string | null; description_fr: string | null; description_en: string | null
   tip_fr: string | null; tip_en: string | null; hours: string | null; price: string | null
   official_link: string | null; instagram_url: string | null; facebook_url: string | null; tiktok_url: string | null
   lat: number | null; lng: number | null; cover_url: string | null
 }
-export const PUBLIC_PLACE_COLUMNS = 'id, city, area, category, title_fr, title_en, description_fr, description_en, tip_fr, tip_en, hours, price, official_link, instagram_url, facebook_url, tiktok_url, lat, lng, cover_url'
+export const PUBLIC_PLACE_COLUMNS = 'id, city, area, category, title_fr, title_en, headline_fr, headline_en, description_fr, description_en, tip_fr, tip_en, hours, price, official_link, instagram_url, facebook_url, tiktok_url, lat, lng, cover_url'
 
 // The viewer's language, French when the English text is missing.
-export function pick(p: PublicPlace, field: 'title' | 'description' | 'tip', locale: string): string {
+export function pick(p: PublicPlace, field: 'title' | 'headline' | 'description' | 'tip', locale: string): string {
   const en = p[`${field}_en` as const], fr = p[`${field}_fr` as const]
   return (locale === 'en' ? en || fr : fr || en) ?? ''
 }
@@ -58,7 +58,7 @@ export type PlaceInput = Partial<Record<keyof PublicPlace | 'status' | 'admin_no
 export type PlaceValidation = { ok: true; place: Record<string, string | number | null> } | { ok: false; field: string; error: string }
 
 const TEXT_LIMITS: Record<string, number> = {
-  city: 60, area: 80, title_fr: 140, title_en: 140, description_fr: 4000, description_en: 4000,
+  city: 60, area: 80, title_fr: 140, title_en: 140, headline_fr: 200, headline_en: 200, description_fr: 4000, description_en: 4000,
   tip_fr: 1000, tip_en: 1000, hours: 300, price: 200, admin_note: 2000, sources: 4000,
 }
 const LINKS = ['official_link', 'instagram_url', 'facebook_url', 'tiktok_url', 'cover_url'] as const
