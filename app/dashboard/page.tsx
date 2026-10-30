@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import RestaurantLinksForm from '@/components/RestaurantLinksForm'
 import RidersPanel from '@/components/RidersPanel'
 import OrderRiderSelect from '@/components/OrderRiderSelect'
 import ValidatePanel from '@/components/ValidatePanel'
@@ -1131,6 +1132,14 @@ export default function DashboardPage() {
                   setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                 }}
               />
+              {/* I2: the restaurant's public links. */}
+              <section className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+                <h3 className="font-bold text-ink-primary mb-3">🔗 {bi('Liens', 'Links')}</h3>
+                <RestaurantLinksForm restaurantId={selectedRestaurant.id} initial={{
+                  instagram_url: selectedRestaurant.instagram_url ?? '', facebook_url: selectedRestaurant.facebook_url ?? '',
+                  tiktok_url: selectedRestaurant.tiktok_url ?? '', website_url: selectedRestaurant.website_url ?? '',
+                }} />
+              </section>
               {hasModule(selectedRestaurant, 'delivery') ? (
 <>
                 <DeliveryPanel
@@ -1184,6 +1193,14 @@ export default function DashboardPage() {
                   setRestaurants(prev => prev.map(r => r.id === updated.id ? updated : r))
                 }}
               />
+              {/* I2: the restaurant's public links. */}
+              <section className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+                <h3 className="font-bold text-ink-primary mb-3">🔗 {bi('Liens', 'Links')}</h3>
+                <RestaurantLinksForm restaurantId={selectedRestaurant.id} initial={{
+                  instagram_url: selectedRestaurant.instagram_url ?? '', facebook_url: selectedRestaurant.facebook_url ?? '',
+                  tiktok_url: selectedRestaurant.tiktok_url ?? '', website_url: selectedRestaurant.website_url ?? '',
+                }} />
+              </section>
               {hasModule(selectedRestaurant, 'delivery') ? (
 <>
                 <DeliveryPanel

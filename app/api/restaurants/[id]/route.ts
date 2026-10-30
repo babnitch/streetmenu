@@ -1,3 +1,4 @@
+import { LINK_FIELDS, validateLinks } from '@/lib/restaurantLinks'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic'
 //    or { delivery_enabled, delivery_fee, delivery_extra_min }   (V1)
 //    or { menu_type: 'a_la_carte' | 'daily' }                    (Menu par jour)
 //    or { riders_mode: 'none' | 'app' }                           (Livreurs, Q5)
+//    or { instagram_url | facebook_url | tiktok_url | website_url } (links, I2)
 //
 // Owner + manager (+ admin) can set the kitchen's estimated preparation
 // range — it's an operational setting like opening hours, not a commercial
@@ -46,6 +48,7 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
     delivery_enabled?: unknown; delivery_fee?: unknown; delivery_extra_min?: unknown
     menu_type?: unknown
     riders_mode?: unknown
+    instagram_url?: unknown; facebook_url?: unknown; tiktok_url?: unknown; website_url?: unknown
   }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid json' }, { status: 400 }) }
 
@@ -53,7 +56,8 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
   const hasDelivery = body.delivery_enabled !== undefined || body.delivery_fee !== undefined || body.delivery_extra_min !== undefined
   const hasMenuType = body.menu_type !== undefined
   const hasRiders = body.riders_mode !== undefined
-  if (!hasPrep && !hasDelivery && !hasMenuType && !hasRiders) {
+  const hasLinks = LINK_FIELDS.some(f => body[f] !== undefined)
+  if (!hasPrep && !hasDelivery && !hasMenuType && !hasRiders && !hasLinks) {
     return NextResponse.json({ error: 'Aucune modification / No changes' }, { status: 400 })
   }
 
@@ -81,6 +85,13 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
     updates.menu_type = mt
   }
 
+  // I2: Instagram / Facebook / TikTok / website (public links).
+  if (hasLinks) {
+    const v = validateLinks(body as Record<string, unknown>)
+    if (!v.ok) return NextResponse.json({ error: v.error, field: v.field }, { status: 400 })
+    Object.assign(updates, v.links)
+  }
+
   // Q5: "Livreurs" — riders not on the app (default) or using the app.
   if (hasRiders) {
     if (body.riders_mode !== 'none' && body.riders_mode !== 'app') {
@@ -91,7 +102,7 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
 
   const { data: before } = await supabaseAdmin
     .from('restaurants')
-    .select('prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, menu_type, riders_mode')
+    .select('prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, menu_type, riders_mode, instagram_url, facebook_url, tiktok_url, website_url')
     .eq('id', params.id)
     .maybeSingle()
   if (!before) return NextResponse.json({ error: 'Restaurant introuvable / not found' }, { status: 404 })
@@ -104,7 +115,8 @@ async function update(req: NextRequest, { params }: { params: { id: string } }) 
 
   const previous = Object.fromEntries(Object.keys(updates).map(k => [k, (before as Record<string, unknown>)[k]]))
   await writeAudit({
-    action:          hasRiders && !hasMenuType && !hasPrep && !hasDelivery ? 'riders_mode_updated'
+    action:          hasLinks && !hasRiders && !hasMenuType && !hasPrep && !hasDelivery ? 'restaurant_links_updated'
+                   : hasRiders && !hasMenuType && !hasPrep && !hasDelivery ? 'riders_mode_updated'
                    : hasMenuType && !hasPrep && !hasDelivery ? 'menu_type_updated'
                    : hasDelivery && !hasPrep ? 'delivery_settings_updated' : 'prep_time_updated',
     targetType:      'restaurant',

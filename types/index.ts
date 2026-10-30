@@ -54,6 +54,11 @@ export interface Restaurant {
   menu_type?: 'a_la_carte' | 'daily' | null
   // Q5: riders not on the app (default) or using the app.
   riders_mode?: 'none' | 'app' | null
+  // I2: public links.
+  instagram_url?: string | null
+  facebook_url?: string | null
+  tiktok_url?: string | null
+  website_url?: string | null
 }
 
 export interface MenuItem {

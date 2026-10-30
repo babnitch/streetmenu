@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import { LINK_FIELDS, LINK_LABELS } from '@/lib/restaurantLinks'
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import dynamicImport from 'next/dynamic'
@@ -135,6 +136,18 @@ export default function RestaurantInfoPage() {
                   className="text-sm font-semibold text-emerald-700 hover:underline">
                   {bi('Contacter sur WhatsApp', 'Contact on WhatsApp')}
                 </a>
+              </Row>
+            )}
+            {/* I2: the restaurant's links. */}
+            {LINK_FIELDS.some(f => !!r[f]) && (
+              <Row icon="🔗">
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {LINK_FIELDS.filter(f => !!r[f]).map(f => (
+                    <a key={f} href={r[f]!} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-brand-dark hover:underline">
+                      {LINK_LABELS[f].icon} {bi(LINK_LABELS[f].fr, LINK_LABELS[f].en)}
+                    </a>
+                  ))}
+                </div>
               </Row>
             )}
           </ul>

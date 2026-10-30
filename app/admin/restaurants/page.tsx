@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import RestaurantLinksForm from '@/components/RestaurantLinksForm'
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import { useLanguage, useBi } from '@/lib/languageContext'
@@ -644,6 +645,7 @@ function RestaurantCard({
   const bi = useBi()
   const [contactsOpen, setContactsOpen] = useState(false)
   const [menuFilesOpen, setMenuFilesOpen] = useState(false)
+  const [linksOpen, setLinksOpen] = useState(false)
   const within30Days = r.deleted_at
     ? new Date(r.deleted_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     : false
@@ -738,6 +740,18 @@ function RestaurantCard({
             <span aria-hidden="true">{contactsOpen ? '▲' : '▼'}</span>
           </button>
           {contactsOpen && <AdminRestaurantContacts restaurantId={r.id} onChanged={onContactsChanged} />}
+        </div>
+      )}
+
+      {/* Links + admin-only phone to verify / note (I2). */}
+      {canTogglePayment && !r.deleted_at && (
+        <div className="border-t border-divider bg-surface">
+          <button type="button" onClick={() => setLinksOpen(o => !o)} aria-expanded={linksOpen}
+            className="w-full px-5 py-3 flex items-center justify-between text-xs font-semibold text-ink-secondary hover:bg-surface-muted">
+            <span>🔗 {bi('Liens & notes admin', 'Links & admin notes')}</span>
+            <span aria-hidden="true">{linksOpen ? '▲' : '▼'}</span>
+          </button>
+          {linksOpen && <div className="px-5 pb-4"><RestaurantLinksForm restaurantId={r.id} admin /></div>}
         </div>
       )}
 
