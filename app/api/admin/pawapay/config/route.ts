@@ -6,13 +6,13 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/admin/pawapay/config (R1) — read-only: PawaPay's active
 // configuration for Cameroon (operators, deposits / payouts / refunds, min,
-// max, decimals). Admin / super admin. Cached 10 min per server instance.
+// max, decimals). Super admin only. Cached 10 min per server instance.
 let cache: { at: number; body: unknown } | null = null
 const TTL_MS = 10 * 60 * 1000
 
 export async function GET(req: NextRequest) {
   const s = getSessionFromRequest(req)
-  if (!s || !['super_admin', 'admin'].includes(s.role)) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
+  if (!s || s.role !== 'super_admin') return NextResponse.json({ error: 'Réservé au super admin / Super admin only' }, { status: 403 })
   const fresh = req.nextUrl.searchParams.get('refresh') === '1'
   if (!fresh && cache && Date.now() - cache.at < TTL_MS) return NextResponse.json(cache.body)
   try {

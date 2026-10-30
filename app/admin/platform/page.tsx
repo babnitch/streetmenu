@@ -16,9 +16,16 @@ export default function AdminPlatformPage() {
   const [info, setInfo] = useState<LegalInfo | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string; field?: LegalField } | null>(null)
+  // Legal & contact info and PawaPay: super admin only (the APIs check too);
+  // deletion requests: every admin.
+  const [isSuper, setIsSuper] = useState(false)
 
   useEffect(() => {
-    fetch('/api/admin/platform/info', { cache: 'no-store' }).then(r => r.ok ? r.json() : {}).then(setInfo).catch(() => setInfo({}))
+    fetch('/api/auth/me', { cache: 'no-store' }).then(r => r.json()).then(d => {
+      if (d?.user?.role !== 'super_admin') return
+      setIsSuper(true)
+      fetch('/api/admin/platform/info', { cache: 'no-store' }).then(r => r.ok ? r.json() : {}).then(setInfo).catch(() => setInfo({}))
+    }).catch(() => null)
   }, [])
 
   async function save() {
@@ -32,7 +39,7 @@ export default function AdminPlatformPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <section className="bg-white rounded-2xl shadow-sm p-5">
+      {isSuper && <section className="bg-white rounded-2xl shadow-sm p-5">
         <h2 className="font-bold text-ink-primary">📄 {bi('Infos légales et contact', 'Legal & contact info')}</h2>
         <p className="text-xs text-ink-tertiary mt-1">
           {bi('Affichées dans le pied de page, sur /contact et les pages légales. Un champ vide est masqué.', 'Shown in the footer, on /contact and the legal pages. An empty field is hidden.')}
@@ -54,9 +61,9 @@ export default function AdminPlatformPage() {
           {busy ? '…' : bi('Enregistrer', 'Save')}
         </button>
         {msg && <p className={`mt-2 text-sm ${msg.ok ? 'text-emerald-700' : 'text-danger'}`}>{msg.text}</p>}
-      </section>
+      </section>}
       <AdminDeletionRequests />
-      <AdminPawaPayPanel />
+      {isSuper && <AdminPawaPayPanel />}
     </div>
   )
 }

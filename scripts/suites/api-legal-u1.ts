@@ -5,7 +5,7 @@
 
 import { sb } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
-import { api, adminCookie, customerCookie } from '../testkit/session'
+import { api, adminCookie, customerCookie, staffCookie } from '../testkit/session'
 import { makeCustomer } from '../testkit/fixtures'
 import { teardown } from '../testkit/ledger'
 import { legalLine, validateLegalInfo } from '../../lib/legalInfo'
@@ -29,6 +29,9 @@ async function main(): Promise<void> {
     await step('admin saves (validated); anyone reads, no login', async () => {
       const cust = await makeCustomer({ suiteNo: 89, name: 'U1 Customer' })
       assertEq((await put({ company_name: 'X' }, customerCookie(cust))).status, 401, 'customer → 401')
+      const plainAdmin = staffCookie({ id: cust.id, email: 'a@test.invalid', name: 'Admin', role: 'admin' })
+      assertEq((await put({ company_name: 'X' }, plainAdmin)).status, 401, 'admin (not super) → 401')
+      assertEq((await api('/api/admin/platform/info', { cookie: plainAdmin })).status, 401, 'admin (not super) cannot read it either')
       const bad = await put({ contact_email: 'nope' })
       assertEq([bad.status, bad.body.field], [400, 'contact_email'], 'bad e-mail → 400 + field')
       assertEq((await put({ company_name: 'Test SARL', contact_email: 'test@example.cm', support_whatsapp: '+99989000001', instagram: 'https://instagram.com/tn' })).status, 200, 'saved')

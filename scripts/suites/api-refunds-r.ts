@@ -128,7 +128,8 @@ async function main(): Promise<void> {
 
     await step('R1 config and R3 payout test: access and checks (no payout sent)', async () => {
       const cust = staffCookie({ id: buyer.id, email: '', name: 'x', role: 'customer' })
-      assertEq((await api('/api/admin/pawapay/config', { cookie: cust })).status, 401, 'config: customer → 401')
+      assertEq((await api('/api/admin/pawapay/config', { cookie: cust })).status, 403, 'config: customer → 403')
+      assertEq((await api('/api/admin/pawapay/config', { cookie: admin })).status, 403, 'config: admin (not super) → 403')
       const conf = await api<{ environment?: string; operators?: unknown[] }>('/api/admin/pawapay/config', { cookie: superAdmin })
       assert([200, 502].includes(conf.status), `config answered (HTTP ${conf.status})`)
       assertEq(conf.body.environment, 'sandbox', 'local runs are sandbox')
