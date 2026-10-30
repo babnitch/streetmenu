@@ -39,3 +39,6 @@ next-env.d.ts
 
 # Test-run ledgers (scripts/testkit/ledger.ts)
 scripts/.testrun/
+
+# Import data (I): private CSVs — the repo is public, never commit them.
+data/import/
