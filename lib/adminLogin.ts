@@ -115,8 +115,9 @@ function maskPhone(phone: string): string {
 
 // A new challenge (older unused ones die) and its code to the admin's phone.
 // Team codes keep the per-number / per-IP limits but skip the daily cap.
-export async function sendAdminCode(admin: { id: string; phone: string }, ip: string): Promise<SendCodeOutcome> {
-  const claim = await claimCodeSend(admin.phone, ip, 'whatsapp', false, 'team')
+// channel 'sms': straight by SMS ("Recevoir par SMS" on the code screen).
+export async function sendAdminCode(admin: { id: string; phone: string }, ip: string, channel: 'whatsapp' | 'sms' = 'whatsapp'): Promise<SendCodeOutcome> {
+  const claim = await claimCodeSend(admin.phone, ip, channel, false, 'team')
   if (!claim.ok) {
     return {
       ok: false, status: claim.reason === 'error' ? 500 : 429, retryAfter: claim.retryAfter,
@@ -139,6 +140,12 @@ export async function sendAdminCode(admin: { id: string; phone: string }, ip: st
   }
 
   const msg = `Tchop & Ndjoka — équipe / team\nCode de connexion / Login code: ${code}`
+  if (channel === 'sms') {
+    const s = await sendSMS(admin.phone, msg, { context: 'verification_code' })
+    if (s.ok) return { ok: true, challengeId: ch.id as string, channel: 'sms', maskedPhone: maskPhone(admin.phone) }
+    await markCodeSendFailed(claim.sendId, s.errorCode ?? s.error?.slice(0, 80) ?? `http_${s.status}`)
+    return { ok: false, status: 502, error: 'Le SMS n\'a pas pu être envoyé. / The SMS could not be sent.' }
+  }
   const wa = await sendWhatsApp(admin.phone, msg, { context: 'verification_code' })
   if (wa.ok) return { ok: true, challengeId: ch.id as string, channel: 'whatsapp', maskedPhone: maskPhone(admin.phone) }
 

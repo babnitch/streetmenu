@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useCodeChannel } from '@/lib/useCodeChannel'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
+import CodeNotReceived from '@/components/CodeNotReceived'
 import OtpInput from '@/components/OtpInput'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
@@ -61,6 +62,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState<null | Channel | 'verify' | 'name' | 'resend'>(null)
   const [error, setError] = useState('')
   const [cooldown, setCooldown] = useState(0)
+  const [resendChannel, setResendChannel] = useState<Channel>('whatsapp')
   const [teamSession, setTeamSession] = useState(false)
 
   // Return target, remembered number, and "already logged in?".
@@ -276,11 +278,11 @@ export default function LoginPage() {
             <button onClick={() => verify()} disabled={!!busy || code.length < CODE_LENGTH} className={`${primary} mt-4`}>
               {busy === 'verify' ? bi('Vérification…', 'Checking…') : bi('Valider', 'Confirm')}
             </button>
-            <button type="button" onClick={() => sendCode(sentTo?.channel ?? 'whatsapp', true)} disabled={!!busy || cooldown > 0}
-              className="w-full text-brand-darker hover:text-brand-dark disabled:text-ink-tertiary text-sm font-semibold py-2 mt-2 transition-colors">
-              {cooldown > 0 ? bi(`Renvoyer le code dans ${cooldown} s`, `Resend the code in ${cooldown} s`)
-                : busy === 'resend' ? bi('Envoi…', 'Sending…') : bi('Renvoyer le code', 'Resend the code')}
-            </button>
+            <div className="mt-3">
+              <CodeNotReceived cooldown={cooldown} channel={sentTo?.channel ?? 'whatsapp'}
+                busy={busy === 'resend' ? resendChannel : false}
+                onResend={c => { setResendChannel(c); sendCode(c, true) }} />
+            </div>
             <button type="button" onClick={() => { setStep('phone'); setError(''); setCode('') }}
               className="w-full text-ink-tertiary hover:text-ink-secondary text-sm py-2 transition-colors">
               {bi('Changer de numéro', 'Change number')}

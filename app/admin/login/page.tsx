@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useState } from 'react'
 import { useCodeChannel } from '@/lib/useCodeChannel'
 import OtpInput from '@/components/OtpInput'
+import CodeNotReceived from '@/components/CodeNotReceived'
 import { useBi, useLanguage, pickBi } from '@/lib/languageContext'
 import LanguageToggle from '@/components/LanguageToggle'
 import { safeReturnPath } from '@/lib/lastPhone'
@@ -19,14 +20,16 @@ function adminReturn(): string | null {
 
 // /admin/login — the Tchop & Ndjoka team login, in two steps:
 //   1. email + password;
-//   2. the 6-digit code sent to the team member's phone.
+//   2. the 6-digit code sent to the team member's phone ("Pas reçu ?" after
+//      30 s: resend, or by SMS);
+//   3. only with a temporary password: choose their own.
 // Only then is the (12-hour) team session opened. Not linked from anywhere
 // public and not indexed. One browser holds one session: logging in here
 // replaces a client session open in the same browser, which is said first.
 export default function AdminEmailLoginPage() {
   const bi = useBi()
   const { locale } = useLanguage()
-  const [step, setStep] = useState<'creds' | 'code'>('creds')
+  const [step, setStep] = useState<'creds' | 'code' | 'password'>('creds')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [challenge, setChallenge] = useState<string | null>(null)
@@ -37,6 +40,16 @@ export default function AdminEmailLoginPage() {
   const [error, setError] = useState('')
   const [clientName, setClientName] = useState<string | null>(null)
   const [ticket, setTicket] = useState<string | null>(null)
+  const [cooldown, setCooldown] = useState(0)
+  const [resending, setResending] = useState<false | 'whatsapp' | 'sms'>(false)
+  const [pass, setPass] = useState<string | null>(null)
+  const [newPw, setNewPw] = useState('')
+  const [newPw2, setNewPw2] = useState('')
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [cooldown])
   const onSms = useCallback(() => setChannel('sms'), [])
   useCodeChannel(ticket, step === 'code' && channel === 'whatsapp', onSms)
 
@@ -66,6 +79,7 @@ export default function AdminEmailLoginPage() {
       setChannel(d.channel === 'sms' ? 'sms' : 'whatsapp')
       setTicket(typeof d.ticket === 'string' ? d.ticket : null)
       setCode('')
+      setCooldown(30)
       setStep('code')
     } catch {
       setError(bi('Erreur réseau — réessayez.', 'Network error — please try again.'))
@@ -89,6 +103,60 @@ export default function AdminEmailLoginPage() {
         setError(pickBi(d.error ?? 'Erreur / Error', locale))
         setCode('')
         if (d.restart || d.locked) { setStep('creds'); setPassword(''); setChallenge(null) }
+        return
+      }
+      if (d.step === 'set_password' && typeof d.pass === 'string') {
+        setPass(d.pass); setNewPw(''); setNewPw2(''); setStep('password')
+        return
+      }
+      window.location.href = adminReturn() ?? '/account'
+    } catch {
+      setError(bi('Erreur réseau — réessayez.', 'Network error — please try again.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resend(c: 'whatsapp' | 'sms') {
+    if (!challenge || resending) return
+    setResending(c); setError('')
+    try {
+      const r = await fetch('/api/auth/admin-resend', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challenge, channel: c }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setError(pickBi(d.error ?? 'Erreur / Error', locale))
+        if (typeof d.retry_after === 'number') setCooldown(d.retry_after)
+        if (d.restart || d.locked) { setStep('creds'); setPassword(''); setChallenge(null) }
+        return
+      }
+      setChallenge(d.challenge); setSentTo(d.sentTo ?? sentTo)
+      setChannel(d.channel === 'sms' ? 'sms' : 'whatsapp')
+      setTicket(typeof d.ticket === 'string' ? d.ticket : null)
+      setCode(''); setCooldown(30)
+    } catch {
+      setError(bi('Erreur réseau — réessayez.', 'Network error — please try again.'))
+    } finally {
+      setResending(false)
+    }
+  }
+
+  async function submitNewPassword(e: React.FormEvent) {
+    e.preventDefault()
+    if (newPw.length < 8) { setError(bi('8 caractères minimum.', 'At least 8 characters.')); return }
+    if (newPw !== newPw2) { setError(bi('Les deux mots de passe ne correspondent pas.', 'The two passwords do not match.')); return }
+    setBusy(true); setError('')
+    try {
+      const r = await fetch('/api/auth/admin-set-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pass, newPassword: newPw }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setError(pickBi(d.error ?? 'Erreur / Error', locale))
+        if (d.restart) { setStep('creds'); setPassword(''); setChallenge(null); setPass(null) }
         return
       }
       window.location.href = adminReturn() ?? '/account'
@@ -132,6 +200,23 @@ export default function AdminEmailLoginPage() {
               {busy ? '…' : bi('Continuer', 'Continue')}
             </button>
           </form>
+        ) : step === 'password' ? (
+          <form onSubmit={submitNewPassword} className="space-y-3" autoComplete="on">
+            <p className="text-sm text-ink-secondary text-center">
+              {bi('Première connexion : choisissez votre propre mot de passe.', 'First login: choose your own password.')}
+            </p>
+            <input type="email" name="email" autoComplete="username" value={email} readOnly hidden />
+            <label className="block text-xs text-ink-secondary">{bi('Nouveau mot de passe (8 caractères min.)', 'New password (min. 8 characters)')}
+              <input type="password" autoComplete="new-password" value={newPw} onChange={e => setNewPw(e.target.value)} className={`${input} mt-1`} minLength={8} autoFocus />
+            </label>
+            <label className="block text-xs text-ink-secondary">{bi('Confirmer', 'Confirm')}
+              <input type="password" autoComplete="new-password" value={newPw2} onChange={e => setNewPw2(e.target.value)} className={`${input} mt-1`} minLength={8} />
+            </label>
+            {error && <p className="text-xs text-danger" role="alert">{error}</p>}
+            <button type="submit" disabled={busy || !newPw || !newPw2} className={button}>
+              {busy ? '…' : bi('Enregistrer et se connecter', 'Save and log in')}
+            </button>
+          </form>
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-ink-secondary text-center">
@@ -143,6 +228,7 @@ export default function AdminEmailLoginPage() {
             <button onClick={() => submitCode()} disabled={busy || code.length < 6} className={button}>
               {busy ? '…' : bi('Se connecter', 'Log in')}
             </button>
+            <CodeNotReceived cooldown={cooldown} channel={channel} busy={resending} onResend={resend} />
             <button type="button" onClick={() => { setStep('creds'); setPassword(''); setError(''); setChallenge(null) }}
               className="w-full text-ink-tertiary hover:text-ink-secondary text-sm py-1">
               {bi('Recommencer', 'Start again')}
