@@ -23,7 +23,8 @@ export async function GET(req: NextRequest) {
   if (!city) return NextResponse.json({ error: 'city' }, { status: 400 })
   // ?pictures_first=1 (the home row): places with a photo first, then the
   // generated covers, alphabetical inside each — before the limit, so the
-  // row is filled photo-first. The /lieux page keeps the plain A–Z order.
+  // row is filled photo-first. The /lieux page sorts the same way itself
+  // (photo first, A–Z in the reader's language).
   const picturesFirstParam = req.nextUrl.searchParams.get('pictures_first') === '1'
   const { data, error } = await supabaseAdmin.from('places').select(PUBLIC_PLACE_COLUMNS)
     .eq('city', city).eq('status', 'active').order('title_fr').limit(picturesFirstParam ? 100 : limit)

@@ -4,6 +4,7 @@
 // something really is.
 
 import { rankWithFill, eventStartKey, picturesFirst, hasPicture } from '@/lib/popularRanking'
+import { placesPicturesFirst, type PublicPlace } from '@/lib/places'
 import { assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-popular-ranking'
@@ -54,6 +55,21 @@ async function main(): Promise<void> {
     assertEq(ids(r.list), ['c', 'f', 'h', 'a'], 'free slots filled photo-first; the popular one keeps its slot, after the photos')
     assertEq(r.popular, true, 'still popular')
     assertEq([hasPicture('https://x/y.jpg'), hasPicture(''), hasPicture(null)], [true, false, false], 'hasPicture')
+  })
+
+  await step('À visiter: real photo first, then the cover — A–Z in the reader\'s language', () => {
+    const pl = (id: string, fr: string, en: string | null, photo: boolean) =>
+      ({ id, title_fr: fr, title_en: en, cover_url: photo ? `https://x/${id}.jpg` : null } as unknown as PublicPlace)
+    const list = [
+      pl('zoo', 'Zoo de Mvog-Betsi', 'Mvog-Betsi Zoo', true),
+      pl('bd', 'Boulevard du 20 Mai', null, false),
+      pl('mus', 'Musée national', 'National Museum', true),
+      pl('arc', 'Arc', null, false),
+      pl('bas', 'Basilique', 'Basilica', true),
+    ]
+    assertEq(ids(placesPicturesFirst(list, 'fr')), ['bas', 'mus', 'zoo', 'arc', 'bd'], 'FR: photos A–Z, then covers A–Z')
+    assertEq(ids(placesPicturesFirst(list, 'en')), ['bas', 'zoo', 'mus', 'arc', 'bd'], 'EN: sorted by the English title')
+    assertEq(ids(placesPicturesFirst([pl('x', 'X', null, false), pl('e', 'É', null, true)].map(p => ({ ...p, cover_url: p.id === 'x' ? '' : p.cover_url })), 'fr')), ['e', 'x'], 'an empty URL counts as no photo')
   })
   finish(SUITE)
 }

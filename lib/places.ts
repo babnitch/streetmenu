@@ -1,4 +1,5 @@
 import { refList, refFind, refKnown } from './refData'
+import { picturesFirst, hasPicture } from './popularRanking'
 // Lieux (I4) — fixed places with no date (monuments, museums, nature,
 // markets…), in the Loisirs section. Client-safe shape and helpers. The
 // places table is server-only: pages read it through /api/places, so the
@@ -93,4 +94,11 @@ export function validatePlace(raw: PlaceInput, create: boolean): PlaceValidation
     if (!out.category) return { ok: false, field: 'category', error: 'Catégorie requise / Category required' }
   }
   return { ok: true, place: out }
+}
+
+/** À visiter order: a real photo first, then the generated cover — A–Z (in
+ *  the reader's language) inside each group. */
+export function placesPicturesFirst<T extends PublicPlace>(places: T[], locale: string): T[] {
+  const az = [...places].sort((a, b) => pick(a, 'title', locale).localeCompare(pick(b, 'title', locale), locale === 'en' ? 'en' : 'fr', { sensitivity: 'base' }))
+  return picturesFirst(az, p => (hasPicture(p.cover_url) ? 0 : 1))
 }

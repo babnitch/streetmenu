@@ -2,7 +2,9 @@
 import { useRefData } from '@/lib/useRefData'
 
 // /lieux — Loisirs › À visiter (I4): the city's places (monuments, museums,
-// nature, markets…), category chips and an in-place search.
+// nature, markets…), category chips and an in-place search. Pictures first:
+// places with a real photo, then the generated covers — A–Z (in the
+// reader's language) inside each group.
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -14,7 +16,7 @@ import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import { matchesSearch } from '@/lib/textSearch'
 import { useDataMode } from '@/lib/dataMode'
-import { placeCategories, placeCategoryLabel, type PublicPlace } from '@/lib/places'
+import { placeCategories, placeCategoryLabel, placesPicturesFirst, type PublicPlace } from '@/lib/places'
 
 export default function PlacesPage() {
   const bi = useBi()
@@ -35,10 +37,12 @@ export default function PlacesPage() {
   }, [city])
 
   const present = useMemo(() => new Set((places ?? []).map(p => p.category)), [places])
-  const shown = useMemo(() => (places ?? []).filter(p =>
-    (!category || p.category === category)
-    && matchesSearch(query, [p.title_fr, p.title_en, p.headline_fr, p.headline_en, p.area, p.description_fr, p.description_en, placeCategoryLabel(p.category, locale)])),
-  [places, category, query, locale])
+  const shown = useMemo(() => {
+    const hits = (places ?? []).filter(p =>
+      (!category || p.category === category)
+      && matchesSearch(query, [p.title_fr, p.title_en, p.headline_fr, p.headline_en, p.area, p.description_fr, p.description_en, placeCategoryLabel(p.category, locale)]))
+    return placesPicturesFirst(hits, locale)
+  }, [places, category, query, locale])
 
   return (
     <div className="min-h-screen bg-surface">
