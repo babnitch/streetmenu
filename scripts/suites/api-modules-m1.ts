@@ -92,7 +92,7 @@ async function main(): Promise<void> {
     await step('admin "new restaurant" takes the modules too', async () => {
       const r = await api<{ restaurant?: { id: string; modules?: string[] } }>('/api/admin/restaurants', {
         cookie: admin,
-        body: { name: testName('mod_admin'), city: 'Yaoundé', lat: 3.87, lng: 11.52, logo_url: testPictureUrl(),
+        body: { name: testName('mod_admin'), city: testName('city'), lat: 3.87, lng: 11.52, logo_url: testPictureUrl(),
           owner_phone: (await makeCustomer({ suiteNo: 71, name: 'Modules Admin Owner' })).phone, modules: ['orders'] },
       })
       if (r.body.restaurant?.id) track('restaurants', r.body.restaurant.id)

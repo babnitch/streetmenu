@@ -9,7 +9,7 @@
 //
 // Every phone is +999. Storage objects are removed at the end.
 
-import { sb, testPhone } from '../testkit/env'
+import { sb, testPhone, testName } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, customerCookie, adminCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant } from '../testkit/fixtures'
@@ -111,7 +111,7 @@ async function main(): Promise<void> {
     await step('managed restaurant taking orders: WhatsApp goes to its order number', async () => {
       const admin = await adminCookie()
       const { data: m } = await sb.from('restaurants').insert({
-        name: `__t_n4a_managed_${Date.now()}`, city: 'Yaoundé', lat: 0, lng: 0, whatsapp: testPhone(82, 9101),
+        name: `__t_n4a_managed_${Date.now()}`, city: testName('city'), lat: 0, lng: 0, whatsapp: testPhone(82, 9101),
         managed_by_platform: true, customer_id: null, is_active: true, status: 'active', modules: [],
       }).select('id').single()
       track('restaurants', m!.id as string)

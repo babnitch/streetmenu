@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { loadRestaurantOffersToday, loadTodayOffers } from '@/lib/offersServer'
-import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
+import { isServedCity } from '@/lib/cities'
 import { isSideOn } from '@/lib/platformSwitch'
 import { deliversNow } from '@/lib/modules'
 import { isDailyMenu, isServedOn, restaurantWeekday } from '@/lib/menuDays'
@@ -46,7 +46,7 @@ interface CityOffer {
 }
 
 async function cityOffers(city: string) {
-  if (!RESTAURANT_CITIES.some(c => c.name === city)) {
+  if (!isServedCity(city)) {
     return NextResponse.json({ error: 'city' }, { status: 400 })
   }
   const { data: rests } = await supabaseAdmin.from('restaurants')

@@ -57,7 +57,7 @@ async function main(): Promise<void> {
       const owner = await makeCustomer({ suiteNo: 66, name: 'V5 Admin Owner' })
       // With an owner the photo is required; a managed restaurant may have
       // none (I1: generated cover) — see api-managed-n3a.
-      const body = { name: testName('v5_admin_resto'), city: 'Yaoundé', lat: 3.87, lng: 11.52, whatsapp: owner.phone, owner_phone: owner.phone }
+      const body = { name: testName('v5_admin_resto'), city: testName('city'), lat: 3.87, lng: 11.52, whatsapp: owner.phone, owner_phone: owner.phone }
 
       const none = await api<ErrBody>('/api/admin/restaurants', { cookie: admin, body })
       assertEq(none.status, 400, 'with an owner: no logo_url → 400')
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     await step('admin restaurant create: owner by phone — existing account, new account, one per number', async () => {
       const admin = await adminCookie()
       const pic = testPictureUrl()
-      const base = { city: 'Yaoundé', lat: 3.87, lng: 11.52, logo_url: pic }
+      const base = { city: testName('city'), lat: 3.87, lng: 11.52, logo_url: pic }
       type Created = { restaurant?: { id: string; customer_id: string; owner?: { id: string } } } & ErrBody
       const create = (b: Record<string, unknown>) => api<Created>('/api/admin/restaurants', { cookie: admin, body: { ...base, ...b } })
 

@@ -106,7 +106,9 @@ export async function makeRestaurant(opts: MakeRestaurantOpts = {}): Promise<Tes
   const ownerId = opts.ownerId ?? (await makeCustomer({ name: `t_owner_${nextSeq()}` })).id
   const row = await insertOne('restaurants', {
     name,
-    city:         opts.city ?? 'Yaoundé',
+    // A per-run test city, like makeEvent: a live test restaurant must never
+    // show in a real city's lists (the tests run on the live database).
+    city:         opts.city ?? testName('city'),
     neighborhood: 'Bastos',
     cuisine_type: 'Camerounaise',
     whatsapp,

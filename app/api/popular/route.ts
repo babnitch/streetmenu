@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
+import { isServedCity } from '@/lib/cities'
 import { EVENT_DATE_COLUMNS, isPastEvent } from '@/lib/eventDate'
 import { loadTodayOffers } from '@/lib/offersServer'
 import { getPlatformStatus } from '@/lib/platformSwitch'
@@ -31,7 +31,7 @@ const LIMIT = 6
 // price_from (lowest active tier, else ticket_price) and is_free.
 export async function GET(req: NextRequest) {
   const city = req.nextUrl.searchParams.get('city') ?? ''
-  if (!RESTAURANT_CITIES.some(c => c.name === city)) {
+  if (!isServedCity(city)) {
     return NextResponse.json({ error: 'city' }, { status: 400 })
   }
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()

@@ -8,7 +8,7 @@
 //
 // Every phone is +999. Rows are inserted directly (no publish, no fan-out).
 
-import { sb } from '../testkit/env'
+import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeMenuItem, makeEvent, makeTier, futureDateISO } from '../testkit/fixtures'
@@ -16,7 +16,7 @@ import { teardown, track } from '../testkit/ledger'
 import { dateInZone } from '../../lib/offers'
 
 const SUITE = 'api-home-v3'
-const CITY = 'Yaoundé'
+const CITY = testName('city')   // never a real city: these restaurants are live
 
 interface CityOffer { kind: string; restaurant: { id: string }; dish?: { id: string; regular_price: number; offer_price: number } }
 interface PopRest { id: string; delivery_enabled: boolean; delivery_fee: number; free_delivery: boolean; prep_time_min: number; delivery_extra_min: number }

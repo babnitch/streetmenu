@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getEventAvailability } from '@/lib/eventSeats'
 import { getActivePromotions } from '@/lib/promotions'
 import { EVENT_DATE_COLUMNS, isPastEvent, todayISO } from '@/lib/eventDate'
-import { RESTAURANT_CITIES } from '@/lib/restaurantSignup'
+import { isServedCity } from '@/lib/cities'
 import { fromPrice, pickFeatured, type ListingDay } from '@/lib/eventStatus'
 
 export const dynamic = 'force-dynamic'
@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic'
 // Seats come from the per-day capacity functions (one call per event).
 export async function GET(req: NextRequest) {
   const city = req.nextUrl.searchParams.get('city') ?? ''
-  if (!RESTAURANT_CITIES.some(c => c.name === city)) {
+  if (!isServedCity(city)) {
     return NextResponse.json({ error: 'city' }, { status: 400 })
   }
   const today = todayISO()

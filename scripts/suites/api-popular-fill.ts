@@ -4,7 +4,7 @@
 // size equals min(6, what the city has), no duplicates, never a past
 // event, the popular flags are there. Test rows live a few seconds.
 
-import { sb } from '../testkit/env'
+import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api } from '../testkit/session'
 import { makeCustomer, makeEvent, pastDateISO, futureDateISO } from '../testkit/fixtures'
@@ -12,7 +12,7 @@ import { teardown } from '../testkit/ledger'
 import { isPastEvent, EVENT_DATE_COLUMNS } from '../../lib/eventDate'
 
 const SUITE = 'api-popular-fill'
-const CITY = 'Yaoundé'
+const CITY = testName('city')   // never a real city: these restaurants are live
 
 interface Pop { restaurants: Array<{ id: string }>; events: Array<{ id: string }>; restaurants_popular?: boolean; events_popular?: boolean }
 

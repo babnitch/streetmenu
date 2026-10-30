@@ -19,3 +19,14 @@ export const CITY_CENTRES: Record<City, { lat: number; lng: number; zoom: number
 export function isCity(v: unknown): v is City {
   return typeof v === 'string' && (CITIES as readonly string[]).includes(v)
 }
+
+// Test runs (scripts/testkit) put their restaurants and events in a made-up
+// per-run city, "__t_<run>_city__", so they never show in a real city's
+// lists. The city-scoped public APIs accept such a city ONLY on the test
+// server (TEST_ONLY_PHONE_PREFIX set) — in production it stays a 400.
+export function isTestCity(v: unknown): boolean {
+  return typeof v === 'string' && /^__t_[0-9a-z]+_city__$/i.test(v)
+}
+export function isServedCity(v: unknown): boolean {
+  return isCity(v) || (!!process.env.TEST_ONLY_PHONE_PREFIX && isTestCity(v))
+}
