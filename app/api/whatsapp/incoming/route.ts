@@ -2712,8 +2712,8 @@ async function handleSubscriptionCommand(
       return `📍 ${s.city} ${cats}`
     })
     await sendWhatsApp(from, pickLang(
-      `🔔 *Mes abonnements*\n\n${lines.join('\n')}\n\nEnvoyez "desabonner" pour tout arrêter.`,
-      `🔔 *My subscriptions*\n\n${lines.join('\n')}\n\nSend "unsubscribe" to stop all.`,
+      `🔔 *Mes alertes*\n\n${lines.join('\n')}\n\nEnvoyez "stop alerte" pour tout arrêter.`,
+      `🔔 *My alerts*\n\n${lines.join('\n')}\n\nSend "stop alert" to stop them all.`,
       lang,
     ))
     return ok()

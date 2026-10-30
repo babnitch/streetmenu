@@ -155,7 +155,7 @@ export default function NotificationsPanel() {
                       disabled={savingId === sub.id}
                       className="text-xs font-semibold text-brand hover:text-brand-dark disabled:opacity-50"
                     >
-                      {bi('🔔 Réactiver', '🔔 Reactivate')}
+                      {bi('🔔 Me prévenir à nouveau', '🔔 Notify me again')}
                     </button>
                   )}
                 </div>
