@@ -84,7 +84,7 @@ export default function ProposePlacePage() {
           <p className="text-4xl mb-3">🙏</p>
           <h1 className="text-xl font-bold text-ink-primary mb-2">{bi('Merci ! Lieu envoyé', 'Thank you! Place sent')}</h1>
           <p className="text-sm text-ink-secondary mb-6">{bi('Notre équipe le vérifie avant de le publier.', 'Our team checks it before publishing.')}</p>
-          <Link href="/lieux" className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">{bi('Voir les lieux', 'See places')}</Link>
+          <Link href="/lieux" className="bg-brand hover:bg-brand-dark text-white px-6 py-2.5 rounded-xl font-semibold text-sm">{bi('Voir « À visiter »', 'See "To visit"')}</Link>
         </div>
       </div>
     )

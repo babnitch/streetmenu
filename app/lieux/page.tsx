@@ -1,6 +1,6 @@
 'use client'
 
-// /lieux — Loisirs › Lieux (I4): the city's places (monuments, museums,
+// /lieux — Loisirs › À visiter (I4): the city's places (monuments, museums,
 // nature, markets…), category chips and an in-place search.
 
 import { useEffect, useMemo, useState } from 'react'
@@ -52,7 +52,7 @@ export default function PlacesPage() {
           </div>
           <div className="mt-3 inline-flex bg-white/10 rounded-full p-1 text-sm font-semibold" role="tablist">
             <Link role="tab" aria-selected="false" href="/events" className="px-4 py-1.5 rounded-full text-white/80">{bi('Événements', 'Events')}</Link>
-            <span role="tab" aria-selected="true" className="px-4 py-1.5 rounded-full bg-white text-ink-primary">{bi('Lieux', 'Places')}</span>
+            <span role="tab" aria-selected="true" className="px-4 py-1.5 rounded-full bg-white text-ink-primary">{bi('À visiter', 'To visit')}</span>
           </div>
           <p className="mt-2 text-sm text-white/80">{bi(`Que faire à ${city} : monuments, musées, nature, marchés`, `What to do in ${city}: monuments, museums, nature, markets`)}</p>
           <div className="mt-3">
