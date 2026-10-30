@@ -55,10 +55,12 @@ async function main(): Promise<void> {
     await step('admin restaurant create: no photo → 400 with the message; with a photo → created', async () => {
       const admin = await adminCookie()
       const owner = await makeCustomer({ suiteNo: 66, name: 'V5 Admin Owner' })
-      const body = { name: testName('v5_admin_resto'), city: 'Yaoundé', lat: 3.87, lng: 11.52, whatsapp: owner.phone }
+      // With an owner the photo is required; a managed restaurant may have
+      // none (I1: generated cover) — see api-managed-n3a.
+      const body = { name: testName('v5_admin_resto'), city: 'Yaoundé', lat: 3.87, lng: 11.52, whatsapp: owner.phone, owner_phone: owner.phone }
 
       const none = await api<ErrBody>('/api/admin/restaurants', { cookie: admin, body })
-      assertEq(none.status, 400, 'no logo_url → 400')
+      assertEq(none.status, 400, 'with an owner: no logo_url → 400')
       assertEq(none.body.error, RESTAURANT_PHOTO_REQUIRED_TEXT, 'the FR/EN photo message')
       const blank = await api<ErrBody>('/api/admin/restaurants', { cookie: admin, body: { ...body, logo_url: '   ' } })
       assertEq(blank.status, 400, 'blank logo_url → 400')

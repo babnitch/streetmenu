@@ -31,9 +31,13 @@ async function main(): Promise<void> {
     let eid = ''
 
     await step('create: poster and fields required; customer refused', async () => {
-      const noPic = await api<Body>('/api/admin/events', { cookie: admin, body: { ...base, cover_photo: '' } })
-      assertEq(noPic.status, 400, 'no poster → 400')
-      assertEq(noPic.body.field, 'cover_photo', 'field')
+      // I1: no poster → created with the generated cover; a bad URL → 400.
+      const noPic = await api<Body>('/api/admin/events', { cookie: admin, body: { ...base, title: testName('n3b_nopic'), cover_photo: '' } })
+      assertEq(noPic.status, 200, 'no poster → created (generated cover)')
+      if (noPic.body.event) track('events', noPic.body.event.id)
+      assertEq(noPic.body.event?.cover_photo ?? null, null, 'cover_photo empty')
+      const badPic = await api<Body>('/api/admin/events', { cookie: admin, body: { ...base, cover_photo: 'not-a-url' } })
+      assertEq([badPic.status, badPic.body.field], [400, 'cover_photo'], 'bad poster URL → 400')
       const badCat = await api<Body>('/api/admin/events', { cookie: admin, body: { ...base, category: 'Nope' } })
       assertEq(badCat.status, 400, 'unknown category → 400')
       const cust = await makeCustomer({ suiteNo: 81, name: 'N3b Customer' })

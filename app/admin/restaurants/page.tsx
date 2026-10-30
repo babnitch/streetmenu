@@ -345,7 +345,8 @@ export default function AdminRestaurantsPage() {
       showToast(bi('Nom, ville, lat et lng requis', 'Name, city, lat and lng required'), false)
       return
     }
-    if (!form.logo_url) {
+    // I1: photo required with an owner; a managed restaurant may have none.
+    if (!form.logo_url && form.owner_phone) {
       showToast(bi(RESTAURANT_PHOTO_REQUIRED.fr, RESTAURANT_PHOTO_REQUIRED.en), false)
       return
     }
@@ -482,7 +483,7 @@ export default function AdminRestaurantsPage() {
               <input type="checkbox" checked={form.publish} onChange={e => setForm(f => ({ ...f, publish: e.target.checked }))} className="w-4 h-4 accent-brand" />
               {bi('Publier maintenant (visible par tous)', 'Publish now (visible to everyone)')}
             </label>
-            <Field label={bi('Photo * (obligatoire)', 'Photo * (required)')} className="sm:col-span-2">
+            <Field label={form.owner_phone ? bi('Photo * (obligatoire)', 'Photo * (required)') : bi('Photo (facultative : une couverture est générée)', 'Photo (optional: a cover is generated)')} className="sm:col-span-2">
               <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-ink-secondary" />
               {uploading && <span className="text-xs text-brand ml-2">Envoi…</span>}
               {form.logo_url && !uploading && (

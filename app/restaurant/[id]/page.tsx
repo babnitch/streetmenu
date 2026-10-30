@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
+import GeneratedCover from '@/components/GeneratedCover'
 import { claimRestaurantLink } from '@/lib/supportContact'
 import { usePlatformInfo } from '@/lib/usePlatformInfo'
 import MenuFilesViewer from '@/components/MenuFilesViewer'
@@ -201,7 +202,8 @@ export default function MenuPage() {
           {(restaurant.image_url || restaurant.logo_url) ? (
             <Image src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority />
           ) : (
-            <span className="absolute inset-0 flex items-center justify-center text-6xl" aria-hidden="true">🍽️</span>
+            // I1: no photo → the generated cover.
+            <GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} category={restaurant.cuisine_type} />
           )}
         </div>
         <button

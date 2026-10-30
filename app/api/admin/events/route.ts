@@ -110,7 +110,10 @@ export async function POST(req: NextRequest) {
   if (!title || !city || !date || !(EVENT_CATEGORIES as readonly string[]).includes(category)) {
     return NextResponse.json({ error: 'Champs requis manquants / Missing required fields' }, { status: 400 })
   }
-  if (!hasPictureUrl(body.cover_photo)) {
+  // I1: a managed event may have no poster — the generated cover shows
+  // until a real one is uploaded. A given poster must be a real picture URL.
+  const cover = typeof body.cover_photo === 'string' && body.cover_photo.trim() ? body.cover_photo.trim() : null
+  if (cover && !hasPictureUrl(cover)) {
     return NextResponse.json({ error: EVENT_POSTER_REQUIRED_TEXT, field: 'cover_photo' }, { status: 400 })
   }
   const range = {
@@ -156,7 +159,7 @@ export async function POST(req: NextRequest) {
     payment_mode: 'reservation_only',
     whatsapp_payment_enabled: false,
     requires_confirmation: false,
-    cover_photo:  String(body.cover_photo).trim(),
+    cover_photo:  cover,
     whatsapp,
     notify_phone: notifyPhone,
     organizer_name: sanitizeText(body.organizer_name, 80) || 'Tchop & Ndjoka',

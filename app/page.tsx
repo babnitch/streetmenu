@@ -1,5 +1,6 @@
 'use client'
 
+import GeneratedCover from '@/components/GeneratedCover'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -155,6 +156,7 @@ export default function HomePage() {
             : bi(`Restaurants à ${city}`, `Restaurants in ${city}`)} more={{ href: '/restaurants', label: bi('Tout voir', 'See all') }}>
             {popular.restaurants.map(r => (
               <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} fallback="🍽️"
+                cover={{ kind: 'restaurant', area: r.neighborhood }}
                 tag={cuisineTag(r, locale)}
                 badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
                 title={r.name} sub={fulfilmentLine(r)} />
@@ -218,14 +220,18 @@ function Row({ id, title, more, children }: { id: string; title: string; more?: 
 }
 
 // A card in a row. `poster` gives events a taller, poster-shaped image.
-function Card({ href, image, fallback, badge, tag, title, sub, poster, children }: {
-  href: string; image: string | null; fallback: string; badge?: string; tag?: string | null; title: string; sub: string; poster?: boolean; children?: React.ReactNode
+function Card({ href, image, fallback, badge, tag, title, sub, poster, cover, children }: {
+  href: string; image: string | null; fallback: string; badge?: string; tag?: string | null; title: string; sub: string; poster?: boolean
+  /** I1: no image → the generated cover of this kind (with the area). */
+  cover?: { kind: 'restaurant' | 'event' | 'place'; area?: string | null }
+  children?: React.ReactNode
 }) {
   return (
     <Link href={href} className={`snap-start flex-shrink-0 ${poster ? 'w-36' : 'w-44'} bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
       <div className={`relative ${poster ? 'h-48' : 'h-28'} bg-gradient-to-br from-brand-badge to-brand`}>
         {image
           ? <Image src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover" />
+          : cover ? <GeneratedCover kind={cover.kind} title={title} area={cover.area} />
           : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">{fallback}</span>}
         {/* U4: category pill top-left; the deal badge top-right. */}
         <CardTag label={tag} />

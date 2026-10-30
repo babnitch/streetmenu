@@ -109,10 +109,6 @@ export async function POST(req: NextRequest) {
   if (!name || !city) {
     return NextResponse.json({ error: 'Nom et ville requis / Name and city required' }, { status: 400 })
   }
-  // V5: a new restaurant needs its photo (the form's upload lands in logo_url).
-  if (!hasPictureUrl(logo_url)) {
-    return NextResponse.json({ error: RESTAURANT_PHOTO_REQUIRED_TEXT, field: 'logo_url' }, { status: 400 })
-  }
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({ error: 'lat et lng requis / lat and lng required' }, { status: 400 })
   }
@@ -152,13 +148,19 @@ export async function POST(req: NextRequest) {
     }
   }
   const managed = owner === null
+  // V5: a restaurant with an owner needs its photo (the form's upload lands
+  // in logo_url). I1: a managed one may have none — the generated cover
+  // shows until a real photo is uploaded.
+  if (!managed && !hasPictureUrl(logo_url)) {
+    return NextResponse.json({ error: RESTAURANT_PHOTO_REQUIRED_TEXT, field: 'logo_url' }, { status: 400 })
+  }
   // A managed restaurant has no order contact yet: Vitrine.
   if (managed && modules) modules = toggleModule('restaurant', modules, 'orders', false)
 
   const { data, error } = await supabaseAdmin
     .from('restaurants')
     .insert({
-      name, description, address, city, phone, logo_url,
+      name, description, address, city, phone, logo_url: logo_url || null,
       whatsapp:    owner ? (whatsapp || owner.phone) : (whatsapp || null),
       owner_name:  owner?.name ?? null,
       customer_id: owner?.id ?? null,

@@ -1,5 +1,6 @@
 'use client'
 
+import GeneratedCover from '@/components/GeneratedCover'
 import CardTag from '@/components/CardTag'
 import { cuisineTag } from '@/lib/cuisineCategories'
 import { useState, useEffect, useRef } from 'react'
@@ -68,7 +69,6 @@ export default function RestaurantCard({
   const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
   const cuisine = restaurant.cuisine_type || restaurant.description
   const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
-  const initial = (restaurant.name?.[0] ?? '?').toUpperCase()
   const heroImage = restaurant.image_url || restaurant.logo_url
   // Low-data mode: skip the image regardless of whether one exists, so
   // the user's bandwidth budget stays predictable. The gradient + initial
@@ -97,11 +97,8 @@ export default function RestaurantCard({
             sizes="(max-width: 767px) 50vw, (max-width: 1024px) 50vw, 33vw"
           />
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-brand-light via-brand-badge to-brand flex items-center justify-center">
-            <span className="text-white text-4xl md:text-5xl font-black tracking-tight drop-shadow-sm">
-              {initial}
-            </span>
-          </div>
+          // I1: no photo (or low-data mode) → the generated cover.
+          <GeneratedCover kind="restaurant" title={restaurant.name} area={restaurant.neighborhood} />
         )}
         {/* Closed chip — mobile only. The desktop card keeps its
             open/closed badge in the text block below. */}

@@ -10,7 +10,6 @@
 import { useState } from 'react'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { EVENT_CATEGORIES, categoryLabel } from '@/lib/categoryLabels'
-import { EVENT_POSTER_REQUIRED } from '@/lib/pictureRequired'
 import { CITIES } from '@/lib/cityContext'
 import PhoneInput from '@/components/PhoneInput'
 import DoorStaffPanel from '@/components/DoorStaffPanel'
@@ -46,10 +45,10 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
   async function save() {
     setError('')
     if (!f.title.trim() || !f.date) { setError(bi('Titre et date requis', 'Title and date required')); return }
-    if (!photo) { setError(bi(EVENT_POSTER_REQUIRED.fr, EVENT_POSTER_REQUIRED.en)); return }
     setBusy(true)
     let cover = ''
-    try {
+    // I1: the poster is optional — without one, a cover is generated.
+    if (photo) try {
       const fd = new FormData()
       fd.append('file', photo)
       fd.append('kind', 'event_poster')
@@ -58,7 +57,7 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
       const j = await r.json().catch(() => ({}))
       if (r.ok && typeof j?.url === 'string') cover = j.url
     } catch { /* handled below */ }
-    if (!cover) { setBusy(false); setError(bi('L\'envoi de l\'affiche a échoué, réessayez.', 'The poster upload failed, please try again.')); return }
+    if (photo && !cover) { setBusy(false); setError(bi('L\'envoi de l\'affiche a échoué, réessayez.', 'The poster upload failed, please try again.')); return }
     const r = await postJSON('/api/admin/events', { ...f, cover_photo: cover })
     setBusy(false)
     if (!r.ok) { setError(r.error || bi('Erreur', 'Error')); return }
@@ -104,7 +103,7 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
           <L label={bi('WhatsApp de contact (public)', 'Contact WhatsApp (public)')}><PhoneInput value={f.whatsapp} onChange={full => set('whatsapp', full)} /></L>
           <L label={bi('Numéro qui reçoit les réservations', 'Number that gets the bookings')}><PhoneInput value={f.notify_phone} onChange={full => set('notify_phone', full)} /></L>
           <L label="Description" wide><textarea value={f.description} onChange={e => set('description', e.target.value)} rows={3} className={INPUT} /></L>
-          <L label={bi('Affiche * (obligatoire)', 'Poster * (required)')} wide>
+          <L label={bi('Affiche (facultative : une couverture est générée)', 'Poster (optional: a cover is generated)')} wide>
             <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-sm text-ink-secondary" />
           </L>
           <label className="sm:col-span-2 flex items-center gap-2 text-ink-primary">
