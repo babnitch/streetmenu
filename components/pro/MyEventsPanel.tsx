@@ -1,4 +1,5 @@
 'use client'
+import { todayInDouala } from '@/lib/weekend'
 
 // "Mes événements" — the organiser's dashboard: their events, bookings,
 // tiers, promo codes, settings and subscribers. Lives on /pro/events
@@ -15,7 +16,7 @@ import ModuleLocked from '@/components/ModuleLocked'
 import ConfirmModal from '@/components/ConfirmModal'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
-import { formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
+import { formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validateEventRange, EVENT_RANGE_ERRORS, eventDays, isFinishedEvent } from '@/lib/eventDate'
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { formatFCFA } from '@/lib/money'
@@ -968,51 +969,69 @@ export default function MyEventsPanel({
         📢 {bi('Publier un événement', 'Publish new event')}
       </Link>
 
-      {events.map(e => {
-        const whenStr = formatEventWhen(e, locale, 'card')
-        const ticketPrice = Number(e.ticket_price ?? 0)
-        return (
-          <button
-            key={e.id}
-            onClick={() => openEvent(e.id)}
-            className="w-full text-left bg-white rounded-2xl shadow-sm p-3 hover:bg-surface-muted transition-colors"
-          >
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div className="min-w-0">
-                <p className="font-semibold text-ink-primary text-sm truncate">{e.title}</p>
-                <p className="text-xs text-ink-tertiary mt-0.5">
-                  {whenStr}{e.venue ? ` · ${e.venue}` : ''}
-                </p>
+      {/* Current and upcoming first; finished ones (last day before
+          today, Africa/Douala — the admin's rule) under « Terminés ». */}
+      {(() => {
+        const today = todayInDouala()
+        const row = (e: MyEventsPanelEvent) => {
+          const whenStr = formatEventWhen(e, locale, 'card')
+          const ticketPrice = Number(e.ticket_price ?? 0)
+          return (
+            <button
+              key={e.id}
+              onClick={() => openEvent(e.id)}
+              className="w-full text-left bg-white rounded-2xl shadow-sm p-3 hover:bg-surface-muted transition-colors"
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-ink-primary text-sm truncate">{e.title}</p>
+                  <p className="text-xs text-ink-tertiary mt-0.5">
+                    {whenStr}{e.venue ? ` · ${e.venue}` : ''}
+                  </p>
+                </div>
+                {!e.is_active && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
+                    ⏳ {bi('En attente d\'approbation', 'Pending approval')}
+                  </span>
+                )}
+                {e.event_status === 'cancelled' && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+                    ❌ {bi('Annulé', 'Cancelled')}
+                  </span>
+                )}
               </div>
-              {!e.is_active && (
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
-                  ⏳ {bi('En attente d\'approbation', 'Pending approval')}
-                </span>
-              )}
-              {e.event_status === 'cancelled' && (
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
-                  ❌ {bi('Annulé', 'Cancelled')}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-4 text-xs text-ink-secondary">
-              {e.reservations_count === 0 ? (
-                <span className="text-ink-tertiary">{bi('Pas encore de réservation', 'No bookings yet')}</span>
-              ) : (
-                <>
-                  <span>🎟 {e.tickets_count}{e.max_tickets && e.max_tickets > 0 ? `/${e.max_tickets}` : ''} {bi('places', 'tickets')}</span>
-                  <span>📋 {e.reservations_count} {bi('réservations', 'reservations')}</span>
-                </>
-              )}
-              {ticketPrice > 0 && Number(e.revenue) > 0 && (
-                <span className="text-brand font-semibold">
-                  💰 {formatFCFA(Number(e.revenue))}
-                </span>
-              )}
-            </div>
-          </button>
+              <div className="flex items-center gap-4 text-xs text-ink-secondary">
+                {e.reservations_count === 0 ? (
+                  <span className="text-ink-tertiary">{bi('Pas encore de réservation', 'No bookings yet')}</span>
+                ) : (
+                  <>
+                    <span>🎟 {e.tickets_count}{e.max_tickets && e.max_tickets > 0 ? `/${e.max_tickets}` : ''} {bi('places', 'tickets')}</span>
+                    <span>📋 {e.reservations_count} {bi('réservations', 'reservations')}</span>
+                  </>
+                )}
+                {ticketPrice > 0 && Number(e.revenue) > 0 && (
+                  <span className="text-brand font-semibold">
+                    💰 {formatFCFA(Number(e.revenue))}
+                  </span>
+                )}
+              </div>
+            </button>
+          )
+        }
+        const finished = events.filter(e => isFinishedEvent(e, today))
+        const current = events.filter(e => !isFinishedEvent(e, today))
+        return (
+          <>
+            {current.map(row)}
+            {finished.length > 0 && (
+              <>
+                <h3 className="pt-3 text-sm font-bold text-ink-secondary">🏁 {bi('Terminés', 'Finished')} ({finished.length})</h3>
+                {finished.map(row)}
+              </>
+            )}
+          </>
         )
-      })}
+      })()}
 
       <OrganizerSubscribersCard events={events} />
     </div>

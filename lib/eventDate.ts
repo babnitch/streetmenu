@@ -72,6 +72,18 @@ export function isPastEvent(event: EventWhen, now: Date = new Date()): boolean {
   return lastDay < todayISO(now)
 }
 
+// "Terminé": the LAST day (end_date, else date) is before `today` — pass
+// todayInDouala() (lib/weekend): the admin tabs, the organiser's "Terminés"
+// and the nightly completion all use this one rule. A cancelled event is
+// never "finished" (it stays cancelled), whatever its dates; one already
+// marked completed is finished.
+export function isFinishedEvent(event: EventWhen & { event_status?: string | null }, today: string): boolean {
+  if (event.event_status === 'cancelled') return false
+  if (event.event_status === 'completed') return true
+  const lastDay = effectiveEndDate(event)
+  return !!lastDay && lastDay < today
+}
+
 // Whether the event is on the given day (YYYY-MM-DD), first and last day included.
 export function eventSpansDay(event: EventWhen, dayISO: string): boolean {
   const start = toISODate(event.date)

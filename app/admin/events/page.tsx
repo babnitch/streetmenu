@@ -1,4 +1,6 @@
 'use client'
+import { isFinishedEvent } from '@/lib/eventDate'
+import { todayInDouala } from '@/lib/weekend'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,9 +23,10 @@ import { AdminEventCreate, AdminEventOrganizer } from '@/components/AdminEventMa
 // per-event roundtrips.
 interface EventAggregate { reservations_count: number; tickets_count: number; revenue: number; commission: number }
 
-// Filter tabs. Pending = awaiting approval (is_active=false); Active = live
-// (is_active=true, not yet completed); Completed = event_status 'completed';
-// All = everything, with pending pinned to the top.
+// Filter tabs, by DATE (Africa/Douala): Terminés = the last day is before
+// today (or already marked completed), whatever the stored status — never a
+// cancelled one; Pending = awaiting approval and not finished; Active = live
+// and not finished; All = everything, with pending pinned to the top.
 type EventTab = 'all' | 'pending' | 'active' | 'completed'
 interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean; organizer_modules: string[] | null }
 
@@ -212,8 +215,9 @@ export default function AdminEventsPage() {
     if (res.ok) await fetchEvents()
   }
 
-  const isCompleted = (e: Event) => e.event_status === 'completed'
-  const pending   = events.filter(e => !e.is_active)
+  const today = todayInDouala()
+  const isCompleted = (e: Event) => isFinishedEvent(e, today)
+  const pending   = events.filter(e => !e.is_active && !isCompleted(e))
   const active    = events.filter(e => e.is_active && !isCompleted(e))
   const completed = events.filter(isCompleted)
 
