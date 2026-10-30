@@ -180,6 +180,11 @@ export interface Event {
   organizer_id?: string | null
   // N3: listed by the admin with no organiser ("managed by Tchop & Ndjoka").
   managed_by_platform?: boolean | null
+  // I6: "Infos seulement" (no booking here) + its link; price shown as "À partir de".
+  booking_mode?: 'platform' | 'info' | null
+  info_link?: string | null
+  price_is_from?: boolean | null
+  place_id?: string | null
   // Extra number that gets the bookings (supabase-c3-pro.sql).
   notify_phone?: string | null
   event_status?: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'

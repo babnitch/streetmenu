@@ -31,6 +31,8 @@ const EMPTY = {
   title: '', category: 'Concert', city: 'Yaoundé', venue: '', neighborhood: '',
   date: '', time: '', end_date: '', end_time: '', price: '', max_tickets: '',
   description: '', organizer_name: '', whatsapp: '', notify_phone: '', publish: true,
+  // I6: "Infos seulement" by default — no booking here, a link instead.
+  booking_mode: 'info' as 'info' | 'platform', info_link: '', price_is_from: false,
 }
 
 export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event) => void; onClose: () => void }) {
@@ -58,7 +60,7 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
       if (r.ok && typeof j?.url === 'string') cover = j.url
     } catch { /* handled below */ }
     if (photo && !cover) { setBusy(false); setError(bi('L\'envoi de l\'affiche a échoué, réessayez.', 'The poster upload failed, please try again.')); return }
-    const r = await postJSON('/api/admin/events', { ...f, cover_photo: cover })
+    const r = await postJSON('/api/admin/events', { ...f, cover_photo: cover, ...(f.booking_mode === 'info' ? { max_tickets: '', notify_phone: '' } : { info_link: '', price_is_from: false }) })
     setBusy(false)
     if (!r.ok) { setError(r.error || bi('Erreur', 'Error')); return }
     onCreated(r.data.event as unknown as Event)
@@ -72,9 +74,21 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
           <button type="button" onClick={onClose} aria-label={bi('Fermer', 'Close')} className="w-9 h-9 rounded-full hover:bg-surface-muted text-xl">✕</button>
         </div>
         <p className="text-xs text-ink-tertiary mb-4">
-          {bi('Géré par Tchop & Ndjoka : aucun message envoyé, réservations gratuites seulement jusqu\'à l\'ajout d\'un organisateur.',
-            'Managed by Tchop & Ndjoka: no message sent, free reservations only until an organiser is linked.')}
+          {bi('Géré par Tchop & Ndjoka : aucun message envoyé. Infos seulement, ou réservations gratuites jusqu\'à l\'ajout d\'un organisateur.',
+            'Managed by Tchop & Ndjoka: no message sent. Info only, or free reservations until an organiser is linked.')}
         </p>
+        <div className="grid grid-cols-2 gap-2 mb-4" role="radiogroup" aria-label={bi('Réservation', 'Booking')}>
+          {([
+            ['info', bi('ℹ️ Infos seulement', 'ℹ️ Info only'), bi('Pas de réservation : lien « Billets / Infos »', 'No booking: a "Tickets / Info" link')],
+            ['platform', bi('📋 Réservations gratuites', '📋 Free reservations'), bi('Sur Tchop & Ndjoka, avec QR', 'On Tchop & Ndjoka, with QR')],
+          ] as const).map(([v, t, sub]) => (
+            <button key={v} type="button" role="radio" aria-checked={f.booking_mode === v} onClick={() => set('booking_mode', v)}
+              className={`text-left rounded-xl border p-3 ${f.booking_mode === v ? 'border-brand bg-brand-light/50' : 'border-divider bg-white'}`}>
+              <span className="block text-sm font-bold text-ink-primary">{t}</span>
+              <span className="block text-xs text-ink-secondary">{sub}</span>
+            </button>
+          ))}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <L label={bi('Titre *', 'Title *')} wide><input value={f.title} onChange={e => set('title', e.target.value)} className={INPUT} /></L>
           <L label={bi('Catégorie *', 'Category *')}>
@@ -96,12 +110,26 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
           <L label={bi('Prix à l\'entrée (FCFA, vide = gratuit)', 'Entry price (FCFA, empty = free)')}>
             <input type="number" min="0" inputMode="numeric" value={f.price} onChange={e => set('price', e.target.value)} className={INPUT} />
           </L>
-          <L label={bi('Places par jour (vide = illimité)', 'Seats per day (empty = unlimited)')}>
-            <input type="number" min="0" inputMode="numeric" value={f.max_tickets} onChange={e => set('max_tickets', e.target.value)} className={INPUT} />
-          </L>
+          {f.booking_mode === 'info' ? (
+            <label className="flex items-center gap-2 text-ink-primary self-end pb-2">
+              <input type="checkbox" checked={f.price_is_from} onChange={e => set('price_is_from', e.target.checked)} className="w-4 h-4 accent-brand" />
+              {bi('Prix « À partir de »', 'Price "From"')}
+            </label>
+          ) : (
+            <L label={bi('Places par jour (vide = illimité)', 'Seats per day (empty = unlimited)')}>
+              <input type="number" min="0" inputMode="numeric" value={f.max_tickets} onChange={e => set('max_tickets', e.target.value)} className={INPUT} />
+            </L>
+          )}
+          {f.booking_mode === 'info' && (
+            <L label={bi('Lien « Billets / Infos »', '"Tickets / Info" link')} wide>
+              <input type="url" inputMode="url" value={f.info_link} onChange={e => set('info_link', e.target.value)} placeholder="https://" className={INPUT} />
+            </L>
+          )}
           <L label={bi('Organisateur affiché', 'Organiser shown')}><input value={f.organizer_name} onChange={e => set('organizer_name', e.target.value)} placeholder="Tchop & Ndjoka" className={INPUT} /></L>
           <L label={bi('WhatsApp de contact (public)', 'Contact WhatsApp (public)')}><PhoneInput value={f.whatsapp} onChange={full => set('whatsapp', full)} /></L>
-          <L label={bi('Numéro qui reçoit les réservations', 'Number that gets the bookings')}><PhoneInput value={f.notify_phone} onChange={full => set('notify_phone', full)} /></L>
+          {f.booking_mode === 'platform' && (
+            <L label={bi('Numéro qui reçoit les réservations', 'Number that gets the bookings')}><PhoneInput value={f.notify_phone} onChange={full => set('notify_phone', full)} /></L>
+          )}
           <L label="Description" wide><textarea value={f.description} onChange={e => set('description', e.target.value)} rows={3} className={INPUT} /></L>
           <L label={bi('Affiche (facultative : une couverture est générée)', 'Poster (optional: a cover is generated)')} wide>
             <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-sm text-ink-secondary" />
@@ -158,7 +186,10 @@ export function AdminEventOrganizer({ event, onChanged }: { event: Event; onChan
   return (
     <div className="mt-2 rounded-xl border border-divider bg-surface px-3 py-2 text-xs">
       <p className="text-ink-secondary">
-        🏢 {bi('Géré par Tchop & Ndjoka · réservations gratuites seulement', 'Managed by Tchop & Ndjoka · free reservations only')}
+        🏢 {event.booking_mode === 'info'
+          ? bi('Géré par Tchop & Ndjoka · ℹ️ infos seulement (pas de réservation)', 'Managed by Tchop & Ndjoka · ℹ️ info only (no booking)')
+          : bi('Géré par Tchop & Ndjoka · réservations gratuites seulement', 'Managed by Tchop & Ndjoka · free reservations only')}
+        {event.booking_mode === 'info' && event.info_link && <> · <a href={event.info_link} target="_blank" rel="noopener noreferrer" className="underline">🎟️ {bi('lien', 'link')}</a></>}
         {event.notify_phone && <> · 🔔 <span className="font-mono">{event.notify_phone}</span></>}
       </p>
       {!mode ? (

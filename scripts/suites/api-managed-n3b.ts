@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   try {
     const admin = await adminCookie()
     const contact = testPhone(81, 9101)
-    const base = { title: testName('n3b_event'), category: 'Concert', city: CITY, date: futureDateISO(6), time: '20:00', venue: 'Test Hall', cover_photo: testPictureUrl('photos'), price: 2000, whatsapp: contact }
+    const base = { title: testName('n3b_event'), category: 'Concert', city: CITY, booking_mode: 'platform', date: futureDateISO(6), time: '20:00', venue: 'Test Hall', cover_photo: testPictureUrl('photos'), price: 2000, whatsapp: contact }
     let eid = ''
 
     await step('create: poster and fields required; customer refused', async () => {

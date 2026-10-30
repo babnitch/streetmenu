@@ -57,6 +57,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       whatsapp: org.phone,
       organizer_name: keepName ? ev.organizer_name : org.name,
       managed_by_platform: false,
+      // I6: with an organiser, the event takes bookings on the platform.
+      booking_mode: 'platform',
     }).eq('id', ev.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     await writeAudit({

@@ -29,7 +29,7 @@ interface PopularRestaurant {
 }
 interface PopularEvent extends EventWhen {
   id: string; title: string; category: string | null; venue: string | null; cover_photo: string | null
-  price_from: number; is_free: boolean; has_tiers: boolean
+  price_from: number; is_free: boolean; has_tiers: boolean; price_unknown?: boolean; price_is_from?: boolean
 }
 interface WeekendEvent extends EventWhen {
   id: string; title: string; category: string | null; cover_photo: string | null
@@ -118,9 +118,10 @@ export default function HomePage() {
     const time = formatPrepTime(r.prep_time_min, r.prep_time_max)
     return time ? `${bi('À emporter', 'Take-away')} · ${time}` : bi('À emporter', 'Take-away')
   }
-  const eventPrice = (e: PopularEvent) => e.is_free
+  const eventPrice = (e: PopularEvent) => e.price_unknown ? ''
+    : e.is_free
     ? bi('Gratuit', 'Free')
-    : e.has_tiers ? `${bi('dès', 'from')} ${formatFCFA(e.price_from)}` : formatFCFA(e.price_from)
+    : e.has_tiers || e.price_is_from ? `${bi('dès', 'from')} ${formatFCFA(e.price_from)}` : formatFCFA(e.price_from)
 
   return (
     <div className="min-h-screen bg-surface">

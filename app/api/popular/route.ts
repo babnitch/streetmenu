@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       .select('id, name, cuisine_type, neighborhood, image_url, logo_url, prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, modules, created_at')
       .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null),
     supabaseAdmin.from('events')
-      .select(`id, title, category, venue, cover_photo, ticket_price, ${EVENT_DATE_COLUMNS}`)
+      .select(`id, title, category, venue, cover_photo, ticket_price, booking_mode, price_is_from, ${EVENT_DATE_COLUMNS}`)
       .eq('city', city).eq('is_active', true),
   ])
   const restaurants = restRes.data ?? []
@@ -112,7 +112,10 @@ export async function GET(req: NextRequest) {
       const prices = tierPrices[e.id]
       const own = Math.max(0, Math.round(Number((e as { ticket_price?: number | null }).ticket_price ?? 0)))
       const paid = (prices ?? [own]).filter(p => p > 0)
-      return { ...e, price_from: paid.length ? Math.min(...paid) : 0, is_free: paid.length === 0, has_tiers: !!prices && new Set(prices).size > 1 }
+      // I6: an info-only event with no price given shows no price.
+      const { booking_mode: mode, ...pub } = e as typeof e & { booking_mode?: string | null }
+      const unknown = mode === 'info' && !prices && (e as { ticket_price?: number | null }).ticket_price == null
+      return { ...pub, price_from: paid.length ? Math.min(...paid) : 0, is_free: !unknown && paid.length === 0, has_tiers: !!prices && new Set(prices).size > 1, price_unknown: unknown }
     }),
   }, { headers: { 'Cache-Control': 'no-store' } })
 }

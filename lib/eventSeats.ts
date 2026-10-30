@@ -123,11 +123,17 @@ function errorDetail(details: string | null | undefined): { remaining?: number; 
   try { return details ? JSON.parse(details) : {} } catch { return {} }
 }
 
+export const INFO_ONLY_BOOKING_ERROR = 'Pas de réservation sur Tchop & Ndjoka pour cet événement : voir « Billets / Infos » / No booking on Tchop & Ndjoka for this event: see "Tickets / Info"'
+
 export async function reserveEventSeats(
   eventId: string,
   day: string,
   rows: SeatRequestRow[],
 ): Promise<ReserveSeatsResult> {
+  // I6 backstop: an "Infos seulement" event takes no booking on any path
+  // (web, pay, WhatsApp bot).
+  const { data: ev } = await supabaseAdmin.from('events').select('booking_mode').eq('id', eventId).maybeSingle()
+  if (ev?.booking_mode === 'info') return { ok: false, status: 409, body: { error: INFO_ONLY_BOOKING_ERROR } }
   const { data, error } = await supabaseAdmin.rpc('reserve_event_seats', {
     p_event_id: eventId, p_event_date: day, p_rows: rows,
   })

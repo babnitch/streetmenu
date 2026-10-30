@@ -2001,7 +2001,7 @@ export async function handleEventSession(
     // have been sitting on the prompt while others booked).
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city`)
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2102,7 +2102,7 @@ export async function handleEventSession(
     }
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, ticket_price`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, ticket_price`)
       .eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2175,7 +2175,7 @@ export async function handleEventSession(
     }
 
     const { data: event } = await supabaseAdmin
-      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, city, organizer_id, submitted_by, whatsapp`).eq('id', eventId).maybeSingle()
+      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, city, organizer_id, submitted_by, whatsapp`).eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
@@ -2328,7 +2328,7 @@ export async function handleEventSession(
     // Reserve → re-pull the event to re-check capacity, then confirm.
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, max_tickets`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, max_tickets`)
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2514,7 +2514,7 @@ async function confirmEventReservationWhatsapp(opts: {
 async function showEventDetail(from: string, phone: string, eventId: string, lang: Lang = 'fr'): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active`)
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active, booking_mode, info_link, price_is_from, organizer_name`)
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2525,9 +2525,12 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
   const venueLine = event.venue
     ? `📍 ${event.venue}${event.neighborhood ? ', ' + event.neighborhood : ''}${event.city ? ' — ' + event.city : ''}`
     : ''
+  const infoOnly = event.booking_mode === 'info'
   const priceLine = !event.ticket_price || event.ticket_price <= 0
-    ? pickLang(`🎫 Gratuit`, `🎫 Free`, lang)
-    : pickLang(`🎫 ${formatFCFA(Number(event.ticket_price))} / personne`, `🎫 ${formatFCFA(Number(event.ticket_price))} / person`, lang)
+    ? (infoOnly ? '' : pickLang(`🎫 Gratuit`, `🎫 Free`, lang))
+    : infoOnly && event.price_is_from
+      ? pickLang(`🎫 À partir de ${formatFCFA(Number(event.ticket_price))}`, `🎫 From ${formatFCFA(Number(event.ticket_price))}`, lang)
+      : pickLang(`🎫 ${formatFCFA(Number(event.ticket_price))} / personne`, `🎫 ${formatFCFA(Number(event.ticket_price))} / person`, lang)
   // Seats left come from the reservations that hold seats (per day). A
   // multi-day event is booked on the website, so no single number here.
   const left = event.max_tickets && event.max_tickets > 0 && !isMultiDay(event)
@@ -2538,7 +2541,9 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     ? `👥 ${remaining} ${remaining > 0 ? pickLang('places restantes', 'spots remaining', lang) : pickLang('— ❌ Épuisé', '— ❌ Sold out', lang)}`
     : ''
   const past = isPastEvent(event)
-  const tail = past
+  const tail = infoOnly && !past
+    ? '\n' + infoOnlyLine(event.info_link, lang)
+    : past
     ? '\n' + `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
     : remaining === 0
       ? '\n' + pickLang(`❌ Cet événement est épuisé.`, `❌ This event is sold out.`, lang)
@@ -2561,10 +2566,17 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     venueLine,
     priceLine,
     capacityLine,
+    infoOnly && event.organizer_name ? pickLang(`👤 Organisé par ${event.organizer_name}`, `👤 Organised by ${event.organizer_name}`, lang) : '',
     event.whatsapp ? `📱 Contact: ${event.whatsapp}` : '',
     tail,
   ].filter(Boolean).join('\n'))
   return ok()
+}
+
+function infoOnlyLine(link: string | null | undefined, lang: Lang): string {
+  return pickLang(
+    `ℹ️ Pas de réservation sur Tchop & Ndjoka pour cet événement.${link ? `\n🎟️ Billets / Infos : ${link}` : ''}`,
+    `ℹ️ No booking on Tchop & Ndjoka for this event.${link ? `\n🎟️ Tickets / Info: ${link}` : ''}`, lang)
 }
 
 // Shared "can this person book this event right now?" guard for the chat
@@ -2575,10 +2587,13 @@ function bookingBlock(
   event: {
     id: string; title?: string; date: string | null; end_date: string | null
     organizer_id?: string | null; submitted_by?: string | null; whatsapp?: string | null
+    booking_mode?: string | null; info_link?: string | null
   },
   customer: OrderingCustomer | undefined,
   lang: Lang,
 ): string | null {
+  // I6: "Infos seulement" — no booking here, only the info link.
+  if (event.booking_mode === 'info') return infoOnlyLine(event.info_link, lang)
   if (isPastEvent(event)) {
     console.log('[whatsapp/reserve] blocked — event %s is past (date=%s end_date=%s)', event.id, event.date, event.end_date)
     return `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
@@ -2607,7 +2622,7 @@ async function startReserveFlow(
 ): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select(`id, title, ${EVENT_DATE_COLUMNS}, organizer_id, submitted_by, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status`)
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, organizer_id, submitted_by, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status`)
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)

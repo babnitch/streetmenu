@@ -134,16 +134,21 @@ function diff(before: string[], after: string[]): { added: string[]; removed: st
 //    tickets can be checked in (Q2: admin and door staff). ──
 export const MANAGED_EVENT_MODULES: readonly OrganizerModule[] = ['reservations', 'ticket_control']
 
-type EventForModules = { id?: string | null; organizer_id?: string | null; managed_by_platform?: boolean | null }
+//    I6: a managed event in "Infos seulement" (booking_mode 'info') has no
+//    module at all — no reservation, payment or QR, only its info link.
+type EventForModules = { id?: string | null; organizer_id?: string | null; managed_by_platform?: boolean | null; booking_mode?: string | null }
 
 export async function eventAllows(event: EventForModules, m: OrganizerModule): Promise<boolean> {
   if (!event.organizer_id) {
     let managed = event.managed_by_platform
-    if (managed === undefined && event.id) {
-      const { data } = await supabaseAdmin.from('events').select('managed_by_platform').eq('id', event.id).maybeSingle()
-      managed = data?.managed_by_platform === true
+    let mode = event.booking_mode
+    if ((managed === undefined || mode === undefined) && event.id) {
+      const { data } = await supabaseAdmin.from('events').select('managed_by_platform, booking_mode').eq('id', event.id).maybeSingle()
+      managed ??= data?.managed_by_platform === true
+      mode ??= data?.booking_mode ?? 'platform'
     }
-    return managed ? MANAGED_EVENT_MODULES.includes(m) : true
+    if (!managed) return true
+    return mode === 'info' ? false : MANAGED_EVENT_MODULES.includes(m)
   }
   return (await organizerModules(event.organizer_id)).includes(m)
 }

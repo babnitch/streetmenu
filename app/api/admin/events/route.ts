@@ -96,6 +96,9 @@ export async function GET(req: NextRequest) {
 // neighborhood?, description?, cover_photo (required), price?, max_tickets?,
 // whatsapp? (public contact), notify_phone? (gets the bookings),
 // organizer_name? (display), publish (default true; false = pending).
+// I6: booking_mode 'info' (DEFAULT — no booking, payment or QR here, a
+// "Billets / Infos" link instead) or 'platform' (free reservations);
+// info_link? (https), price_is_from? ("À partir de").
 // super_admin | admin.
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
@@ -140,6 +143,11 @@ export async function POST(req: NextRequest) {
   const price = rawPrice != null && rawPrice !== '' ? Math.max(0, Math.round(Number(rawPrice)) || 0) : null
   const maxTickets = body.max_tickets != null && body.max_tickets !== '' ? Math.max(0, parseInt(String(body.max_tickets), 10) || 0) : 0
   const publish = body.publish !== false
+  const bookingMode = body.booking_mode === 'platform' ? 'platform' : 'info'
+  const infoLink = typeof body.info_link === 'string' ? body.info_link.trim() : ''
+  if (infoLink && (!/^https?:\/\/\S+$/.test(infoLink) || infoLink.length > 500)) {
+    return NextResponse.json({ error: 'Lien invalide (https://…) / Invalid link (https://…)', field: 'info_link' }, { status: 400 })
+  }
 
   const { data: event, error } = await supabaseAdmin.from('events').insert({
     title,
@@ -154,7 +162,10 @@ export async function POST(req: NextRequest) {
     category,
     price,
     ticket_price: price,
-    max_tickets:  maxTickets,
+    max_tickets:  bookingMode === 'info' ? 0 : maxTickets,
+    booking_mode: bookingMode,
+    info_link:    infoLink || null,
+    price_is_from: body.price_is_from === true,
     payment_enabled: false,
     payment_mode: 'reservation_only',
     whatsapp_payment_enabled: false,
@@ -176,7 +187,7 @@ export async function POST(req: NextRequest) {
   await writeAudit({
     action: 'event_created_by_admin', targetType: 'event', targetId: event.id,
     performedBy: session.id, performedByType: session.role,
-    metadata: { title, city, published: publish, managed: true },
+    metadata: { title, city, published: publish, managed: true, booking_mode: bookingMode },
   })
   return NextResponse.json({ ok: true, event })
 }

@@ -288,7 +288,15 @@ export default function EventDetailPage() {
       .filter((p): p is number => p !== null)
     return prices.length ? Math.min(...prices) : null
   })()
-  const showDateList = multiDay && !selectedDay
+  // I6: "Infos seulement" — a third-party event: no booking here, the
+  // price as text and a "Billets / Infos" link.
+  const infoOnly     = event.booking_mode === 'info'
+  const rawPrice     = event.ticket_price ?? event.price
+  const infoPrice: string | null = rawPrice == null ? null
+    : Number(rawPrice) > 0
+      ? (event.price_is_from ? `${bi('À partir de', 'From')} ${formatFCFA(Number(rawPrice))}` : formatFCFA(Number(rawPrice)))
+      : bi('Gratuit', 'Free')
+  const showDateList = multiDay && !selectedDay && !infoOnly
   const isCancelled  = event.event_status === 'cancelled'
   const isCompleted  = event.event_status === 'completed'
   // Organizer can close the reservation gate independently of event_status —
@@ -298,7 +306,7 @@ export default function EventDetailPage() {
   // the reserve/pay APIs enforce the same rule server-side.
   const isPast       = isPastEvent(event)
   const bookingOff   = booking?.reservations === false
-  const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed && !isPast && !bookingOff
+  const reservable   = !isCancelled && !isCompleted && !soldOut && !reservationsClosed && !isPast && !bookingOff && !infoOnly
   // Resolve the 3-way payment mode (free events collapse to reservation_only).
   // reservation_only / both → reserve button; payment_only / both → pay button.
   // For 'both', both buttons render and the customer chooses.
@@ -544,7 +552,9 @@ export default function EventDetailPage() {
             <h1 className="text-xl sm:text-2xl font-black text-ink-primary leading-tight mt-2">{event.title}</h1>
             <p className="text-sm text-ink-secondary mt-1">📅 {dateStr}</p>
             {event.venue && <p className="text-sm text-ink-secondary">📍 {event.venue}</p>}
-            {ticketsFrom !== null && (
+            {infoOnly ? infoPrice && (
+              <p className="text-sm font-bold text-ink-primary mt-1">{infoPrice}</p>
+            ) : ticketsFrom !== null && (
               <p className="text-sm font-bold text-ink-primary mt-1">
                 {ticketsFrom === 0 ? bi('Gratuit', 'Free') : `${bi('Billets dès', 'Tickets from')} ${formatFCFA(ticketsFrom)}`}
               </p>
@@ -565,7 +575,7 @@ export default function EventDetailPage() {
               value={`${event.venue}${event.neighborhood ? `, ${event.neighborhood}` : ''}${event.city ? ` — ${event.city}` : ''}`}
             />
           )}
-          <DetailRow
+          {infoOnly ? infoPrice && <DetailRow icon="🎟" label={t('evt.price')} value={infoPrice} /> : <DetailRow
             icon="🎟"
             label={t('evt.price')}
             value={
@@ -573,8 +583,8 @@ export default function EventDetailPage() {
                 ? t('evt.free')
                 : `${formatFCFA(ticketPrice)}${bi(' / personne', ' / person')}`
             }
-          />
-          {maxTickets > 0 && !soldOut && remaining !== Infinity && (
+          />}
+          {!infoOnly && maxTickets > 0 && !soldOut && remaining !== Infinity && (
             <DetailRow
               icon="👥"
               label={bi('Disponibilité', 'Availability')}
@@ -597,6 +607,21 @@ export default function EventDetailPage() {
               <p className={`text-sm text-ink-secondary ${event.description ? 'mt-3 pt-3 border-t border-divider' : ''}`}>
                 {bi('Organisé par', 'Organised by')} <span className="font-semibold text-ink-primary">{event.organizer_name}</span>
               </p>
+            )}
+          </div>
+        )}
+
+        {/* I6: info only — tickets / info are elsewhere. */}
+        {infoOnly && !isCancelled && !isPast && (
+          <div className="bg-white rounded-2xl shadow-sm p-4">
+            <p className="text-sm text-ink-secondary mb-3">
+              {bi('Pas de réservation sur Tchop & Ndjoka pour cet événement.', 'No booking on Tchop & Ndjoka for this event.')}
+            </p>
+            {event.info_link && (
+              <a href={event.info_link} target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 bg-brand hover:bg-brand-dark text-white py-3.5 rounded-2xl text-sm font-bold transition-colors shadow-card">
+                🎟️ {bi('Billets / Infos', 'Tickets / Info')} ↗
+              </a>
             )}
           </div>
         )}
@@ -624,7 +649,7 @@ export default function EventDetailPage() {
           </div>
         )}
         {/* Basic event page (no Réservations module): book with the organiser. */}
-        {!isCancelled && !isPast && !isCompleted && bookingOff && (() => {
+        {!isCancelled && !isPast && !isCompleted && bookingOff && !infoOnly && (() => {
           const wa = (event.whatsapp ?? '').replace(/\D/g, '')
           if (!wa) return null
           const text = bi(`Bonjour, je voudrais réserver pour « ${event.title} ».`, `Hello, I'd like to book for "${event.title}".`)
@@ -644,7 +669,7 @@ export default function EventDetailPage() {
             </div>
           )
         })()}
-        {!isCancelled && !isPast && !isCompleted && !soldOut && reservationsClosed && !bookingOff && (
+        {!isCancelled && !isPast && !isCompleted && !soldOut && reservationsClosed && !bookingOff && !infoOnly && (
           <div className="bg-surface-muted border border-divider rounded-2xl p-4 text-center text-sm font-semibold text-ink-secondary">
             🔒 {bi('Les réservations sont fermées.', 'Reservations are closed.')}
           </div>

@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   const { data: rows, error } = await supabaseAdmin
     .from('events')
-    .select(`id, title, category, venue, neighborhood, city, cover_photo, organizer_name, description, is_featured, ticket_price, price, event_status, reservations_open, ${EVENT_DATE_COLUMNS}`)
+    .select(`id, title, category, venue, neighborhood, city, cover_photo, organizer_name, description, is_featured, ticket_price, price, booking_mode, event_status, reservations_open, ${EVENT_DATE_COLUMNS}`)
     .eq('city', city).eq('is_active', true)
     .order('date', { ascending: true })
   if (error) {
@@ -71,13 +71,15 @@ export async function GET(req: NextRequest) {
     const av = (await getEventAvailability(e.id, today)) ?? []
     const tiers = tiersBy[e.id] ?? []
     const single = Number(e.ticket_price ?? e.price ?? 0) || 0
+    // I6: an info-only event with no price given shows no price (not "Gratuit").
+    const priceUnknown = e.booking_mode === 'info' && e.ticket_price == null && e.price == null
     const days: ListingDay[] = av.filter(d => !d.past).map(d => {
       let minPrice: number | null
       if (tiers.length) {
         const open = tiers.filter(t => !d.tiers.find(x => x.tier_id === t.id)?.soldOut)
         minPrice = open.length ? Math.min(...open.map(t => t.price)) : null
       } else {
-        minPrice = d.soldOut ? null : single
+        minPrice = d.soldOut || priceUnknown ? null : single
       }
       return { date: d.date, capacity: d.capacity, sold: d.sold, remaining: d.remaining, soldOut: d.soldOut, minPrice }
     })
