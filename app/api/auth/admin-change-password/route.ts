@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   const newHash = await bcrypt.hash(newPassword, 12)
   const { error: updErr } = await supabaseAdmin
     .from('admin_users')
-    .update({ password_hash: newHash })
+    .update({ password_hash: newHash, must_change_password: false })
     .eq('id', session.id)
 
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })

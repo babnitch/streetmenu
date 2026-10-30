@@ -116,6 +116,19 @@ export function setAdminSession(res: NextResponse, payload: SessionPayload): Nex
 // Returned with a login code so the login screen can ask, for a few minutes,
 // whether the code went out by SMS instead (WhatsApp fallback) — without
 // being able to ask about any other number.
+// A team member who logged in with a temporary password gets this pass
+// (10 min) instead of a session; it only lets them set their own password.
+export function signPasswordChangePass(adminId: string): string {
+  return jwt.sign({ adminId, purpose: 'admin_pw_change' }, SECRET, { expiresIn: '10m' })
+}
+export function verifyPasswordChangePass(token: unknown): string | null {
+  if (typeof token !== 'string') return null
+  try {
+    const p = jwt.verify(token, SECRET) as { adminId?: unknown; purpose?: unknown }
+    return p.purpose === 'admin_pw_change' && typeof p.adminId === 'string' ? p.adminId : null
+  } catch { return null }
+}
+
 export function signCodeTicket(phone: string): string {
   return jwt.sign({ phone, purpose: 'code_ticket', since: new Date().toISOString() }, SECRET, { expiresIn: '15m' })
 }
