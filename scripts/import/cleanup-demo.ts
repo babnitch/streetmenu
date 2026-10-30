@@ -10,7 +10,20 @@
 import { sb } from '../testkit/env'
 
 const APPLY = process.argv.includes('--apply')
-const NAMES = ['Le Braiseur du Centre', 'Maquis Mvog-Ada', 'Chez Tantine Adjoua', 'Grillade Etoudi Palace', 'Snack Biyem-Assi Express']
+// Batches of demo restaurants: --batch 1 (default, I0) or --batch 2 (the
+// remaining demo seeds, 2026-10-30).
+const BATCHES: Record<string, Array<[string, string]>> = {
+  '1': ['Le Braiseur du Centre', 'Maquis Mvog-Ada', 'Chez Tantine Adjoua', 'Grillade Etoudi Palace', 'Snack Biyem-Assi Express'].map(n => [n, 'Yaoundé']),
+  '2': [
+    ['Spice Garden', 'Zurich'], ['Pasta & Co.', 'Zurich'], ['Züri Street Grill', 'Zurich'],
+    ['Tchop', 'Yaoundé'], ['Chez Mama Biya', 'Yaoundé'], ['Restaurant Fouda & Fils', 'Yaoundé'],
+    ['La Terrasse de Briqueterie', 'Yaoundé'], ['Le Bord du Lac — Melen', 'Yaoundé'], ['Al-Wadi Libanais', 'Yaoundé'],
+  ],
+}
+const batchArg = process.argv.indexOf('--batch')
+const BATCH = BATCHES[batchArg > 0 ? process.argv[batchArg + 1] : '1']
+if (!BATCH) throw new Error('unknown --batch')
+const NAMES = BATCH.map(([n]) => n)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function count(table: string, col: string, ids: string[], extra?: (q: any) => any): Promise<number> {
@@ -24,9 +37,9 @@ async function count(table: string, col: string, ids: string[], extra?: (q: any)
 
 async function main(): Promise<void> {
   console.log(`${APPLY ? 'DELETE' : 'DRY RUN'} — demo restaurants\n`)
-  const { data: rests, error } = await sb.from('restaurants').select('id, name, city, customer_id, managed_by_platform').eq('city', 'Yaoundé').in('name', NAMES)
+  const { data: rests, error } = await sb.from('restaurants').select('id, name, city, customer_id, managed_by_platform').in('name', NAMES).is('deleted_at', null)
   if (error) throw error
-  const found = rests ?? []
+  const found = (rests ?? []).filter(r => BATCH.some(([n, c]) => n === r.name && c === r.city))
   for (const n of NAMES) if (!found.some(r => r.name === n)) console.log(`  (not found: ${n})`)
   if (found.length !== found.map(r => r.name).filter((v, i, a) => a.indexOf(v) === i).length) throw new Error('duplicate names — stop')
   const rIds = found.map(r => r.id as string)
@@ -57,6 +70,7 @@ async function main(): Promise<void> {
       ratings: await count('restaurant_ratings', 'customer_id', id),
       favourites: await count('customer_favorites', 'customer_id', id),
       subscriptions: await count('event_subscriptions', 'customer_id', id),
+      usedVouchers: await count('customer_vouchers', 'customer_id', id, q => q.not('used_at', 'is', null)),
     }
     const busy = Object.entries(other).filter(([, n]) => n > 0)
     const label = `${c.name} (${String(c.phone).slice(0, 7)}…)`
@@ -83,6 +97,11 @@ async function main(): Promise<void> {
   // Owner leftovers that only belong to them (sessions, codes).
   const phones = (owners ?? []).filter(c => drop.includes(c.id as string)).map(c => c.phone as string)
   await del('signup_sessions', 'phone', phones)
+  // Vouchers handed to a demo owner and never used go with the account.
+  if (drop.length) {
+    const { error: vErr } = await sb.from('customer_vouchers').delete().in('customer_id', drop).is('used_at', null)
+    if (vErr) throw new Error(`delete customer_vouchers: ${vErr.message}`)
+  }
   await del('customers', 'id', drop)
   console.log('done.')
 }
