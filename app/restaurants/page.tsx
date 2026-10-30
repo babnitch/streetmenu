@@ -25,15 +25,13 @@ import { useDishHits } from '@/lib/dishSearch'
 import { deliversNow } from '@/lib/modules'
 import SearchField from '@/components/SearchField'
 
+import { CITY_CENTRES } from '@/lib/cities'
+
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
-// City → Mapbox center + zoom. Order matches the CITIES list in cityContext.
-const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> = {
-  'Yaoundé': { center: [11.5021, 3.848],    zoom: 13 },
-  'Abidjan': { center: [-4.0083, 5.36],      zoom: 13 },
-  'Dakar':   { center: [-17.4441, 14.6937],  zoom: 13 },
-  'Lomé':    { center: [1.2123, 6.1375],     zoom: 13 },
-}
+// City → Mapbox center + zoom (lib/cities.ts).
+const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> = Object.fromEntries(
+  Object.entries(CITY_CENTRES).map(([c, v]) => [c, { center: [v.lng, v.lat] as [number, number], zoom: v.zoom }]))
 
 // "Under 30 min" pill threshold — a restaurant qualifies when the top of
 // its advertised range is at or below this.

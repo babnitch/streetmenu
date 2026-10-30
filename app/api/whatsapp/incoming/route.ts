@@ -48,6 +48,7 @@ const CITY_MAP: Record<string, string> = {
   'abidjan': 'Abidjan',                        '2': 'Abidjan',
   'dakar':   'Dakar',                          '3': 'Dakar',
   'lomé':    'Lomé',    'lome':    'Lomé',     '4': 'Lomé',
+  'douala':  'Douala',                         '5': 'Douala',
 }
 function parseCity(input: string): string | null {
   return CITY_MAP[input.toLowerCase().trim()] ?? null
@@ -863,15 +864,15 @@ async function handleSession(
         step: 2, data: { ...data, name }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, pickLang(
-        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Tapez le nom ou le chiffre._`,
-        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Type the name or the number._`, L))
+        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Tapez le nom ou le chiffre._`,
+        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Type the name or the number._`, L))
       return ok()
     }
 
     if (step === 2) {
       const city = parseCity(body)
       if (!city) {
-        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé  5️⃣ Douala')
         return ok()
       }
       const name = data.name ?? 'Ami'
@@ -914,15 +915,15 @@ async function handleSession(
         step: 2, data: { ...data, name }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, pickLang(
-        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Tapez le nom ou le chiffre._`,
-        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n\n_Type the name or the number._`, L))
+        `Bonjour *${name}*! 🎉\n\nDans quelle *ville* êtes-vous?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Tapez le nom ou le chiffre._`,
+        `Hello *${name}*! 🎉\n\nWhich *city* are you in?\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala\n\n_Type the name or the number._`, L))
       return ok()
     }
 
     if (step === 2) {
       const city = parseCity(body)
       if (!city) {
-        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé  5️⃣ Douala')
         return ok()
       }
       const name = data.name ?? 'Ami'
@@ -975,7 +976,7 @@ async function handleSession(
         step: 2, data: { ...data, restaurant_name: restaurantName }, expires_at: sessionExpiry(),
       }).eq('phone', phone)
       await sendWhatsApp(from, `*${restaurantName}* — ${pickLang('super', 'great', L)}! 👍\n\n` +
-        pickLang('Dans quelle *ville*?', 'Which *city*?', L) + '\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé')
+        pickLang('Dans quelle *ville*?', 'Which *city*?', L) + '\n\n1️⃣ Yaoundé\n2️⃣ Abidjan\n3️⃣ Dakar\n4️⃣ Lomé\n5️⃣ Douala')
       return ok()
     }
 
@@ -983,7 +984,7 @@ async function handleSession(
     if (step === 2) {
       const city = parseCity(body)
       if (!city) {
-        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé')
+        await sendWhatsApp(from, pickLang('Choisissez :', 'Choose:', L) + '\n1️⃣ Yaoundé  2️⃣ Abidjan  3️⃣ Dakar  4️⃣ Lomé  5️⃣ Douala')
         return ok()
       }
       await supabaseAdmin.from('signup_sessions').update({

@@ -1,3 +1,4 @@
+import { CITIES } from './cities'
 // Event-subscription + broadcast helpers (server-only).
 //
 // Two domains in one file because they share the same audience query
@@ -11,7 +12,7 @@ import { formatFCFA } from '@/lib/money'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-export const SUBSCRIPTION_CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
+export const SUBSCRIPTION_CITIES = CITIES
 // The canonical list lives in lib/categoryLabels.ts (client-safe).
 export { EVENT_CATEGORIES } from '@/lib/categoryLabels'
 

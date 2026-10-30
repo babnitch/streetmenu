@@ -3,12 +3,10 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { runClientVersionGuard } from './clientVersion'
 
-// The four supported cities. Kept here so TopNav's dropdown and the home
-// page's filter never drift — import `CITIES` wherever the list is needed.
-// If you add another city, update this array + the Mapbox center coords
-// in app/page.tsx alongside it.
-export const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
-export type City = (typeof CITIES)[number]
+// The cities live in lib/cities.ts (one list, also used server-side);
+// re-exported here for the components that already import them from here.
+import { CITIES, DEFAULT_CITY, type City } from './cities'
+export { CITIES, type City }
 
 interface CityContextValue {
   city: City
@@ -16,7 +14,6 @@ interface CityContextValue {
 }
 
 const STORAGE_KEY = 'tn_selected_city'
-const DEFAULT_CITY: City = 'Yaoundé'
 
 const CityContext = createContext<CityContextValue>({
   city: DEFAULT_CITY,

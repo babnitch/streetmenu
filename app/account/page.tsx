@@ -18,6 +18,7 @@ import LanguageToggle from '@/components/LanguageToggle'
 import ModeToggle from '@/components/ModeToggle'
 import VoucherCard from '@/components/VoucherCard'
 import AdminProfilePanel from '@/components/AdminProfilePanel'
+import { CITIES } from '@/lib/cities'
 import PaymentBadge from '@/components/PaymentBadge'
 import NotificationsPanel from '@/components/NotificationsPanel'
 import BroadcastPanel from '@/components/BroadcastPanel'
@@ -250,7 +251,7 @@ export default function AccountPage() {
   const [profileNickname, setProfileNickname] = useState('')
   const [savingNickname,  setSavingNickname]  = useState(false)
   const [savingProfile,   setSavingProfile]   = useState(false)
-  const PROFILE_CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
+  const PROFILE_CITIES = CITIES
 
   // Modals
   type VendorModal = 'suspend-rest' | 'delete-rest' | 'delete-account' | null

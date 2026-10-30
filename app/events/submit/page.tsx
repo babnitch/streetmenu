@@ -15,7 +15,7 @@ import { validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDa
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { EVENT_POSTER_REQUIRED } from '@/lib/pictureRequired'
 
-const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
+import { CITIES } from '@/lib/cities'
 
 const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',

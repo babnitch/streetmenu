@@ -4,7 +4,7 @@ import { getSessionFromRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé']
+import { CITIES } from '@/lib/cities'
 
 // POST { name?, city? } — update editable profile fields for the current
 // customer. Phone is NEVER updatable here (it's the account identifier).
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (typeof body.city === 'string') {
-    if (!CITIES.includes(body.city)) {
+    if (!(CITIES as readonly string[]).includes(body.city)) {
       return NextResponse.json({ error: 'Ville invalide / Invalid city' }, { status: 400 })
     }
     patch.city = body.city

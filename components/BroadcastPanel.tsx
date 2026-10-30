@@ -8,7 +8,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { useDepositPoll } from '@/lib/useDepositPoll'
 import { formatFCFA } from '@/lib/money'
 
-const CITIES = ['Yaoundé', 'Abidjan', 'Dakar', 'Lomé'] as const
+import { CITIES } from '@/lib/cities'
 const CATEGORIES = [
   'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
 ] as const

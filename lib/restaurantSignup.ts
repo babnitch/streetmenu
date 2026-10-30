@@ -1,17 +1,13 @@
+import { CITIES, CITY_CENTRES, type City } from './cities'
 // Adding a restaurant — the lists shared by the WhatsApp signup (app/api/
 // whatsapp/incoming) and the web form (/pro/restaurants/new), so both store
 // the same values.
 
-// The four platform cities and their centre — a new restaurant's map pin
+// The platform cities (lib/cities.ts) and their centre — a new restaurant's map pin
 // until its owner places it (the web form can send the phone's position).
-export const RESTAURANT_CITIES = [
-  { name: 'Yaoundé', lat: 3.848,   lng: 11.5021 },
-  { name: 'Abidjan', lat: 5.36,    lng: -4.0083 },
-  { name: 'Dakar',   lat: 14.6937, lng: -17.4441 },
-  { name: 'Lomé',    lat: 6.1375,  lng: 1.2123 },
-] as const
+export const RESTAURANT_CITIES = CITIES.map(name => ({ name, lat: CITY_CENTRES[name].lat, lng: CITY_CENTRES[name].lng }))
 
-export type RestaurantCity = typeof RESTAURANT_CITIES[number]['name']
+export type RestaurantCity = City
 
 export function cityCentre(city: string | null | undefined): { lat: number; lng: number } | null {
   const c = RESTAURANT_CITIES.find(x => x.name === city)
