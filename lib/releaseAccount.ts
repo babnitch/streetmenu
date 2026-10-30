@@ -47,7 +47,7 @@ export async function releaseAccount(customerId: string, actor: ReleaseActor = {
 
   const { data: ownedRestaurants, error: restErr } = await supabaseAdmin
     .from('restaurants')
-    .select('id, name, city, whatsapp, status')
+    .select('id, name, city, whatsapp, status, deleted_at')
     .eq('customer_id', customerId)
 
   if (restErr) {
@@ -136,14 +136,15 @@ export async function releaseAccount(customerId: string, actor: ReleaseActor = {
     throw new Error('Customer anonymisation matched no rows')
   }
 
-  // Anonymise each restaurant. Doing them one-by-one so each gets its own
-  // unique whatsapp token (same collision risk as customers).
+  // Anonymise each restaurant (UPDATE only — rows are never erased, see
+  // CLAUDE.md). One by one so each gets its own unique whatsapp token. A
+  // rejected restaurant keeps status 'rejected' and its first deleted_at.
   for (const r of ownedRestaurants ?? []) {
     const { error: restUpdErr } = await supabaseAdmin.from('restaurants').update({
       name:       'Deleted Restaurant',
       whatsapp:   anonymisedPhoneToken(),
-      status:     'deleted',
-      deleted_at: now,
+      status:     r.status === 'rejected' ? 'rejected' : 'deleted',
+      deleted_at: r.deleted_at ?? now,
     }).eq('id', r.id)
 
     if (restUpdErr) {
@@ -155,13 +156,13 @@ export async function releaseAccount(customerId: string, actor: ReleaseActor = {
     }
   }
 
-  // Remove all team entries for this customer
+  // Their team entries: kept, set 'removed' (soft deletion rule).
   const { error: teamErr } = await supabaseAdmin.from('restaurant_team')
-    .delete()
+    .update({ status: 'removed' })
     .eq('customer_id', customerId)
 
   if (teamErr) {
-    console.error(`[releaseAccount] restaurant_team delete failed: ${teamErr.message}`)
+    console.error(`[releaseAccount] restaurant_team update failed: ${teamErr.message}`)
     // Non-fatal: customer + restaurants already anonymised. Log and continue.
   }
 
