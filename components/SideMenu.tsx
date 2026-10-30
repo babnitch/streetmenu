@@ -16,7 +16,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useBi } from '@/lib/languageContext'
 import { useMode } from '@/lib/modeContext'
-import { loginHref } from '@/lib/lastPhone'
+import { proLoginHref } from '@/lib/lastPhone'
 import { sideMenuItems } from '@/lib/modeSurfaces'
 import { useDataMode } from '@/lib/dataMode'
 import LanguageToggle from './LanguageToggle'
@@ -128,7 +128,7 @@ export default function SideMenu({
               case 'myBookings': return <PlainItem key={item} href="/account?tab=bookings" icon="🎟">{bi('Mes réservations', 'My bookings')}</PlainItem>
               case 'myFavorites': return <PlainItem key={item} href="/account?tab=favorites" icon="♥">{bi('Mes favoris', 'My favourites')}</PlainItem>
               // Client → the Pro switch screen (ModeGate on /pro); logged out → login first.
-              case 'proSpace': return <Item key={item} href={loggedIn ? '/pro' : loginHref('/pro')} onClick={onClose} icon="🧰">{bi('Espace Pro', 'Pro space')}</Item>
+              case 'proSpace': return <Item key={item} href={loggedIn ? '/pro' : proLoginHref('/pro')} onClick={onClose} icon="🧰">{bi('Espace Pro', 'Pro space')}</Item>
               case 'restaurantOrders': return (
                 <button key={item} type="button" onClick={restaurantOrders}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink-primary hover:bg-surface-muted text-left">

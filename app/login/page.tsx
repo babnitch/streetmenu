@@ -2,7 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useCodeChannel } from '@/lib/useCodeChannel'
 import TopNav from '@/components/TopNav'
 import PhoneInput from '@/components/PhoneInput'
@@ -37,7 +38,12 @@ const proChoiceFor = (path: string | null): ProChoice | null =>
 // picks "Ajouter un restaurant" or "Organiser un événement"; the account then
 // opens in Pro (saved on the account) on that form. An existing account just
 // logs in and lands in Pro on the chosen form; its saved mode is unchanged.
+// useSearchParams needs a Suspense boundary for the build.
 export default function LoginPage() {
+  return <Suspense fallback={null}><LoginScreen /></Suspense>
+}
+
+function LoginScreen() {
   const bi = useBi()
   const { locale } = useLanguage()
   const { city } = useCity()
@@ -64,6 +70,13 @@ export default function LoginPage() {
   const [cooldown, setCooldown] = useState(0)
   const [resendChannel, setResendChannel] = useState<Channel>('whatsapp')
   const [teamSession, setTeamSession] = useState(false)
+
+  // Client or Pro login follows the URL (?intent=pro), also when the page
+  // is already open: ☰ "Se connecter" from the Pro login must give the
+  // client login, "Espace Pro" the Pro one.
+  const router = useRouter()
+  const intent = useSearchParams().get('intent')
+  useEffect(() => { setPro(intent === 'pro') }, [intent])
 
   // Return target, remembered number, and "already logged in?".
   useEffect(() => {
@@ -143,12 +156,14 @@ export default function LoginPage() {
     window.location.href = returnTo ?? (d.isNewAccount ? '/account?tab=vouchers&welcome=1' : '/account')
   }
 
-  function startPro() {
-    setPro(true)
+  function switchIntent(toPro: boolean) {
+    setPro(toPro)
     const u = new URL(window.location.href)
-    u.searchParams.set('intent', 'pro')
-    window.history.replaceState({}, '', u)
+    if (toPro) u.searchParams.set('intent', 'pro')
+    else u.searchParams.delete('intent')
+    router.replace(`${u.pathname}${u.search}`, { scroll: false })
   }
+  const startPro = () => switchIntent(true)
 
   async function verify(value?: string) {
     const c = (value ?? code).trim()
@@ -254,10 +269,15 @@ export default function LoginPage() {
             <p className="text-[11px] text-ink-tertiary text-center mt-4">
               {bi('Pas encore de compte ? Il sera créé après le code.', 'No account yet? It is created after the code.')}
             </p>
-            {!pro && (
+            {!pro ? (
               <button type="button" onClick={startPro}
                 className="block w-full text-center text-sm font-semibold text-brand-darker hover:text-brand-dark mt-3">
                 {bi('Vous êtes un professionnel ? Créer un compte Pro', 'Are you a business? Create a Pro account')} →
+              </button>
+            ) : (
+              <button type="button" onClick={() => switchIntent(false)}
+                className="block w-full text-center text-sm font-semibold text-brand-darker hover:text-brand-dark mt-3">
+                ← {bi('Je suis un client', 'I am a customer')}
               </button>
             )}
           </div>
@@ -322,6 +342,12 @@ export default function LoginPage() {
                 {busy === 'name' ? '…' : bi('Créer mon compte', 'Create my account')}
               </button>
             </form>
+            {pro && (
+              <button type="button" onClick={() => switchIntent(false)}
+                className="block w-full text-center text-sm font-semibold text-brand-darker hover:text-brand-dark mt-3">
+                ← {bi('Je suis un client (compte sans espace Pro)', 'I am a customer (account without Pro space)')}
+              </button>
+            )}
           </div>
         )}
 
