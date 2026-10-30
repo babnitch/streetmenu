@@ -86,7 +86,7 @@ async function isDoorStaff(eventId: string, customerId: string): Promise<boolean
 
 interface BookingRow {
   id: string; event_id: string; customer_id: string | null; quantity: number; reservation_status: string
-  payment_status: string | null; event_date: string | null; tier_name: string | null; reservation_code: string | null
+  payment_status: string | null; refund_status?: string | null; event_date: string | null; tier_name: string | null; reservation_code: string | null
   booking_id?: string | null
 }
 interface EventRow {
@@ -96,7 +96,7 @@ interface EventRow {
 }
 
 async function loadBooking(id: string): Promise<{ rows: BookingRow[]; event: EventRow } | null> {
-  const cols = 'id, event_id, customer_id, quantity, reservation_status, payment_status, event_date, tier_name, reservation_code'
+  const cols = 'id, event_id, customer_id, quantity, reservation_status, payment_status, refund_status, event_date, tier_name, reservation_code'
   const { data: first } = await supabaseAdmin.from('event_reservations').select(cols).eq('id', id).maybeSingle()
   if (!first) return null
   // The booking's other rows (one per tier), when booking_id exists.
@@ -144,7 +144,8 @@ function bookingDetails(b: { rows: BookingRow[]; event: EventRow }, today: strin
 function bookingToday(b: { rows: BookingRow[]; event: EventRow }, today: string): { day: string } | { refusal: string } {
   const live = b.rows.filter(r => !['cancelled', 'rejected'].includes(r.reservation_status))
   if (live.length === 0) return { refusal: 'Réservation annulée / Booking cancelled' }
-  if (live.some(r => r.payment_status === 'refunded')) return { refusal: 'Billet remboursé / Ticket refunded' }
+  // R2: a fully refunded ticket (refund_status) no longer gets in.
+  if (live.some(r => r.payment_status === 'refunded' || r.refund_status === 'refunded')) return { refusal: 'Billet remboursé / Ticket refunded' }
   if (live.some(r => r.reservation_status === 'pending')) return { refusal: 'En attente de confirmation par l\'organisateur / Waiting for the organiser\'s confirmation' }
   if (live.some(r => r.payment_status === 'pending' || r.payment_status === 'failed')) return { refusal: 'Paiement non confirmé / Payment not confirmed' }
   const booked = b.rows[0].event_date

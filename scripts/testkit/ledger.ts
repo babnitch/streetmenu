@@ -87,6 +87,7 @@ export function dropLedger(runId: string = RUN_ID): void {
 //     least one team row, so team rows must go before restaurants;
 //   - order_items / event_reservations FK to their parents.
 export const DELETE_ORDER: string[] = [
+  'refunds',
   'order_items',
   'orders',
   'event_reservations',

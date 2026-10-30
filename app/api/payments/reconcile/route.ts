@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authorizeInternal } from '@/lib/internalAuth'
 import { runReconcile, liveReconcileDeps } from '@/lib/payments-reconcile'
 import { runMessageRetries } from '@/lib/messageRetry'
+import { reconcileRefunds } from '@/lib/refunds'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -33,6 +34,15 @@ export async function POST(req: NextRequest) {
     console.error('[reconcile] run failed:', reconcileError)
   }
 
+  // R2: refunds still pending (lost callback) — same tick, independent.
+  let refunds: Awaited<ReturnType<typeof reconcileRefunds>> | { error: string }
+  try {
+    refunds = await reconcileRefunds()
+  } catch (e) {
+    console.error('[reconcile] refunds failed:', (e as Error).message)
+    refunds = { error: 'refund reconcile failed' }
+  }
+
   let messageRetries: Awaited<ReturnType<typeof runMessageRetries>> | { error: string }
   try {
     messageRetries = await runMessageRetries()
@@ -42,7 +52,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (reconcileError) {
-    return NextResponse.json({ ok: false, error: 'reconcile failed', messageRetries }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'reconcile failed', refunds, messageRetries }, { status: 500 })
   }
-  return NextResponse.json({ ok: true, ...summary, messageRetries })
+  return NextResponse.json({ ok: true, ...summary, refunds, messageRetries })
 }

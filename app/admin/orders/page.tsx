@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase'
 import { Order, Restaurant } from '@/types'
 import { useLanguage } from '@/lib/languageContext'
 import PaymentBadge from '@/components/PaymentBadge'
+import RefundButton, { RefundStatusPill } from '@/components/RefundButton'
+import AdminPaidTickets from '@/components/AdminPaidTickets'
 import { formatFCFA } from '@/lib/money'
 
 const STATUS_STYLES: Record<string, string> = {
@@ -21,6 +23,7 @@ type OrderWithRestaurant = Order & { restaurants: { name: string; city: string }
 
 export default function AdminOrdersPage() {
   const { t, locale } = useLanguage()
+  const [view, setView] = useState<'orders' | 'tickets'>('orders')
   const [orders, setOrders] = useState<OrderWithRestaurant[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
@@ -72,6 +75,15 @@ export default function AdminOrdersPage() {
         <h1 className="text-2xl font-bold text-ink-primary">{t('admin.ordTitle')}</h1>
         <p className="text-sm text-ink-secondary mt-0.5">{t('admin.ordSub')}</p>
       </div>
+
+      {/* R2: orders · tickets paid by Mobile Money */}
+      <div className="inline-flex bg-surface-muted rounded-xl p-1 mb-5 text-sm font-semibold" role="tablist">
+        {([['orders', locale === 'en' ? 'Orders' : 'Commandes'], ['tickets', locale === 'en' ? 'Paid tickets' : 'Billets payés']] as const).map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
+            className={`px-4 py-2 rounded-lg ${view === k ? 'bg-white shadow-sm text-ink-primary' : 'text-ink-secondary'}`}>{label}</button>
+        ))}
+      </div>
+      {view === 'tickets' ? <AdminPaidTickets /> : (<>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -164,6 +176,7 @@ export default function AdminOrdersPage() {
                       {t(`status.${order.status}` as Parameters<typeof t>[0])}
                     </span>
                     <PaymentBadge order={order} locale={locale} />
+                    <RefundControls order={order} onChanged={fetchOrders} />
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
@@ -194,6 +207,7 @@ export default function AdminOrdersPage() {
                     {t(`status.${order.status}` as Parameters<typeof t>[0])}
                   </span>
                   <PaymentBadge order={order} locale={locale} />
+                  <RefundControls order={order} onChanged={fetchOrders} />
                   <p className="text-xs text-ink-tertiary">{formatDate(order.created_at)}</p>
                 </div>
               </div>
@@ -201,6 +215,19 @@ export default function AdminOrdersPage() {
           ))}
         </div>
       )}
+      </>)}
+    </div>
+  )
+}
+
+// R2: refund state + "Rembourser" (super admin) on an order paid by Mobile Money.
+function RefundControls({ order, onChanged }: { order: Order; onChanged: () => void }) {
+  const o = order as Order & { payment_id?: string | null; refund_status?: string | null; refunded_amount?: number | null }
+  if (!o.payment_id || !['paid', 'refunded'].includes(String(o.payment_status))) return null
+  return (
+    <div className="flex flex-col items-end lg:items-start gap-1">
+      <RefundStatusPill status={o.refund_status} refunded={o.refunded_amount} />
+      <RefundButton kind="order" id={o.id} onChanged={onChanged} />
     </div>
   )
 }

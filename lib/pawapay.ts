@@ -361,6 +361,85 @@ export async function createPayout(params: PayoutParams): Promise<PayoutResult> 
   }
 }
 
+// ── Active configuration (R1) ────────────────────────────────────────────────
+// GET /active-conf — what this merchant account may do, per country and
+// operator: operation types (DEPOSIT / PAYOUT / REFUND) with min / max
+// amounts and the decimals allowed. Read-only.
+
+export interface OperatorConfig {
+  correspondent: string
+  currency:      string | null
+  operations:    Array<{ type: string; min: string | null; max: string | null; decimals: string | null }>
+}
+
+export async function getActiveConfiguration(country: CountryCode = 'CMR'): Promise<{ ok: true; operators: OperatorConfig[] } | { ok: false; status: number; error: string }> {
+  const { status, body } = await pawapayFetch('/active-conf', { method: 'GET' })
+  if (status >= 400) return { ok: false, status, error: `PawaPay HTTP ${status}` }
+  const countries = ((body ?? {}) as { countries?: Array<Record<string, unknown>> }).countries ?? []
+  const c = countries.find(x => x.country === country)
+  const correspondents = (c?.correspondents ?? []) as Array<Record<string, unknown>>
+  return {
+    ok: true,
+    operators: correspondents.map(k => ({
+      correspondent: String(k.correspondent ?? ''),
+      currency:      typeof k.currency === 'string' ? k.currency : null,
+      operations:    ((k.operationTypes ?? []) as Array<Record<string, unknown>>).map(o => ({
+        type:     String(o.operationType ?? ''),
+        min:      o.minTransactionLimit != null ? String(o.minTransactionLimit) : null,
+        max:      o.maxTransactionLimit != null ? String(o.maxTransactionLimit) : null,
+        decimals: o.decimalsInAmount != null ? String(o.decimalsInAmount) : null,
+      })),
+    })),
+  }
+}
+
+// ── Refunds (R2) ─────────────────────────────────────────────────────────────
+// POST /refunds { refundId, depositId, amount } — the refundId is OURS and is
+// stored before this call (refunds.id), so a callback or a timed-out request
+// can always be matched. ACCEPTED / DUPLICATE_IGNORED = in flight;
+// REJECTED = refused at once (with a reason).
+
+export interface RefundRequestResult { status: PawaPayStatus; rejection: string | null }
+
+export async function createRefund(params: { refundId: string; depositId: string; amount: number }): Promise<RefundRequestResult> {
+  const { status, body } = await pawapayFetch('/refunds', {
+    method: 'POST',
+    body:   JSON.stringify({ refundId: params.refundId, depositId: params.depositId, amount: String(params.amount) }),
+  })
+  const parsed = (body ?? {}) as { status?: PawaPayStatus; rejectionReason?: { rejectionMessage?: string; rejectionCode?: string } }
+  const apiStatus: PawaPayStatus = parsed.status ?? (status >= 400 ? 'REJECTED' : 'ACCEPTED')
+  const rejection = apiStatus === 'REJECTED' || apiStatus === 'FAILED'
+    ? (parsed.rejectionReason?.rejectionMessage ?? parsed.rejectionReason?.rejectionCode ?? `HTTP ${status}`)
+    : null
+  return { status: apiStatus, rejection }
+}
+
+export interface TransferStatus {
+  status:        PawaPayStatus
+  notFound:      boolean
+  failureReason: string | null
+  /** When the operator reports the money arrived (payouts / refunds). */
+  receivedAt:    string | null
+  correspondent: string | null
+}
+
+async function checkTransfer(kind: 'refunds' | 'payouts', id: string): Promise<TransferStatus> {
+  const { status, body } = await pawapayFetch(`/${kind}/${id}`, { method: 'GET' })
+  if (status >= 500) throw new Error(`PawaPay HTTP ${status}`)
+  const arr = Array.isArray(body) ? body : []
+  if (arr.length === 0) return { status: 'ACCEPTED', notFound: true, failureReason: null, receivedAt: null, correspondent: null }
+  const row = arr[0] as { status?: PawaPayStatus; failureReason?: { failureMessage?: string; failureCode?: string }; receivedByRecipient?: string; correspondent?: string }
+  return {
+    status:        row.status ?? 'ACCEPTED',
+    notFound:      false,
+    failureReason: row.failureReason?.failureMessage ?? row.failureReason?.failureCode ?? null,
+    receivedAt:    row.receivedByRecipient ?? null,
+    correspondent: row.correspondent ?? null,
+  }
+}
+export const checkRefundStatus = (refundId: string) => checkTransfer('refunds', refundId)
+export const checkPayoutStatus = (payoutId: string) => checkTransfer('payouts', payoutId)
+
 // ── Callback signature verification (RFC 9421) ──────────────────────────────
 // PawaPay signs callbacks with RFC 9421 HTTP Message Signatures (Signature +
 // Signature-Input) using THEIR private key, and binds the body with an
@@ -415,6 +494,11 @@ function isProductionPawaPay(): boolean {
   const env  = (process.env.PAWAPAY_ENVIRONMENT ?? '').trim()
   const base = (process.env.PAWAPAY_BASE_URL ?? '').trim()
   return env === 'production' || (base !== '' && !base.includes('sandbox'))
+}
+
+/** 'production' | 'sandbox' — shown in Admin → Plateforme → PawaPay. */
+export function pawapayEnvironmentLabel(): 'production' | 'sandbox' {
+  return isProductionPawaPay() ? 'production' : 'sandbox'
 }
 
 // Explicit opt-out for local/sandbox work: exactly 'true', nothing looser.
