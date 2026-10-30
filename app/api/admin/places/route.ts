@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -15,6 +16,7 @@ function authorize(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  await getRefData()
   if (!authorize(req)) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   const { data, error } = await supabaseAdmin.from('places')
     .select('*, submitter:customers!places_submitted_by_fkey(name, phone)')
@@ -24,6 +26,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  await getRefData()
   const s = authorize(req)
   if (!s) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   const v = validatePlace(await req.json().catch(() => ({})), true)

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { loadRestaurantOffersToday, loadTodayOffers } from '@/lib/offersServer'
 import { isServedCity } from '@/lib/cities'
@@ -20,6 +21,7 @@ const CITY_LIMIT = 12
 // Public: it shows only what the restaurant pages show anyway. menu_offers is
 // server-only (RLS), so pages read offers here, not through the anon client.
 export async function GET(req: NextRequest) {
+  await getRefData()
   // M6: restaurants switched off → no offers anywhere.
   if (!(await isSideOn('restaurants'))) {
     return NextResponse.json({ offers: [], prices: {}, free_delivery: false }, { headers: { 'Cache-Control': 'no-store' } })

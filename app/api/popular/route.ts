@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { isServedCity } from '@/lib/cities'
 import { EVENT_DATE_COLUMNS, isPastEvent } from '@/lib/eventDate'
@@ -30,6 +31,7 @@ const LIMIT = 6
 // free-delivery day, free_delivery true), prep and ride minutes; events carry
 // price_from (lowest active tier, else ticket_price) and is_free.
 export async function GET(req: NextRequest) {
+  await getRefData()
   const city = req.nextUrl.searchParams.get('city') ?? ''
   if (!isServedCity(city)) {
     return NextResponse.json({ error: 'city' }, { status: 400 })

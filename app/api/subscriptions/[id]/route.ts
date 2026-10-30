@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
-import { EVENT_CATEGORIES } from '@/lib/subscriptions'
+import { eventCategories } from '@/lib/subscriptions'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,7 @@ export const dynamic = 'force-dynamic'
 // Body: { categories?: string[] | null, is_active?: boolean }
 // Updates the caller's subscription. Categories null/[] = "all categories".
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  await getRefData()
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') {
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
@@ -33,8 +35,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     } else if (Array.isArray(body.categories)) {
       const filtered: string[] = body.categories
         .map((c: unknown) => String(c).trim())
-        .filter((c: string) => EVENT_CATEGORIES.includes(c as typeof EVENT_CATEGORIES[number]))
-      updates.categories = filtered.length === EVENT_CATEGORIES.length ? null : filtered
+        .filter((c: string) => eventCategories().includes(c))
+      updates.categories = filtered.length === eventCategories().length ? null : filtered
     }
   }
   if ('is_active' in body) {

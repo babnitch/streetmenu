@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic'
 // PATCH /api/admin/places/[id] (I4) — edit any field, publish (status
 // active), hide, approve a proposal. Admin / super_admin; audited.
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  await getRefData()
   const s = getSessionFromRequest(req)
   if (!s || !['super_admin', 'admin'].includes(s.role)) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   const v = validatePlace(await req.json().catch(() => ({})), false)

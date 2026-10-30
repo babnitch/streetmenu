@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { sanitizeText } from '@/lib/sanitize'
 import { normalizePhone } from '@/lib/phone'
-import { EVENT_CATEGORIES } from '@/lib/categoryLabels'
+import { refOffered } from '@/lib/refData'
 import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
 import { EVENT_POSTER_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
 
@@ -20,6 +21,7 @@ export const dynamic = 'force-dynamic'
 // computed here too because event_reservations + customers are locked to
 // service-role by supabase-rls-policies.sql — the client can't read them.
 export async function GET(req: NextRequest) {
+  await getRefData()
   const session = getSessionFromRequest(req)
   if (!session || !['super_admin', 'admin', 'moderator'].includes(session.role)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
@@ -101,6 +103,7 @@ export async function GET(req: NextRequest) {
 // info_link? (https), price_is_from? ("À partir de").
 // super_admin | admin.
 export async function POST(req: NextRequest) {
+  await getRefData()
   const session = getSessionFromRequest(req)
   if (!session || !['super_admin', 'admin'].includes(session.role)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
@@ -110,7 +113,7 @@ export async function POST(req: NextRequest) {
   const city = sanitizeText(body.city, 60)
   const category = String(body.category ?? '')
   const date = String(body.date ?? '')
-  if (!title || !city || !date || !(EVENT_CATEGORIES as readonly string[]).includes(category)) {
+  if (!title || !city || !date || !refOffered('event_category', category)) {
     return NextResponse.json({ error: 'Champs requis manquants / Missing required fields' }, { status: 400 })
   }
   // I1: a managed event may have no poster — the generated cover shows

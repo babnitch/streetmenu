@@ -1,4 +1,5 @@
 'use client'
+import { cuisineText } from '@/lib/cuisineCategories'
 
 import { track } from '@/lib/track'
 export const dynamic = 'force-dynamic'
@@ -99,7 +100,7 @@ export default function RestaurantInfoPage() {
 
         <div className="px-4">
           <h2 className="text-2xl font-black text-ink-primary mt-4">{r.name}</h2>
-          {r.cuisine_type && <p className="text-sm text-ink-secondary">{r.cuisine_type}</p>}
+          {cuisineText(r, locale) && <p className="text-sm text-ink-secondary">{cuisineText(r, locale)}</p>}
           {rating && rating.count > 0 && (
             <a href="#rate" className="inline-block mt-1 text-sm font-semibold text-ink-primary">
               {avg} ★ <span className="font-normal text-ink-tertiary">({rating.count} {bi('avis', rating.count === 1 ? 'review' : 'reviews')})</span>

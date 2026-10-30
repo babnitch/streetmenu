@@ -1,4 +1,5 @@
 'use client'
+import { cuisineText } from '@/lib/cuisineCategories'
 
 import { track } from '@/lib/track'
 export const dynamic = 'force-dynamic'
@@ -206,7 +207,7 @@ export default function MenuPage() {
             <Image src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority />
           ) : (
             // I1: no photo → the generated cover.
-            <GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} category={restaurant.cuisine_type} />
+            <GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} />
           )}
         </div>
         <button
@@ -222,7 +223,7 @@ export default function MenuPage() {
       <div className="px-4 max-w-2xl mx-auto">
         <h1 className="text-2xl font-black text-ink-primary leading-tight mt-4">{restaurant.name}</h1>
         <p className="text-sm text-ink-secondary mt-0.5">
-          {[restaurant.cuisine_type, restaurant.neighborhood].filter(Boolean).join(' · ')}
+          {[cuisineText(restaurant, locale), restaurant.neighborhood].filter(Boolean).join(' · ')}
         </p>
         <p className={`text-sm font-semibold mt-1 ${isOpen ? 'text-green-700' : 'text-red-600'}`}>
           {isOpen ? '🟢' : '🔴'} {statusLine}

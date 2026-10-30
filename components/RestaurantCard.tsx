@@ -1,8 +1,7 @@
 'use client'
 
 import GeneratedCover from '@/components/GeneratedCover'
-import CardTag from '@/components/CardTag'
-import { cuisineTag, cuisineIcon } from '@/lib/cuisineCategories'
+import { cuisineText } from '@/lib/cuisineCategories'
 import { CompactRow, dot } from '@/components/CompactRow'
 import { deliversNow } from '@/lib/modules'
 import { useState, useEffect, useRef } from 'react'
@@ -17,7 +16,7 @@ import { formatPrepTime } from '@/lib/prepTime'
 //
 //   < md  — Uber Eats-style 2-column grid tile: image, name, cuisine,
 //           ⭐ rating · 🕐 prep, and a "Fermé" chip over the image.
-//   ≥ md  — the original desktop card (location line, cuisine pill,
+//   ≥ md  — the original desktop card (location line, cuisine text,
 //           open/closed badge on the right). Unchanged on purpose: the
 //           redesign is mobile-only.
 //
@@ -69,7 +68,8 @@ export default function RestaurantCard({
   const isOpen = openOverride ?? restaurant.is_open
   const neighborhood = restaurant.neighborhood || restaurant.address
   const location = [neighborhood, restaurant.city].filter(Boolean).join(', ')
-  const cuisine = restaurant.cuisine_type || restaurant.description
+  // Cuisine: small grey text only when set (never on the photo or cover).
+  const cuisine = cuisineText(restaurant, locale)
   const prepLabel = formatPrepTime(restaurant.prep_time_min, restaurant.prep_time_max)
   const heroImage = restaurant.image_url || restaurant.logo_url
   // Low-data mode: skip the image regardless of whether one exists, so
@@ -80,7 +80,7 @@ export default function RestaurantCard({
   // Mode économique: a text row (the parent lays rows out as a list).
   if (isLowData) {
     return (
-      <CompactRow href={`/restaurant/${restaurant.id}`} icon={cuisineIcon(restaurant)} title={restaurant.name}
+      <CompactRow href={`/restaurant/${restaurant.id}`} icon="🍽️" title={restaurant.name}
         onClick={() => { if (promotionId) import('@/lib/promoTracking').then(m => m.fireClick(promotionId)) }}
         line={dot(
           neighborhood,
@@ -118,8 +118,6 @@ export default function RestaurantCard({
         )}
         {/* Closed chip — mobile only. The desktop card keeps its
             open/closed badge in the text block below. */}
-        {/* U4: the cuisine pill top-left; "Fermé" moves to the right. */}
-        <CardTag label={cuisineTag(restaurant, locale)} />
         {!isOpen && (
           <span className="md:hidden absolute top-2 right-2 bg-black/70 text-white text-[10px] font-semibold px-2 py-1 rounded-full leading-none">
             {bi('Fermé', 'Closed')}
@@ -133,7 +131,7 @@ export default function RestaurantCard({
           {restaurant.name}
         </p>
         {cuisine && (
-          <p className="text-xs text-ink-secondary mt-0.5 truncate">{cuisine}</p>
+          <p className="text-xs text-ink-tertiary mt-0.5 truncate">{cuisine}</p>
         )}
         <div className="mt-1 flex items-center gap-2 text-xs text-ink-secondary">
           {rating && rating.count > 0 && (
@@ -170,9 +168,7 @@ export default function RestaurantCard({
             </p>
           )}
           {cuisine && (
-            <span className="inline-block mt-2 bg-brand-light text-brand-darker text-xs font-semibold px-2 py-0.5 rounded-full border border-brand-badge/60">
-              {cuisine}
-            </span>
+            <p className="mt-1 text-xs text-ink-tertiary line-clamp-1">{cuisine}</p>
           )}
           {promotionId && (
             <p className="text-[10px] text-ink-tertiary mt-1.5 leading-none">

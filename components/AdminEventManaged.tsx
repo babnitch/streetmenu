@@ -1,4 +1,5 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 // Admin → Événements (N3): events listed by Tchop & Ndjoka, with no organiser.
 //   AdminEventCreate     "+ Créer un événement" — a short form; nobody is
@@ -9,8 +10,8 @@
 
 import { useState } from 'react'
 import { useBi, useLanguage } from '@/lib/languageContext'
-import { EVENT_CATEGORIES, categoryLabel } from '@/lib/categoryLabels'
-import { CITIES } from '@/lib/cityContext'
+import { eventCategories, categoryLabel } from '@/lib/categoryLabels'
+import { visibleCities } from '@/lib/cities'
 import PhoneInput from '@/components/PhoneInput'
 import DoorStaffPanel from '@/components/DoorStaffPanel'
 import type { Event } from '@/types'
@@ -37,6 +38,7 @@ const EMPTY = {
 
 export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event) => void; onClose: () => void }) {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const [f, setF] = useState(EMPTY)
   const [photo, setPhoto] = useState<File | null>(null)
@@ -93,12 +95,12 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
           <L label={bi('Titre *', 'Title *')} wide><input value={f.title} onChange={e => set('title', e.target.value)} className={INPUT} /></L>
           <L label={bi('Catégorie *', 'Category *')}>
             <select value={f.category} onChange={e => set('category', e.target.value)} className={INPUT}>
-              {EVENT_CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+              {eventCategories().map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
             </select>
           </L>
           <L label={bi('Ville *', 'City *')}>
             <select value={f.city} onChange={e => set('city', e.target.value)} className={INPUT}>
-              {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {visibleCities().map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </L>
           <L label={bi('Lieu', 'Venue')}><input value={f.venue} onChange={e => set('venue', e.target.value)} className={INPUT} /></L>

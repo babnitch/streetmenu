@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { parseTrack, isBot } from '@/lib/stats'
-import { CITIES } from '@/lib/cities'
+import { allCities } from '@/lib/cities'
 import { todayInDouala } from '@/lib/weekend'
 import { rateLimit, clientIP } from '@/lib/rateLimit'
 
@@ -18,7 +19,8 @@ export async function POST(req: NextRequest) {
   if (rateLimit({ key: `track:${clientIP(req)}`, max: 120, windowMs: 60_000 })) return done
   let body: unknown = null
   try { body = JSON.parse(await req.text()) } catch { return done }
-  const t = parseTrack(body, CITIES)
+  await getRefData()
+  const t = parseTrack(body, allCities())
   if (!t) return done
   const { error } = await supabaseAdmin.rpc('stats_bump', {
     p_day: todayInDouala(), p_city: t.city, p_type: t.type, p_id: t.id, p_metric: t.metric, p_n: 1,

@@ -8,7 +8,8 @@
 
 import { periodStart, doualaHour, restaurantFigures, sumStats } from '@/lib/overview'
 import { parseTrack, normaliseSearch, isBot } from '@/lib/stats'
-import { CITIES } from '@/lib/cities'
+import { allCities } from '@/lib/cities'
+const CITIES = allCities()
 import { assert, assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-overview-stats'

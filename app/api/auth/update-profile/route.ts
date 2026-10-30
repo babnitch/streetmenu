@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-import { CITIES } from '@/lib/cities'
+import { isOfferedCity } from '@/lib/cities'
 
 // POST { name?, city? } — update editable profile fields for the current
 // customer. Phone is NEVER updatable here (it's the account identifier).
 export async function POST(req: NextRequest) {
+  await getRefData()
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (typeof body.city === 'string') {
-    if (!(CITIES as readonly string[]).includes(body.city)) {
+    if (!isOfferedCity(body.city)) {
       return NextResponse.json({ error: 'Ville invalide / Invalid city' }, { status: 400 })
     }
     patch.city = body.city

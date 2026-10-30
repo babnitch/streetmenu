@@ -1,4 +1,5 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,9 +10,9 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useBi, useLanguage } from '@/lib/languageContext'
-import { CITIES } from '@/lib/cityContext'
+import { allCities } from '@/lib/cities'
 import { matchesSearch } from '@/lib/textSearch'
-import { PLACE_CATEGORIES, placeCategoryLabel } from '@/lib/places'
+import { placeCategories, placeCategoryLabel } from '@/lib/places'
 
 type Status = 'pending' | 'active' | 'hidden'
 interface AdminPlace {
@@ -47,6 +48,7 @@ const input = 'w-full border border-divider rounded-lg px-2.5 py-2 text-sm bg-wh
 
 export default function AdminPlacesPage() {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const [places, setPlaces] = useState<AdminPlace[] | null>(null)
   const [filter, setFilter] = useState<Status | 'all'>('all')
@@ -60,7 +62,7 @@ export default function AdminPlacesPage() {
   }, [])
   useEffect(load, [load])
 
-  const cities = useMemo(() => Array.from(new Set([...CITIES, ...(places ?? []).map(p => p.city)])), [places])
+  const cities = useMemo(() => Array.from(new Set([...allCities(), ...(places ?? []).map(p => p.city)])), [places])
   const counts = useMemo(() => {
     const c = { all: 0, pending: 0, active: 0, hidden: 0 }
     for (const p of places ?? []) { if (city && p.city !== city) continue; c.all++; c[p.status]++ }
@@ -147,12 +149,12 @@ function PlaceForm({ place, onDone }: { place?: AdminPlace; onDone: () => void }
       <div className="grid grid-cols-2 gap-2">
         <label className="block text-xs font-semibold">{bi('Ville', 'City')}
           <select className={input} value={f.city} onChange={e => setF({ ...f, city: e.target.value })}>
-            {Array.from(new Set([...CITIES, f.city])).map(c => <option key={c} value={c}>{c}</option>)}
+            {Array.from(new Set([...allCities(), f.city])).map(c => <option key={c} value={c}>{c}</option>)}
           </select></label>
         <label className="block text-xs font-semibold">{bi('Catégorie', 'Category')}
           <select className={input} value={f.category} onChange={e => setF({ ...f, category: e.target.value })}>
             <option value="">—</option>
-            {PLACE_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {locale === 'en' ? c.en : c.fr}</option>)}
+            {placeCategories({ includeHidden: true }).map(c => <option key={c.id} value={c.id}>{c.icon} {locale === 'en' ? c.en : c.fr}</option>)}
           </select></label>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

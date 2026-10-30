@@ -1,4 +1,5 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 export const dynamic = 'force-dynamic'
 
@@ -6,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { CompactRow, dot } from '@/components/CompactRow'
 import { useDataMode } from '@/lib/dataMode'
-import { CATEGORY_EMOJI } from '@/components/events/EventPoster'
+import { eventCategoryIcon } from '@/lib/categoryLabels'
 import TopNav from '@/components/TopNav'
 import { openAddSheet, PLACES_ENABLED } from '@/components/AddSheet'
 import { matchesSearch } from '@/lib/textSearch'
@@ -44,6 +45,7 @@ const upcomingDays = (e: ListingEvent, today: string): string[] => listingDays(e
 // Rows open the event page with no day chosen (multi-day → its date list).
 export default function EventsPage() {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const { isLowData } = useDataMode()
   const { city } = useCity()
@@ -222,7 +224,7 @@ export default function EventsPage() {
             {featured && !filtering && isLowData && (
               <section aria-labelledby="featured-heading" className="mb-5">
                 <h2 id="featured-heading" className="text-xs font-bold tracking-widest text-ink-tertiary mb-2">{bi('À LA UNE', 'FEATURED')}</h2>
-                <CompactRow href={`/events/${featured.id}`} icon={CATEGORY_EMOJI[featured.category ?? ''] ?? '🎉'} title={featured.title}
+                <CompactRow href={`/events/${featured.id}`} icon={eventCategoryIcon(featured.category)} title={featured.title}
                   onClick={() => { const pr = promotedBy[featured.id]; if (pr) import('@/lib/promoTracking').then(m => m.fireClick(pr.promotion_id)) }}
                   line={dot(formatEventDates(featured, locale, 'card'), featured.venue, priceText(featured.fromPrice), promotedBy[featured.id] ? bi('Sponsorisé', 'Sponsored') : null)} />
               </section>
@@ -340,7 +342,7 @@ function EventRow({ e, shown, today, priceText }: {
   if (isLowData) {
     return (
       <li>
-        <CompactRow href={`/events/${e.id}`} icon={CATEGORY_EMOJI[e.category ?? ''] ?? '🎉'} title={e.title}
+        <CompactRow href={`/events/${e.id}`} icon={eventCategoryIcon(e.category)} title={e.title}
           line={dot(multi ? formatEventDates({ date: days[0] ?? e.date, end_date: days[days.length - 1] ?? e.end_date }, locale, 'compact') : formatEventDay(shown, locale, 'compact'),
             e.venue, priceText(e.fromPrice), status)} />
       </li>

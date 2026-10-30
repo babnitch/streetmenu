@@ -1,7 +1,8 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 import { useEffect, useRef, useState } from 'react'
-import { CITIES, useCity } from '@/lib/cityContext'
+import { useCity, visibleCities } from '@/lib/cityContext'
 
 // Pill-shaped city picker. Closed: shows 📍 <city> ▼ on a brand-light fill.
 // Open: absolute-positioned floating panel with the four cities. Dismisses
@@ -9,6 +10,7 @@ import { CITIES, useCity } from '@/lib/cityContext'
 // no ▼, and the panel opens under its right edge so it stays on screen.
 export default function CityDropdown({ compact = false }: { compact?: boolean } = {}) {
   const { city, setCity } = useCity()
+  useRefData()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -49,7 +51,7 @@ export default function CityDropdown({ compact = false }: { compact?: boolean } 
           role="listbox"
           className={`absolute top-full mt-2 ${compact ? 'right-0' : 'left-1/2 -translate-x-1/2'} min-w-[10rem] bg-surface border border-divider rounded-2xl shadow-card py-1 z-50`}
         >
-          {CITIES.map(c => {
+          {visibleCities().map(c => {
             const selected = c === city
             return (
               <button

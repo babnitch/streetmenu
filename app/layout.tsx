@@ -4,6 +4,7 @@ import { CartProvider } from '@/lib/cartContext'
 import { LanguageProvider } from '@/lib/languageContext'
 import { AuthProvider } from '@/lib/authContext'
 import { CityProvider } from '@/lib/cityContext'
+import { RefDataProvider } from '@/lib/useRefData'
 import { ModeProvider } from '@/lib/modeContext'
 import { DataModeProvider } from '@/lib/dataMode'
 import { CLIENT_VERSION } from '@/lib/clientVersion'
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <LanguageProvider>
           <AuthProvider>
             <CartProvider>
+              <RefDataProvider>
               <CityProvider>
                 <ModeProvider>
                   <DataModeProvider>
@@ -46,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </DataModeProvider>
                 </ModeProvider>
               </CityProvider>
+              </RefDataProvider>
             </CartProvider>
           </AuthProvider>
         </LanguageProvider>

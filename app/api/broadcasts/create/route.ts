@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
@@ -8,8 +9,8 @@ import {
   getActivePricing,
   getBroadcastEligibility,
   hasRecentBroadcast,
-  SUBSCRIPTION_CITIES,
-  EVENT_CATEGORIES,
+  isSubscriptionCity,
+  eventCategories,
 } from '@/lib/subscriptions'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
 
@@ -31,6 +32,7 @@ export const dynamic = 'force-dynamic'
 // pending. Status → 'paid' on webhook → /api/broadcasts/[id]/send fires
 // the fan-out. Caller polls /api/broadcasts/[id] or relies on the webhook.
 export async function POST(req: NextRequest) {
+  await getRefData()
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') {
     return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
@@ -50,15 +52,15 @@ export async function POST(req: NextRequest) {
   if (!message || message.length > 1000) {
     return NextResponse.json({ error: 'Message invalide (max 1000 caractères) / Invalid message (max 1000 chars)' }, { status: 400 })
   }
-  if (!targetCity || !SUBSCRIPTION_CITIES.includes(targetCity as typeof SUBSCRIPTION_CITIES[number])) {
+  if (!targetCity || !isSubscriptionCity(targetCity)) {
     return NextResponse.json({ error: 'Ville invalide / Invalid city' }, { status: 400 })
   }
   let categories: string[] | null = null
   if (Array.isArray(body?.target_categories) && body.target_categories.length > 0) {
     const filtered: string[] = body.target_categories
       .map((c: unknown) => String(c).trim())
-      .filter((c: string) => EVENT_CATEGORIES.includes(c as typeof EVENT_CATEGORIES[number]))
-    categories = filtered.length === EVENT_CATEGORIES.length ? null : filtered
+      .filter((c: string) => eventCategories().includes(c))
+    categories = filtered.length === eventCategories().length ? null : filtered
   }
   if (!phoneNumber) {
     return NextResponse.json({ error: 'Numéro de paiement requis / Payment number required' }, { status: 400 })

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getEventAvailability } from '@/lib/eventSeats'
 import { getActivePromotions } from '@/lib/promotions'
@@ -19,6 +20,7 @@ export const dynamic = 'force-dynamic'
 // Public: only what the event pages already show — no names or phones.
 // Seats come from the per-day capacity functions (one call per event).
 export async function GET(req: NextRequest) {
+  await getRefData()
   const city = req.nextUrl.searchParams.get('city') ?? ''
   if (!isServedCity(city)) {
     return NextResponse.json({ error: 'city' }, { status: 400 })

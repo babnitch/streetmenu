@@ -18,7 +18,8 @@ import LanguageToggle from '@/components/LanguageToggle'
 import ModeToggle from '@/components/ModeToggle'
 import VoucherCard from '@/components/VoucherCard'
 import AdminProfilePanel from '@/components/AdminProfilePanel'
-import { CITIES } from '@/lib/cities'
+import { visibleCities } from '@/lib/cities'
+import { useRefData } from '@/lib/useRefData'
 import PaymentBadge from '@/components/PaymentBadge'
 import NotificationsPanel from '@/components/NotificationsPanel'
 import BroadcastPanel from '@/components/BroadcastPanel'
@@ -48,6 +49,7 @@ const AdminVouchers    = dynamicLoad(() => import('@/app/admin/vouchers/page'), 
 const AdminReports     = dynamicLoad(() => import('@/app/admin/reports/page'),     { ssr: false })
 const AdminPlaces      = dynamicLoad(() => import('@/app/admin/places/page'),      { ssr: false })
 const AdminStats       = dynamicLoad(() => import('@/app/admin/stats/page'),       { ssr: false })
+const AdminReference   = dynamicLoad(() => import('@/app/admin/reference/page'),   { ssr: false })
 const AdminAccounts    = dynamicLoad(() => import('@/app/admin/accounts/page'),    { ssr: false })
 const AdminPlatformTeam = dynamicLoad(() => import('@/app/admin/platformteam/page'), { ssr: false })
 const AdminPlatform    = dynamicLoad(() => import('@/app/admin/platform/page'),     { ssr: false })
@@ -98,6 +100,7 @@ const ADMIN_TAB_DESCS: Record<AdminSubTab, string> = {
   events:       'Modérer les événements / Moderate events',
   places:       'Lieux à visiter, propositions / Places to visit, suggestions',
   stats:        'Visites, vues, clics, recherches / Visits, views, clicks, searches',
+  reference:    'Villes, cuisines, catégories / Cities, cuisines, categories',
   broadcasts:   'Diffusions envoyées / Sent broadcasts',
   promotions:   'Promotions payantes / Paid promotions',
   vouchers:     'Bons de réduction / Discount vouchers',
@@ -253,7 +256,9 @@ export default function AccountPage() {
   const [profileNickname, setProfileNickname] = useState('')
   const [savingNickname,  setSavingNickname]  = useState(false)
   const [savingProfile,   setSavingProfile]   = useState(false)
-  const PROFILE_CITIES = CITIES
+  useRefData()
+  // Offered cities; a city the profile already has stays listed even if hidden.
+  const PROFILE_CITIES = Array.from(new Set([...visibleCities(), ...(profileCity ? [profileCity] : [])]))
 
   // Modals
   type VendorModal = 'suspend-rest' | 'delete-rest' | 'delete-account' | null
@@ -912,6 +917,7 @@ export default function AccountPage() {
                   {adminTab === 'vouchers'     && <AdminVouchers />}
                   {adminTab === 'places'       && <AdminPlaces />}
                   {adminTab === 'stats'        && <AdminStats />}
+                  {adminTab === 'reference'    && <AdminReference />}
                   {adminTab === 'reports'      && <AdminReports />}
                   {adminTab === 'accounts'     && <AdminAccounts />}
                   {adminTab === 'messages'     && <AdminMessages />}

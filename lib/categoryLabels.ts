@@ -1,56 +1,34 @@
-// Display labels for the 9 canonical event categories.
+// Event categories: labels, icons and the offered list.
 //
-// The database always stores the French (canonical) value — Concert,
-// Gastronomie, Enfants, etc. The UI translates the label at render time
-// via categoryLabel(value, locale). Only the labels differ; the stored
-// value is the same in both languages.
-//
-// The 👶 emoji on Enfants/Kids is preserved here so callers don't each
-// have to remember to add it.
+// The database always stores the canonical code — Concert, Gastronomie,
+// Enfants, etc. The UI translates the label at render time via
+// categoryLabel(value, locale).
 
 import type { Locale } from './translations'
+import { refList, refFind, refKnown, refLabel } from './refData'
 
-// The 9 canonical categories, in display order.
-export const EVENT_CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-] as const
+// Event categories come from the reference data (Admin → Données de
+// référence). events.category stores the code ('Concert', 'Enfants'…).
 
-const FR_LABEL: Record<string, string> = {
-  Concert:      'Concert',
-  Festival:     'Festival',
-  'BT/Club':    'BT/Club',
-  Sport:        'Sport',
-  Culture:      'Culture',
-  Gastronomie:  'Gastronomie',
-  Enfants:      '👶 Enfants',
-  Business:     'Business',
-  Autre:        'Autre',
-}
+/** Offered categories (forms, filters, subscriptions), in display order. */
+export const eventCategories = (opts: { includeHidden?: boolean } = {}): string[] =>
+  refList('event_category', opts).map(c => c.code)
+/** Known category (visible or hidden). */
+export const isEventCategory = (v: unknown): boolean => refKnown('event_category', v)
+/** The category's icon (posters, compact rows). */
+export const eventCategoryIcon = (code: string | null | undefined): string => refFind('event_category', code)?.icon ?? '🎉'
 
-const EN_LABEL: Record<string, string> = {
-  Concert:      'Concert',
-  Festival:     'Festival',
-  'BT/Club':    'BT/Club',
-  Sport:        'Sports',
-  Culture:      'Culture',
-  Gastronomie:  'Food & Drink',
-  Enfants:      '👶 Kids',
-  Business:     'Business',
-  Autre:        'Other',
-}
-
-// Render-only translation. Returns the input unchanged if the value
-// isn't one of the canonical 9 (e.g. legacy rows that haven't been
-// migrated yet) so the UI never blanks out on data drift.
+// Render-only translation (hidden values too). Returns the input unchanged
+// for an unknown value so the UI never blanks out on data drift.
 export function categoryLabel(cat: string, locale: Locale): string {
-  const map = locale === 'en' ? EN_LABEL : FR_LABEL
-  return map[cat] ?? cat
+  return refLabel('event_category', cat, locale)
 }
 
 // Bilingual "FR / EN" form for WhatsApp messages, where we can't pick
 // one language from the recipient's perspective.
 export function categoryLabelBilingual(cat: string): string {
-  const fr = FR_LABEL[cat] ?? cat
-  const en = EN_LABEL[cat] ?? cat
+  const v = refFind('event_category', cat)
+  const fr = v?.label_fr ?? cat
+  const en = v?.label_en ?? cat
   return fr === en ? fr : `${fr} / ${en}`
 }

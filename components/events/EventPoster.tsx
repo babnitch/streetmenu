@@ -3,6 +3,7 @@
 import CardTag from '@/components/CardTag'
 import Image from 'next/image'
 import { useDataMode } from '@/lib/dataMode'
+import { eventCategoryIcon } from '@/lib/categoryLabels'
 
 // An event poster in a portrait frame (4:5 by default — the recommended
 // 1080 × 1350 upload). Any image shape fits whole: it is shown "contained"
@@ -10,10 +11,6 @@ import { useDataMode } from '@/lib/dataMode'
 // No image (or low-data mode): a branded placeholder with the category's
 // emoji and the event name.
 
-export const CATEGORY_EMOJI: Record<string, string> = {
-  Concert: '🎵', Festival: '🎪', 'BT/Club': '🪩', Sport: '⚽', Culture: '🎭',
-  Gastronomie: '🍲', Enfants: '🧸', Business: '💼', Autre: '🎉',
-}
 
 export default function EventPoster({
   src, title, category, sizes = '(max-width: 768px) 50vw, 300px', className = '', rounded = 'rounded-2xl', priority = false, tag,
@@ -29,7 +26,7 @@ export default function EventPoster({
   tag?: string | null
 }) {
   const { isLowData } = useDataMode()
-  const emoji = CATEGORY_EMOJI[category ?? ''] ?? '🎉'
+  const emoji = eventCategoryIcon(category)
   const show = !!src && !isLowData
 
   return (

@@ -19,7 +19,7 @@
 // keep a local copy of anything in here.
 
 export type AdminSubTab =
-  | 'restaurants' | 'orders' | 'events' | 'places' | 'stats' | 'broadcasts' | 'promotions'
+  | 'restaurants' | 'orders' | 'events' | 'places' | 'stats' | 'reference' | 'broadcasts' | 'promotions'
   | 'vouchers' | 'reports' | 'accounts' | 'messages' | 'platform' | 'platformteam' | 'profile'
 
 // The roles that get the admin console instead of the customer app.
@@ -44,6 +44,7 @@ export const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
   events:       'Événements / Events',
   places:       'Lieux / Places',
   stats:        'Statistiques / Statistics',
+  reference:    'Données de référence / Reference data',
   broadcasts:   'Diffusions / Broadcasts',
   promotions:   'Promotions / Promotions',
   vouchers:     'Bons / Vouchers',
@@ -64,6 +65,7 @@ export const ADMIN_TAB_ICONS: Record<AdminSubTab, string> = {
   events:       '🎉',
   places:       '🏛️',
   stats:        '📊',
+  reference:    '🗂️',
   broadcasts:   '📢',
   promotions:   '📣',
   vouchers:     '🎫',
@@ -85,7 +87,7 @@ export const ADMIN_TAB_ICONS: Record<AdminSubTab, string> = {
 // and the (still-live) mobile grid can never present the items differently.
 export const ADMIN_TILES: readonly AdminSubTab[] = ['accounts', 'restaurants', 'events']
 export const ADMIN_ROWS:  readonly AdminSubTab[] = [
-  'orders', 'places', 'stats', 'reports', 'broadcasts', 'promotions', 'vouchers', 'messages', 'platform', 'platformteam', 'profile',
+  'orders', 'places', 'stats', 'reference', 'reports', 'broadcasts', 'promotions', 'vouchers', 'messages', 'platform', 'platformteam', 'profile',
 ]
 export const ADMIN_TABS:  readonly AdminSubTab[] = [...ADMIN_TILES, ...ADMIN_ROWS]
 

@@ -1,4 +1,5 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -8,7 +9,7 @@ import { useMode } from '@/lib/modeContext'
 import { useCity } from '@/lib/cityContext'
 import { loginHref } from '@/lib/lastPhone'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
-import { RESTAURANT_CITIES, FOOD_TYPES } from '@/lib/restaurantSignup'
+import { restaurantCities, FOOD_TYPES } from '@/lib/restaurantSignup'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 
 const INPUT = 'w-full bg-surface-muted border border-divider rounded-xl px-3 py-2.5 text-sm text-ink-primary outline-none focus:border-brand'
@@ -20,6 +21,7 @@ const BOT_NUMBER = (process.env.NEXT_PUBLIC_WHATSAPP_BOT_NUMBER ?? '').replace(/
 // /login (Pro path) and straight back here.
 export default function AddRestaurantPage() {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const { city: browsingCity } = useCity()
   const { loading, canEnterPro, sessionRole } = useMode()
@@ -41,7 +43,7 @@ export default function AddRestaurantPage() {
   useEffect(() => {
     if (!canEnterPro) return
     fetch('/api/auth/me', { cache: 'no-store' }).then(r => r.json()).then(d => setPhone(d?.user?.phone ?? null)).catch(() => {})
-    setForm(f => f.city ? f : { ...f, city: RESTAURANT_CITIES.some(c => c.name === browsingCity) ? browsingCity : 'Yaoundé' })
+    setForm(f => f.city ? f : { ...f, city: restaurantCities().some(c => c.name === browsingCity) ? browsingCity : 'Yaoundé' })
   }, [canEnterPro, browsingCity])
 
   const set = (k: keyof typeof form, v: string) => { setForm(f => ({ ...f, [k]: v })); setError(null) }
@@ -134,7 +136,7 @@ export default function AddRestaurantPage() {
               <label className="block">
                 <span className="text-xs font-semibold text-ink-secondary">{bi('Ville', 'City')}</span>
                 <select className={`${INPUT} mt-1`} value={form.city} onChange={e => { set('city', e.target.value); setPos(null); setPosState('idle') }}>
-                  {RESTAURANT_CITIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                  {restaurantCities().map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                 </select>
               </label>
               <label className="block">

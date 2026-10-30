@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { todayInDouala } from '@/lib/weekend'
@@ -12,6 +13,7 @@ export const dynamic = 'force-dynamic'
 // restaurants / events / places by views and by clicks, with orders or
 // bookings over the same days (views → orders); top searches.
 export async function GET(req: NextRequest) {
+  await getRefData()
   const s = getSessionFromRequest(req)
   if (!s || !['super_admin', 'admin'].includes(s.role)) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   const days = [7, 30, 90].includes(Number(req.nextUrl.searchParams.get('days'))) ? Number(req.nextUrl.searchParams.get('days')) : 30

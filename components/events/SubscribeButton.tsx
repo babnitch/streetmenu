@@ -1,4 +1,6 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
+import { eventCategories } from '@/lib/categoryLabels'
 
 // "🔔 S'abonner" for the Events page: get the city's new events on WhatsApp
 // (event_subscriptions). The button, its modal and its toast — moved as is
@@ -11,10 +13,6 @@ import { useCity } from '@/lib/cityContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { loginHref } from '@/lib/lastPhone'
 
-export const EVENT_CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-]
-const CATEGORIES = EVENT_CATEGORIES
 
 interface MySubscription {
   id: string
@@ -25,6 +23,7 @@ interface MySubscription {
 
 export default function SubscribeButton({ className = '' }: { className?: string }) {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const { city } = useCity()
   const router = useRouter()
@@ -32,7 +31,7 @@ export default function SubscribeButton({ className = '' }: { className?: string
   // Subscription state
   const [mySubs, setMySubs] = useState<MySubscription[]>([])
   const [subModalOpen, setSubModalOpen] = useState(false)
-  const [subCategories, setSubCategories] = useState<Set<string>>(new Set(CATEGORIES))
+  const [subCategories, setSubCategories] = useState<Set<string>>(new Set(eventCategories()))
   const [subSaving, setSubSaving] = useState(false)
   const [subToast, setSubToast] = useState<string | null>(null)
 
@@ -50,9 +49,9 @@ export default function SubscribeButton({ className = '' }: { className?: string
 
   function openSubModal() {
     if (currentSub) {
-      setSubCategories(new Set(currentSub.categories ?? CATEGORIES))
+      setSubCategories(new Set(currentSub.categories ?? eventCategories()))
     } else {
-      setSubCategories(new Set(CATEGORIES))
+      setSubCategories(new Set(eventCategories()))
     }
     setSubModalOpen(true)
   }
@@ -69,7 +68,7 @@ export default function SubscribeButton({ className = '' }: { className?: string
   async function saveSubscription() {
     setSubSaving(true)
     try {
-      const isAll = subCategories.size === CATEGORIES.length
+      const isAll = subCategories.size === eventCategories().length
       const res = await fetch('/api/subscriptions/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -178,17 +177,17 @@ export default function SubscribeButton({ className = '' }: { className?: string
                   <button
                     type="button"
                     onClick={() => setSubCategories(prev =>
-                      prev.size === CATEGORIES.length ? new Set() : new Set(CATEGORIES),
+                      prev.size === eventCategories().length ? new Set() : new Set(eventCategories()),
                     )}
                     className="text-xs font-semibold text-brand hover:text-brand-dark"
                   >
-                    {subCategories.size === CATEGORIES.length
+                    {subCategories.size === eventCategories().length
                       ? bi('Tout désélectionner', 'Deselect all')
                       : bi('Tout sélectionner', 'Select all')}
                   </button>
                 </div>
                 <div className="space-y-1.5">
-                  {CATEGORIES.map(cat => (
+                  {eventCategories().map(cat => (
                     <label key={cat} className="flex items-center gap-2 cursor-pointer text-sm">
                       <input
                         type="checkbox"

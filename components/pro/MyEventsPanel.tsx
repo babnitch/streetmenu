@@ -1,4 +1,6 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
+import { eventCategories } from '@/lib/categoryLabels'
 import { todayInDouala } from '@/lib/weekend'
 
 // "Mes événements" — the organiser's dashboard: their events, bookings,
@@ -21,10 +23,6 @@ import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { formatFCFA } from '@/lib/money'
 
-// Event categories — kept in sync with app/events/submit/page.tsx.
-const EVENT_EDIT_CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-] as const
 
 export interface MyEventsPanelEvent {
   id: string; title: string; date: string; time: string | null
@@ -75,6 +73,7 @@ export default function MyEventsPanel({
   onChanged: () => void
 }) {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [reservations, setReservations] = useState<MyEventReservation[]>([])
@@ -799,7 +798,7 @@ export default function MyEventsPanel({
                   <select value={editForm.category} onChange={e => setEdit('category', e.target.value)}
                     className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm">
                     <option value="">—</option>
-                    {EVENT_EDIT_CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+                    {eventCategories().map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
                   </select>
                 </label>
 

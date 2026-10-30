@@ -1,12 +1,11 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
+import { eventCategories } from '@/lib/categoryLabels'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
 
-const CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-] as const
 
 interface Sub {
   id: string
@@ -23,6 +22,7 @@ interface Sub {
 // the /events page button (lives next to the city dropdown).
 export default function NotificationsPanel() {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const [subs, setSubs] = useState<Sub[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,7 +46,7 @@ export default function NotificationsPanel() {
   }
 
   async function patchCategories(sub: Sub, cat: string) {
-    const have = sub.categories ?? [...CATEGORIES]
+    const have = sub.categories ?? [...eventCategories()]
     const next = have.includes(cat) ? have.filter(c => c !== cat) : [...have, cat]
     if (next.length === 0) {
       flash(bi('Au moins une catégorie', 'At least one category'))
@@ -54,7 +54,7 @@ export default function NotificationsPanel() {
     }
     setSavingId(sub.id)
     try {
-      const isAll = next.length === CATEGORIES.length
+      const isAll = next.length === eventCategories().length
       const res = await fetch(`/api/subscriptions/${sub.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -134,7 +134,7 @@ export default function NotificationsPanel() {
         <div className="space-y-3">
           {subs.map(sub => {
             const active = sub.is_active
-            const cats = sub.categories ?? [...CATEGORIES]
+            const cats = sub.categories ?? [...eventCategories()]
             return (
               <div key={sub.id} className={`border rounded-xl p-3 ${active ? 'border-brand-light bg-white' : 'border-divider bg-surface-muted/50'}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -162,7 +162,7 @@ export default function NotificationsPanel() {
 
                 {active && (
                   <div className="flex flex-wrap gap-1.5">
-                    {CATEGORIES.map(cat => {
+                    {eventCategories().map(cat => {
                       const on = cats.includes(cat)
                       return (
                         <button

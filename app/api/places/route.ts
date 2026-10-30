@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRefData } from '@/lib/refDataServer'
 import { picturesFirst, hasPicture } from '@/lib/popularRanking'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -15,6 +16,7 @@ export const dynamic = 'force-dynamic'
 //      visiter", either mode): pending until an admin publishes it; a photo
 //      is optional (the generated cover shows). 5 a day per account.
 export async function GET(req: NextRequest) {
+  await getRefData()
   const city = req.nextUrl.searchParams.get('city') ?? ''
   const limit = Math.min(100, Math.max(1, Number(req.nextUrl.searchParams.get('limit') ?? 100) || 100))
   if (!city) return NextResponse.json({ error: 'city' }, { status: 400 })
@@ -32,6 +34,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  await getRefData()
   const session = getSessionFromRequest(req)
   if (!session || session.role !== 'customer') return NextResponse.json({ error: 'Connexion requise / Login required' }, { status: 401 })
   const hit = rateLimit({ key: `place:propose:${session.id}`, max: 5, windowMs: 86_400_000 })

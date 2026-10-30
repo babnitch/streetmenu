@@ -1,9 +1,10 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 import GeneratedCover from '@/components/GeneratedCover'
 import PhotoCredit from '@/components/PhotoCredit'
 import { CompactRow, dot } from '@/components/CompactRow'
-import { CATEGORY_EMOJI } from '@/components/events/EventPoster'
+import { eventCategoryIcon } from '@/lib/categoryLabels'
 import { placeCategory } from '@/lib/places'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -21,7 +22,7 @@ import { formatPrepTime } from '@/lib/prepTime'
 import { formatDeliveryTime } from '@/lib/delivery'
 import { percentOffLabel } from '@/lib/offers'
 import CardTag from '@/components/CardTag'
-import { cuisineTag, cuisineIcon } from '@/lib/cuisineCategories'
+import { cuisineText } from '@/lib/cuisineCategories'
 import { categoryLabel } from '@/lib/categoryLabels'
 import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/weekend'
 import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
@@ -55,6 +56,7 @@ interface TodayOffer {
 //   partner banner.
 export default function HomePage() {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const { city } = useCity()
   const { sessionRole, loading: modeLoading } = useMode()
@@ -192,10 +194,9 @@ export default function HomePage() {
             {popular.restaurants.map(r => (
               <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} fallback="🍽️"
                 cover={{ kind: 'restaurant', area: r.neighborhood }}
-                tag={cuisineTag(r, locale)}
                 badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
-                title={r.name} sub={fulfilmentLine(r)}
-                icon={cuisineIcon(r)} line={dot(r.neighborhood, openLabel(r.id), r.delivery_enabled ? bi('Livraison', 'Delivery') : bi('À emporter', 'Take-away'))} />
+                title={r.name} sub={dot(cuisineText(r, locale), fulfilmentLine(r))}
+                icon="🍽️" line={dot(cuisineText(r, locale), r.neighborhood, openLabel(r.id), r.delivery_enabled ? bi('Livraison', 'Delivery') : bi('À emporter', 'Take-away'))} />
             ))}
           </Row>
         )}
@@ -206,7 +207,7 @@ export default function HomePage() {
               <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
                 tag={e.category ? categoryLabel(e.category, locale) : null}
                 title={e.title} sub={formatEventWhen(e, locale, 'card')}
-                icon={CATEGORY_EMOJI[e.category ?? ''] ?? '🎉'}
+                icon={eventCategoryIcon(e.category)}
                 line={dot(e.venue, formatEventWhen(e, locale, 'card'), e.fromPrice === null ? null : e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`)}>
                 {e.fromPrice !== null && <p className="text-[12px] font-bold text-brand-dark mt-0.5">{e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`}</p>}
               </Card>
@@ -222,7 +223,7 @@ export default function HomePage() {
               <Card key={`e-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
                 tag={e.category ? categoryLabel(e.category, locale) : null}
                 title={e.title} sub={formatEventWhen(e, locale, 'card')}
-                icon={CATEGORY_EMOJI[e.category ?? ''] ?? '🎉'} line={dot(e.venue, formatEventWhen(e, locale, 'card'), eventPrice(e))}>
+                icon={eventCategoryIcon(e.category)} line={dot(e.venue, formatEventWhen(e, locale, 'card'), eventPrice(e))}>
                 <p className="text-[12px] font-bold text-brand-dark mt-0.5">{eventPrice(e)}</p>
               </Card>
             ))}

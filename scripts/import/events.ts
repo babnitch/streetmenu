@@ -14,7 +14,7 @@ import { readFileSync } from 'fs'
 import { sb } from '../testkit/env'
 import { parseCsv } from './csv'
 import { validateEventRange, normalizeEndDate } from '../../lib/eventDate'
-import { EVENT_CATEGORIES } from '../../lib/categoryLabels'
+import { isEventCategory } from '../../lib/categoryLabels'
 
 const APPLY = process.argv.includes('--apply')
 const cityArg = process.argv.indexOf('--city')
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     if (hits.length !== 1) { errors.push(`"${want}": ${hits.length} rows match`); continue }
     const r = hits[0]
     const category = CATEGORY[r.category.trim()]
-    if (!category || !(EVENT_CATEGORIES as readonly string[]).includes(category)) { errors.push(`"${want}": category ${r.category}`); continue }
+    if (!category || !isEventCategory(category)) { errors.push(`"${want}": category ${r.category}`); continue }
     const range = { date: r.start_date.trim(), time: r.start_time.trim() || null, end_date: r.end_date.trim() || null, end_time: null }
     const rangeErr = validateEventRange(range)
     if (rangeErr) { errors.push(`"${want}": dates ${rangeErr}`); continue }

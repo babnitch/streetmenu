@@ -19,21 +19,23 @@ import { useAuth } from '@/lib/authContext'
 import { useCity } from '@/lib/cityContext'
 import { useDataMode } from '@/lib/dataMode'
 import { CompactRow, dot } from '@/components/CompactRow'
-import { cuisineIcon } from '@/lib/cuisineCategories'
 import { arrangePromoted, FEED_INJECT_EVERY_RESTAURANT } from '@/lib/promotions'
-import { CUISINE_CATEGORIES, matchesCuisineCategory } from '@/lib/cuisineCategories'
+import { homeCuisineChips, matchesCuisineCategory } from '@/lib/cuisineCategories'
 import { matchesSearch } from '@/lib/textSearch'
 import { useDishHits } from '@/lib/dishSearch'
 import { deliversNow } from '@/lib/modules'
 import SearchField from '@/components/SearchField'
 
-import { CITY_CENTRES } from '@/lib/cities'
+import { cityCentre } from '@/lib/cities'
+import { useRefData } from '@/lib/useRefData'
 
 const Map = dynamicImport(() => import('@/components/Map'), { ssr: false })
 
-// City → Mapbox center + zoom (lib/cities.ts).
-const CITY_CENTERS: Record<string, { center: [number, number]; zoom: number }> = Object.fromEntries(
-  Object.entries(CITY_CENTRES).map(([c, v]) => [c, { center: [v.lng, v.lat] as [number, number], zoom: v.zoom }]))
+// City → Mapbox center + zoom (reference data, lib/cities.ts).
+function cityView(city: string): { center: [number, number]; zoom: number } {
+  const c = cityCentre(city) ?? cityCentre('Yaoundé') ?? { lat: 3.848, lng: 11.5021, zoom: 13 }
+  return { center: [c.lng, c.lat], zoom: c.zoom }
+}
 
 // "Under 30 min" pill threshold — a restaurant qualifies when the top of
 // its advertised range is at or below this.
@@ -57,6 +59,7 @@ function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: numb
 
 export default function HomePage() {
   const bi = useBi()
+  useRefData()
   const { isLowData } = useDataMode()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [ratingSummary, setRatingSummary] = useState<Record<string, RatingSummary>>({})
@@ -285,7 +288,7 @@ export default function HomePage() {
     setMapSelected(restaurants.find(r => r.id === m.id) ?? null)
   }, [restaurants])
 
-  const cityData = CITY_CENTERS[city] ?? CITY_CENTERS['Yaoundé']
+  const cityData = cityView(city)
 
   const isOpenNow = useCallback(
     // Prefer computed status; only fall through to is_open while the
@@ -342,7 +345,7 @@ export default function HomePage() {
   const offer = useMemo(() => {
     const inCity = restaurants.filter(r => r.city === city)
     return {
-      cuisines: new Set(CUISINE_CATEGORIES.filter(cat => inCity.some(r => matchesCuisineCategory(r, cat.id))).map(c => c.id)),
+      cuisines: new Set(homeCuisineChips().filter(cat => inCity.some(r => matchesCuisineCategory(r, cat.id))).map(c => c.id)),
       open:  inCity.some(r => isOpenNow(r)),
       promo: inCity.some(r => promoRestaurantIds.has(r.id)),
       delivery: inCity.some(r => deliversNow(r)),
@@ -445,7 +448,7 @@ export default function HomePage() {
           role="group"
           aria-label={bi('Types de cuisine', 'Cuisine types')}
         >
-          {CUISINE_CATEGORIES.filter(cat => cuisine === cat.id || offer.cuisines.has(cat.id)).map(cat => {
+          {homeCuisineChips().filter(cat => cuisine === cat.id || offer.cuisines.has(cat.id)).map(cat => {
             const active = cuisine === cat.id
             return (
               <button
@@ -526,7 +529,7 @@ export default function HomePage() {
             {isLowData ? (
               <div className="flex flex-col gap-2">
                 {reorderRestaurants.slice(0, 5).map(r => (
-                  <CompactRow key={r.id} href={`/restaurant/${r.id}`} icon={cuisineIcon(r)} title={r.name}
+                  <CompactRow key={r.id} href={`/restaurant/${r.id}`} icon="🍽️" title={r.name}
                     line={dot(r.neighborhood, formatPrepTime(r.prep_time_min, r.prep_time_max))} />
                 ))}
               </div>

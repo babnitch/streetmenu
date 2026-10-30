@@ -1,4 +1,5 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 // /lieux — Loisirs › À visiter (I4): the city's places (monuments, museums,
 // nature, markets…), category chips and an in-place search.
@@ -13,10 +14,11 @@ import { useBi, useLanguage } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import { matchesSearch } from '@/lib/textSearch'
 import { useDataMode } from '@/lib/dataMode'
-import { PLACE_CATEGORIES, placeCategoryLabel, type PublicPlace } from '@/lib/places'
+import { placeCategories, placeCategoryLabel, type PublicPlace } from '@/lib/places'
 
 export default function PlacesPage() {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const { city } = useCity()
   const { isLowData } = useDataMode()
@@ -62,7 +64,7 @@ export default function PlacesPage() {
       </section>
       <main className="max-w-3xl mx-auto px-4 pt-4 pb-28 md:pb-12">
         <div className="flex gap-2 overflow-x-auto pb-3 mb-3 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {PLACE_CATEGORIES.filter(c => present.has(c.id) || category === c.id).map(c => (
+          {placeCategories().filter(c => present.has(c.id) || category === c.id).map(c => (
             <button key={c.id} type="button" aria-pressed={category === c.id} onClick={() => setCategory(category === c.id ? null : c.id)}
               className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold border transition-colors ${category === c.id ? 'bg-ink-primary text-white border-ink-primary' : 'bg-white text-ink-secondary border-divider'}`}>
               {c.icon} {locale === 'en' ? c.en : c.fr}

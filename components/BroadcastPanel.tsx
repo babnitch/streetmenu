@@ -1,4 +1,6 @@
 'use client'
+import { eventCategories } from '@/lib/categoryLabels'
+import { useRefData } from '@/lib/useRefData'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useBi, useLanguage } from '@/lib/languageContext'
@@ -8,10 +10,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { useDepositPoll } from '@/lib/useDepositPoll'
 import { formatFCFA } from '@/lib/money'
 
-import { CITIES } from '@/lib/cities'
-const CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-] as const
+import { visibleCities } from '@/lib/cities'
 const TITLE_MAX = 100
 const MESSAGE_MAX = 1000
 
@@ -43,6 +42,7 @@ interface PastBroadcast {
 // or approved restaurant owners.
 export default function BroadcastPanel() {
   const bi = useBi()
+  useRefData()
   const { locale } = useLanguage()
   const [eligibility, setEligibility] = useState<Eligibility | null>(null)
   const [pastBroadcasts, setPastBroadcasts] = useState<PastBroadcast[]>([])
@@ -53,7 +53,7 @@ export default function BroadcastPanel() {
   const [restaurantId, setRestaurantId] = useState<string>('')
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
-  const [targetCity, setTargetCity] = useState<typeof CITIES[number]>('Yaoundé')
+  const [targetCity, setTargetCity] = useState<string>('Yaoundé')
   const [targetCategories, setTargetCategories] = useState<Set<string>>(new Set())
 
   // Preview state
@@ -336,10 +336,10 @@ export default function BroadcastPanel() {
             </label>
             <select
               value={targetCity}
-              onChange={e => { setTargetCity(e.target.value as typeof CITIES[number]); setPreview(null) }}
+              onChange={e => { setTargetCity(e.target.value); setPreview(null) }}
               className="w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm"
             >
-              {CITIES.map(c => <option key={c} value={c}>📍 {c}</option>)}
+              {visibleCities().map(c => <option key={c} value={c}>📍 {c}</option>)}
             </select>
           </div>
 
@@ -349,7 +349,7 @@ export default function BroadcastPanel() {
               {bi('Catégories (optionnel — toutes par défaut)', 'Categories (optional — all by default)')}
             </label>
             <div className="flex flex-wrap gap-1.5">
-              {CATEGORIES.map(cat => {
+              {eventCategories().map(cat => {
                 const on = targetCategories.has(cat)
                 return (
                   <button

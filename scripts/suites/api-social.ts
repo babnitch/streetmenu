@@ -43,7 +43,7 @@ import { assert, assertEq, step, finish } from '../testkit/assert'
 import { api, customerCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeOrder, type TestCustomer } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
-import { SUBSCRIPTION_CITIES } from '@/lib/subscriptions'
+import { visibleCities } from '@/lib/cities'
 import { adminCookie } from '../testkit/session'
 
 const SUITE = 'api-social'
@@ -342,8 +342,8 @@ async function main(): Promise<void> {
       return id
     }
 
-    const CITY_A = SUBSCRIPTION_CITIES[0]
-    const CITY_B = SUBSCRIPTION_CITIES[1]
+    const CITY_A = visibleCities()[0]
+    const CITY_B = visibleCities()[1]
 
     await step('#39 subscribe by city, with and without a category filter', async () => {
       const c = await makeCustomer({ suiteNo: 39, name: 'Subscriber One' })

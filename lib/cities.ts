@@ -1,23 +1,27 @@
-// The app's cities — the ONE list (city picker, restaurants, Loisirs, Lieux,
-// home rows, profile, sign-ups, subscriptions, broadcasts). Pure data, no
-// React, so server routes and client components share it. Order = the
-// picker's order. D1: Douala.
+// The app's cities — from the reference data (lib/refData.ts: Admin →
+// Données de référence, backup list when the database can't be read).
+// Pickers, menus and forms offer the VISIBLE cities; a hidden city's
+// existing restaurants / events / places keep it (isCity accepts it).
 
-export const CITIES = ['Yaoundé', 'Douala', 'Abidjan', 'Dakar', 'Lomé'] as const
-export type City = (typeof CITIES)[number]
+import { refList, refFind, refKnown, refOffered } from './refData'
+
+export type City = string
 export const DEFAULT_CITY: City = 'Yaoundé'
 
-// Centre (a new restaurant's pin until placed; the map's start) and zoom.
-export const CITY_CENTRES: Record<City, { lat: number; lng: number; zoom: number }> = {
-  'Yaoundé': { lat: 3.848,   lng: 11.5021,  zoom: 13 },
-  'Douala':  { lat: 4.0511,  lng: 9.7679,   zoom: 13 },
-  'Abidjan': { lat: 5.36,    lng: -4.0083,  zoom: 13 },
-  'Dakar':   { lat: 14.6937, lng: -17.4441, zoom: 13 },
-  'Lomé':    { lat: 6.1375,  lng: 1.2123,   zoom: 13 },
-}
+/** Offered cities (picker, bot menu, forms), in display order. */
+export const visibleCities = (): string[] => refList('city').map(c => c.code)
+/** Every known city, hidden ones too (admin filters, validation of reads). */
+export const allCities = (): string[] => refList('city', { includeHidden: true }).map(c => c.code)
 
-export function isCity(v: unknown): v is City {
-  return typeof v === 'string' && (CITIES as readonly string[]).includes(v)
+/** Known city (visible or hidden). */
+export const isCity = (v: unknown): v is City => refKnown('city', v)
+/** A city a form may submit (visible). */
+export const isOfferedCity = (v: unknown): v is City => refOffered('city', v)
+
+/** Centre and zoom (map start, a new restaurant's pin). */
+export function cityCentre(city: string | null | undefined): { lat: number; lng: number; zoom: number } | null {
+  const c = refFind('city', city)
+  return c && c.lat != null && c.lng != null ? { lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13 } : null
 }
 
 // Test runs (scripts/testkit) put their restaurants and events in a made-up

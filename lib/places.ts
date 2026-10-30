@@ -1,3 +1,4 @@
+import { refList, refFind, refKnown } from './refData'
 // Lieux (I4) — fixed places with no date (monuments, museums, nature,
 // markets…), in the Loisirs section. Client-safe shape and helpers. The
 // places table is server-only: pages read it through /api/places, so the
@@ -5,18 +6,11 @@
 
 export interface PlaceCategory { id: string; fr: string; en: string; icon: string }
 
-export const PLACE_CATEGORIES: PlaceCategory[] = [
-  { id: 'monuments', fr: 'Monuments', en: 'Monuments', icon: '🏛️' },
-  { id: 'museums', fr: 'Musées', en: 'Museums', icon: '🖼️' },
-  { id: 'nature', fr: 'Nature & points de vue', en: 'Nature & viewpoints', icon: '🌳' },
-  { id: 'markets', fr: 'Marchés', en: 'Markets', icon: '🧺' },
-  { id: 'culture', fr: 'Culture & arts', en: 'Culture & arts', icon: '🎭' },
-  { id: 'worship', fr: 'Lieux de culte', en: 'Places of worship', icon: '⛪' },
-  { id: 'crafts', fr: 'Artisanat & shopping', en: 'Crafts & shopping', icon: '🛍️' },
-  { id: 'leisure', fr: 'Loisirs & sport', en: 'Leisure & sport', icon: '⚽' },
-  { id: 'daytrips', fr: 'Excursions', en: 'Day trips', icon: '🏖️' },
-]
-export const PLACE_CATEGORY_IDS = PLACE_CATEGORIES.map(c => c.id)
+// Place (À visiter) categories come from the reference data (Admin →
+// Données de référence). places.category stores the code.
+export function placeCategories(opts: { includeHidden?: boolean } = {}): PlaceCategory[] {
+  return refList('place_category', opts).map(c => ({ id: c.code, fr: c.label_fr, en: c.label_en, icon: c.icon ?? '📍' }))
+}
 
 // The CSV's English categories → ours.
 export const CSV_CATEGORY: Record<string, string> = {
@@ -26,7 +20,8 @@ export const CSV_CATEGORY: Record<string, string> = {
 }
 
 export function placeCategory(id: string | null | undefined): PlaceCategory | null {
-  return PLACE_CATEGORIES.find(c => c.id === id) ?? null
+  const c = refFind('place_category', id)
+  return c ? { id: c.code, fr: c.label_fr, en: c.label_en, icon: c.icon ?? '📍' } : null
 }
 export function placeCategoryLabel(id: string | null | undefined, locale: string): string {
   const c = placeCategory(id)
@@ -79,7 +74,7 @@ export function validatePlace(raw: PlaceInput, create: boolean): PlaceValidation
     out[k] = v || null
   }
   if ('category' in raw) {
-    if (!PLACE_CATEGORY_IDS.includes(String(raw.category))) return { ok: false, field: 'category', error: 'Catégorie invalide / Invalid category' }
+    if (!refKnown('place_category', String(raw.category))) return { ok: false, field: 'category', error: 'Catégorie invalide / Invalid category' }
     out.category = String(raw.category)
   }
   for (const k of ['lat', 'lng'] as const) {

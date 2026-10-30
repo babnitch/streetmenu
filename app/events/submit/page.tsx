@@ -1,4 +1,6 @@
 'use client'
+import { eventCategories } from '@/lib/categoryLabels'
+import { useRefData } from '@/lib/useRefData'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,17 +17,15 @@ import { validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDa
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { EVENT_POSTER_REQUIRED } from '@/lib/pictureRequired'
 
-import { CITIES } from '@/lib/cities'
+import { visibleCities } from '@/lib/cities'
 
-const CATEGORIES = [
-  'Concert', 'Festival', 'BT/Club', 'Sport', 'Culture', 'Gastronomie', 'Enfants', 'Business', 'Autre',
-]
 
 interface SessionUser { id: string; name: string; phone: string; role: string }
 
 export default function SubmitEventPage() {
   const { t, locale } = useLanguage()
   const bi = useBi()
+  useRefData()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Login is now REQUIRED. Anonymous visitors see a "Connectez-vous"
@@ -429,7 +429,7 @@ export default function SubmitEventPage() {
             <Field label={t('evt.cityLbl')}>
               <select className={INPUT} value={form.city} onChange={e => set('city', e.target.value)}>
                 <option value="">{t('evt.cityPh')}</option>
-                {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {visibleCities().map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
             <Field label={t('evt.neighborLbl')}>
@@ -441,7 +441,7 @@ export default function SubmitEventPage() {
           <Field label={t('evt.catLbl')}>
             <select className={INPUT} value={form.category} onChange={e => set('category', e.target.value)}>
               <option value="">{t('evt.catPh')}</option>
-              {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+              {eventCategories().map(c => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
             </select>
           </Field>
 

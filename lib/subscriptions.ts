@@ -1,4 +1,3 @@
-import { CITIES } from './cities'
 // Event-subscription + broadcast helpers (server-only).
 //
 // Two domains in one file because they share the same audience query
@@ -12,9 +11,10 @@ import { formatFCFA } from '@/lib/money'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-export const SUBSCRIPTION_CITIES = CITIES
+// Offered cities / categories (reference data).
+export { isOfferedCity as isSubscriptionCity } from '@/lib/cities'
 // The canonical list lives in lib/categoryLabels.ts (client-safe).
-export { EVENT_CATEGORIES } from '@/lib/categoryLabels'
+export { eventCategories } from '@/lib/categoryLabels'
 
 // Twilio's published WhatsApp rate is ~1 msg/sec on shared-sender, much
 // higher on dedicated. Batching 100/min keeps us well inside both.

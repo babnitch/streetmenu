@@ -1,4 +1,5 @@
 'use client'
+import { useRefData } from '@/lib/useRefData'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useBi } from '@/lib/languageContext'
-import { CITIES } from '@/lib/cities'
+import { allCities } from '@/lib/cities'
 
 interface Item { id: string; name: string; views: number; clicks: number; byClick: Record<string, number>; conversions: number | null }
 interface Data {
@@ -22,6 +23,7 @@ const HREF = { restaurant: '/restaurant/', event: '/events/', place: '/lieux/' }
 
 export default function AdminStatsPage() {
   const bi = useBi()
+  useRefData()
   const [days, setDays] = useState(30)
   const [city, setCity] = useState('')
   const [data, setData] = useState<Data | null>(null)
@@ -44,7 +46,7 @@ export default function AdminStatsPage() {
         ))}
         <select value={city} onChange={e => setCity(e.target.value)} className="border border-divider rounded-full px-3 py-1.5 text-sm bg-white">
           <option value="">{bi('Toutes les villes', 'All cities')}</option>
-          {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {allCities().map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <p className="text-xs text-ink-tertiary">{bi('Comptage anonyme par jour : aucun cookie, aucune adresse IP, aucun identifiant enregistré.', 'Anonymous daily counts: no cookie, IP address or identifier is stored.')}</p>
