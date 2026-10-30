@@ -188,7 +188,10 @@ async function main(): Promise<void> {
       const s = await api(`/api/orders/${o1.id}/status`, { cookie: owc, body: { status: 'out_for_delivery' } })
       assertEq(s.status, 200, `out for delivery (${s.raw.slice(0, 60)})`)
       const code1 = deliveryCode(o1.id)   // Q5: the secret delivery code
-      assert((await messagesTo(buyer.phone, o1.id)).some(m => m.includes(`*${code1}*`) && /reçu|received/.test(m)), 'customer got the code')
+      // P1a: the code is sent but the message log keeps it masked.
+      const logged1 = await messagesTo(buyer.phone, o1.id)
+      assert(logged1.some(m => m.includes('*••••*') && /reçu|received/.test(m)), 'customer got the code (masked in the log)')
+      assert(!logged1.some(m => m.includes(code1)), 'the code is never stored readable')
       assertEq((await api(`/api/orders/${o1.id}/received`, { cookie: sc, body: {} })).status, 404, 'someone else can\'t confirm')
       assertEq((await api(`/api/orders/${o1.id}/received`, { cookie: bc, body: {} })).status, 200, 'customer button')
       const { data: d1 } = await sb.from('orders').select('status, delivered_confirmed_by').eq('id', o1.id).single()

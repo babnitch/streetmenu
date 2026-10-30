@@ -55,6 +55,9 @@ export interface SendOptions {
   /** Set by the retry runner: this send IS a retry of that queue row, so a
    *  failure must not enqueue a second copy. */
   retryOf?:    string
+  /** Secrets in the body (a hand-over code): stored masked in the log and
+   *  never queued for a retry. */
+  secrets?:    string[]
 }
 
 interface LogInput extends SendOptions {
@@ -98,6 +101,13 @@ export function maskCodes(context: string | null | undefined, body: string): str
   return context === 'verification_code' ? body.replace(/\d{4,8}/g, '••••••') : body
 }
 
+// A hand-over code (protected payments, delivery) is never stored readable.
+export function maskSecrets(body: string, secrets: string[] | undefined): string {
+  let out = body
+  for (const x of secrets ?? []) if (x && x.length >= 4) out = out.split(x).join('••••')
+  return out
+}
+
 export async function logMessage(input: LogInput): Promise<string | null> {
   if (input.skipLog) return null
   try {
@@ -109,7 +119,7 @@ export async function logMessage(input: LogInput): Promise<string | null> {
         channel:       input.channel,
         from_number:   normalizeLogNumber(input.from),
         to_number:     normalizeLogNumber(input.to),
-        body:          maskCodes(input.context, input.body ?? '').slice(0,
+        body:          maskSecrets(maskCodes(input.context, input.body ?? ''), input.secrets).slice(0,
           input.context && RETRYABLE_CONTEXTS.has(input.context) ? MAX_LOGGED_RETRYABLE_BODY : MAX_LOGGED_BODY),
         status:        input.status,
         error_code:    input.errorCode ?? null,

@@ -141,6 +141,7 @@ export async function requeueFromStatusCallback(logId: string, errorCode: string
       .maybeSingle()
     if (!log || log.channel !== 'whatsapp' || !log.body) return
     if (!log.context || !RETRYABLE_CONTEXTS.has(log.context as string)) return
+    if ((log.body as string).includes('••••')) return   // a masked code: re-sending it would be useless
 
     const { error } = await supabaseAdmin.from('message_retry_queue').insert({
       last_log_id:     log.id,

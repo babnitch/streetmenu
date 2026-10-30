@@ -110,6 +110,8 @@ export interface Order {
   delivery_address?: string | null
   delivery_landmark?: string | null
   delivery_phone?: string | null
+  // Protected payments (supabase-protected-payments.sql). NULL = not protected.
+  funds_status?: 'held' | 'released' | 'refunding' | 'refunded' | 'disputed' | null
 }
 
 export interface Voucher {

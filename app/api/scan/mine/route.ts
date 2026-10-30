@@ -28,12 +28,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ url: await scanUrl('reservation', bookingId), code: reservationCode(first ?? r) }, { headers: { 'Cache-Control': 'no-store' } })
     }
     if (kind === 'order') {
-      const { data: o } = await supabaseAdmin.from('orders').select('id, customer_id, fulfilment').eq('id', id).maybeSingle()
+      const { data: o } = await supabaseAdmin.from('orders').select('id, customer_id, fulfilment, funds_status, status').eq('id', id).maybeSingle()
       if (!o || o.customer_id !== session.id) return notFound
+      // Protected payment still held: the same code, for pickup too — it
+      // releases the money, so it is given only on hand-over.
+      const handover = (o.funds_status === 'held' || o.funds_status === 'disputed') && o.status !== 'cancelled'
       return NextResponse.json({
         url: await scanUrl('order', o.id), code: orderCode(o.id),
         // Q5: the secret delivery code, for the customer only.
-        delivery_code: o.fulfilment === 'delivery' ? deliveryCode(o.id) : undefined,
+        delivery_code: o.fulfilment === 'delivery' || handover ? deliveryCode(o.id) : undefined,
+        protected: handover || undefined,
       }, { headers: { 'Cache-Control': 'no-store' } })
     }
     if (kind === 'voucher') {

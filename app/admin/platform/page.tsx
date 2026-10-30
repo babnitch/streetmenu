@@ -10,6 +10,7 @@ import { useBi } from '@/lib/languageContext'
 import { LEGAL_FIELDS, LEGAL_LABELS, type LegalInfo, type LegalField } from '@/lib/legalInfo'
 import AdminDeletionRequests from '@/components/AdminDeletionRequests'
 import AdminPawaPayPanel from '@/components/AdminPawaPayPanel'
+import AdminProtectedPaymentsPanel from '@/components/AdminProtectedPaymentsPanel'
 
 export default function AdminPlatformPage() {
   const bi = useBi()
@@ -64,6 +65,7 @@ export default function AdminPlatformPage() {
       </section>}
       <AdminDeletionRequests />
       {isSuper && <AdminPawaPayPanel />}
+      {isSuper && <AdminProtectedPaymentsPanel />}
     </div>
   )
 }

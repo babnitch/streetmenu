@@ -12,7 +12,7 @@
 import { normalizeMode, modeFromLegacy, type PaymentMode } from '@/lib/paymentMode'
 
 export const RESTAURANT_MODULES = [
-  'orders', 'payment', 'delivery', 'team', 'promo_codes', 'daily_offer', 'broadcast', 'featured', 'stats',
+  'orders', 'payment', 'payments_protected', 'delivery', 'team', 'promo_codes', 'daily_offer', 'broadcast', 'featured', 'stats',
 ] as const
 export const ORGANIZER_MODULES = [
   'reservations', 'paid_tickets', 'ticket_control', 'promo_codes', 'featured', 'broadcast', 'auto_approve',
@@ -34,6 +34,7 @@ export interface ModuleInfo {
 export const RESTAURANT_MODULE_INFO: Record<RestaurantModule, ModuleInfo> = {
   orders:      { fr: 'Commandes', en: 'Orders', descFr: 'Panier et commandes (tableau de bord + WhatsApp), paiement au retrait.', descEn: 'Cart and orders (dashboard + WhatsApp), pay at pickup.' },
   payment:     { fr: 'Paiement Mobile Money', en: 'Mobile Money payment', descFr: 'Paiement en ligne des commandes.', descEn: 'Online payment for orders.', needs: 'orders' },
+  payments_protected: { fr: 'Paiement protégé', en: 'Protected payment', descFr: 'L\'argent du client est retenu par Tchop & Ndjoka jusqu\'à la remise de la commande (code), puis versé au restaurant.', descEn: 'The customer\'s money is held by Tchop & Ndjoka until the order is handed over (code), then paid to the restaurant.', needs: 'payment' },
   delivery:    { fr: 'Livraison', en: 'Delivery', descFr: 'Livraison par votre livreur, avec frais.', descEn: 'Delivery by your own rider, with a fee.', needs: 'orders' },
   team:        { fr: 'Équipe', en: 'Team', descFr: 'Gérants et employés avec leur propre accès.', descEn: 'Managers and staff with their own access.' },
   promo_codes: { fr: 'Codes promo', en: 'Promo codes', descFr: 'Vos propres codes de réduction.', descEn: 'Your own discount codes.' },
@@ -73,19 +74,22 @@ export const DEFAULT_ON_APPROVAL: Record<ModuleSubject, string[]> = {
 export function toggleModule(subject: ModuleSubject, current: readonly string[], m: string, on: boolean): string[] {
   const set = new Set(current)
   if (on) {
-    set.add(m)
-    const needs = moduleInfo(subject, m)?.needs
-    if (needs) set.add(needs)
+    // What it needs, and what that needs (Paiement protégé → Paiement → Commandes).
+    for (let x: string | undefined = m; x; x = moduleInfo(subject, x)?.needs) set.add(x)
   } else {
-    set.delete(m)
-    for (const other of modulesFor(subject)) if (moduleInfo(subject, other)?.needs === m) set.delete(other)
+    const drop = (x: string) => {
+      set.delete(x)
+      for (const other of modulesFor(subject)) if (moduleInfo(subject, other)?.needs === x && set.has(other)) drop(other)
+    }
+    drop(m)
   }
   return modulesFor(subject).filter(x => set.has(x))   // canonical order
 }
 
 // The modules a toggle-off would also remove ("Commandes" → Paiement, Livraison).
 export function dependents(subject: ModuleSubject, current: readonly string[], m: string): string[] {
-  return modulesFor(subject).filter(x => moduleInfo(subject, x)?.needs === m && current.includes(x))
+  const kept = toggleModule(subject, current, m, false)
+  return modulesFor(subject).filter(x => x !== m && current.includes(x) && !kept.includes(x))
 }
 
 export type ModulesValidation = { ok: true; modules: string[] } | { ok: false; error: string }

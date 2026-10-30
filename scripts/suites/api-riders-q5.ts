@@ -86,7 +86,9 @@ async function main(): Promise<void> {
     await step('out for delivery: the customer gets the secret code; the rider confirms with it', async () => {
       await api(`/api/orders/${o1}/status`, { cookie: oc, body: { status: 'out_for_delivery' } })
       const code = deliveryCode(o1)
-      assert((await lastTo(buyer.phone, o1)).some(m => m.includes(`*${code}*`)), 'customer has the code')
+      // P1a: sent, but the message log keeps the code masked.
+      const logged = await lastTo(buyer.phone, o1)
+      assert(logged.some(m => m.includes('*••••*')) && !logged.some(m => m.includes(code)), 'customer has the code (masked in the log)')
       const orderNo = o1.replace(/-/g, '').slice(-4)
       assertEq((await api(`/api/rider/orders/${o1}/deliver`, { cookie: rider.cookie, body: { code: orderNo } })).status, 400, 'the order number is not the code')
       assertEq((await api(`/api/rider/orders/${o1}/deliver`, { cookie: customerCookie(staffer), body: { code } })).status, 404, 'not their delivery → 404')

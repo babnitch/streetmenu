@@ -17,6 +17,7 @@ import { notifyOrganizer } from '@/lib/eventRecipients'
 import { mnoLabel, type PawaPayCorrespondent } from '@/lib/pawapay'
 import { EVENT_DATE_COLUMNS, formatEventDates, formatEventWhen, formatEventDay, isMultiDay } from '@/lib/eventDate'
 import { formatFCFA } from '@/lib/money'
+import { handoverCode, isHeldStatus } from '@/lib/protectedPayments'
 
 export async function notifyPaidOrder(
   orderId: string,
@@ -24,7 +25,7 @@ export async function notifyPaidOrder(
 ): Promise<void> {
   const { data: order } = await supabaseAdmin
     .from('orders')
-    .select('id, restaurant_id, customer_phone, customer_name, total_price, items, fulfilment, delivery_fee, delivery_address, delivery_landmark, delivery_phone')
+    .select('id, restaurant_id, customer_phone, customer_name, total_price, items, fulfilment, delivery_fee, delivery_address, delivery_landmark, delivery_phone, funds_status')
     .eq('id', orderId)
     .maybeSingle()
   if (!order) {
@@ -47,6 +48,9 @@ export async function notifyPaidOrder(
   const itemsBlock = (lang: Lang) => itemLines.length
     ? [``, pickLang(`🍽️ *Articles:*`, `🍽️ *Items:*`, lang), ...itemLines]
     : []
+
+  // Protected payment: the money waits with Tchop & Ndjoka until hand-over.
+  const held = isHeldStatus(order.funds_status as string | null)
 
   console.log(`[payment] calling notifyPaidOrder for order: ${order.id} restaurant=${order.restaurant_id}`)
 
@@ -71,9 +75,21 @@ export async function notifyPaidOrder(
         lang,
       ),
       ``,
+      ...(held ? [pickLang(
+        `🛡️ Paiement protégé : votre argent est gardé par Tchop & Ndjoka jusqu'à ce que vous ayez votre commande.`,
+        `🛡️ Protected payment: Tchop & Ndjoka keeps your money until you have your order.`, lang), ``] : []),
       await orderQrLine(order.id, lang),
     ].join('\n'), { context: 'payment_confirmation', relatedId: order.id })
     console.log(`[payment] customer notification result: ok=${r.ok} httpStatus=${r.status} sid=${r.sid ?? '-'} twilioStatus=${r.twilioStatus ?? '-'}${r.error ? ` error=${r.error.slice(0, 200)}` : ''}`)
+    // The hand-over code in its own short message: masked in the message
+    // log and never queued for a retry (the account page shows it too).
+    if (held) {
+      const code = handoverCode(order.id)
+      await sendWhatsApp(order.customer_phone, pickLang(
+        `🔐 Code de remise #${id4} : *${code}*\nDonnez ce code seulement quand vous avez votre commande.`,
+        `🔐 Hand-over code #${id4}: *${code}*\nGive this code only when you have your order.`, lang,
+      ), { context: 'release_code', relatedId: order.id, secrets: [code] }).catch(() => null)
+    }
   } else {
     console.warn(`[payment] notifyPaidOrder: order ${order.id} has no customer_phone — skipping customer ping`)
   }
@@ -102,6 +118,9 @@ export async function notifyPaidOrder(
       ``,
       `💳 ${mno}`,
       pickLang(`💰 *Total payé: ${formatFCFA(total)}*`, `💰 *Total paid: ${formatFCFA(total)}*`, lang),
+      ...(held ? [pickLang(
+        `🛡️ Payé – retenu par Tchop & Ndjoka. Versé après la remise : demandez au client son code de remise.`,
+        `🛡️ Paid – held by Tchop & Ndjoka. Paid to you after hand-over: ask the customer for their hand-over code.`, lang)] : []),
       ``,
       pickLang(`La commande est payée — préparez-la!`, `Order is paid — prepare it!`, lang),
       pickLang(`Répondez "ok ${id4}" pour confirmer`, `Reply "ok ${id4}" to confirm`, lang),

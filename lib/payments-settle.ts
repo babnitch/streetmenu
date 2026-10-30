@@ -25,6 +25,7 @@ import { writeAudit } from '@/lib/audit'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
 import { notifyPaidOrder, notifyPaidReservation } from '@/lib/payments-notify'
 import { releaseSeats, reservationOverflow } from '@/lib/eventSeats'
+import { holdOrderFunds } from '@/lib/protectedPayments'
 import type { PawaPayCorrespondent } from '@/lib/pawapay'
 
 export type SettleVia = 'webhook' | 'status_poll' | 'reconcile'
@@ -127,6 +128,9 @@ async function settleOrder(
       targetId:   id,
       metadata:   { deposit_id: depositId, via, amount: outcome.amount, currency: outcome.currency, correspondent: outcome.correspondent },
     })
+    // Protected payments (module on): the money is held until hand-over.
+    // Only the claim winner gets here, so it is held once.
+    await holdOrderFunds(id, outcome.amount)
     await notifyPaidOrder(id, outcome.correspondent)
     return { kind: 'order', id, action: 'paid' }
   }

@@ -123,6 +123,7 @@ async function sendWhatsAppRaw(to: string, message: string, opts: SendOptions = 
   // by the runner, not re-queued.
   const queueIfRetryable = async (logId: string | null, httpStatus: number, code: string | null, error: string) => {
     if (opts.retryOf) return
+    if (opts.secrets?.length) return   // a code is never stored for a retry
     const queued = await enqueueFailedSend({
       to: destination, body: message, context: opts.context, relatedId: opts.relatedId,
       customerId: opts.customerId, logId, errorCode: code, error, httpStatus,
@@ -387,7 +388,7 @@ export async function notifyCustomerOutForDelivery(
     `🛵 Votre commande #${id4} est en route — ${restaurantName}.\n\nCode de livraison : *${code}* — donnez-le au livreur seulement à la réception.\nOu répondez *reçu* quand elle arrive.`,
     `🛵 Your order #${id4} is on its way — ${restaurantName}.\n\nDelivery code: *${code}* — give it to the rider only when you receive it.\nOr reply *received* when it arrives.`,
     lang,
-  ), { context: 'order_status_update', relatedId: order.id, ...opts })
+  ), { context: 'order_status_update', relatedId: order.id, ...opts, secrets: [code] })
 }
 
 export async function notifyCustomerOrderDelivered(

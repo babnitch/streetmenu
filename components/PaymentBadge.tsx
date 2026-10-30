@@ -10,7 +10,7 @@ import type { Locale } from '@/lib/translations'
 // flush. Pure presentational; takes the order shape directly.
 
 interface PaymentBadgeProps {
-  order: Pick<Order, 'order_type' | 'payment_status' | 'payment_method' | 'payment_id'>
+  order: Pick<Order, 'order_type' | 'payment_status' | 'payment_method' | 'payment_id'> & Partial<Pick<Order, 'funds_status'>>
   locale: Locale
   size?: 'sm' | 'xs'
   showRef?: boolean // surface payment_id last 6 (customer history uses this)
@@ -31,6 +31,15 @@ const PM_LABELS: Record<string, string> = {
   cash:         '💵 Cash',
   mtn_momo:     '📱 MTN',
   orange_money: '📱 Orange',
+}
+
+// Protected payments: where the money is.
+const FUNDS_LABELS: Record<string, string> = {
+  held:      '🛡️ Payé – retenu par Tchop & Ndjoka / Paid – held by Tchop & Ndjoka',
+  released:  '✅ Versé au restaurant / Paid to the restaurant',
+  refunding: '↩️ Remboursement en cours / Refund in progress',
+  refunded:  '↩️ Remboursé / Refunded',
+  disputed:  '⚠️ Problème signalé – retenu / Problem reported – held',
 }
 
 export default function PaymentBadge({ order, locale, size = 'xs', showRef = false }: PaymentBadgeProps) {
@@ -60,6 +69,11 @@ export default function PaymentBadge({ order, locale, size = 'xs', showRef = fal
             ? `${method} · ${pickBi('Payé / Paid', locale)}`
             : `💰 ${pickBi('Payé / Paid', locale)}${method ? ` · ${method}` : ''}`}
         </Pill>
+        {order.funds_status && FUNDS_LABELS[order.funds_status] && (
+          <Pill tone={order.funds_status === 'disputed' ? 'warning' : 'neutral'} size={size}>
+            {pickBi(FUNDS_LABELS[order.funds_status], locale)}
+          </Pill>
+        )}
         {showRef && order.payment_id && (
           <span className="text-[10px] text-ink-tertiary font-mono">ref: {order.payment_id.slice(-6).toUpperCase()}</span>
         )}
