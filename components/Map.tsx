@@ -70,6 +70,9 @@ export default function Map({ restaurants, onSelectRestaurant, selectedId, cente
     markersRef.current = {}
 
     restaurants.forEach(item => {
+      // No map point (0,0 = not located, e.g. an imported restaurant whose
+      // address wasn't found inside the city): no pin.
+      if (!Number.isFinite(item.lat) || !Number.isFinite(item.lng) || (item.lat === 0 && item.lng === 0)) return
       const open = item.is_open ?? true
       const el = document.createElement('div')
       el.className = 'marker-container'

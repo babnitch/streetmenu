@@ -68,7 +68,7 @@ const EMPTY_FORM: RestaurantForm = {
   publish: true,
 }
 
-type Tab = 'all' | 'pending' | 'suspended' | 'deleted'
+type Tab = 'all' | 'pending' | 'tocomplete' | 'suspended' | 'deleted'
 
 // Small POST wrapper for the admin write routes. Every restaurant mutation
 // on this page goes through app/api/** with the service-role client — and as
@@ -375,12 +375,15 @@ export default function AdminRestaurantsPage() {
   }
 
   // ── Filtered lists ──
-  const pending   = restaurants.filter(r => !r.is_active && !r.deleted_at)
+  // I3: hidden listings managed by Tchop & Ndjoka (e.g. the CSV import's
+  // publish_now = no) wait in "À compléter", apart from owner sign-ups.
+  const pending   = restaurants.filter(r => !r.is_active && !r.deleted_at && !r.managed_by_platform)
+  const toComplete = restaurants.filter(r => !r.is_active && !r.deleted_at && !!r.managed_by_platform && r.status !== 'suspended')
   const active    = restaurants.filter(r => r.is_active && !r.deleted_at && r.status !== 'suspended')
   const suspended = restaurants.filter(r => r.status === 'suspended' && !r.deleted_at)
   const deleted   = restaurants.filter(r => !!r.deleted_at)
 
-  const tabList = tab === 'pending' ? pending : tab === 'suspended' ? suspended : tab === 'deleted' ? deleted : active
+  const tabList = tab === 'pending' ? pending : tab === 'tocomplete' ? toComplete : tab === 'suspended' ? suspended : tab === 'deleted' ? deleted : active
   const cities  = ['all', ...Array.from(new Set(active.map(r => r.city).filter(Boolean)))]
 
   const filtered = tabList.filter(r => {
@@ -421,6 +424,7 @@ export default function AdminRestaurantsPage() {
       <div className="flex gap-1 mb-5 bg-surface-muted rounded-xl p-1 w-fit overflow-x-auto">
         {([ ['all', t('admin.allTab'), active.length],
             ['pending', t('admin.pendingTab'), pending.length],
+            ['tocomplete', bi('À compléter', 'To complete'), toComplete.length],
             ['suspended', bi('Suspendus', 'Suspended'), suspended.length],
             ['deleted', bi('Supprimés', 'Deleted'), deleted.length],
           ] as [Tab, string, number][]).map(([key, label, count]) => (
@@ -770,16 +774,16 @@ function RestaurantCard({
       {/* Action bar */}
       <div className="border-t border-divider px-5 py-3 flex gap-2 bg-surface-muted/50 flex-wrap">
         {/* Pending → approve / reject */}
-        {tab === 'pending' && (
+        {(tab === 'pending' || tab === 'tocomplete') && (
           <>
             <ActionBtn
-              label={bi('✅ Approuver', 'Approve')}
+              label={tab === 'tocomplete' ? bi('✅ Publier', 'Publish') : bi('✅ Approuver', 'Approve')}
               className="bg-brand hover:bg-brand-dark text-white"
               loading={actionLoading === r.id + '-approve'}
               onClick={() => onApprove(r)}
             />
             <ActionBtn
-              label={bi('❌ Rejeter', 'Reject')}
+              label={tab === 'tocomplete' ? bi('🗑️ Supprimer', 'Delete') : bi('❌ Rejeter', 'Reject')}
               className="bg-white hover:bg-brand-light text-danger border border-divider"
               loading={actionLoading === r.id + '-reject'}
               onClick={() => onReject(r)}
