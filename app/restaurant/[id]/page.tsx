@@ -15,6 +15,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { PUBLIC_RESTAURANT_SELECT } from '@/lib/publicColumns'
 import { Restaurant, MenuItem } from '@/types'
 import { useCart } from '@/lib/cartContext'
 import { useLanguage, useBi } from '@/lib/languageContext'
@@ -68,7 +69,7 @@ export default function MenuPage() {
   useEffect(() => {
     async function fetchData() {
       const [{ data: rest }, { data: menu }, statusRes, offersRes, filesRes] = await Promise.all([
-        supabase.from('restaurants').select('*').eq('id', id).single(),
+        supabase.from('restaurants').select(PUBLIC_RESTAURANT_SELECT).eq('id', id).maybeSingle().overrideTypes<Restaurant, { merge: false }>(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).is('deleted_at', null).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         // Today's offers (V2): the dish costs its offer price, the menu

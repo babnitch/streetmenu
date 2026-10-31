@@ -10,6 +10,7 @@ import { useParams, useRouter } from 'next/navigation'
 import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { PUBLIC_RESTAURANT_SELECT } from '@/lib/publicColumns'
 import { Restaurant } from '@/types'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { formatPrepTime } from '@/lib/prepTime'
@@ -40,7 +41,7 @@ export default function RestaurantInfoPage() {
     let cancelled = false
     ;(async () => {
       const [{ data }, ratingRes, offersRes] = await Promise.all([
-        supabase.from('restaurants').select('*').eq('id', id).maybeSingle(),
+        supabase.from('restaurants').select(PUBLIC_RESTAURANT_SELECT).eq('id', id).maybeSingle().overrideTypes<Restaurant, { merge: false }>(),
         fetch(`/api/restaurants/${id}/rating`, { cache: 'no-store' }).then(x => x.ok ? x.json() : null).catch(() => null),
         fetch(`/api/offers/today?restaurant_id=${id}`, { cache: 'no-store' }).then(x => x.ok ? x.json() : null).catch(() => null),
       ])

@@ -14,6 +14,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   }
 
+  // ?only=targets: the restaurant + event lists for the scope dropdown
+  // (pending restaurants are not readable with the public key).
+  if (req.nextUrl.searchParams.get('only') === 'targets') {
+    const [r, e] = await Promise.all([
+      supabaseAdmin.from('restaurants').select('id, name').is('deleted_at', null).neq('status', 'deleted').order('name'),
+      supabaseAdmin.from('events').select('id, title').eq('is_active', true).order('date', { ascending: false }).limit(200),
+    ])
+    if (r.error || e.error) return NextResponse.json({ error: (r.error ?? e.error)!.message }, { status: 500 })
+    return NextResponse.json({ restaurants: r.data ?? [], events: e.data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
+  }
+
   const { data, error } = await supabaseAdmin
     .from('vouchers')
     .select('id, code, discount_type, discount_value, min_order, max_uses, current_uses, is_active, expires_at, city, restaurant_id, event_id, created_at, restaurants(name), events(title)')

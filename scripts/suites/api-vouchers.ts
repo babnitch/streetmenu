@@ -113,6 +113,13 @@ async function main(): Promise<void> {
       }
     })
 
+    await step('admin scope lists come from the server (admins only)', async () => {
+      const r = await api<{ restaurants?: Array<{ id: string }>; events?: unknown[] }>('/api/admin/vouchers?only=targets', { cookie: admin })
+      assertEq(r.status, 200, 'admin → 200')
+      assert((r.body.restaurants ?? []).some(x => x.id === rest.id) && Array.isArray(r.body.events), 'restaurants + events listed')
+      assertEq((await api('/api/admin/vouchers?only=targets', { cookie: ownerC })).status, 401, 'customer → 401')
+    })
+
     await step('admin DELETE refuses a voucher that has been used', async () => {
       await sb.from('vouchers').update({ current_uses: 1, uses_count: 1 } as never).eq('id', platformVoucher.id)
       const r = await api(`/api/admin/vouchers/${platformVoucher.id}`, { method: 'DELETE', cookie: admin })

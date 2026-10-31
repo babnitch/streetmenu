@@ -3,7 +3,6 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import { isPercentDiscount } from '@/lib/vouchers'
 import { formatFCFA } from '@/lib/money'
@@ -63,12 +62,14 @@ export default function AdminVouchersPage() {
 
   useEffect(() => {
     fetchVouchers()
-    // Restaurant + event lists for the scope dropdown. Anon-readable; only
-    // need id + name/title.
-    supabase.from('restaurants').select('id, name').is('deleted_at', null).neq('status', 'deleted').order('name')
-      .then(({ data }) => { if (data) setRestaurants(data) })
-    supabase.from('events').select('id, title').eq('is_active', true).order('date', { ascending: false }).limit(200)
-      .then(({ data }) => { if (data) setEvents(data) })
+    // Restaurant + event lists for the scope dropdown (server route).
+    fetch('/api/admin/vouchers?only=targets', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d.restaurants)) setRestaurants(d.restaurants)
+        if (Array.isArray(d.events)) setEvents(d.events)
+      })
+      .catch(() => null)
   }, [])
 
   async function fetchVouchers() {

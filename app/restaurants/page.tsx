@@ -9,6 +9,7 @@ import dynamicImport from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
+import { PUBLIC_RESTAURANT_SELECT } from '@/lib/publicColumns'
 import { Restaurant } from '@/types'
 import RestaurantSidebar from '@/components/RestaurantSidebar'
 import TopNav from '@/components/TopNav'
@@ -235,11 +236,12 @@ export default function HomePage() {
       try {
         const res = await supabase
           .from('restaurants')
-          .select('*')
+          .select(PUBLIC_RESTAURANT_SELECT)
           .eq('is_active', true)
           .in('status', ['active', 'approved'])
           .is('deleted_at', null)
           .order('created_at', { ascending: false })
+          .overrideTypes<Restaurant[], { merge: false }>()
         if (res.error) throw new Error(res.error.message)
         data = res.data ?? []
         setRestaurants(data)

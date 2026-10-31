@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { PUBLIC_RESTAURANT_SELECT } from '@/lib/publicColumns'
 import { Restaurant } from '@/types'
 import { useBi } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
@@ -94,12 +95,13 @@ export default function SearchOverlay({ open, onClose, desktop = false }: { open
       setLoading(true)
       const { data } = await supabase
         .from('restaurants')
-        .select('*')
+        .select(PUBLIC_RESTAURANT_SELECT)
         .eq('is_active', true)
         .in('status', ['active', 'approved'])
         .is('deleted_at', null)
         .eq('city', city)
         .order('created_at', { ascending: false })
+        .overrideTypes<Restaurant[], { merge: false }>()
       if (cancelled) return
       const list = (data ?? []) as Restaurant[]
       setRestaurants(list)

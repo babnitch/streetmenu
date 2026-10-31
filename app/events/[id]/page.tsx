@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { PUBLIC_EVENT_SELECT } from '@/lib/publicColumns'
 import { Event } from '@/types'
 import { useLanguage, useBi, pickBi } from '@/lib/languageContext'
 import { categoryLabel } from '@/lib/categoryLabels'
@@ -132,7 +133,7 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     async function fetchEvent() {
-      const { data } = await supabase.from('events').select('*').eq('id', id).single()
+      const { data } = await supabase.from('events').select(PUBLIC_EVENT_SELECT).eq('id', id).single().overrideTypes<Event, { merge: false }>()
       setEvent(data)
       if (data) track('view', 'event', id, data.city)
       setLoading(false)
@@ -425,7 +426,7 @@ export default function EventDetailPage() {
         if (d.phase === 'paid') {
           stopPolling()
           setPayPhase('paid')
-          const { data: refreshed } = await supabase.from('events').select('*').eq('id', event!.id).single()
+          const { data: refreshed } = await supabase.from('events').select(PUBLIC_EVENT_SELECT).eq('id', event!.id).single().overrideTypes<Event, { merge: false }>()
           if (refreshed) setEvent(refreshed)
           loadAvailability()
         } else if (d.phase === 'failed') {
@@ -522,7 +523,7 @@ export default function EventDetailPage() {
       setReservationId(data.reservation_id)
       setReservationCode(data.reservation_code ?? null)
       // Re-fetch event so the remaining counter reflects the new sale.
-      const { data: refreshed } = await supabase.from('events').select('*').eq('id', event!.id).single()
+      const { data: refreshed } = await supabase.from('events').select(PUBLIC_EVENT_SELECT).eq('id', event!.id).single().overrideTypes<Event, { merge: false }>()
       if (refreshed) setEvent(refreshed)
       loadAvailability()
     } finally {
