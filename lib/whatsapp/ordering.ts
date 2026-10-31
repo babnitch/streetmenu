@@ -2043,7 +2043,7 @@ export async function handleEventSession(
     // have been sitting on the prompt while others booked).
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, commission_rate, city, reservations_open`)
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2144,7 +2144,7 @@ export async function handleEventSession(
     }
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, ticket_price`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, ticket_price, reservations_open`)
       .eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2217,7 +2217,7 @@ export async function handleEventSession(
     }
 
     const { data: event } = await supabaseAdmin
-      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, city, organizer_id, submitted_by, whatsapp`).eq('id', eventId).maybeSingle()
+      .from('events').select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, city, organizer_id, submitted_by, whatsapp, reservations_open`).eq('id', eventId).maybeSingle()
     if (!event) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
       await sendWhatsApp(from, pickLang('❌ Événement introuvable.', '❌ Event not found.', lang))
@@ -2370,7 +2370,7 @@ export async function handleEventSession(
     // Reserve → re-pull the event to re-check capacity, then confirm.
     const { data: event } = await supabaseAdmin
       .from('events')
-      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, max_tickets`)
+      .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, venue, organizer_id, submitted_by, whatsapp, is_active, event_status, max_tickets, reservations_open`)
       .eq('id', eventId).maybeSingle()
     if (!event || !event.is_active || (event.event_status && ['cancelled', 'completed'].includes(event.event_status))) {
       await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2428,6 +2428,7 @@ interface EventReserveRow {
   end_date: string | null; end_time: string | null
   venue: string | null; organizer_id: string | null; submitted_by?: string | null
   whatsapp: string | null
+  reservations_open?: boolean | null
 }
 
 // A signup_sessions save that fails must never be followed by its prompt: the
@@ -2556,7 +2557,7 @@ async function confirmEventReservationWhatsapp(opts: {
 async function showEventDetail(from: string, phone: string, eventId: string, lang: Lang = 'fr'): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active, booking_mode, info_link, price_is_from, organizer_name`)
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, venue, neighborhood, city, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, event_status, is_active, booking_mode, info_link, price_is_from, organizer_name, reservations_open`)
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
@@ -2589,6 +2590,8 @@ async function showEventDetail(from: string, phone: string, eventId: string, lan
     ? '\n' + `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
     : remaining === 0
       ? '\n' + pickLang(`❌ Cet événement est épuisé.`, `❌ This event is sold out.`, lang)
+      : event.reservations_open === false
+      ? '\n' + pickLang(`🔒 Réservations fermées pour le moment.`, `🔒 Reservations closed for now.`, lang)
       : isMultiDay(event)
         ? '\n' + multiDayWebLink(event.id, event.title, lang)
         : '\n' + pickLang(
@@ -2630,6 +2633,7 @@ function bookingBlock(
     id: string; title?: string; date: string | null; end_date: string | null
     organizer_id?: string | null; submitted_by?: string | null; whatsapp?: string | null
     booking_mode?: string | null; info_link?: string | null
+    reservations_open?: boolean | null
   },
   customer: OrderingCustomer | undefined,
   lang: Lang,
@@ -2639,6 +2643,11 @@ function bookingBlock(
   if (isPastEvent(event)) {
     console.log('[whatsapp/reserve] blocked — event %s is past (date=%s end_date=%s)', event.id, event.date, event.end_date)
     return `⏳ ${pickLang(`${PAST_EVENT_MESSAGE_FR}.`, `${PAST_EVENT_MESSAGE_EN}.`, lang)}`
+  }
+  // The organiser's booking lock (events.reservations_open), on every path
+  // ("evenements" → "reserver" included) and re-checked at each step.
+  if (event.reservations_open === false) {
+    return pickLang(`🔒 Les réservations pour *${event.title ?? ''}* sont fermées.`, `🔒 Reservations for *${event.title ?? ''}* are closed.`, lang)
   }
   if (!customer) return null
   const selfById    = isEventOrganizer(event, customer.id)
@@ -2664,7 +2673,7 @@ async function startReserveFlow(
 ): Promise<NextResponse> {
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, organizer_id, submitted_by, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status`)
+    .select(`id, title, ${EVENT_DATE_COLUMNS}, booking_mode, info_link, organizer_id, submitted_by, whatsapp, ticket_price, max_tickets, tickets_sold, payment_enabled, is_active, event_status, reservations_open`)
     .eq('id', eventId).maybeSingle()
   if (!event || !event.is_active) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
