@@ -3,7 +3,6 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
 import { Order, Restaurant } from '@/types'
 import { useLanguage } from '@/lib/languageContext'
 import PaymentBadge from '@/components/PaymentBadge'
@@ -36,30 +35,28 @@ export default function AdminOrdersPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
+  // Orders are server-only: read through /api/admin/orders (login checked).
   const fetchOrders = useCallback(async () => {
-    let query = supabase
-      .from('orders')
-      .select('*, restaurants(name, city)')
-      .order('created_at', { ascending: false })
-
-    if (restaurantFilter !== 'all') query = query.eq('restaurant_id', restaurantFilter)
-    if (statusFilter !== 'all') query = query.eq('status', statusFilter)
-    if (paymentFilter === 'paid')        query = query.eq('payment_status', 'paid')
-    else if (paymentFilter === 'pending') query = query.eq('payment_status', 'pending')
-    else if (paymentFilter === 'failed')  query = query.eq('payment_status', 'failed')
-    else if (paymentFilter === 'reservation') query = query.eq('order_type', 'reservation')
-    if (dateFrom) query = query.gte('created_at', dateFrom + 'T00:00:00')
-    if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59')
-
-    const { data } = await query
-    if (data) setOrders(data as OrderWithRestaurant[])
-    setLoading(false)
+    const p = new URLSearchParams()
+    if (restaurantFilter !== 'all') p.set('restaurant', restaurantFilter)
+    if (statusFilter !== 'all') p.set('status', statusFilter)
+    if (paymentFilter !== 'all') p.set('payment', paymentFilter)
+    if (dateFrom) p.set('from', dateFrom)
+    if (dateTo) p.set('to', dateTo)
+    try {
+      const r = await fetch(`/api/admin/orders?${p}`, { cache: 'no-store' })
+      const d = await r.json().catch(() => ({}))
+      if (r.ok && Array.isArray(d.orders)) setOrders(d.orders as OrderWithRestaurant[])
+    } finally {
+      setLoading(false)
+    }
   }, [restaurantFilter, statusFilter, paymentFilter, dateFrom, dateTo])
 
   useEffect(() => {
-    supabase.from('restaurants').select('id, name, city').order('name').then(({ data }) => {
-      if (data) setRestaurants(data as Restaurant[])
-    })
+    fetch('/api/admin/orders?only=restaurants', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.restaurants)) setRestaurants(d.restaurants as Restaurant[]) })
+      .catch(() => null)
   }, [])
 
   useEffect(() => {

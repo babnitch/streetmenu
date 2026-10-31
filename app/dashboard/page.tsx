@@ -297,13 +297,13 @@ export default function DashboardPage() {
     try {
       const isAdmin = ['super_admin', 'admin', 'moderator'].includes(user.role)
       if (isAdmin) {
-        // Admins see every non-deleted restaurant.
-        const { data, error } = await supabase.from('restaurants').select('*')
-          .is('deleted_at', null).neq('status', 'deleted')
-          .order('created_at', { ascending: false })
-        if (error) throw new Error(error.message)
+        // Admins see every non-deleted restaurant (server route: pending
+        // restaurants are not readable with the public key).
+        const res = await fetch('/api/admin/restaurants', { cache: 'no-store' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const all = ((await res.json())?.restaurants ?? []) as Restaurant[]
         if (restaurantsCancelledRef.current) return
-        const list = (data ?? []) as Restaurant[]
+        const list = all.filter(r => !r.deleted_at && r.status !== 'deleted')
         setRestaurants(list)
         setSelectedRestaurant(prev => prev ?? list[0] ?? null)
         return
@@ -367,12 +367,13 @@ export default function DashboardPage() {
   }, [me, selectedRestaurant, rolesByRestaurantId])
 
   const fetchOrders = useCallback(async (restaurantId: string) => {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .order('created_at', { ascending: false })
-    console.log('[dashboard] fetchOrders restaurant=', restaurantId.slice(0, 8), 'count=', data?.length, 'error=', error)
+    // Orders are server-only (login checked): /api/restaurants/[id]/orders.
+    let data: Order[] | null = null
+    try {
+      const r = await fetch(`/api/restaurants/${restaurantId}/orders`, { cache: 'no-store' })
+      const d = await r.json().catch(() => ({}))
+      if (r.ok && Array.isArray(d.orders)) data = d.orders as Order[]
+    } catch { /* offline: keep the current list */ }
     if (!data) return
     setOrders(data)
 
@@ -407,14 +408,13 @@ export default function DashboardPage() {
     fetchOrders(selectedRestaurant.id)
     fetchMenu(selectedRestaurant.id)
 
-    const channel = supabase
-      .channel(`orders-${selectedRestaurant.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${selectedRestaurant.id}` }, () => {
-        fetchOrders(selectedRestaurant.id)
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
+    // New orders: refresh every 10 s while the tab is visible, and at once
+    // when it comes back (orders can't be watched live with the public key).
+    const id = selectedRestaurant.id
+    const timer = setInterval(() => { if (!document.hidden) fetchOrders(id) }, 10_000)
+    const onVisible = () => { if (!document.hidden) fetchOrders(id) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [selectedRestaurant, fetchOrders, fetchMenu])
 
   // Open/closed switch. Goes through /api/restaurants/[id]/open, which
