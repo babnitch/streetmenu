@@ -20,10 +20,10 @@
 // if a door were open, they would match nothing.
 
 import { sb, getAnon } from '../testkit/env'
-import { assert, assertEq, step, finish } from '../testkit/assert'
+import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import {
   PUBLIC_RESTAURANT_COLUMNS, PRIVATE_RESTAURANT_COLUMNS, PUBLIC_RESTAURANT_SELECT,
-  PUBLIC_EVENT_COLUMNS, PRIVATE_EVENT_COLUMNS, PUBLIC_EVENT_SELECT,
+  PUBLIC_EVENT_COLUMNS, PRIVATE_EVENT_COLUMNS, PUBLIC_EVENT_SELECT, ORDERS_PAUSE_COLUMNS,
 } from '@/lib/publicColumns'
 
 const SUITE = 'db-public-key-reads'
@@ -71,6 +71,14 @@ async function main(): Promise<void> {
       }
       assertEq(leaks, [], `${PRIVATE_RESTAURANT_COLUMNS.length} server-only columns refused`)
       assert(PUBLIC_RESTAURANT_COLUMNS.length > 30, 'public list intact')
+    })
+
+    await step('restaurants: the orders-pause columns are public', async () => {
+      const cols = ORDERS_PAUSE_COLUMNS.join(', ')
+      const { error: missing } = await sb.from('restaurants').select(cols).limit(1)
+      if (missing) { warn('orders pause columns missing', 'run supabase-orders-pause.sql'); return }
+      const a = await anon.from('restaurants').select(`id, ${cols}`).limit(1)
+      assert(!a.error, `${cols} readable (${a.error?.message ?? 'ok'})`)
     })
 
     await step('events: active rows, public columns only', async () => {

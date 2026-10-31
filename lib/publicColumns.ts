@@ -41,6 +41,14 @@ export const PRIVATE_EVENT_COLUMNS = [
   'auto_approved', 'rejected_at', 'rejected_by', 'rejection_reason',
 ] as const
 
+/**
+ * Online-orders pause (lib/ordersPause.ts): public too, granted by
+ * supabase-orders-pause.sql. Kept out of PUBLIC_RESTAURANT_SELECT so the
+ * pages also work on a database without the columns; pages read the pause
+ * through GET /api/restaurants/[id]/orders-pause.
+ */
+export const ORDERS_PAUSE_COLUMNS = ['orders_paused_at', 'orders_paused_until'] as const
+
 /** For supabase-js .select(). */
 export const PUBLIC_RESTAURANT_SELECT = PUBLIC_RESTAURANT_COLUMNS.join(', ')
 export const PUBLIC_EVENT_SELECT = PUBLIC_EVENT_COLUMNS.join(', ')

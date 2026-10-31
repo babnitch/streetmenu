@@ -1,6 +1,7 @@
 'use client'
 import HelpTip from '@/components/HelpTip'
 import RestaurantOverview from '@/components/pro/RestaurantOverview'
+import OrdersPauseSwitch from '@/components/pro/OrdersPauseSwitch'
 
 export const dynamic = 'force-dynamic'
 
@@ -769,6 +770,14 @@ export default function DashboardPage() {
                     </p>
                   </ModuleLocked>
                 </div>
+              )}
+              {selectedRestaurant && takesOrders(selectedRestaurant) && (
+                <OrdersPauseSwitch
+                  key={selectedRestaurant.id}
+                  restaurantId={selectedRestaurant.id}
+                  timezone={selectedRestaurant.timezone}
+                  canChange={effectiveRole === 'owner' || effectiveRole === 'manager' || effectiveRole === 'admin'}
+                />
               )}
               {newOrderFlash && (
                 <div className="bg-brand text-white rounded-2xl px-4 py-3 mb-3 text-sm font-semibold shadow-lg animate-pulse">

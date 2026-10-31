@@ -20,6 +20,7 @@ import { Voucher, CustomerVoucher } from '@/types'
 import { type PaymentMode } from '@/lib/paymentMode'
 import { takesOrders, deliversNow, effectiveRestaurantMode } from '@/lib/modules'
 import { formatFCFA } from '@/lib/money'
+import { ordersPausedTitle, ordersPausedHint } from '@/lib/ordersPause'
 
 // Customer session from the JWT cookie (what /account actually writes).
 // The legacy useAuth hook reads Supabase Auth, which this app doesn't use
@@ -79,7 +80,7 @@ export default function OrderPage() {
   const bi = useBi()
   const { items, totalPrice, totalItems, restaurantId, updateQuantity, clearCart, syncPrices } = useCart()
   const router = useRouter()
-  const { t } = useLanguage()
+  const { t, locale } = useLanguage()
 
   const [me, setMe] = useState<SessionUser | null>(null)
   const [loadingMe, setLoadingMe] = useState(true)
@@ -165,14 +166,17 @@ export default function OrderPage() {
   const [restaurantCity, setRestaurantCity] = useState<string>('')
   // False when the restaurant has no Commandes module (Vitrine only).
   const [canOrder, setCanOrder] = useState<boolean | null>(null)
+  // Online orders paused by the restaurant (any kind of order) + its phone.
+  const [ordersPaused, setOrdersPaused] = useState(false)
+  const [restaurantPhone, setRestaurantPhone] = useState('')
   useEffect(() => {
     if (!restaurantId) return
     let cancelled = false
     ;(async () => {
-      const [{ data }, status, offers] = await Promise.all([
+      const [{ data }, status, offers, pause] = await Promise.all([
         supabase
           .from('restaurants')
-          .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city, delivery_enabled, delivery_fee, delivery_extra_min, modules')
+          .select('payment_mode, payment_enabled, allow_orders_when_closed, prep_time_min, prep_time_max, city, delivery_enabled, delivery_fee, delivery_extra_min, modules, phone, whatsapp')
           .eq('id', restaurantId).maybeSingle(),
         fetch(`/api/restaurants/open-status?ids=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.json())
@@ -181,8 +185,13 @@ export default function OrderPage() {
         fetch(`/api/offers/today?restaurant_id=${restaurantId}`, { cache: 'no-store' })
           .then(r => r.ok ? r.json() : null)
           .catch(() => null),
+        fetch(`/api/restaurants/${restaurantId}/orders-pause`, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null),
       ])
       if (cancelled) return
+      setOrdersPaused(pause?.paused === true)
+      setRestaurantPhone(data?.phone || data?.whatsapp || '')
       // M2: what the restaurant's modules allow (pay-at-pickup without Paiement,
       // no delivery without Livraison, no order at all without Commandes).
       setCanOrder(data ? takesOrders(data) : null)
@@ -204,7 +213,9 @@ export default function OrderPage() {
     })()
     return () => { cancelled = true }
   }, [restaurantId])
-  const orderingBlocked = (restaurantOpen === false && !openWhenClosed) || canOrder === false
+  // A payment retry for an order placed before the pause still goes through.
+  const pauseBlocks = ordersPaused && !pendingOrderId
+  const orderingBlocked = (restaurantOpen === false && !openWhenClosed) || canOrder === false || pauseBlocks
 
   useEffect(() => {
     if (!me) return
@@ -363,6 +374,8 @@ export default function OrderPage() {
       // The fee changed, or the restaurant stopped delivering meanwhile.
       if (typeof json?.delivery_fee === 'number' && isDelivery) setDelivery(d => ({ ...d, fee: json.delivery_fee }))
       if (json?.reason === 'delivery_off') { setDelivery(d => ({ ...d, enabled: false })); setFulfilment('pickup') }
+      // Paused while the customer was checking out: show the notice instead.
+      if (json?.reason === 'orders_paused') setOrdersPaused(true)
       createErrorRef.current = typeof json?.error === 'string' ? json.error : null
       return null
     }
@@ -792,7 +805,19 @@ export default function OrderPage() {
           </div>
         )}
 
-        {canOrder !== false && restaurantOpen === false && (
+        {canOrder !== false && pauseBlocks && (
+          <div className="rounded-2xl border px-4 py-3 mb-4 text-sm bg-amber-50 border-amber-200 text-amber-800">
+            <p className="font-semibold mb-0.5">⏸️ {ordersPausedTitle(locale === 'en' ? 'en' : 'fr')}</p>
+            <p className="text-xs">{ordersPausedHint(locale === 'en' ? 'en' : 'fr')}</p>
+            {restaurantPhone && (
+              <a href={`tel:${restaurantPhone.replace(/[^\d+]/g, '')}`} className="inline-block mt-2 font-semibold underline">
+                📞 {restaurantPhone}
+              </a>
+            )}
+          </div>
+        )}
+
+        {canOrder !== false && !pauseBlocks && restaurantOpen === false && (
           <div className={`rounded-2xl border px-4 py-3 mb-4 text-sm ${
             orderingBlocked
               ? 'bg-rose-50 border-rose-200 text-rose-700'
@@ -1061,7 +1086,9 @@ export default function OrderPage() {
                 : 'bg-brand hover:bg-brand-dark disabled:bg-brand-badge'
             } text-white py-4 rounded-full font-bold text-base shadow-card transition-colors`}
           >
-            {needsChoice
+            {pauseBlocks
+              ? `⏸️ ${bi('Commandes en ligne en pause – revenez plus tard ou appelez le restaurant', 'Online orders paused – come back later or call the restaurant')}`
+              : needsChoice
               ? bi('Choisissez une option ci-dessus', 'Choose an option above')
               : submitting
                 ? (showPayUI

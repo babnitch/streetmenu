@@ -25,6 +25,7 @@ import { percentOffLabel } from '@/lib/offers'
 import { formatFCFA, formatAmount } from '@/lib/money'
 import { loginHref } from '@/lib/lastPhone'
 import { takesOrders, deliversNow } from '@/lib/modules'
+import { ordersPausedTitle, ordersPausedHint } from '@/lib/ordersPause'
 import { isDailyMenu, restaurantWeekday, isServedOn, servedDays, availableOnText } from '@/lib/menuDays'
 import TopNav from '@/components/TopNav'
 import BannerAd from '@/components/BannerAd'
@@ -59,6 +60,8 @@ export default function MenuPage() {
   // N4a: the paper menu (photos / PDF) and the number orders go to.
   const [menuFiles, setMenuFiles] = useState<MenuFile[]>([])
   const [orderWhatsapp, setOrderWhatsapp] = useState<string | null>(null)
+  // Online orders paused by the restaurant: menu visible, no ordering.
+  const [ordersPaused, setOrdersPaused] = useState(false)
   const platformInfo = usePlatformInfo()
 
   // Old links (the bot's "rate" message) pointed at /restaurant/[id]#rate.
@@ -68,7 +71,7 @@ export default function MenuPage() {
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: rest }, { data: menu }, statusRes, offersRes, filesRes] = await Promise.all([
+      const [{ data: rest }, { data: menu }, statusRes, offersRes, filesRes, pauseRes] = await Promise.all([
         supabase.from('restaurants').select(PUBLIC_RESTAURANT_SELECT).eq('id', id).maybeSingle().overrideTypes<Restaurant, { merge: false }>(),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).is('deleted_at', null).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
@@ -76,7 +79,9 @@ export default function MenuPage() {
         // price shows struck through. The server charges the same price.
         fetch(`/api/offers/today?restaurant_id=${id}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`/api/restaurants/${id}/menu-files`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/restaurants/${id}/orders-pause`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       ])
+      setOrdersPaused(pauseRes?.paused === true)
       setMenuFiles(Array.isArray(filesRes?.files) ? filesRes.files : [])
       setOrderWhatsapp(typeof filesRes?.order_whatsapp === 'string' ? filesRes.order_whatsapp : null)
       if (rest) {
@@ -172,7 +177,8 @@ export default function MenuPage() {
   // WhatsApp" opens a chat with the restaurant's order number instead.
   const filesOnly = menuItems.length === 0 && menuFiles.length > 0
   const takes = takesOrders(restaurant)
-  const canOrder = takes && !filesOnly
+  const paused = takes && !filesOnly && ordersPaused
+  const canOrder = takes && !filesOnly && !ordersPaused
   const delivers = deliversNow(restaurant)
   const waNumber = ((filesOnly && takes ? orderWhatsapp : null) || restaurant.whatsapp || restaurant.phone || '').replace(/\D/g, '')
   const claimLink = claimRestaurantLink(restaurant.name, restaurant.id, locale === 'en' ? 'en' : 'fr', platformInfo?.support_whatsapp)
@@ -242,7 +248,22 @@ export default function MenuPage() {
 
         {/* Vitrine (no Commandes module), or only a paper menu: order /
             contact straight with the restaurant. */}
-        {!canOrder && (waNumber || callNumber) && (
+        {/* Online orders paused: the menu stays, the order button becomes
+            this notice with the restaurant's phone. */}
+        {paused && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-semibold text-amber-800">⏸️ {ordersPausedTitle(locale === 'en' ? 'en' : 'fr')}</p>
+            <p className="text-xs text-amber-800 mt-0.5">{ordersPausedHint(locale === 'en' ? 'en' : 'fr')}</p>
+            {callNumber && (
+              <a href={`tel:${callNumber}`} onClick={() => logContact('call')}
+                className="mt-3 flex items-center justify-center gap-2 bg-surface border border-divider hover:bg-surface-muted text-ink-primary py-3 rounded-full font-semibold text-sm transition-colors">
+                📞 {bi('Appeler', 'Call')} {restaurant.phone || restaurant.whatsapp}
+              </a>
+            )}
+          </div>
+        )}
+
+        {!canOrder && !paused && (waNumber || callNumber) && (
           <div className="mt-4 grid grid-cols-1 gap-2">
             {waNumber && (
               <a href={`https://wa.me/${waNumber}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noopener noreferrer"

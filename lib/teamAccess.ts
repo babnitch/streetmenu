@@ -16,3 +16,15 @@ export async function isTeamOrAdmin(session: { id: string; role: string }, resta
     .eq('restaurant_id', restaurantId).eq('customer_id', session.id).eq('status', 'active')
   return (count ?? 0) > 0
 }
+
+/** Same, but only owner / manager team members (staff can't change commercial state). */
+export async function isManagerOrAdmin(session: { id: string; role: string }, restaurantId: string): Promise<boolean> {
+  if (ADMIN_ROLES.includes(session.role)) return true
+  if (session.role !== 'customer') return false
+  const { count: owner } = await supabaseAdmin.from('restaurants').select('id', { count: 'exact', head: true })
+    .eq('id', restaurantId).eq('customer_id', session.id)
+  if ((owner ?? 0) > 0) return true
+  const { count } = await supabaseAdmin.from('restaurant_team').select('id', { count: 'exact', head: true })
+    .eq('restaurant_id', restaurantId).eq('customer_id', session.id).eq('status', 'active').in('role', ['owner', 'manager'])
+  return (count ?? 0) > 0
+}

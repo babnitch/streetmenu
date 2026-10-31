@@ -1,4 +1,6 @@
 import { missingTwilioTokenPolicy } from '@/lib/twilioWebhookAuth'
+import { parseBotPauseCommand, formatPauseEnd } from '@/lib/ordersPause'
+import { setOrdersPause } from '@/lib/ordersPauseServer'
 import { cityCentre, registeredText } from '@/lib/restaurantSignup'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
 import { NextRequest, NextResponse } from 'next/server'
@@ -1319,6 +1321,9 @@ async function handleVendor(
         en
           ? `Send "open" or "close" to open/close now, "auto" to follow your schedule, "schedule" to view hours, "prep" for prep time.`
           : `Envoyez "ouvrir" ou "fermer" pour ouvrir/fermer maintenant, "auto" pour suivre votre horaire, "horaire" pour le voir, "temps" pour le temps de préparation.`,
+        en
+          ? `Send "pause" (or "pause 1h") to pause online orders without closing, "resume" to reopen them.`
+          : `Envoyez "pause" (ou "pause 1h") pour mettre les commandes en ligne en pause sans fermer, "reprendre" pour les rouvrir.`,
       )
     }
     if (isOwner) {
@@ -1435,6 +1440,58 @@ async function handleVendor(
   // ── RESTAURANT PAGE ──────────────────────────────────────────────────────
   if (cmd === 'restaurant') {
     await sendWhatsApp(from, `🔗 *${restaurant.name}*\n${BASE_URL}/restaurant/${restaurant.id}`)
+    return ok()
+  }
+
+  // ── ONLINE ORDERS PAUSE ──────────────────────────────────────────────────
+  // "pause" / "pause 30" / "pause 1h" / "pause soir" / "reprendre" / "resume".
+  // Same as the dashboard switch (POST /api/restaurants/[id]/orders-pause):
+  // the restaurant stays open, only new online orders stop. Owner + manager.
+  const pauseCmd = parseBotPauseCommand(cmd)
+  if (pauseCmd) {
+    if (!(isOwner || isManager)) {
+      await sendWhatsApp(from, pickLang(
+        `Vous n'avez pas la permission de mettre les commandes en pause.`,
+        `You don't have permission to pause orders.`, lang))
+      return ok()
+    }
+    if (pauseCmd.kind === 'bad') {
+      await sendWhatsApp(from, pickLang(
+        `Envoyez "pause" (jusqu'à ce que vous réactiviez), "pause 30", "pause 1h" ou "pause soir" (jusqu'à la fermeture). "reprendre" pour rouvrir les commandes.`,
+        `Send "pause" (until you turn it back on), "pause 30", "pause 1h" or "pause tonight" (until closing). "resume" to reopen orders.`, lang))
+      return ok()
+    }
+    const { data: me } = await supabaseAdmin.from('customers').select('id').eq('phone', phone).maybeSingle()
+    const r = await setOrdersPause(
+      restaurant.id,
+      pauseCmd.kind === 'resume' ? null
+        : pauseCmd.choice === 'minutes' ? { minutes: pauseCmd.minutes } : { choice: pauseCmd.choice },
+      { id: me?.id ?? null, type: 'vendor', via: 'whatsapp' },
+    )
+    if (!r.ok) {
+      await sendWhatsApp(from, pickLang(`⚠️ ${r.error}`, `⚠️ ${r.error}`, lang))
+      return ok()
+    }
+    if (!r.state.paused) {
+      await sendWhatsApp(from, pickLang(
+        `▶️ *Commandes en ligne ouvertes*\n${restaurant.name}\n\nLes clients peuvent à nouveau commander.`,
+        `▶️ *Online orders open*\n${restaurant.name}\n\nCustomers can order again.`, lang))
+      return ok()
+    }
+    const { data: tzRow } = await supabaseAdmin.from('restaurants').select('city, timezone').eq('id', restaurant.id).maybeSingle()
+    const { timezoneForCity } = await import('@/lib/openingHours')
+    const end = formatPauseEnd(r.state.until, tzRow?.timezone || timezoneForCity(tzRow?.city))
+    await sendWhatsApp(from, [
+      pickLang(`⏸️ *Commandes en ligne en pause*`, `⏸️ *Online orders paused*`, lang),
+      restaurant.name,
+      ``,
+      end
+        ? pickLang(`Reprise automatique à ${end}.`, `Back on automatically at ${end}.`, lang)
+        : pickLang(`Jusqu'à ce que vous réactiviez.`, `Until you turn it back on.`, lang),
+      pickLang(`Le restaurant reste ouvert, le menu reste visible. Les commandes déjà passées continuent.`, `The restaurant stays open and the menu stays visible. Orders already placed carry on.`, lang),
+      ``,
+      pickLang(`Envoyez "reprendre" pour rouvrir les commandes.`, `Send "resume" to reopen orders.`, lang),
+    ].join('\n'))
     return ok()
   }
 

@@ -6,6 +6,8 @@ import { writeAudit } from '@/lib/audit'
 import { createDeposit, detectMNO, mnoLabel, countryFromCity } from '@/lib/pawapay'
 import { rateLimit, rateLimitedResponse, clientIP } from '@/lib/rateLimit'
 import { canPayOnline } from '@/lib/paymentMode'
+import { readOrdersPause } from '@/lib/ordersPauseServer'
+import { ORDERS_PAUSED_ERROR } from '@/lib/ordersPause'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, restaurant_id, total_price, payment_status, customer_phone, customer_id')
+      .select('id, restaurant_id, total_price, payment_status, customer_phone, customer_id, created_at')
       .eq('id', orderId)
       .single()
     if (orderErr || !order) {
@@ -52,6 +54,14 @@ export async function POST(req: NextRequest) {
     if (restErr || !restaurant) {
       return NextResponse.json({ error: 'Restaurant introuvable / Restaurant not found' }, { status: 404 })
     }
+    // Paused restaurant: no payment for an order placed during the pause
+    // (orders/create already refuses those). An order placed before the
+    // pause still gets paid — orders already placed are not affected.
+    const pause = await readOrdersPause(restaurant.id)
+    if (pause.paused && pause.paused_at && order.created_at && new Date(order.created_at) >= new Date(pause.paused_at)) {
+      return NextResponse.json({ error: ORDERS_PAUSED_ERROR, reason: 'orders_paused' }, { status: 409 })
+    }
+
     // M2: effectiveRestaurantMode is pay-at-pickup without the Paiement module.
     if (!canPayOnline(effectiveRestaurantMode(restaurant))) {
       return NextResponse.json({ error: 'Paiement non activé pour ce restaurant / Payment not enabled' }, { status: 400 })

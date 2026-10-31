@@ -2,6 +2,7 @@
 // See docs/superpowers/specs/2026-04-18-whatsapp-ordering-design.md
 
 import { bookingQrLine, orderQrLine } from '@/lib/scanLinks'
+import { ordersPausedBotText } from '@/lib/ordersPauseServer'
 import { blockedForOrders, orderPhones } from '@/lib/managedRestaurant'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -2803,6 +2804,13 @@ export async function handleOrderingSession(
       await sendWhatsApp(from, ordersOffText(chosen.name, lang))
       return ok()
     }
+    // Online orders paused by the restaurant: stop before the menu.
+    const pausedLine = await ordersPausedBotText(chosen.id, chosen.name, lang)
+    if (pausedLine) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pausedLine)
+      return ok()
+    }
     const menu = await loadAvailableMenu(chosen.id)
     if (menu.length === 0) {
       await sendWhatsApp(from, `🍽️ *${chosen.name}*\n\n${pickLang(`Ce restaurant n'a pas encore de plat disponible.\nEssayez un autre restaurant. Renvoyez "commander".`, `No available dishes yet.\nTry another restaurant. Send "commander" again.`, lang)}`)
@@ -3056,6 +3064,14 @@ async function finalizeRestaurantWhatsappOrder(opts: {
       || (paid && !(await hasRestaurantModule(data.restaurant_id, 'payment')))) {
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
     await sendWhatsApp(from, ordersOffText(data.restaurant_name, lang))
+    return ok()
+  }
+
+  // Paused during the conversation → no order (and no payment) after all.
+  const pausedLine = await ordersPausedBotText(data.restaurant_id, data.restaurant_name, lang)
+  if (pausedLine) {
+    await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+    await sendWhatsApp(from, pausedLine)
     return ok()
   }
 

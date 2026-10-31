@@ -37,6 +37,8 @@ export interface Restaurant {
   manual_override?: 'open' | 'closed' | null
   manual_override_at?: string | null
   timezone?: string
+  orders_paused_at?: string | null
+  orders_paused_until?: string | null
   allow_orders_when_closed?: boolean
   // Estimated prep range (added via supabase-prep-time.sql). Both null
   // until the vendor sets one; the seed migration backfills 20/35.

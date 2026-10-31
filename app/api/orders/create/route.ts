@@ -9,6 +9,7 @@ import { priceOrder, PRICE_CHANGED_TEXT } from '@/lib/orderPricing'
 import { consumeVoucherForOrder } from '@/lib/vouchers'
 import { writeAudit } from '@/lib/audit'
 import { requireRestaurantModule } from '@/lib/modulesServer'
+import { ordersPausedRefusal } from '@/lib/ordersPauseServer'
 import { normalizeFulfilment, DELIVERY_FIELDS_REQUIRED_TEXT, DELIVERY_ADDRESS_MAX, DELIVERY_LANDMARK_MAX } from '@/lib/delivery'
 
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,9 @@ export const dynamic = 'force-dynamic'
 // A delivery order needs address + landmark + phone, and the restaurant's
 // delivery fee is part of the server's total.
 //
+// Refused with 409 reason orders_paused while the restaurant has paused
+// online orders (lib/ordersPause.ts).
+//
 // Returns { ok, order: { id, total_price, … } } on success.
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req)
@@ -48,6 +52,10 @@ export async function POST(req: NextRequest) {
   if (!restaurantId) {
     return NextResponse.json({ error: 'restaurant_id requis' }, { status: 400 })
   }
+  // Online orders paused by the restaurant → no new order of any kind
+  // (delivery, pickup, paid or pay-on-site). 409 reason orders_paused.
+  const paused = await ordersPausedRefusal(restaurantId)
+  if (paused) return paused
 
   const itemsRaw = Array.isArray(body?.items) ? body.items : []
   if (itemsRaw.length === 0) {
