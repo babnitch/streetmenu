@@ -51,8 +51,8 @@ interface TodayOffer {
 // / — the landing page, for everyone (home v2, V3):
 //   promise · one search (dishes, restaurants, events) — the city picker
 //   is in the header (N1) ·
-//   "Offres du jour" · "Restaurants populaires à [ville]" ·
-//   "Événements populaires" — three horizontal rows, each hidden when empty ·
+//   "Ce week-end" · "Offres du jour" · "Restaurants populaires" ·
+//   "Événements populaires" · "Que faire" — each hidden when empty ·
 //   partner banner.
 export default function HomePage() {
   const bi = useBi()
@@ -164,6 +164,20 @@ export default function HomePage() {
           <span className="text-sm text-ink-tertiary">{bi('Un plat, un restaurant, un événement…', 'A dish, a restaurant, an event…')}</span>
         </button>
 
+        {weekend.length > 0 && (
+          <Row id="weekend" title={bi(`Ce week-end à ${city}`, `This weekend in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
+            {weekend.map(e => (
+              <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
+                tag={e.category ? categoryLabel(e.category, locale) : null}
+                title={e.title} sub={formatEventWhen(e, locale, 'card')}
+                icon={eventCategoryIcon(e.category)}
+                line={dot(e.venue, formatEventWhen(e, locale, 'card'), e.fromPrice === null ? null : e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`)}>
+                {e.fromPrice !== null && <p className="text-[12px] font-bold text-brand-dark mt-0.5">{e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`}</p>}
+              </Card>
+            ))}
+          </Row>
+        )}
+
         {offers.length > 0 && (
           <Row id="offers" title={`🏷️ ${bi('Offres du jour', "Today's offers")}`}>
             {offers.map(o => (
@@ -197,20 +211,6 @@ export default function HomePage() {
                 badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
                 title={r.name} sub={dot(cuisineText(r, locale), fulfilmentLine(r))}
                 icon="🍽️" line={dot(cuisineText(r, locale), r.neighborhood, openLabel(r.id), r.delivery_enabled ? bi('Livraison', 'Delivery') : bi('À emporter', 'Take-away'))} />
-            ))}
-          </Row>
-        )}
-
-        {weekend.length > 0 && (
-          <Row id="weekend" title={bi(`Ce week-end à ${city}`, `This weekend in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
-            {weekend.map(e => (
-              <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
-                tag={e.category ? categoryLabel(e.category, locale) : null}
-                title={e.title} sub={formatEventWhen(e, locale, 'card')}
-                icon={eventCategoryIcon(e.category)}
-                line={dot(e.venue, formatEventWhen(e, locale, 'card'), e.fromPrice === null ? null : e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`)}>
-                {e.fromPrice !== null && <p className="text-[12px] font-bold text-brand-dark mt-0.5">{e.fromPrice === 0 ? bi('Gratuit', 'Free') : `${bi('dès', 'from')} ${formatFCFA(e.fromPrice)}`}</p>}
-              </Card>
             ))}
           </Row>
         )}
