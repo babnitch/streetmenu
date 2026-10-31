@@ -10,7 +10,7 @@ import { makeCustomer, futureDateISO } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 
 const SUITE = 'api-event-info-i6'
-const CITY = testName('city_i6')
+const CITY = testName('city')
 
 interface Body { ok?: boolean; error?: string; field?: string; reason?: string; event?: Record<string, unknown> & { id: string }; reservation_id?: string; booking?: { reservations: boolean; paid_tickets: boolean }; organizer?: { id: string } }
 
