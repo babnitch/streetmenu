@@ -27,6 +27,7 @@ import { categoryLabel } from '@/lib/categoryLabels'
 import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/weekend'
 import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
 import { picturesFirst, hasPicture } from '@/lib/popularRanking'
+import { featuredTitle, featuredActionLabel, type FeaturedCard } from '@/lib/homeFeatured'
 
 interface PopularRestaurant {
   id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null
@@ -51,9 +52,9 @@ interface TodayOffer {
 // / — the landing page, for everyone (home v2, V3):
 //   promise · one search (dishes, restaurants, events) — the city picker
 //   is in the header (N1) ·
-//   "Ce week-end" · "Offres du jour" · "Restaurants populaires" ·
-//   "Événements populaires" · "Que faire" — each hidden when empty ·
-//   partner banner.
+//   "À la une" (one big card, lib/homeFeatured.ts) · "Ce week-end" ·
+//   "Offres du jour" · "Restaurants populaires" · "Événements populaires" ·
+//   "Que faire" — each hidden when empty · partner banner.
 export default function HomePage() {
   const bi = useBi()
   useRefData()
@@ -68,6 +69,8 @@ export default function HomePage() {
   const [weekend, setWeekend] = useState<WeekendEvent[]>([])
   // I4: "Que faire à {ville} ?" — the city's places.
   const [places, setPlaces] = useState<PublicPlace[]>([])
+  // "À la une": one big card for the city, or none.
+  const [featured, setFeatured] = useState<FeaturedCard | null>(null)
 
   // Old links: /?q=… was the restaurant search.
   useEffect(() => {
@@ -98,6 +101,11 @@ export default function HomePage() {
         // Home: a real poster first, date order kept inside each group.
         setWeekend(picturesFirst(list, e => (hasPicture(e.cover_photo) ? 0 : 2)).slice(0, 10))
       })
+      .catch(() => null)
+    setFeatured(null)
+    fetch(`/api/home/featured?city=${encodeURIComponent(city)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setFeatured(d?.item ?? null) })
       .catch(() => null)
     setPlaces([])
     fetch(`/api/places?city=${encodeURIComponent(city)}&limit=10&pictures_first=1`, { cache: 'no-store' })
@@ -163,6 +171,8 @@ export default function HomePage() {
           <span aria-hidden="true" className="text-lg">🔍</span>
           <span className="text-sm text-ink-tertiary">{bi('Un plat, un restaurant, un événement…', 'A dish, a restaurant, an event…')}</span>
         </button>
+
+        {featured && <Featured card={featured} img={img(featured.image)} />}
 
         {weekend.length > 0 && (
           <Row id="weekend" title={bi(`Ce week-end à ${city}`, `This weekend in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
@@ -318,5 +328,49 @@ function Card({ href, image, fallback, badge, tag, title, sub, poster, cover, cr
         {children}
       </div>
     </Link>
+  )
+}
+
+// "À la une": ONE big card at the top — photo, title, date or area, one
+// button. No photo → no image (never a generated cover). Mode économique:
+// one bold line, no image.
+function Featured({ card, img }: { card: FeaturedCard; img: string | null }) {
+  const bi = useBi()
+  const { locale } = useLanguage()
+  const { isLowData } = useDataMode()
+  const lang = locale === 'en' ? 'en' : 'fr'
+  const title = featuredTitle(card, lang)
+  const when = card.when ? formatEventWhen(card.when, lang, 'card') : null
+  const line = [when, card.area].filter(Boolean).join(' · ')
+  const action = featuredActionLabel(card.action, lang)
+  if (isLowData) {
+    return (
+      <section className="mt-6" aria-label={bi('À la une', 'Featured')}>
+        <Link href={card.href} className="block font-bold text-ink-primary hover:text-brand-dark">
+          ⭐ {title}{line ? ` · ${line}` : ''} · <span className="text-brand-dark">{action} →</span>
+        </Link>
+      </section>
+    )
+  }
+  return (
+    <section className="mt-6" aria-labelledby="featured-heading">
+      <h2 id="featured-heading" className="text-base font-bold text-ink-primary mb-3">⭐ {bi('À la une', 'Featured')}</h2>
+      <Link href={card.href} className="block bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+        {img && (
+          <div className="relative h-52 sm:h-64 bg-surface-muted">
+            <SafeImage src={img} alt="" fill sizes="(max-width: 672px) 100vw, 672px" className="object-cover"
+              fallback={<span className="absolute inset-0 bg-surface-muted" aria-hidden="true" />}
+              overlay={card.credit ? <PhotoCredit credit={card.credit} url={null} compact /> : null} />
+          </div>
+        )}
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-lg font-black text-ink-primary leading-tight">{title}</p>
+            {line && <p className="text-sm text-ink-secondary mt-0.5 truncate">{line}</p>}
+          </div>
+          <span className="flex-shrink-0 bg-brand text-white px-4 py-2 rounded-full text-sm font-bold">{action}</span>
+        </div>
+      </Link>
+    </section>
   )
 }

@@ -24,6 +24,7 @@ import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import {
   PUBLIC_RESTAURANT_COLUMNS, PRIVATE_RESTAURANT_COLUMNS, PUBLIC_RESTAURANT_SELECT,
   PUBLIC_EVENT_COLUMNS, PRIVATE_EVENT_COLUMNS, PUBLIC_EVENT_SELECT, ORDERS_PAUSE_COLUMNS,
+  HOME_FEATURED_COLUMNS, PRIVATE_HOME_FEATURED_COLUMNS,
 } from '@/lib/publicColumns'
 
 const SUITE = 'db-public-key-reads'
@@ -31,7 +32,7 @@ const NO_ID = '00000000-0000-0000-0000-000000000000'
 const DENIED = '42501'
 
 /** Tables the public key may read on purpose (rows filtered by policy). */
-const PUBLIC_TABLES = ['restaurants', 'events', 'menu_items', 'restaurant_hours', 'event_ticket_tiers', 'broadcast_pricing', 'promotion_pricing', 'ref_values']
+const PUBLIC_TABLES = ['restaurants', 'events', 'menu_items', 'restaurant_hours', 'event_ticket_tiers', 'broadcast_pricing', 'promotion_pricing', 'ref_values', 'home_featured']
 
 async function allTables(): Promise<string[]> {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -79,6 +80,19 @@ async function main(): Promise<void> {
       if (missing) { warn('orders pause columns missing', 'run supabase-orders-pause.sql'); return }
       const a = await anon.from('restaurants').select(`id, ${cols}`).limit(1)
       assert(!a.error, `${cols} readable (${a.error?.message ?? 'ok'})`)
+    })
+
+    await step('home_featured: pick columns only, removed picks hidden', async () => {
+      const { error: missing } = await sb.from('home_featured').select('id').limit(1)
+      if (missing) { warn('home_featured table missing', 'run supabase-home-featured.sql'); return }
+      const a = await anon.from('home_featured').select(HOME_FEATURED_COLUMNS.join(', '))
+      assert(!a.error, `public columns readable (${a.error?.message ?? 'ok'})`)
+      const { count: live } = await sb.from('home_featured').select('id', { count: 'exact', head: true }).is('deleted_at', null)
+      assertEq((a.data ?? []).length, live ?? 0, 'only picks not removed')
+      for (const col of PRIVATE_HOME_FEATURED_COLUMNS) {
+        const c = await anon.from('home_featured').select(col).limit(1)
+        assertEq(c.error?.code, DENIED, `home_featured.${col} refused`)
+      }
     })
 
     await step('events: active rows, public columns only', async () => {

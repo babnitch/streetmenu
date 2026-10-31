@@ -19,7 +19,7 @@
 // keep a local copy of anything in here.
 
 export type AdminSubTab =
-  | 'restaurants' | 'orders' | 'events' | 'places' | 'stats' | 'reference' | 'broadcasts' | 'promotions'
+  | 'restaurants' | 'orders' | 'events' | 'places' | 'featured' | 'stats' | 'reference' | 'broadcasts' | 'promotions'
   | 'vouchers' | 'reports' | 'accounts' | 'messages' | 'platform' | 'platformteam' | 'profile'
 
 // The roles that get the admin console instead of the customer app.
@@ -43,6 +43,7 @@ export const ADMIN_TAB_LABELS: Record<AdminSubTab, string> = {
   orders:       'Commandes / Orders',
   events:       'Événements / Events',
   places:       'À visiter / To visit',
+  featured:     'À la une / Featured',
   stats:        'Statistiques / Statistics',
   reference:    'Données de référence / Reference data',
   broadcasts:   'Diffusions / Broadcasts',
@@ -64,6 +65,7 @@ export const ADMIN_TAB_ICONS: Record<AdminSubTab, string> = {
   orders:       '📦',
   events:       '🎉',
   places:       '🏛️',
+  featured:     '⭐',
   stats:        '📊',
   reference:    '🗂️',
   broadcasts:   '📢',
@@ -90,7 +92,7 @@ export const ADMIN_TAB_ICONS: Record<AdminSubTab, string> = {
 // and puts the others under ⋯ (components/AdminBar.tsx).
 export const ADMIN_TILES: readonly AdminSubTab[] = ['orders', 'restaurants', 'events', 'places', 'accounts']
 export const ADMIN_ROWS:  readonly AdminSubTab[] = [
-  'stats', 'reference', 'reports', 'broadcasts', 'promotions', 'vouchers', 'messages', 'platform', 'platformteam', 'profile',
+  'featured', 'stats', 'reference', 'reports', 'broadcasts', 'promotions', 'vouchers', 'messages', 'platform', 'platformteam', 'profile',
 ]
 export const ADMIN_TABS:  readonly AdminSubTab[] = [...ADMIN_TILES, ...ADMIN_ROWS]
 

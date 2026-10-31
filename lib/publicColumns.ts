@@ -49,6 +49,14 @@ export const PRIVATE_EVENT_COLUMNS = [
  */
 export const ORDERS_PAUSE_COLUMNS = ['orders_paused_at', 'orders_paused_until'] as const
 
+/**
+ * "À la une" picks (home_featured, supabase-home-featured.sql): public
+ * columns. created_by / deleted_by stay server-only; removed picks are hidden
+ * by the policy. The home page reads the card through GET /api/home/featured.
+ */
+export const HOME_FEATURED_COLUMNS = ['id', 'city', 'item_type', 'item_id', 'starts_on', 'ends_on', 'created_at'] as const
+export const PRIVATE_HOME_FEATURED_COLUMNS = ['created_by', 'deleted_at', 'deleted_by'] as const
+
 /** For supabase-js .select(). */
 export const PUBLIC_RESTAURANT_SELECT = PUBLIC_RESTAURANT_COLUMNS.join(', ')
 export const PUBLIC_EVENT_SELECT = PUBLIC_EVENT_COLUMNS.join(', ')
