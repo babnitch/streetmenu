@@ -162,20 +162,22 @@ const RLS_EXPECTATIONS: RlsExpectation[] = [
     why: 'a named customer’s vouchers and their redemption state' },
 
   // ── The leak. EXPECTED-RED until the phase named on each lands.
-  { table: 'orders',    current: 'open', target: 'locked', phase: 'Phase 2',
-    why: 'customer_name, customer_phone, manual_payment_phone, items, totals, '
-       + 'payment ids. No public read exists or should; the two browser readers '
-       + '(admin Orders panel, vendor dashboard) move to authenticated routes first' },
+  { table: 'orders',    current: 'locked', target: 'locked',
+    why: 'customer_name, customer_phone, delivery address, items, totals, '
+       + 'payment ids. No public read exists or should; the admin Orders panel '
+       + 'and the pro dashboard read through login-checked routes '
+       + '(supabase-public-reads.sql)' },
   { table: 'customers', current: 'locked', target: 'locked',
     why: 'name, phone, momo_phone, suspension_reason. Locked in Phase 1 '
        + '(supabase-customers-rls-lock.sql). The FK join that used to reach '
        + 'this table from the browser — the admin Restaurants owner block — '
        + 'reads GET /api/admin/restaurants instead. Anything that re-adds an '
        + 'anon read of customers, directly or through a join, fails here' },
-  { table: 'restaurants', current: 'open', target: 'restricted', phase: 'Phase 3a',
+  { table: 'restaurants', current: 'restricted', target: 'restricted',
     why: 'RESTRICTED, never locked: the home feed, search, detail page, checkout '
        + 'and promo banner are legitimately anon reads. But anon must not see '
-       + 'suspended / pending / soft-deleted rows, which public_active_read excludes' },
+       + 'suspended / pending / soft-deleted rows, which public_active_read excludes '
+       + '(and only the columns in lib/publicColumns.ts)' },
 
   // ── Public by design. Asserted so an over-eager lock is caught too — the
   //    failure mode of this whole project is locking one table too many and
@@ -207,7 +209,9 @@ async function rlsState(table: string): Promise<{
              detail: `service-role could not read it — ${s.error.message}` }
   }
   const service = s.count ?? 0
-  const a = await anonSb.from(table).select('*', { count: 'exact', head: true })
+  // 'id', not '*': the public key may only read some columns of a table
+  // (restaurants, events), and '*' is refused outright there.
+  const a = await anonSb.from(table).select('id', { count: 'exact', head: true })
   const anon = a.error ? 0 : (a.count ?? 0)
 
   if (service === 0) {
@@ -497,7 +501,7 @@ async function main(): Promise<void> {
       // is a fact rather than a projection, and so the day it lands the
       // change in anon_count is already predicted here.
       const { count: anonNow } = await anonSb.from('restaurants')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
       const { count: wouldSee } = await sb.from('restaurants')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null)
