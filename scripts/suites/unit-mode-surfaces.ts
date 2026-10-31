@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   })
 
   await step('bottom bar / header and badges follow the mode', () => {
-    assertEq(navFor('client', 'owner', true).map(d => d.key), ['restaurants', 'events', 'cart', 'account'], 'client bar (even for an owner)')
+    assertEq(navFor('client', 'owner', true).map(d => d.key), ['events', 'restaurants', 'cart', 'account'], 'client bar (even for an owner)')
     assert(!navFor('pro', 'owner', true).some(d => d.key === 'cart'), 'pro bar: no cart')
     assert(!navFor('client', 'owner', true).some(d => d.badgeKey === 'pendingOrders'), 'client bar: no pending-orders badge')
     assertEq([showProAlerts('client'), showProAlerts('pro')], [false, true], 'pro alerts in Pro only')

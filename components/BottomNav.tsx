@@ -12,7 +12,7 @@ import { navFor, navLabel, type NavDestination } from '@/lib/navConfig'
 // comes from lib/navConfig.ts, the single source both this bar and the
 // desktop TopNav render from, so the two can no longer drift:
 //
-//   client  🏠 Restaurants · 🎉 Loisirs · 🛒 Panier · 👤 Compte
+//   client  🎉 Loisirs · 🏠 Restaurants · 🛒 Panier · 👤 Compte
 //   pro     📦 Commandes · 🍽️ Menu · 🎉 Mes événements · 👤 Compte   (with a restaurant)
 //           🧰 Espace Pro · 🎉 Mes événements · 👤 Compte            (without)
 //

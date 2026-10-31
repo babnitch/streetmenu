@@ -218,7 +218,7 @@ export default function TopNav({ cta }: TopNavProps = {}) {
       )}
 
       {/* ── Desktop bar (md+), customer mode (N1) ──────────────────────────
-          ☰ · "Tchop & Ndjoka" · Restaurants · Loisirs (there is no bottom
+          ☰ · "Tchop & Ndjoka" · Loisirs · Restaurants (there is no bottom
           bar on desktop) · right: 📍 city · 🗺 map · 🛒 cart with its count.
           Everything else is in the ☰ menu. */}
       {isClientBar && (

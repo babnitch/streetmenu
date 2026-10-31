@@ -86,10 +86,17 @@ export function meetsRole(topRole: TeamRole | null, min?: TeamRole): boolean {
 }
 
 // ── Destination sets ────────────────────────────────────────────────────────
-// Order is the render order. Match bodies mirror the live BottomNav so
-// rewiring is a swap, not a behaviour change.
+// Order is the render order: Loisirs before Restaurants (2026-10-31),
+// on the phone bar and the desktop bar alike.
 
 const CLIENT_NAV: readonly NavDestination[] = [
+  {
+    // The Loisirs section (N1): events, and places (I4: /lieux).
+    key: 'events', icon: '🎉',
+    labelFr: 'Loisirs', labelEn: 'Leisure',
+    href: '/events',
+    match: p => p.startsWith('/events') || p.startsWith('/lieux'),
+  },
   {
     key: 'restaurants', icon: '🏠',
     // Same word in both locales — kept explicit rather than special-cased.
@@ -97,13 +104,6 @@ const CLIENT_NAV: readonly NavDestination[] = [
     // The list lives on /restaurants (L4); / is the landing page.
     href: '/restaurants',
     match: p => p.startsWith('/restaurant'),
-  },
-  {
-    // The Loisirs section (N1): events, and places (I4: /lieux).
-    key: 'events', icon: '🎉',
-    labelFr: 'Loisirs', labelEn: 'Leisure',
-    href: '/events',
-    match: p => p.startsWith('/events') || p.startsWith('/lieux'),
   },
   {
     key: 'cart', icon: '🛒',

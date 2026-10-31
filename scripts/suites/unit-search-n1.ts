@@ -23,7 +23,7 @@ async function main(): Promise<void> {
 
   await step('bottom bar: 4 tabs, Loisirs / Leisure', () => {
     const tabs = navFor('client', null, false)
-    assertEq(tabs.map(t => t.key), ['restaurants', 'events', 'cart', 'account'], 'no Search tab')
+    assertEq(tabs.map(t => t.key), ['events', 'restaurants', 'cart', 'account'], 'no Search tab')
     const loisirs = tabs.find(t => t.key === 'events')!
     assertEq(navLabel(loisirs, 'fr'), 'Loisirs', 'FR')
     assertEq(navLabel(loisirs, 'en'), 'Leisure', 'EN')
