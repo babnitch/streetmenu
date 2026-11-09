@@ -107,6 +107,7 @@ export const DELETE_ORDER: string[] = [
   'vouchers',
   'team_invitations',
   'restaurant_team',
+  'restaurant_change_notices',
   'restaurant_hours',
   'menu_items',
   'restaurants',

@@ -8,6 +8,10 @@ import {
   EVENT_DATE_COLUMNS, effectiveEndDate, validateEventRange, eventRangeErrorText, normalizeEndDate, eventDays,
 } from '@/lib/eventDate'
 import { hasActiveTiers } from '@/lib/eventSeats'
+import { eventAllows, moduleOffResponse } from '@/lib/modulesServer'
+import { getRefData } from '@/lib/refDataServer'
+import { chooseCity } from '@/lib/refChoice'
+import { sanitizeText } from '@/lib/sanitize'
 import { samePhone } from '@/lib/phone'
 import { normalizeTypedPhone, detectCountry, getCountryFromCity } from '@/lib/phoneValidation'
 
@@ -29,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const { data: event } = await supabaseAdmin
     .from('events')
-    .select(`id, organizer_id, submitted_by, organizer_name, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active`)
+    .select(`id, organizer_id, submitted_by, organizer_name, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active, city, price_is_from, whatsapp, managed_by_platform, booking_mode, event_status`)
     .eq('id', params.id)
     .maybeSingle()
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
@@ -50,6 +54,39 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ('neighborhood' in body) updates.neighborhood = body.neighborhood || null
   if (typeof body.category === 'string' && body.category)    updates.category = body.category
   if ('cover_photo' in body)  updates.cover_photo  = body.cover_photo || null
+  // A new poster: the old one's blur placeholder and admin photo credit go.
+  if ('cover_photo' in body && (updates.cover_photo ?? null) !== (event.cover_photo ?? null)) {
+    updates.blur_hash = typeof body.blur_hash === 'string' && body.blur_hash && updates.cover_photo ? body.blur_hash : null
+    updates.photo_credit = null
+  }
+
+  // What customers see about who runs it and where (the organiser edits them
+  // too): city (a city we serve), « À partir de », the organiser name shown,
+  // the public WhatsApp contact.
+  if ('city' in body) {
+    await getRefData()
+    const pick = chooseCity(body.city, undefined)
+    if (!pick.ok || pick.proposed) return NextResponse.json({ error: 'Ville invalide / Invalid city', field: 'city' }, { status: 400 })
+    updates.city = pick.city
+  }
+  if ('price_is_from' in body) updates.price_is_from = body.price_is_from === true
+  if ('organizer_name' in body) {
+    const n = sanitizeText(body.organizer_name, 80)
+    if (n.length < 2) return NextResponse.json({ error: 'Nom de l\'organisateur requis / Organiser name required', field: 'organizer_name' }, { status: 400 })
+    updates.organizer_name = n
+  }
+  if ('whatsapp' in body) {
+    const raw = typeof body.whatsapp === 'string' ? body.whatsapp.trim() : ''
+    if (!raw) updates.whatsapp = null
+    else {
+      // A local number ("6 77 12 34 56") takes the event's country; only a
+      // number typed with + / 00 says its own.
+      const intl = /^(\+|00)/.test(raw)
+      const r = normalizeTypedPhone(raw, (intl ? detectCountry(raw) : null) ?? getCountryFromCity(String(updates.city ?? event.city ?? '')))
+      if (!r.ok) return NextResponse.json({ error: r.error, field: 'whatsapp' }, { status: 400 })
+      updates.whatsapp = r.phone
+    }
+  }
 
   // Extra notification number (C3): '' clears it; otherwise typed any way and
   // normalised with the organiser's country. The same as the organiser's own
@@ -86,6 +123,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // Payment mode — free events are forced to reservation_only + WhatsApp off.
   const effectivePrice = 'ticket_price' in updates ? (updates.ticket_price as number | null) : event.ticket_price
   const isPaid = !!(effectivePrice && effectivePrice > 0)
+  // Paid tickets are a module (it costs money): an organiser without it can't
+  // switch a paid mode on. Admins can; an unchanged mode is never refused.
+  if (!isAdmin && isPaid && ('payment_mode' in body || body.whatsapp_payment_enabled === true)) {
+    const wantsPaid = ('payment_mode' in body && normalizeMode(body.payment_mode) !== 'reservation_only' && normalizeMode(body.payment_mode) !== normalizeMode(event.payment_mode))
+      || (body.whatsapp_payment_enabled === true && !event.whatsapp_payment_enabled)
+    if (wantsPaid && !(await eventAllows(event, 'paid_tickets'))) return moduleOffResponse('organizer', 'paid_tickets')
+  }
   if ('payment_mode' in body) {
     const mode = isPaid ? normalizeMode(body.payment_mode) : 'reservation_only'
     updates.payment_mode = mode
@@ -175,7 +219,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (updated.date !== event.date || effectiveEndDate(updated) !== effectiveEndDate(event)) changes.date = true
   if (('time' in updates && (updates.time ?? null) !== (event.time ?? null)) ||
       ('end_time' in updates && (updates.end_time ?? null) !== (event.end_time ?? null))) changes.time = true
-  if ('venue' in updates && (updates.venue ?? null) !== (event.venue ?? null)) changes.venue = true
+  if (('venue' in updates && (updates.venue ?? null) !== (event.venue ?? null)) ||
+      ('city' in updates && updates.city !== event.city)) changes.venue = true
   if ('ticket_price' in updates && (updates.ticket_price ?? null) !== (event.ticket_price ?? null)) {
     changes.price = { to: (updates.ticket_price as number | null) }
   }

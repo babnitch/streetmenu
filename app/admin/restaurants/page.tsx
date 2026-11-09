@@ -6,6 +6,8 @@ export const dynamic = 'force-dynamic'
 import RestaurantLinksForm from '@/components/RestaurantLinksForm'
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
+import AdminPhotoPanel from '@/components/AdminPhotoPanel'
+import AdminRestaurantNotices from '@/components/AdminRestaurantNotices'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
@@ -33,6 +35,7 @@ interface RestaurantRow {
   whatsapp: string
   logo_url: string
   image_url: string | null
+  photo_credit?: string | null
   is_open: boolean
   is_active: boolean
   owner_name: string
@@ -459,6 +462,9 @@ export default function AdminRestaurantsPage() {
         ))}
       </div>
 
+      {/* Owners' changes to name, address, pin, phones (live, no re-approval). */}
+      <AdminRestaurantNotices />
+
       {/* Platform switch (M6) + module requests (M5) — admins only. */}
       {canTogglePayment && <AdminPlatformSwitch side="restaurants" />}
       {canTogglePayment && (
@@ -561,6 +567,7 @@ export default function AdminRestaurantsPage() {
               onToggleWhatsapp={toggleRestaurantWhatsapp}
               onEditModules={r => setModulesFor({ restaurant: r, mode: 'edit' })}
               onContactsChanged={fetchRestaurants}
+              onPhotoSaved={(id, row) => setRestaurants(prev => prev.map(x => x.id === id ? { ...x, ...row } as RestaurantRow : x))}
             />
           ))}
         </div>
@@ -648,7 +655,7 @@ function RestaurantCard({
   actionLoading,
   canTogglePayment,
   onApprove, onReject, onSuspend, onReactivate, onDelete, onUndoDelete, onSetMode, onToggleWhatsapp, onEditModules,
-  onContactsChanged,
+  onContactsChanged, onPhotoSaved,
 }: {
   restaurant: RestaurantRow
   tab: Tab
@@ -664,11 +671,13 @@ function RestaurantCard({
   onToggleWhatsapp: (r: RestaurantRow, next: boolean) => void
   onEditModules: (r: RestaurantRow) => void
   onContactsChanged: () => void
+  onPhotoSaved: (id: string, row: Record<string, unknown>) => void
 }) {
   const bi = useBi()
   const [contactsOpen, setContactsOpen] = useState(false)
   const [menuFilesOpen, setMenuFilesOpen] = useState(false)
   const [linksOpen, setLinksOpen] = useState(false)
+  const [photoOpen, setPhotoOpen] = useState(false)
   const within30Days = r.deleted_at
     ? new Date(r.deleted_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     : false
@@ -769,6 +778,27 @@ function RestaurantCard({
             <span aria-hidden="true">{contactsOpen ? '▲' : '▼'}</span>
           </button>
           {contactsOpen && <AdminRestaurantContacts restaurantId={r.id} onChanged={onContactsChanged} />}
+        </div>
+      )}
+
+      {/* Photos of an existing restaurant: cover, logo, credit. */}
+      {canTogglePayment && !r.deleted_at && (
+        <div className="border-t border-divider bg-surface">
+          <button type="button" onClick={() => setPhotoOpen(o => !o)} aria-expanded={photoOpen}
+            className="w-full px-5 py-3 flex items-center justify-between text-xs font-semibold text-ink-secondary hover:bg-surface-muted">
+            <span>📷 {bi('Photo', 'Photo')}</span>
+            <span aria-hidden="true">{photoOpen ? '▲' : '▼'}</span>
+          </button>
+          {photoOpen && (
+            <div className="px-5 pb-4">
+              <AdminPhotoPanel target="restaurants" id={r.id} credit={r.photo_credit ?? null}
+                onSaved={row => onPhotoSaved(r.id, row)}
+                slots={[
+                  { field: 'image_url', label: bi('Photo de couverture', 'Cover photo'), url: r.image_url || null, kind: 'restaurant_hero' },
+                  { field: 'logo_url', label: bi('Logo', 'Logo'), url: r.logo_url || null, kind: 'restaurant_logo' },
+                ]} />
+            </div>
+          )}
         </div>
       )}
 

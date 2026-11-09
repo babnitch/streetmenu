@@ -29,15 +29,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
 
   if (!isAdmin) {
-    // Direct ownership or owner via team. Manager + staff aren't allowed
-    // to change opening hours.
+    // Direct ownership, or owner / manager via team: hours are daily
+    // operations (like the pause and the daily offers). Staff can't.
     const { data: r } = await supabaseAdmin
       .from('restaurants').select('id').eq('id', params.id).eq('customer_id', session.id).maybeSingle()
     if (!r) {
       const { data: team } = await supabaseAdmin
         .from('restaurant_team').select('role')
         .eq('restaurant_id', params.id).eq('customer_id', session.id)
-        .eq('status', 'active').eq('role', 'owner').maybeSingle()
+        .eq('status', 'active').in('role', ['owner', 'manager']).maybeSingle()
       if (!team) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
     }
   }

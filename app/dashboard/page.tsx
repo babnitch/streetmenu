@@ -12,6 +12,7 @@ import ValidatePanel from '@/components/ValidatePanel'
 import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
+import RestaurantInfoPanel from '@/components/pro/RestaurantInfoPanel'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -1152,6 +1153,16 @@ export default function DashboardPage() {
 
           {tab === 'settings' && effectiveRole === 'owner' && (
             <div className="space-y-3">
+              {/* Owner: everything customers see (photos, name, address, pin, numbers…). */}
+              <RestaurantInfoPanel
+                key={selectedRestaurant.id}
+                restaurant={selectedRestaurant}
+                onChange={updated => {
+                  const merged = { ...selectedRestaurant, ...updated }
+                  setSelectedRestaurant(merged)
+                  setRestaurants(prev => prev.map(r => r.id === merged.id ? merged : r))
+                }}
+              />
               <OpeningHoursPanel restaurant={selectedRestaurant} />
               <PrepTimePanel
                 restaurant={selectedRestaurant}

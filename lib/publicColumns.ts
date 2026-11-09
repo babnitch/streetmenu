@@ -17,6 +17,7 @@ export const PUBLIC_RESTAURANT_COLUMNS = [
   'prep_time_min', 'prep_time_max', 'delivery_enabled', 'delivery_fee', 'delivery_extra_min',
   'modules', 'menu_type', 'managed_by_platform', 'riders_mode',
   'instagram_url', 'facebook_url', 'tiktok_url', 'website_url',
+  'photo_credit',
 ] as const
 
 /** Server-only restaurant columns: never readable with the public key. */
@@ -32,7 +33,7 @@ export const PUBLIC_EVENT_COLUMNS = [
   'whatsapp', 'organizer_name', 'is_active', 'event_status', 'is_featured', 'created_at', 'updated_at',
   'restaurant_id', 'place_id', 'payment_enabled', 'payment_mode', 'whatsapp_payment_enabled',
   'ticket_price', 'max_tickets', 'tickets_sold', 'requires_confirmation', 'reservations_open',
-  'managed_by_platform', 'booking_mode', 'info_link',
+  'managed_by_platform', 'booking_mode', 'info_link', 'photo_credit',
 ] as const
 
 /** Server-only event columns: never readable with the public key. */

@@ -113,3 +113,18 @@ export async function wouldStripLastOwner(
   }
   return (owners ?? []).length <= 1
 }
+
+// ── Owner only ───────────────────────────────────────────────────────────────
+// The restaurant's owner: restaurants.customer_id (the implicit owner) or an
+// active restaurant_team row with role 'owner'. Managers and staff are not.
+// Used by the owner-only edits: the restaurant's details and photos.
+export async function isRestaurantOwner(restaurantId: string, customerId: string): Promise<boolean> {
+  const { data: direct } = await supabaseAdmin
+    .from('restaurants').select('id').eq('id', restaurantId).eq('customer_id', customerId).maybeSingle()
+  if (direct) return true
+  const { data: team } = await supabaseAdmin
+    .from('restaurant_team').select('role')
+    .eq('restaurant_id', restaurantId).eq('customer_id', customerId)
+    .eq('status', 'active').eq('role', 'owner').maybeSingle()
+  return !!team
+}

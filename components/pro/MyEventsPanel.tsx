@@ -1,4 +1,5 @@
 'use client'
+import { visibleCities } from '@/lib/cities'
 import { useRefData } from '@/lib/useRefData'
 import { eventCategories } from '@/lib/categoryLabels'
 import { todayInDouala } from '@/lib/weekend'
@@ -33,6 +34,7 @@ export interface MyEventsPanelEvent {
   ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
   payment_enabled: boolean; payment_mode?: string | null; whatsapp_payment_enabled?: boolean
   organizer_name: string | null; event_status: string | null
+  price_is_from?: boolean | null; whatsapp?: string | null
   is_active: boolean
   requires_confirmation?: boolean
   reservations_open?:     boolean
@@ -62,7 +64,9 @@ interface EventEditForm {
   ticket_price: string; max_tickets: string
   payment_mode: PaymentMode; whatsapp_payment_enabled: boolean
   cover_photo: string
+  blur_hash: string
   notify_phone: string
+  city: string; price_is_from: boolean; organizer_name: string; whatsapp: string
 }
 
 export default function MyEventsPanel({
@@ -281,6 +285,11 @@ export default function MyEventsPanel({
       whatsapp_payment_enabled: !!selected.whatsapp_payment_enabled,
       cover_photo:  selected.cover_photo ?? '',
       notify_phone: selected.notify_phone ? formatPhoneDisplay(selected.notify_phone) : '',
+      blur_hash:    '',
+      city:         selected.city ?? '',
+      price_is_from: !!selected.price_is_from,
+      organizer_name: selected.organizer_name ?? '',
+      whatsapp:     selected.whatsapp ?? '',
     })
     setEditError(null)
     setEditing(true)
@@ -300,7 +309,7 @@ export default function MyEventsPanel({
       const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
       if (r.ok) {
         const j = await r.json()
-        if (typeof j?.url === 'string') setEdit('cover_photo', j.url)
+        if (typeof j?.url === 'string') { setEdit('cover_photo', j.url); setEdit('blur_hash', typeof j.blur_hash === 'string' ? j.blur_hash : '') }
       }
     } finally { setEditPhotoUploading(false) }
   }
@@ -339,7 +348,12 @@ export default function MyEventsPanel({
           payment_mode: editForm.payment_mode,
           whatsapp_payment_enabled: editForm.whatsapp_payment_enabled,
           cover_photo:  editForm.cover_photo || null,
+          ...(editForm.blur_hash ? { blur_hash: editForm.blur_hash } : {}),
           notify_phone: editForm.notify_phone.trim(),
+          ...(editForm.city ? { city: editForm.city } : {}),
+          price_is_from: editForm.price_is_from,
+          ...(editForm.organizer_name.trim() ? { organizer_name: editForm.organizer_name.trim() } : {}),
+          whatsapp:     editForm.whatsapp.trim(),
         }),
       })
       const d = await res.json().catch(() => ({}))
@@ -793,6 +807,21 @@ export default function MyEventsPanel({
                   </label>
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Ville', 'City')}</span>
+                    <select value={editForm.city} onChange={e => setEdit('city', e.target.value)}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm">
+                      {Array.from(new Set([editForm.city, ...visibleCities()].filter(Boolean))).map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink-secondary">{bi('Organisateur affiché', 'Organiser shown')}</span>
+                    <input value={editForm.organizer_name} onChange={e => setEdit('organizer_name', e.target.value)} maxLength={80}
+                      className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  </label>
+                </div>
+
                 <label className="block">
                   <span className="text-xs font-semibold text-ink-secondary">{bi('Catégorie', 'Category')}</span>
                   <select value={editForm.category} onChange={e => setEdit('category', e.target.value)}
@@ -870,6 +899,18 @@ export default function MyEventsPanel({
                     <input type="file" accept="image/*" onChange={handleEditPhoto} className="text-xs flex-1" />
                     {editPhotoUploading && <span className="text-xs text-ink-tertiary">…</span>}
                   </div>
+                </label>
+
+                <label className="flex items-center gap-2 text-sm text-ink-primary">
+                  <input type="checkbox" checked={editForm.price_is_from} onChange={e => setEdit('price_is_from', e.target.checked)} className="w-4 h-4 accent-brand" />
+                  {bi('Prix « À partir de » (plusieurs prix)', 'Price "From" (several prices)')}
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-ink-secondary">{bi('WhatsApp de contact (public, facultatif)', 'Contact WhatsApp (public, optional)')}</span>
+                  <input value={editForm.whatsapp} onChange={e => setEdit('whatsapp', e.target.value)} inputMode="tel" placeholder="6 70 00 00 00"
+                    className="mt-1 w-full bg-surface-muted border border-divider rounded-xl px-3 py-2 text-sm" />
+                  <span className="block text-[11px] text-ink-tertiary mt-1">{bi('Affiché sur la page de l\'événement.', 'Shown on the event page.')}</span>
                 </label>
 
                 <label className="block">

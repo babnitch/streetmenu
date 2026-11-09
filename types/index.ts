@@ -26,6 +26,8 @@ export interface Restaurant {
   suspended_at?: string | null
   suspended_by?: string | null
   image_url?: string | null
+  /** Admin-only credit shown on the photo (supabase-photo-credit.sql). */
+  photo_credit?: string | null
   // Payments (added via supabase-payments.sql)
   payment_enabled?: boolean
   pawapay_merchant_id?: string | null
@@ -166,6 +168,8 @@ export interface Event {
   category: string
   price: number | null
   cover_photo: string
+  /** Admin-only credit shown on the poster (supabase-photo-credit.sql). */
+  photo_credit?: string | null
   whatsapp: string
   organizer_name: string
   is_active: boolean

@@ -13,6 +13,7 @@ import { contactGreeting, type MenuFile } from '@/lib/menuFiles'
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
+import PhotoCredit from '@/components/PhotoCredit'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { PUBLIC_RESTAURANT_SELECT } from '@/lib/publicColumns'
@@ -212,8 +213,11 @@ export default function MenuPage() {
       <div className="relative h-52 md:h-64 bg-gradient-to-br from-brand-light to-brand-badge md:max-w-2xl md:mx-auto md:mt-4 md:rounded-2xl">
         <div className="absolute inset-0 md:rounded-2xl overflow-hidden">
           {(restaurant.image_url || restaurant.logo_url) ? (
-            <SafeImage src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority
-              fallback={<GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} />} />
+            <>
+              <SafeImage src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority
+                fallback={<GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} />} />
+              <PhotoCredit credit={restaurant.photo_credit} url={null} />
+            </>
           ) : (
             // I1: no photo → the generated cover.
             <GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} />

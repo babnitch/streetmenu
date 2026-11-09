@@ -3,8 +3,8 @@
 // New coverage. Three routes, three different gates — the whole point of the
 // suite is that they are deliberately NOT the same:
 //
-//   POST /hours     owner only.  Manager and staff excluded: the schedule is
-//                   a commercial decision.
+//   POST /hours     owner and manager (daily operations, like the pause and
+//                   the daily offers). Staff excluded.
 //   POST /open      owner, manager AND staff. "We're open right now" is
 //                   routine floor operation for whoever is on shift.
 //   POST /override  owner and manager. Staff excluded: a manual override is
@@ -165,11 +165,12 @@ async function main(): Promise<void> {
       assertEq(hhmm(byDay.get(4)!.close_time), '22:00', 'close_time defaults to 22:00')
     })
 
-    await step('#31 hours are owner-only — manager and staff are refused', async () => {
+    await step('#31 hours: owner and manager — staff and outsiders are refused', async () => {
+      assertEq((await postHours(restA.id, week('01:00', '02:00'), cookies.manager)).status, 200,
+        'manager → 200 (daily operations)')
+      assertEq((await storedHours(restA.id)).length > 0, true, 'manager change saved')
       const before = await storedHours(restA.id)
 
-      assertEq((await postHours(restA.id, week('01:00', '02:00'), cookies.manager)).status, 403,
-        'manager → 403 (schedule is a commercial decision)')
       assertEq((await postHours(restA.id, week('01:00', '02:00'), cookies.staff)).status, 403,
         'staff → 403')
       assertEq((await postHours(restA.id, week('01:00', '02:00'), cookies.outsider)).status, 403,

@@ -13,16 +13,16 @@ import { getPlatformStatus, type PlatformStatus } from '@/lib/platformSwitch'
 import { todayInDouala } from '@/lib/weekend'
 import { featuredHref, type FeaturedCard, type FeaturedSource, type FeaturedType } from '@/lib/homeFeatured'
 
-const EVENT_COLS = `id, title, city, venue, cover_photo, is_active, is_featured, event_status, booking_mode, reservations_open, ${EVENT_DATE_COLUMNS}`
-const RESTAURANT_COLS = 'id, name, city, neighborhood, image_url, logo_url, is_active, status, deleted_at, modules'
+const EVENT_COLS = `id, title, city, venue, cover_photo, photo_credit, is_active, is_featured, event_status, booking_mode, reservations_open, ${EVENT_DATE_COLUMNS}`
+const RESTAURANT_COLS = 'id, name, city, neighborhood, image_url, logo_url, photo_credit, is_active, status, deleted_at, modules'
 const PLACE_COLS = 'id, title_fr, title_en, city, area, cover_url, photo_credit, status'
 
 type EventRow = EventWhen & {
-  id: string; title: string; city: string; venue: string | null; cover_photo: string | null
+  id: string; title: string; city: string; venue: string | null; cover_photo: string | null; photo_credit?: string | null
   is_active: boolean; is_featured: boolean | null; event_status: string | null; booking_mode: string | null; reservations_open: boolean | null
 }
 type RestaurantRow = {
-  id: string; name: string; city: string; neighborhood: string | null; image_url: string | null; logo_url: string | null
+  id: string; name: string; city: string; neighborhood: string | null; image_url: string | null; logo_url: string | null; photo_credit?: string | null
   is_active: boolean; status: string; deleted_at: string | null; modules: string[] | null
 }
 type PlaceRow = {
@@ -43,7 +43,7 @@ function eventCard(e: EventRow, source: FeaturedSource): FeaturedCard {
   const bookable = e.booking_mode !== 'info' && e.reservations_open !== false
   return {
     type: 'event', id: e.id, title_fr: e.title, title_en: null,
-    image: photo(e.cover_photo), credit: null, href: featuredHref('event', e.id),
+    image: photo(e.cover_photo), credit: photo(e.cover_photo) ? e.photo_credit ?? null : null, href: featuredHref('event', e.id),
     action: bookable ? 'book' : 'view',
     when: { date: e.date, end_date: e.end_date, time: e.time ?? null, end_time: e.end_time ?? null },
     area: e.venue, source,
@@ -70,7 +70,7 @@ export async function resolveFeaturedItem(
     const paused = takesOrders(r) ? (await readOrdersPause(r.id)).paused : false
     return {
       type: 'restaurant', id: r.id, title_fr: r.name, title_en: null,
-      image: photo(r.image_url) ?? photo(r.logo_url), credit: null, href: featuredHref('restaurant', r.id),
+      image: photo(r.image_url) ?? photo(r.logo_url), credit: (photo(r.image_url) ?? photo(r.logo_url)) ? r.photo_credit ?? null : null, href: featuredHref('restaurant', r.id),
       action: takesOrders(r) && !paused ? 'order' : 'view', when: null, area: r.neighborhood, source: 'pick',
     }
   }

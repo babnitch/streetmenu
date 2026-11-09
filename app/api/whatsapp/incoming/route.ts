@@ -11,6 +11,7 @@ import { refList } from '@/lib/refData'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, guessLang, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
+import { isRestaurantOwner } from '@/lib/vendorAccess'
 import { testGuardPrefix } from '@/lib/testGuard'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import { sendRestaurantMessage } from '@/lib/directMessaging'
@@ -1094,12 +1095,19 @@ async function handleSession(
       return ok()
     }
 
-    // Find this vendor's restaurant
-    const { data: restaurant } = await supabaseAdmin
-      .from('restaurants').select('id, name')
-      .or(`whatsapp.eq.${phone},whatsapp.eq.whatsapp:${phone}`)
-      .is('deleted_at', null)
-      .limit(1).maybeSingle()
+    // The restaurant chosen when the owner sent "photo" — checked again here.
+    const rid = typeof data?.restaurant_id === 'string' ? data.restaurant_id : null
+    const cid = typeof data?.customer_id === 'string' ? data.customer_id : null
+    const { data: restaurant } = rid
+      ? await supabaseAdmin.from('restaurants').select('id, name, image_url').eq('id', rid).is('deleted_at', null).maybeSingle()
+      : { data: null }
+    if (!restaurant || !cid || !(await isRestaurantOwner(restaurant.id, cid))) {
+      await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
+      await sendWhatsApp(from, pickLang(
+        '🙏 Seul le propriétaire du restaurant peut changer sa photo. Envoyez "photo" pour recommencer.',
+        '🙏 Only the restaurant\'s owner can change its photo. Send "photo" to start again.', puLang))
+      return ok()
+    }
 
     const media = await downloadTwilioMedia(mediaUrl)
     const imageUrl = media
@@ -1108,12 +1116,19 @@ async function handleSession(
 
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
 
-    if (!imageUrl || !restaurant) {
+    if (!imageUrl) {
       await sendWhatsApp(from, pickLang('❌ Erreur lors de l\'envoi. Réessayez.', '❌ Error. Please retry.', puLang))
       return ok()
     }
 
-    await supabaseAdmin.from('restaurants').update({ image_url: imageUrl }).eq('id', restaurant.id)
+    // A new photo: no blur placeholder of the old one, no admin credit.
+    await supabaseAdmin.from('restaurants').update({ image_url: imageUrl, blur_hash: null, photo_credit: null }).eq('id', restaurant.id)
+    await writeAudit({
+      action: 'restaurant_photo_changed', targetType: 'restaurant', targetId: restaurant.id,
+      performedBy: cid, performedByType: 'owner',
+      previousData: { image_url: restaurant.image_url ?? null },
+      metadata: { field: 'image_url', old: restaurant.image_url ?? null, new: imageUrl, name: restaurant.name, via: 'whatsapp' },
+    })
     await sendWhatsApp(from, pickLang(
       `✅ Photo de *${restaurant.name}* mise à jour! 📸\nVoir ici:\n${BASE_URL}/restaurant/${restaurant.id}`,
       `✅ Photo of *${restaurant.name}* updated! 📸\nSee it here:\n${BASE_URL}/restaurant/${restaurant.id}`, puLang))
@@ -1992,8 +2007,17 @@ async function handleVendor(
 
   // ── START PHOTO-UPDATE STATE ─────────────────────────────────────────────
   if (cmd === 'photo restaurant' || cmd === 'photo profil' || cmd === 'profile photo' || cmd === 'photo') {
+    // Owner only — the same rule as the website (/api/restaurants/[id]/image):
+    // the sender's account owns the restaurant (customer_id or team owner).
+    const { data: me } = await supabaseAdmin.from('customers').select('id').eq('phone', phone).maybeSingle()
+    if (!me || !(await isRestaurantOwner(restaurant.id, me.id as string))) {
+      await sendWhatsApp(from, pickLang(
+        `🙏 Seul le propriétaire de *${restaurant.name}* peut changer sa photo. Demandez-lui de l'envoyer depuis son numéro.`,
+        `🙏 Only the owner of *${restaurant.name}* can change its photo. Please ask them to send it from their number.`, lang))
+      return ok()
+    }
     await supabaseAdmin.from('signup_sessions').upsert({
-      phone, user_type: 'photo_update', step: 1, data: {},
+      phone, user_type: 'photo_update', step: 1, data: { restaurant_id: restaurant.id, customer_id: me.id },
       expires_at: sessionExpiry(5), // 5-minute window
     })
     await sendWhatsApp(from, pickLang(

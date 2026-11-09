@@ -275,6 +275,8 @@ async function main(): Promise<void> {
         ['events',             'end_date',                 'supabase-event-date-range.sql'],
         ['events',             'end_time',                 'supabase-event-date-range.sql'],
         ['events',             'effective_end_date',       'supabase-event-date-range.sql'],
+        ['restaurants',        'photo_credit',             'supabase-photo-credit.sql'],
+        ['events',             'photo_credit',             'supabase-photo-credit.sql'],
       ]
       for (const [table, column, origin] of columns) {
         const r = await columnExists(table, column)

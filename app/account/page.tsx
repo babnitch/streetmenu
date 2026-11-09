@@ -129,6 +129,7 @@ interface VendorRestaurant {
   neighborhood: string
   cuisine_type: string
   image_url:    string | null
+  logo_url?:    string | null
   is_active:    boolean
   status:       string
   deleted_at:   string | null
@@ -728,25 +729,30 @@ export default function AccountPage() {
     }
   }
 
-  async function handleRestaurantPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  // Owner: the cover photo (image_url) or the logo (logo_url); no file = remove.
+  async function handleRestaurantPhotoUpload(e: React.ChangeEvent<HTMLInputElement>, field: 'image_url' | 'logo_url' = 'image_url', remove = false) {
     const file = e.target.files?.[0]
-    if (!file || !activeRestId) return
+    if ((!file && !remove) || !activeRestId) return
     setUploadingPhoto(true)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('kind', 'restaurant_hero')
-      fd.append('pathPrefix', 'restaurants')
-      const upRes = await fetch('/api/upload/image', { method: 'POST', body: fd })
-      if (!upRes.ok) { showToast(bi('Erreur upload', 'Upload error'), false); return }
-      const upJson = await upRes.json()
+      let payload: Record<string, unknown> = { [field]: null }
+      if (file) {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('kind', field === 'logo_url' ? 'restaurant_logo' : 'restaurant_hero')
+        fd.append('pathPrefix', 'restaurants')
+        const upRes = await fetch('/api/upload/image', { method: 'POST', body: fd })
+        if (!upRes.ok) { showToast(bi('Erreur upload', 'Upload error'), false); return }
+        const upJson = await upRes.json()
+        payload = { [field]: upJson.url, blur_hash: upJson.blur_hash }
+      }
       const res = await fetch(`/api/restaurants/${activeRestId}/image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: upJson.url, blur_hash: upJson.blur_hash }),
+        body: JSON.stringify(payload),
       })
       if (res.ok) {
-        showToast(bi('✅ Photo mise à jour', 'Photo updated'))
+        showToast(remove ? bi('Photo retirée', 'Photo removed') : bi('✅ Photo mise à jour', 'Photo updated'))
         await loadMyRestaurants()
       } else {
         const d = await res.json()
@@ -754,7 +760,7 @@ export default function AccountPage() {
       }
     } finally {
       setUploadingPhoto(false)
-      e.target.value = ''
+      if (e.target) e.target.value = ''
     }
   }
 
@@ -1456,6 +1462,26 @@ export default function AccountPage() {
                                 <h2 className="font-bold text-ink-primary text-lg">{activeRest.name}</h2>
                                 <p className="text-sm text-ink-secondary">{activeRest.city}{activeRest.neighborhood ? ` · ${activeRest.neighborhood}` : ''}</p>
                                 <p className="text-xs text-ink-tertiary mt-0.5">{activeRest.cuisine_type} · {bi('Rôle', 'Role')}: {bi(...roleLabel(activeRest.teamRole))}</p>
+                                {activeRest.teamRole === 'owner' && !activeRest.deleted_at && (
+                                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                    <div className="relative w-9 h-9 rounded-lg overflow-hidden bg-brand-light flex-shrink-0">
+                                      {activeRest.logo_url
+                                        ? <Image src={activeRest.logo_url} alt={bi('Logo', 'Logo')} fill sizes="36px" className="object-cover" />
+                                        : <span className="absolute inset-0 flex items-center justify-center text-[10px] text-ink-tertiary">{bi('Logo', 'Logo')}</span>}
+                                    </div>
+                                    <label className="text-xs font-semibold px-2.5 py-1 rounded-full border border-divider bg-white cursor-pointer hover:bg-surface-muted">
+                                      {uploadingPhoto ? '…' : activeRest.logo_url ? bi('🏷️ Changer le logo', '🏷️ Change the logo') : bi('🏷️ Ajouter un logo', '🏷️ Add a logo')}
+                                      <input type="file" accept="image/*" className="hidden" disabled={uploadingPhoto}
+                                        onChange={e => void handleRestaurantPhotoUpload(e, 'logo_url')} />
+                                    </label>
+                                    {activeRest.logo_url && (
+                                      <button type="button" disabled={uploadingPhoto} className="text-xs text-ink-tertiary underline"
+                                        onClick={e => { if (confirm(bi('Retirer le logo ?', 'Remove the logo?'))) void handleRestaurantPhotoUpload(e as unknown as React.ChangeEvent<HTMLInputElement>, 'logo_url', true) }}>
+                                        {bi('Retirer', 'Remove')}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                               <StatusBadge status={activeRest.deleted_at ? 'deleted' : activeRest.status} />
                             </div>

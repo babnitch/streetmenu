@@ -19,6 +19,7 @@ import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 import { AdminEventCreate, AdminEventOrganizer } from '@/components/AdminEventManaged'
 import AdminEventCandidates from '@/components/AdminEventCandidates'
 import AdminEventPaste from '@/components/AdminEventPaste'
+import AdminPhotoPanel from '@/components/AdminPhotoPanel'
 import type { EventCandidate } from '@/lib/discovery/candidates'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
@@ -578,6 +579,18 @@ function EventRow({
               <p className="text-xs text-ink-tertiary font-mono">{event.whatsapp}</p>
             )}
           </div>
+
+          {/* Poster of an existing event (managed or an organiser's) + credit. */}
+          {canTogglePayment && event.event_status !== 'rejected' && (
+            <details className="mt-2 rounded-xl border border-divider bg-surface px-3 py-2 text-xs">
+              <summary className="cursor-pointer font-semibold text-ink-secondary">📷 {bi('Affiche', 'Poster')}</summary>
+              <div className="mt-2">
+                <AdminPhotoPanel target="events" id={event.id} credit={event.photo_credit ?? null}
+                  onSaved={() => onOrganizerChanged()}
+                  slots={[{ field: 'cover_photo', label: bi('Affiche', 'Poster'), url: event.cover_photo || null, kind: 'event_poster' }]} />
+              </div>
+            </details>
+          )}
 
           {/* N3: listed by us, no organiser yet. */}
           {canTogglePayment && !event.organizer_id && event.managed_by_platform && (

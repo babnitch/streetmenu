@@ -541,8 +541,13 @@ export default function EventDetailPage() {
           {t('evt.back')}
         </Link>
         <div className="mt-3 flex gap-4 items-start">
-          <EventPoster src={event.cover_photo} title={event.title} category={event.category}
-            className="w-32 sm:w-40 aspect-[4/5] flex-shrink-0 shadow-card" sizes="160px" priority />
+          <div className="w-32 sm:w-40 flex-shrink-0">
+            <EventPoster src={event.cover_photo} title={event.title} category={event.category}
+              className="w-full aspect-[4/5] shadow-card" sizes="160px" priority />
+            {event.cover_photo && event.photo_credit && (
+              <p className="mt-1 text-[10px] leading-tight text-ink-tertiary">{bi('Photo', 'Photo')} : {event.photo_credit}</p>
+            )}
+          </div>
           <div className="min-w-0 pt-1">
             <span className="inline-block bg-brand text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full">
               {categoryLabel(event.category, locale)}
