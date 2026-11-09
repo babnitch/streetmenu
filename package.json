@@ -14,6 +14,7 @@
     "test:ui": "tsx scripts/ui/smoke-browser.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
     "@supabase/supabase-js": "^2.103.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",

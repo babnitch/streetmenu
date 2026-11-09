@@ -10,6 +10,11 @@
 //     - publish = the admin create with candidate_id: info only, the ticket
 //       link, NO poster even if one is sent; the candidate is linked and
 //       audited; a second publish is refused
+//   Paste (« Coller une annonce »): admins only; empty / too long / bad link
+//     → 400; a social link alone → 400 (never opened); without
+//     ANTHROPIC_API_KEY → 503; with it, a real Haiku read fills the form and
+//     records the token use (not the text); publishing with origin 'paste'
+//     never keeps a poster
 // Per-run test city; candidates written straight to the table.
 
 import { sb, testName, RUN_ID } from '../testkit/env'
@@ -125,6 +130,52 @@ async function main(): Promise<void> {
       assertEq(again.status, 409, 'second publish refused')
       const gone = await api<EventBody>('/api/admin/events', { cookie: admin, body: { ...form, candidate_id: deleted } })
       assertEq(gone.status, 404, 'deleted candidate → 404')
+    })
+
+    await step('paste: checks before any AI call', async () => {
+      const ex = (body: Record<string, unknown>, cookie: string | undefined = admin) => api<{ error?: string }>('/api/admin/events/extract', { cookie, body })
+      assertEq((await ex({ text: 'x' }, '')).status, 401, 'no session → 401')
+      assertEq((await ex({ text: 'x' }, moderator)).status, 401, 'moderator → 401')
+      assertEq((await ex({})).status, 400, 'nothing pasted → 400')
+      assertEq((await ex({ text: 'x'.repeat(8001) })).status, 400, 'too long → 400')
+      assertEq((await ex({ link: 'javascript:alert(1)' })).status, 400, 'bad link → 400')
+      const ig = await ex({ link: 'https://www.instagram.com/p/abc123/' })
+      assert(ig.status === 400 && /jamais ouvert/.test(ig.body.error ?? ''), 'Instagram link alone → 400, never opened')
+      const other = await ex({ link: 'https://unknown-blog.example/event' })
+      assert(other.status === 400 && /non approuvé/.test(other.body.error ?? ''), 'unapproved site alone → 400, not opened')
+    })
+
+    await step('paste: reading a post', async () => {
+      const post = `🎶 GRAND CONCERT ${RUN_ID} 🎶\nLe ${futureDateISO(20)} à 20h au Bôj Bar, Douala.\nEntrée : 5 000 F / VIP 10 000 F\nInfos & résa : 6 77 12 34 56\nOrganisé par Kmer Prod.`
+      const { count: before } = await sb.from('ai_usage').select('id', { count: 'exact', head: true }).eq('feature', 'event_paste')
+      const r = await api<{ form?: Record<string, unknown>; organiser_phone?: string; notes?: string[]; error?: string }>('/api/admin/events/extract',
+        { cookie: admin, body: { text: post, link: 'https://www.instagram.com/p/abc123/' } })
+      if (r.status === 503) { warn('ANTHROPIC_API_KEY not set on the test server', 'the AI read itself is not checked'); return }
+      assertEq(r.status, 200, `read (${r.raw.slice(0, 120)})`)
+      const f = r.body.form ?? {}
+      assertEq([f.city, f.date, f.time, f.price, f.price_is_from, f.booking_mode], ['Douala', futureDateISO(20), '20:00', '5000', true, 'info'], 'facts read')
+      assert(String(f.venue ?? '').includes('Bôj') && String(f.title ?? '').toLowerCase().includes('concert'), 'venue + title')
+      assertEq(r.body.organiser_phone, '+237677123456', 'contact found, kept apart')
+      assert((r.body.notes ?? []).includes('social_link_not_opened'), 'Instagram link noted as not opened')
+      const { data: usage } = await sb.from('ai_usage').select('*').eq('feature', 'event_paste').order('created_at', { ascending: false }).limit(1)
+      const { count: after } = await sb.from('ai_usage').select('id', { count: 'exact', head: true }).eq('feature', 'event_paste')
+      assertEq((after ?? 0) - (before ?? 0), 1, 'one token-use row')
+      assert(usage?.[0]?.model === 'claude-haiku-5-5' && usage[0].input_tokens > 0 && usage[0].ok === true, 'model + tokens recorded')
+      assert(!JSON.stringify(usage?.[0] ?? {}).includes('GRAND CONCERT'), 'pasted text not stored')
+      if (usage?.[0]?.id) track('ai_usage', usage[0].id)
+    })
+
+    await step('paste: publishing keeps no poster', async () => {
+      const r = await api<EventBody>('/api/admin/events', { cookie: admin, body: {
+        title: testName('pasted'), category: 'Concert', city: CITY, date: futureDateISO(21), booking_mode: 'info',
+        info_link: 'https://www.instagram.com/p/abc123/', origin: 'paste', cover_photo: 'https://example.com/poster.jpg',
+      } })
+      assertEq(r.status, 200, 'created')
+      track('events', r.body.event!.id)
+      const { data: ev } = await sb.from('events').select('cover_photo, info_link').eq('id', r.body.event!.id).single()
+      assertEq([ev?.cover_photo, ev?.info_link], [null, 'https://www.instagram.com/p/abc123/'], 'no poster; the link is only a link')
+      const { data: au } = await sb.from('audit_log').select('metadata').eq('action', 'event_created_by_admin').eq('target_id', r.body.event!.id).single()
+      assertEq((au?.metadata as Record<string, unknown>)?.origin, 'paste', 'audit says pasted')
     })
 
     await step('D2: organiser message', () => {

@@ -111,6 +111,22 @@ async function addRunErrors(runId: string, errors: string[]): Promise<void> {
   await supabaseAdmin.from('event_discovery_runs').update({ errors: [...prev, ...errors].slice(-100) }).eq('id', runId)
 }
 
+// ── one page on request ("Coller une annonce") ────────────────────────────────
+
+/** The events on one page of an APPROVED source (robots.txt checked), or null
+ *  when the link isn't on an approved source / can't be read. */
+export async function readApprovedEventPage(url: string, deps: DiscoveryDeps = liveDeps): Promise<FoundEvent[] | null> {
+  if (isBlockedUrl(url)) return null
+  const { data: sources } = await supabaseAdmin.from('event_discovery_sources').select('domain')
+    .eq('status', 'approved').is('deleted_at', null)
+  const domain = (sources ?? []).map(s => s.domain as string).find(d => sameSite(url, d))
+  if (!domain) return null
+  const res = await new SiteGate(deps).get(url)
+  if (!res || res.status !== 200) return null
+  const cities = await deps.cities()
+  return extractJsonLdEvents(res.text).map(e => toFoundEvent(e, url, null, cities)).filter((f): f is FoundEvent => !!f)
+}
+
 // ── start ────────────────────────────────────────────────────────────────────
 
 export interface StartResult { runId: string; resumed: boolean; pagesListed: number; errors: string[] }

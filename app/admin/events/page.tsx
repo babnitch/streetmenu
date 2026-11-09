@@ -18,6 +18,7 @@ import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 import { AdminEventCreate, AdminEventOrganizer } from '@/components/AdminEventManaged'
 import AdminEventCandidates from '@/components/AdminEventCandidates'
+import AdminEventPaste from '@/components/AdminEventPaste'
 import type { EventCandidate } from '@/lib/discovery/candidates'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
@@ -56,6 +57,7 @@ export default function AdminEventsPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [currentRole, setCurrentRole] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [pasting, setPasting] = useState(false)
   const [candidates, setCandidates] = useState<EventCandidate[]>([])
 
   // Only super_admin and admin may flip payment configuration (not moderator).
@@ -274,12 +276,24 @@ export default function AdminEventsPage() {
           <p className="text-sm text-ink-secondary mt-0.5">{t('admin.evtSub')}</p>
         </div>
         {canTogglePayment && (
-          <button type="button" onClick={() => setCreating(true)}
-            className="bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-full text-sm font-semibold">
-            + {bi('Créer un événement', 'Create an event')}
-          </button>
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => setPasting(true)}
+              className="border border-brand text-brand-darker bg-white hover:bg-brand-light px-4 py-2 rounded-full text-sm font-semibold">
+              📋 {bi('Coller une annonce', 'Paste a post')}
+            </button>
+            <button type="button" onClick={() => setCreating(true)}
+              className="bg-brand hover:bg-brand-dark text-white px-4 py-2 rounded-full text-sm font-semibold">
+              + {bi('Créer un événement', 'Create an event')}
+            </button>
+          </div>
         )}
       </div>
+      {pasting && (
+        <AdminEventPaste
+          onClose={() => setPasting(false)}
+          onCreated={evt => { setPasting(false); setEvents(prev => [evt, ...prev]); showToast(bi('✅ Événement créé', '✅ Event created')) }}
+        />
+      )}
       {creating && (
         <AdminEventCreate
           onClose={() => setCreating(false)}

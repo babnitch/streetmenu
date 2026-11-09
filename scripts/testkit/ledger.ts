@@ -92,6 +92,7 @@ export const DELETE_ORDER: string[] = [
   'refunds',
   'order_items',
   'orders',
+  'ai_usage',
   'event_candidates',
   'event_discovery_pages',
   'event_discovery_runs',
