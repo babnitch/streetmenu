@@ -21,6 +21,7 @@ import type { Restaurant } from '@/types'
 import { parsePin } from '@/lib/restaurantDetailFields'
 import { FOCUS_OF, focusStyle } from '@/lib/photoFocus'
 import FocusPicker from '@/components/FocusPicker'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 const INPUT = 'w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white'
 const BTN = 'text-xs font-semibold px-3 py-1.5 rounded-full border'
@@ -107,14 +108,9 @@ export default function RestaurantInfoPanel({ restaurant, onChange, admin = fals
     try {
       let body: Record<string, unknown> = { [field]: null }
       if (file) {
-        const fd = new FormData()
-        fd.append('file', file)
-        fd.append('kind', field === 'logo_url' ? 'restaurant_logo' : 'restaurant_hero')
-        fd.append('pathPrefix', 'restaurants')
-        const up = await fetch('/api/upload/image', { method: 'POST', body: fd })
-        const j = await up.json().catch(() => ({}))
-        if (!up.ok || typeof j?.url !== 'string') { setMsg({ ok: false, text: bi('L\'envoi a échoué, réessayez.', 'Upload failed, please try again.') }); return }
-        body = { [field]: j.url, blur_hash: j.blur_hash ?? '' }
+        const up = await uploadPhoto(file, { kind: field === 'logo_url' ? 'restaurant_logo' : 'restaurant_hero', pathPrefix: 'restaurants' })
+        if (!up.ok) { setMsg({ ok: false, text: bi(up.error.fr, up.error.en) }); return }
+        body = { [field]: up.url, blur_hash: up.blur_hash }
       }
       const d = await post(photoUrl, body)
       if (d) {

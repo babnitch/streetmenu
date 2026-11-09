@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
-import { safeCompress, type ImageKind } from '@/lib/imageOptimizer'
+import { safeCompress, isImageKind } from '@/lib/imageOptimizer'
+import { PHOTO_MAX_BYTES, PHOTO_TOO_BIG, PHOTO_BAD_FORMAT } from '@/lib/photoUpload'
 
 export const dynamic  = 'force-dynamic'
 // Sharp is a native Node addon — keep this off the edge runtime.
@@ -36,11 +37,14 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof Blob)) {
     return NextResponse.json({ error: 'file requis' }, { status: 400 })
   }
-  if (file.size > 20 * 1024 * 1024) {
-    return NextResponse.json({ error: 'Fichier trop volumineux (max 20 MB)' }, { status: 413 })
+  // Vercel refuses bodies over 4.5 MB before this runs; the forms shrink
+  // photos first (lib/uploadPhoto.ts), so this is the backstop.
+  if (file.size > PHOTO_MAX_BYTES) {
+    return NextResponse.json({ error: `${PHOTO_TOO_BIG.fr} / ${PHOTO_TOO_BIG.en}`, code: 'too_big' }, { status: 413 })
   }
 
-  const kind   = String(form.get('kind') ?? 'generic') as ImageKind
+  const rawKind = String(form.get('kind') ?? 'generic')
+  const kind   = isImageKind(rawKind) ? rawKind : 'generic'
   const bucket = String(form.get('bucket') ?? 'photos')
   const prefix = String(form.get('pathPrefix') ?? '').replace(/^\/+|\/+$/g, '')
 
@@ -49,13 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'bucket invalide' }, { status: 400 })
   }
 
+  const badFormat = () => NextResponse.json({ error: `${PHOTO_BAD_FORMAT.fr} / ${PHOTO_BAD_FORMAT.en}`, code: 'format' }, { status: 415 })
   const rawType = (file.type || 'image/jpeg').toLowerCase()
-  if (!rawType.startsWith('image/')) {
-    return NextResponse.json({ error: 'Type de fichier non supporté' }, { status: 415 })
-  }
+  if (!rawType.startsWith('image/')) return badFormat()
 
+  // Converted to WebP, or kept only if it really is JPEG / PNG / GIF / WebP:
+  // never store an image a browser can't show (e.g. HEIC).
   const inputBuffer = Buffer.from(await file.arrayBuffer())
-  const compressed = await safeCompress(inputBuffer, kind, rawType)
+  const compressed = await safeCompress(inputBuffer, kind)
+  if (!compressed) return badFormat()
 
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${compressed.extension}`
   const path = prefix ? `${prefix}/${filename}` : filename

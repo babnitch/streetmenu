@@ -369,17 +369,27 @@ async function downloadTwilioMedia(mediaUrl: string): Promise<{ buffer: Buffer; 
   }
 }
 
-async function uploadToStorage(bucket: string, buffer: Buffer, contentType: string): Promise<string | null> {
-  // Compress + re-encode via sharp before upload. WhatsApp media that
-  // failed to decode (e.g. an unsupported HEIC) falls back to the
-  // original bytes via safeCompress. Bucket name picks the kind:
+// A photo the bot could not store: the format message when it is one a
+// browser can't show (lib/photoUpload.ts), else the caller's own text.
+async function photoFailText(failed: UploadFail, fallbackFr: string, fallbackEn: string, lang: Lang): Promise<string> {
+  if (failed !== 'format') return pickLang(fallbackFr, fallbackEn, lang)
+  const { PHOTO_BAD_FORMAT } = await import('@/lib/photoUpload')
+  return `❌ ${pickLang(PHOTO_BAD_FORMAT.fr, PHOTO_BAD_FORMAT.en, lang)}`
+}
+type UploadFail = 'format' | 'error'
+
+async function uploadToStorage(bucket: string, buffer: Buffer): Promise<{ url: string } | { failed: UploadFail }> {
+  // Compress + re-encode via sharp before upload. Media sharp can't read is
+  // kept only if it really is JPEG / PNG / GIF / WebP; anything else (HEIC…)
+  // is refused, never stored. Bucket name picks the kind:
   // restaurant-images → hero, menu-images → square thumb.
   const { safeCompress } = await import('@/lib/imageOptimizer')
   const kind =
     bucket === 'restaurant-images' ? 'restaurant_hero'
     : bucket === 'menu-images'     ? 'menu_item'
     : 'generic'
-  const out  = await safeCompress(buffer, kind, contentType)
+  const out  = await safeCompress(buffer, kind)
+  if (!out) return { failed: 'format' }
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${out.extension}`
   console.log(`[whatsapp] Uploading to Supabase bucket "${bucket}" at ${path} (${out.bytes}B)`)
   const { error } = await supabaseAdmin.storage
@@ -388,10 +398,10 @@ async function uploadToStorage(bucket: string, buffer: Buffer, contentType: stri
       cacheControl: '86400',  // 24h browser cache
       upsert:       false,
     })
-  if (error) { console.error(`[whatsapp] ${bucket} upload error:`, error.message); return null }
+  if (error) { console.error(`[whatsapp] ${bucket} upload error:`, error.message); return { failed: 'error' } }
   const { data } = supabaseAdmin.storage.from(bucket).getPublicUrl(path)
   console.log(`[whatsapp] Uploaded — public URL: ${data.publicUrl}`)
-  return data.publicUrl
+  return { url: data.publicUrl }
 }
 
 // ── Data deletion request (U2) ─────────────────────────────────────────────────
@@ -424,7 +434,12 @@ async function saveMenuFileFromWhatsApp(
   let contentType = media.contentType.split(';')[0].trim().toLowerCase()
   if (contentType.startsWith('image/')) {
     const { safeCompress } = await import('@/lib/imageOptimizer')
-    const out = await safeCompress(buffer, 'menu_page', contentType)
+    const out = await safeCompress(buffer, 'menu_page')
+    if (!out) {
+      const { PHOTO_BAD_FORMAT } = await import('@/lib/photoUpload')
+      await sendWhatsApp(from, `❌ ${pickLang(PHOTO_BAD_FORMAT.fr, PHOTO_BAD_FORMAT.en, lang)}`)
+      return ok()
+    }
     buffer = out.buffer
     contentType = out.contentType
   }
@@ -1039,11 +1054,12 @@ async function handleSession(
         await sendWhatsApp(from, pickLang('⚠️ Impossible de télécharger la photo. Réessayez.', '⚠️ Could not download the photo. Please retry.', L))
         return ok()
       }
-      const imageUrl = await uploadToStorage('restaurant-images', media.buffer, media.contentType)
-      if (!imageUrl) {
-        await sendWhatsApp(from, pickLang('⚠️ Impossible d\'enregistrer la photo. Réessayez.', '⚠️ Could not save the photo. Please retry.', L))
+      const stored = await uploadToStorage('restaurant-images', media.buffer)
+      if ('failed' in stored) {
+        await sendWhatsApp(from, await photoFailText(stored.failed, '⚠️ Impossible d\'enregistrer la photo. Réessayez.', '⚠️ Could not save the photo. Please retry.', L))
         return ok()
       }
+      const imageUrl = stored.url
       console.log(`[whatsapp] Step 5 URL saved to session data: ${imageUrl}`)
 
       const restaurantName = data.restaurant_name ?? 'Restaurant'
@@ -1111,16 +1127,15 @@ async function handleSession(
     }
 
     const media = await downloadTwilioMedia(mediaUrl)
-    const imageUrl = media
-      ? await uploadToStorage('restaurant-images', media.buffer, media.contentType)
-      : null
+    const stored = media ? await uploadToStorage('restaurant-images', media.buffer) : { failed: 'error' as const }
 
     await supabaseAdmin.from('signup_sessions').delete().eq('phone', phone)
 
-    if (!imageUrl) {
-      await sendWhatsApp(from, pickLang('❌ Erreur lors de l\'envoi. Réessayez.', '❌ Error. Please retry.', puLang))
+    if ('failed' in stored) {
+      await sendWhatsApp(from, await photoFailText(stored.failed, '❌ Erreur lors de l\'envoi. Réessayez.', '❌ Error. Please retry.', puLang))
       return ok()
     }
+    const imageUrl = stored.url
 
     // A new photo: no blur placeholder of the old one, no admin credit.
     await supabaseAdmin.from('restaurants').update({
@@ -2260,7 +2275,12 @@ async function handleVendor(
         return ok()
       }
       const media    = await downloadTwilioMedia(mediaUrl)
-      const photoUrl = media ? await uploadToStorage('menu-images', media.buffer, media.contentType) : null
+      const stored   = media ? await uploadToStorage('menu-images', media.buffer) : null
+      if (stored && 'failed' in stored && stored.failed === 'format') {
+        await sendWhatsApp(from, await photoFailText('format', '', '', lang))
+        return ok()
+      }
+      const photoUrl = stored && 'url' in stored ? stored.url : null
 
       const category = threePart ? matchCategory(match[3]) : null
       if (threePart && !category) {
@@ -2324,13 +2344,13 @@ async function handleVendor(
     if (caption.length > 0) {
       const item = await findMenuItem(restaurant.id, caption)
       if (item) {
-        const media    = await downloadTwilioMedia(mediaUrl)
-        const photoUrl = media ? await uploadToStorage('menu-images', media.buffer, media.contentType) : null
-        if (photoUrl) {
-          await supabaseAdmin.from('menu_items').update({ photo_url: photoUrl }).eq('id', item.id)
+        const media  = await downloadTwilioMedia(mediaUrl)
+        const stored = media ? await uploadToStorage('menu-images', media.buffer) : { failed: 'error' as const }
+        if ('url' in stored) {
+          await supabaseAdmin.from('menu_items').update({ photo_url: stored.url }).eq('id', item.id)
           await sendWhatsApp(from, pickLang(`📸 Photo de *${item.name}* mise à jour!`, `📸 Photo of *${item.name}* updated!`, lang))
         } else {
-          await sendWhatsApp(from, pickLang('❌ Erreur upload photo. Réessayez.', '❌ Photo upload error. Retry.', lang))
+          await sendWhatsApp(from, await photoFailText(stored.failed, '❌ Erreur upload photo. Réessayez.', '❌ Photo upload error. Retry.', lang))
         }
         return ok()
       }

@@ -15,6 +15,7 @@ import { canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { validateEventRange, EVENT_RANGE_ERRORS, eventDays } from '@/lib/eventDate'
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { EVENT_POSTER_REQUIRED } from '@/lib/pictureRequired'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 
 
@@ -214,29 +215,12 @@ export default function SubmitEventPage() {
     // form stuck on the spinner with no feedback — the earlier failure mode
     // that read as "submit does nothing / nothing saves".
     try {
-      let cover_photo = ''
-      // Server-side compression via sharp → WebP / 800×450 / EXIF
-      // stripped / blur placeholder. See /api/upload/image. The poster is
-      // required (V5), so a failed upload stops the submit here.
-      try {
-        const fd = new FormData()
-        fd.append('file', photo)
-        fd.append('kind', 'event_poster')
-        fd.append('pathPrefix', 'events')
-        const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-        if (r.ok) {
-          const j = await r.json()
-          if (typeof j?.url === 'string') cover_photo = j.url
-        } else {
-          console.warn('[events/submit] photo upload failed:', r.status)
-        }
-      } catch (err) {
-        console.warn('[events/submit] photo upload threw:', err)
-      }
-      if (!cover_photo) {
-        setError(`${bi(EVENT_POSTER_REQUIRED.fr, EVENT_POSTER_REQUIRED.en)} — ${bi('l\'envoi a échoué, réessayez.', 'the upload failed, please try again.')}`)
-        return
-      }
+      // Shrunk in the browser, then WebP / EXIF stripped / blur placeholder
+      // on the server (lib/uploadPhoto.ts). The poster is required (V5), so a
+      // failed upload stops the submit here.
+      const up = await uploadPhoto(photo, { kind: 'event_poster', pathPrefix: 'events' })
+      if (!up.ok) { setError(bi(up.error.fr, up.error.en)); return }
+      const cover_photo = up.url
 
       const payload = {
         title:           form.title,

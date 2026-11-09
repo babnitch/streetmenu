@@ -39,6 +39,7 @@ import PhoneInput from '@/components/PhoneInput'
 import { getCountryFromCity } from '@/lib/phoneValidation'
 import { normalizeMode, modeFromLegacy, canPayOnline, type PaymentMode } from '@/lib/paymentMode'
 import { formatAmount, formatFCFA } from '@/lib/money'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 type VendorRole = 'owner' | 'manager' | 'staff' | 'admin'
 type TargetStatus = 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'
@@ -2908,15 +2909,10 @@ function MenuItemForm({
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('kind', 'menu_item')
-    fd.append('pathPrefix', 'menu-items')
-    const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-    if (r.ok) {
-      const j = await r.json()
-      if (typeof j?.url === 'string') setPhotoUrl(j.url)
-    }
+    setError('')
+    const up = await uploadPhoto(file, { kind: 'menu_item', pathPrefix: 'menu-items' })
+    if (up.ok) setPhotoUrl(up.url)
+    else setError(bi(up.error.fr, up.error.en))
     setUploading(false)
   }
 

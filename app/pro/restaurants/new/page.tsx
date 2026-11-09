@@ -12,6 +12,7 @@ import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { restaurantCities } from '@/lib/restaurantSignup'
 import RefPicker, { OTHER, pickerBody } from '@/components/RefPicker'
 import { RESTAURANT_PHOTO_REQUIRED } from '@/lib/pictureRequired'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 const INPUT = 'w-full bg-surface-muted border border-divider rounded-xl px-3 py-2.5 text-sm text-ink-primary outline-none focus:border-brand'
 const BOT_NUMBER = (process.env.NEXT_PUBLIC_WHATSAPP_BOT_NUMBER ?? '').replace(/\D/g, '')
@@ -68,17 +69,9 @@ export default function AddRestaurantPage() {
     if (!photo) { setError(photoMissing); return }
     setBusy(true)
     try {
-      const fd = new FormData()
-      fd.append('file', photo)
-      fd.append('kind', 'restaurant_hero')
-      fd.append('bucket', 'restaurant-images')
-      fd.append('pathPrefix', 'restaurants')
-      const up = await fetch('/api/upload/image', { method: 'POST', body: fd })
-      const image_url: string | null = up.ok ? ((await up.json())?.url ?? null) : null
-      if (!image_url) {
-        setError(`${photoMissing} — ${bi('l\'envoi a échoué, réessayez.', 'the upload failed, please try again.')}`)
-        return
-      }
+      const up = await uploadPhoto(photo, { kind: 'restaurant_hero', bucket: 'restaurant-images', pathPrefix: 'restaurants' })
+      if (!up.ok) { setError(bi(up.error.fr, up.error.en)); return }
+      const image_url = up.url
       const r = await fetch('/api/restaurants/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -38,6 +38,7 @@ import { formatFCFA } from '@/lib/money'
 import { hasModule } from '@/lib/modules'
 import ModuleLocked from '@/components/ModuleLocked'
 import FavoritesList from '@/components/FavoritesList'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 // ── Lazy-loaded admin panels (no SSR) ────────────────────────────────────────
 const AdminRestaurants = dynamicLoad(() => import('@/app/admin/restaurants/page'), { ssr: false })
@@ -737,14 +738,9 @@ export default function AccountPage() {
     try {
       let payload: Record<string, unknown> = { [field]: null }
       if (file) {
-        const fd = new FormData()
-        fd.append('file', file)
-        fd.append('kind', field === 'logo_url' ? 'restaurant_logo' : 'restaurant_hero')
-        fd.append('pathPrefix', 'restaurants')
-        const upRes = await fetch('/api/upload/image', { method: 'POST', body: fd })
-        if (!upRes.ok) { showToast(bi('Erreur upload', 'Upload error'), false); return }
-        const upJson = await upRes.json()
-        payload = { [field]: upJson.url, blur_hash: upJson.blur_hash }
+        const up = await uploadPhoto(file, { kind: field === 'logo_url' ? 'restaurant_logo' : 'restaurant_hero', pathPrefix: 'restaurants' })
+        if (!up.ok) { showToast(bi(up.error.fr, up.error.en), false); return }
+        payload = { [field]: up.url, blur_hash: up.blur_hash }
       }
       const res = await fetch(`/api/restaurants/${activeRestId}/image`, {
         method: 'POST',

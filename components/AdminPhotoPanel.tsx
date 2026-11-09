@@ -12,6 +12,7 @@ import { useState } from 'react'
 import Image from 'next/image'
 import { useBi } from '@/lib/languageContext'
 import { PHOTO_CREDIT_MAX } from '@/lib/adminPhotos'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 export interface PhotoSlot {
   field: 'image_url' | 'logo_url' | 'cover_photo'
@@ -56,18 +57,9 @@ export default function AdminPhotoPanel({ target, id, slots, credit, onSaved }: 
 
   async function upload(slot: PhotoSlot, file: File) {
     setBusy(slot.field); setMsg(null)
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('kind', slot.kind)
-    fd.append('pathPrefix', target)
-    let url = '', blur = ''
-    try {
-      const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-      const j = await r.json().catch(() => ({}))
-      if (r.ok && typeof j?.url === 'string') { url = j.url; blur = typeof j.blur_hash === 'string' ? j.blur_hash : '' }
-    } catch { /* below */ }
-    if (!url) { setBusy(null); setMsg({ ok: false, text: bi('L\'envoi a échoué, réessayez.', 'Upload failed, please try again.') }); return }
-    await save({ [slot.field]: url, blur_hash: blur }, slot.field, bi('✅ Photo enregistrée', '✅ Photo saved'))
+    const up = await uploadPhoto(file, { kind: slot.kind, pathPrefix: target })
+    if (!up.ok) { setBusy(null); setMsg({ ok: false, text: bi(up.error.fr, up.error.en) }); return }
+    await save({ [slot.field]: up.url, blur_hash: up.blur_hash }, slot.field, bi('✅ Photo enregistrée', '✅ Photo saved'))
   }
 
   return (

@@ -14,6 +14,7 @@ import { useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
 import DoorStaffPanel from '@/components/DoorStaffPanel'
 import type { Event } from '@/types'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 const INPUT = 'w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white'
 
@@ -57,16 +58,11 @@ export function AdminEventCreate({ onCreated, onClose, initial, extraBody, noPos
     setBusy(true)
     let cover = ''
     // I1: the poster is optional — without one, a cover is generated.
-    if (photo) try {
-      const fd = new FormData()
-      fd.append('file', photo)
-      fd.append('kind', 'event_poster')
-      fd.append('pathPrefix', 'events')
-      const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-      const j = await r.json().catch(() => ({}))
-      if (r.ok && typeof j?.url === 'string') cover = j.url
-    } catch { /* handled below */ }
-    if (photo && !cover) { setBusy(false); setError(bi('L\'envoi de l\'affiche a échoué, réessayez.', 'The poster upload failed, please try again.')); return }
+    if (photo) {
+      const up = await uploadPhoto(photo, { kind: 'event_poster', pathPrefix: 'events' })
+      if (!up.ok) { setBusy(false); setError(bi(up.error.fr, up.error.en)); return }
+      cover = up.url
+    }
     const r = await postJSON('/api/admin/events', { ...f, ...pickerBody('city', f.city, f.city_other), ...pickerBody('category', f.category, f.category_other), cover_photo: cover, ...(extraBody ?? {}), ...(f.booking_mode === 'info' ? { max_tickets: '', notify_phone: '' } : { info_link: '', price_is_from: false }) })
     setBusy(false)
     if (!r.ok) { setError(r.error || bi('Erreur', 'Error')); return }

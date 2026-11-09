@@ -25,6 +25,7 @@ import { formatEventDates, formatEventWhen, formatEventDay, isMultiDay, validate
 import { capacityFromTiers, capacityTotalLine } from '@/lib/eventCapacity'
 import { formatPhoneDisplay } from '@/lib/phoneValidation'
 import { formatFCFA } from '@/lib/money'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 
 export interface MyEventsPanelEvent {
@@ -306,16 +307,11 @@ export default function MyEventsPanel({
     if (!file) return
     setEditPhotoUploading(true)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('kind', 'event_poster')
-      fd.append('pathPrefix', 'events')
-      const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-      if (r.ok) {
-        const j = await r.json()
-        // A new poster starts centred.
-        if (typeof j?.url === 'string') { setEdit('cover_photo', j.url); setEdit('blur_hash', typeof j.blur_hash === 'string' ? j.blur_hash : ''); setEdit('cover_focus', null) }
-      }
+      setEditError('')
+      const up = await uploadPhoto(file, { kind: 'event_poster', pathPrefix: 'events' })
+      // A new poster starts centred.
+      if (up.ok) { setEdit('cover_photo', up.url); setEdit('blur_hash', up.blur_hash); setEdit('cover_focus', null) }
+      else setEditError(bi(up.error.fr, up.error.en))
     } finally { setEditPhotoUploading(false) }
   }
   async function saveEdit() {

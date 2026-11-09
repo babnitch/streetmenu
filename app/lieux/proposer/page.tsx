@@ -13,6 +13,7 @@ import TopNav from '@/components/TopNav'
 import { useBi } from '@/lib/languageContext'
 import { useCity } from '@/lib/cityContext'
 import { loginHref } from '@/lib/lastPhone'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 const input = 'w-full border border-divider rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand/40'
 
@@ -50,12 +51,9 @@ export default function ProposePlacePage() {
     try {
       let cover_url = ''
       if (photo) {
-        const fd = new FormData()
-        fd.append('file', photo); fd.append('kind', 'restaurant_hero'); fd.append('pathPrefix', 'places')
-        const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-        const j = r.ok ? await r.json().catch(() => null) : null
-        if (typeof j?.url !== 'string') { setError(bi('L\'envoi de la photo a échoué, réessayez.', 'The photo upload failed, please try again.')); return }
-        cover_url = j.url
+        const up = await uploadPhoto(photo, { kind: 'restaurant_hero', pathPrefix: 'places' })
+        if (!up.ok) { setError(bi(up.error.fr, up.error.en)); return }
+        cover_url = up.url
       }
       const r = await fetch('/api/places', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

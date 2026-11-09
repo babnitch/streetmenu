@@ -20,6 +20,7 @@ import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
 import AdminRestaurantContacts from '@/components/AdminRestaurantContacts'
 import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
+import { uploadPhoto } from '@/lib/uploadPhoto'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
 interface RestaurantRow {
@@ -339,15 +340,9 @@ export default function AdminRestaurantsPage() {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('kind', 'restaurant_logo')
-    fd.append('pathPrefix', 'restaurants')
-    const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
-    if (r.ok) {
-      const j = await r.json()
-      if (typeof j?.url === 'string') setForm(f => ({ ...f, logo_url: j.url }))
-    }
+    const up = await uploadPhoto(file, { kind: 'restaurant_logo', pathPrefix: 'restaurants' })
+    if (up.ok) setForm(f => ({ ...f, logo_url: up.url }))
+    else showToast(bi(up.error.fr, up.error.en), false)
     setUploading(false)
   }
 

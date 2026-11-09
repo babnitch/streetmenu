@@ -38,6 +38,8 @@ const DIMS: Record<ImageKind, Dims> = {
   generic:         { width: 1000, height: 1000, fit: 'inside' },
 }
 
+export const isImageKind = (k: string): k is ImageKind => Object.prototype.hasOwnProperty.call(DIMS, k)
+
 const WEBP_QUALITY = 75
 
 export interface OptimizedImage {
@@ -88,24 +90,32 @@ export async function generateBlurHash(input: Buffer): Promise<string> {
   }
 }
 
-// Failure-tolerant variant. When sharp can't read the input (e.g. an
-// HEIC the build target doesn't ship a decoder for, or a corrupt file),
-// returns the original buffer + extension so the upload still succeeds
-// — only the compression bonus is lost.
-export async function safeCompress(
-  input: Buffer,
-  kind: ImageKind,
-  fallbackContentType: string,
-): Promise<OptimizedImage> {
+// What the bytes really are (a phone may label a HEIC "image/jpeg"), among
+// the formats every browser can show; null for anything else.
+export function sniffImageType(b: Buffer): 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' | null {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
+  if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (b.length >= 6 && /^GIF8[79]a$/.test(b.subarray(0, 6).toString('latin1'))) return 'image/gif'
+  if (b.length >= 12 && b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp'
+  return null
+}
+
+// Failure-tolerant variant. When sharp can't read the input (a corrupt file,
+// or a format it has no decoder for) the original bytes are kept only if
+// they really are JPEG / PNG / GIF / WebP — then only the compression bonus
+// is lost. Anything else (HEIC, …) → null: the caller refuses it with
+// PHOTO_BAD_FORMAT (lib/photoUpload.ts). Never store what a browser can't show.
+export async function safeCompress(input: Buffer, kind: ImageKind): Promise<OptimizedImage | null> {
   try {
     return await compressImage(input, kind)
   } catch (e) {
-    console.warn('[imageOptimizer] sharp failed, storing original:', (e as Error).message)
-    const ext = fallbackContentType.split('/')[1]?.split(';')[0] ?? 'jpg'
+    const type = sniffImageType(input)
+    console.warn(`[imageOptimizer] sharp failed (${(e as Error).message}); ${type ? 'storing original' : 'refused: unsupported format'}`)
+    if (!type) return null
     return {
       buffer:      input,
-      contentType: fallbackContentType,
-      extension:   ext,
+      contentType: type,
+      extension:   type === 'image/jpeg' ? 'jpg' : type.split('/')[1],
       blurHash:    '',
       bytes:       input.length,
     }
