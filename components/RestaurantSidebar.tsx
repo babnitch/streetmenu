@@ -29,6 +29,7 @@ export default function RestaurantSidebar({ restaurant, onClose, openOverride }:
             src={restaurant.logo_url}
             alt={restaurant.name}
             fill
+            sizes="(max-width: 767px) 100vw, 420px"
             style={focusStyle(restaurant.logo_focus)}
             className="object-cover"
             fallback={<GeneratedCover kind="restaurant" title={restaurant.name} />}

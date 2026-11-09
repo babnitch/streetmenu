@@ -4,9 +4,13 @@
 //   - a restaurant shows its cover, else its logo → that photo's focus
 //   - the photo routes' checks: a valid focus, a bad one refused, a new photo
 //     resets the focus (unless one comes with it), focus dropped before the SQL
+//   - uploads keep the whole restaurant cover / logo (never cropped), only
+//     shrunk to 1600 / 600 px; menu photos still 400×400
 
 import { parseFocus, formatFocus, focusPosition, heroFocus, FOCUS_PRESETS } from '@/lib/photoFocus'
 import { checkPhotoBody, focusResets, withoutFocus } from '@/lib/adminPhotos'
+import { compressImage } from '@/lib/imageOptimizer'
+import sharp from 'sharp'
 import { assert, assertEq, step, finish } from '../testkit/assert'
 
 const SUITE = 'unit-photo-focus'
@@ -44,6 +48,16 @@ async function main(): Promise<void> {
     assertEq(focusResets({ image_url: P2 }, { image_url: P1, image_focus: null }), {}, 'already centred → nothing to write')
     assertEq(focusResets({ cover_photo: null }, { cover_photo: P1, cover_focus: '5 5' }), { cover_focus: null }, 'removed → reset')
     assertEq(withoutFocus({ image_url: P1, image_focus: '1 1', logo_focus: null, photo_credit: 'x' }), { image_url: P1, photo_credit: 'x' }, 'focus dropped before the SQL')
+  })
+
+  await step('uploads keep the whole photo', async () => {
+    const img = (w: number, h: number) => sharp({ create: { width: w, height: h, channels: 3, background: '#c33' } }).jpeg().toBuffer()
+    const size = async (b: Buffer) => { const m = await sharp(b).metadata(); return `${m.width}x${m.height}` }
+    assertEq(await size((await compressImage(await img(3000, 1000), 'restaurant_hero')).buffer), '1600x533', 'wide cover: shrunk, not cropped')
+    assertEq(await size((await compressImage(await img(1000, 3000), 'restaurant_hero')).buffer), '533x1600', 'tall cover: shrunk, not cropped')
+    assertEq(await size((await compressImage(await img(1200, 800), 'restaurant_logo')).buffer), '600x400', 'logo: shrunk, not cropped')
+    assertEq(await size((await compressImage(await img(300, 200), 'restaurant_hero')).buffer), '300x200', 'small photo: never enlarged')
+    assertEq(await size((await compressImage(await img(1200, 800), 'menu_item')).buffer), '400x400', 'menu photo: unchanged (still cropped)')
   })
 
   finish(SUITE)

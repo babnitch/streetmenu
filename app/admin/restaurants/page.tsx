@@ -512,7 +512,7 @@ export default function AdminRestaurantsPage() {
               {uploading && <span className="text-xs text-brand ml-2">Envoi…</span>}
               {form.logo_url && !uploading && (
                 <div className="relative w-24 h-16 rounded-lg overflow-hidden mt-2">
-                  <Image src={form.logo_url} alt="preview" fill className="object-cover" />
+                  <Image src={form.logo_url} alt="preview" fill sizes="96px" className="object-cover" />
                 </div>
               )}
             </Field>
@@ -688,7 +688,7 @@ function RestaurantCard({
         {/* Photo */}
         <div className="relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-brand-light">
           {(r.logo_url || r.image_url) ? (
-            <Image src={(r.logo_url || r.image_url)!} alt={r.name} fill className="object-cover" />
+            <Image src={(r.logo_url || r.image_url)!} alt={r.name} fill sizes="64px" className="object-cover" />
           ) : (
             <span className="absolute inset-0 flex items-center justify-center text-2xl">🏪</span>
           )}

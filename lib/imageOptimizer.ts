@@ -4,9 +4,10 @@
 // (size + privacy — GPS metadata is gone), and generates a tiny 10×10
 // base64 placeholder for the blur-up effect.
 //
-// Bandwidth target: every encoded asset under ~150 KB. Real-world results
-// vary by source (a 4 MB phone photo lands around 80–120 KB at 800×450
-// quality=75).
+// Bandwidth: pages never download these files as stored — next/image serves
+// a resized copy (at most 1024 px wide, next.config.js) per the <Image sizes>.
+// Restaurant covers and logos are kept whole (up to 1600 / 600 px) so the
+// focus point can pick any part of them.
 //
 // All compressImage callers should treat a thrown error as "fall back to
 // the original buffer + extension" — `safeCompress()` does exactly that.
@@ -15,8 +16,8 @@ import sharp from 'sharp'
 
 export type ImageKind =
   | 'menu_item'           // 400×400, square thumb
-  | 'restaurant_hero'     // 800×400, 2:1
-  | 'restaurant_logo'     // 200×200, square
+  | 'restaurant_hero'     // up to 1600×1600 — whole photo kept, cropped on display
+  | 'restaurant_logo'     // up to 600×600 — whole photo kept, cropped on display
   | 'event_cover'         // 800×450, 16:9 (legacy covers)
   | 'event_poster'        // up to 1080×1350, 4:5 portrait — nothing cropped
   | 'menu_page'           // 1600×1600 cap — a paper menu photo, kept readable (N4b)
@@ -26,8 +27,11 @@ interface Dims { width: number; height: number; fit: 'cover' | 'inside' }
 
 const DIMS: Record<ImageKind, Dims> = {
   menu_item:       { width: 400,  height: 400, fit: 'cover'  },
-  restaurant_hero: { width: 800,  height: 400, fit: 'cover'  },
-  restaurant_logo: { width: 200,  height: 200, fit: 'cover'  },
+  // Never cropped here: the card / page box crops at display time
+  // (object-fit: cover + the focus point, lib/photoFocus.ts), so « 🎯 Cadrage »
+  // can still move to any part of the photo.
+  restaurant_hero: { width: 1600, height: 1600, fit: 'inside' },
+  restaurant_logo: { width: 600,  height: 600, fit: 'inside' },
   event_cover:     { width: 800,  height: 450, fit: 'cover'  },
   event_poster:    { width: 1080, height: 1350, fit: 'inside' },
   menu_page:       { width: 1600, height: 1600, fit: 'inside' },
