@@ -28,24 +28,25 @@ import { todayInDouala, weekendWindow, weekendDay, listingDays } from '@/lib/wee
 import { pick, placeCategoryLabel, type PublicPlace } from '@/lib/places'
 import { picturesFirst, hasPicture } from '@/lib/popularRanking'
 import { featuredTitle, featuredActionLabel, type FeaturedCard } from '@/lib/homeFeatured'
+import { focusStyle, heroFocus } from '@/lib/photoFocus'
 
 interface PopularRestaurant {
-  id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null
+  id: string; name: string; cuisine_type: string | null; neighborhood: string | null; image_url: string | null; logo_url: string | null; image_focus?: string | null; logo_focus?: string | null
   prep_time_min: number | null; prep_time_max: number | null
   delivery_enabled: boolean | null; delivery_fee: number | null; delivery_extra_min: number | null; free_delivery?: boolean
 }
 interface PopularEvent extends EventWhen {
-  id: string; title: string; category: string | null; venue: string | null; cover_photo: string | null
+  id: string; title: string; category: string | null; venue: string | null; cover_photo: string | null; cover_focus?: string | null
   price_from: number; is_free: boolean; has_tiers: boolean; price_unknown?: boolean; price_is_from?: boolean
 }
 interface WeekendEvent extends EventWhen {
-  id: string; title: string; category: string | null; venue?: string | null; cover_photo: string | null
+  id: string; title: string; category: string | null; venue?: string | null; cover_photo: string | null; cover_focus?: string | null
   date: string; end_date: string | null; time: string | null; end_time: string | null
   days: Array<{ date: string }>; fromPrice: number | null
 }
 interface TodayOffer {
   kind: 'price' | 'free_delivery'
-  restaurant: { id: string; name: string; image: string | null }
+  restaurant: { id: string; name: string; image: string | null; focus?: string | null }
   dish?: { id: string; name: string; photo_url: string | null; regular_price: number; offer_price: number }
 }
 
@@ -177,7 +178,7 @@ export default function HomePage() {
         {weekend.length > 0 && (
           <Row id="weekend" title={bi(`Ce week-end à ${city}`, `This weekend in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
             {weekend.map(e => (
-              <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
+              <Card key={`w-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} focus={e.cover_focus} fallback="🎉" poster
                 tag={e.category ? categoryLabel(e.category, locale) : null}
                 title={e.title} sub={formatEventWhen(e, locale, 'card')}
                 icon={eventCategoryIcon(e.category)}
@@ -192,7 +193,7 @@ export default function HomePage() {
           <Row id="offers" title={`🏷️ ${bi('Offres du jour', "Today's offers")}`}>
             {offers.map(o => (
               <Card key={`o-${o.restaurant.id}-${o.dish?.id ?? 'delivery'}`} href={`/restaurant/${o.restaurant.id}`}
-                image={img(o.dish?.photo_url ?? o.restaurant.image)} fallback={o.dish ? '🍽️' : '🛵'}
+                image={img(o.dish?.photo_url ?? o.restaurant.image)} focus={o.dish?.photo_url ? null : o.restaurant.focus} fallback={o.dish ? '🍽️' : '🛵'}
                 tag={bi('Offre', 'Deal')}
                 badge={o.dish ? percentOffLabel(o.dish.regular_price, o.dish.offer_price) : bi('Livraison offerte', 'Free delivery')}
                 title={o.dish?.name ?? o.restaurant.name}
@@ -216,7 +217,7 @@ export default function HomePage() {
             ? bi(`Restaurants populaires à ${city}`, `Popular restaurants in ${city}`)
             : bi(`Restaurants à ${city}`, `Restaurants in ${city}`)} more={{ href: '/restaurants', label: bi('Tout voir', 'See all') }}>
             {popular.restaurants.map(r => (
-              <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} fallback="🍽️"
+              <Card key={`r-${r.id}`} href={`/restaurant/${r.id}`} image={img(r.image_url || r.logo_url)} focus={heroFocus(r)} fallback="🍽️"
                 cover={{ kind: 'restaurant', area: r.neighborhood }}
                 badge={r.free_delivery ? bi('Livraison offerte', 'Free delivery') : undefined}
                 title={r.name} sub={dot(cuisineText(r, locale), fulfilmentLine(r))}
@@ -230,7 +231,7 @@ export default function HomePage() {
             ? bi(`Événements populaires à ${city}`, `Popular events in ${city}`)
             : bi(`Prochains événements à ${city}`, `Upcoming events in ${city}`)} more={{ href: '/events', label: bi('Tout voir', 'See all') }}>
             {popular.events.map(e => (
-              <Card key={`e-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} fallback="🎉" poster
+              <Card key={`e-${e.id}`} href={`/events/${e.id}`} image={img(e.cover_photo)} focus={e.cover_focus} fallback="🎉" poster
                 tag={e.category ? categoryLabel(e.category, locale) : null}
                 title={e.title} sub={formatEventWhen(e, locale, 'card')}
                 icon={eventCategoryIcon(e.category)} line={dot(e.venue, formatEventWhen(e, locale, 'card'), eventPrice(e))}>
@@ -294,8 +295,10 @@ function Row({ id, title, more, children }: { id: string; title: string; more?: 
 }
 
 // A card in a row. `poster` gives events a taller, poster-shaped image.
-function Card({ href, image, fallback, badge, tag, title, sub, poster, cover, credit, icon, line, children }: {
-  href: string; image: string | null; fallback: string; badge?: string; tag?: string | null; title: string; sub: string; poster?: boolean
+function Card({ href, image, focus, fallback, badge, tag, title, sub, poster, cover, credit, icon, line, children }: {
+  href: string; image: string | null
+  /** The photo's focus point (lib/photoFocus.ts). */
+  focus?: string | null; fallback: string; badge?: string; tag?: string | null; title: string; sub: string; poster?: boolean
   /** I1: no image → the generated cover of this kind (with the area). */
   cover?: { kind: 'restaurant' | 'event' | 'place'; area?: string | null }
   /** The photo's credit (Lieux from Wikimedia Commons), shown on the photo. */
@@ -311,7 +314,7 @@ function Card({ href, image, fallback, badge, tag, title, sub, poster, cover, cr
     <Link href={href} className={`snap-start flex-shrink-0 ${poster ? 'w-36' : 'w-44'} bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
       <div className={`relative ${poster ? 'h-48' : 'h-28'} bg-gradient-to-br from-brand-badge to-brand`}>
         {image
-          ? <SafeImage src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover"
+          ? <SafeImage src={image} alt="" fill sizes={poster ? '144px' : '176px'} className="object-cover" style={focusStyle(focus)}
               fallback={cover ? <GeneratedCover kind={cover.kind} title={title} area={cover.area} /> : <span className="absolute inset-0 flex items-center justify-center text-3xl" aria-hidden="true">{fallback}</span>}
               overlay={credit ? <PhotoCredit credit={credit} url={null} compact /> : null} />
           : cover ? <GeneratedCover kind={cover.kind} title={title} area={cover.area} />
@@ -358,7 +361,7 @@ function Featured({ card, img }: { card: FeaturedCard; img: string | null }) {
       <Link href={card.href} className="block bg-white rounded-2xl border border-divider overflow-hidden shadow-sm hover:shadow-md transition-shadow">
         {img && (
           <div className="relative h-52 sm:h-64 bg-surface-muted">
-            <SafeImage src={img} alt="" fill sizes="(max-width: 672px) 100vw, 672px" className="object-cover"
+            <SafeImage src={img} alt="" fill sizes="(max-width: 672px) 100vw, 672px" className="object-cover" style={focusStyle(card.focus)}
               fallback={<span className="absolute inset-0 bg-surface-muted" aria-hidden="true" />}
               overlay={card.credit ? <PhotoCredit credit={card.credit} url={null} compact /> : null} />
           </div>

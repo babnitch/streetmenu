@@ -5,6 +5,7 @@
 // the city's events.
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { selectWithFocus } from '@/lib/focusSelect'
 import { EVENT_DATE_COLUMNS, isFinishedEvent, type EventWhen } from '@/lib/eventDate'
 import { eventStartKey, hasPicture } from '@/lib/popularRanking'
 import { takesOrders } from '@/lib/modules'
@@ -18,11 +19,11 @@ const RESTAURANT_COLS = 'id, name, city, neighborhood, image_url, logo_url, phot
 const PLACE_COLS = 'id, title_fr, title_en, city, area, cover_url, photo_credit, status'
 
 type EventRow = EventWhen & {
-  id: string; title: string; city: string; venue: string | null; cover_photo: string | null; photo_credit?: string | null
+  id: string; title: string; city: string; venue: string | null; cover_photo: string | null; photo_credit?: string | null; cover_focus?: string | null
   is_active: boolean; is_featured: boolean | null; event_status: string | null; booking_mode: string | null; reservations_open: boolean | null
 }
 type RestaurantRow = {
-  id: string; name: string; city: string; neighborhood: string | null; image_url: string | null; logo_url: string | null; photo_credit?: string | null
+  id: string; name: string; city: string; neighborhood: string | null; image_url: string | null; logo_url: string | null; photo_credit?: string | null; image_focus?: string | null; logo_focus?: string | null
   is_active: boolean; status: string; deleted_at: string | null; modules: string[] | null
 }
 type PlaceRow = {
@@ -43,7 +44,7 @@ function eventCard(e: EventRow, source: FeaturedSource): FeaturedCard {
   const bookable = e.booking_mode !== 'info' && e.reservations_open !== false
   return {
     type: 'event', id: e.id, title_fr: e.title, title_en: null,
-    image: photo(e.cover_photo), credit: photo(e.cover_photo) ? e.photo_credit ?? null : null, href: featuredHref('event', e.id),
+    image: photo(e.cover_photo), focus: e.cover_focus ?? null, credit: photo(e.cover_photo) ? e.photo_credit ?? null : null, href: featuredHref('event', e.id),
     action: bookable ? 'book' : 'view',
     when: { date: e.date, end_date: e.end_date, time: e.time ?? null, end_time: e.end_time ?? null },
     area: e.venue, source,
@@ -58,19 +59,19 @@ export async function resolveFeaturedItem(
   const platform = opts.platform ?? await getPlatformStatus()
   if (type === 'event') {
     if (!platform.events) return null
-    const { data } = await supabaseAdmin.from('events').select(EVENT_COLS).eq('id', id).maybeSingle()
+    const { data } = await selectWithFocus('events', EVENT_COLS, cols => supabaseAdmin.from('events').select(cols).eq('id', id).maybeSingle())
     const e = data as unknown as EventRow | null
     return e && eventLive(e, today) ? eventCard(e, 'pick') : null
   }
   if (type === 'restaurant') {
     if (!platform.restaurants) return null
-    const { data } = await supabaseAdmin.from('restaurants').select(RESTAURANT_COLS).eq('id', id).maybeSingle()
+    const { data } = await selectWithFocus('restaurants', RESTAURANT_COLS, cols => supabaseAdmin.from('restaurants').select(cols).eq('id', id).maybeSingle())
     const r = data as unknown as RestaurantRow | null
     if (!r || !r.is_active || !['active', 'approved'].includes(r.status) || r.deleted_at) return null
     const paused = takesOrders(r) ? (await readOrdersPause(r.id)).paused : false
     return {
       type: 'restaurant', id: r.id, title_fr: r.name, title_en: null,
-      image: photo(r.image_url) ?? photo(r.logo_url), credit: (photo(r.image_url) ?? photo(r.logo_url)) ? r.photo_credit ?? null : null, href: featuredHref('restaurant', r.id),
+      image: photo(r.image_url) ?? photo(r.logo_url), focus: photo(r.image_url) ? r.image_focus ?? null : r.logo_focus ?? null, credit: (photo(r.image_url) ?? photo(r.logo_url)) ? r.photo_credit ?? null : null, href: featuredHref('restaurant', r.id),
       action: takesOrders(r) && !paused ? 'order' : 'view', when: null, area: r.neighborhood, source: 'pick',
     }
   }
@@ -79,7 +80,7 @@ export async function resolveFeaturedItem(
   if (!p || p.status !== 'active') return null
   return {
     type: 'place', id: p.id, title_fr: p.title_fr, title_en: p.title_en,
-    image: photo(p.cover_url), credit: p.photo_credit, href: featuredHref('place', p.id),
+    image: photo(p.cover_url), focus: null, credit: p.photo_credit, href: featuredHref('place', p.id),
     action: 'view', when: null, area: p.area, source: 'pick',
   }
 }
@@ -119,7 +120,7 @@ export async function homeFeaturedCard(city: string, now: Date = new Date()): Pr
     if (card) return card
   }
   if (!platform.events) return null
-  const { data } = await supabaseAdmin.from('events').select(EVENT_COLS).eq('city', city).eq('is_active', true)
+  const { data } = await selectWithFocus('events', EVENT_COLS, cols => supabaseAdmin.from('events').select(cols).eq('city', city).eq('is_active', true))
   const live = ((data ?? []) as unknown as EventRow[])
     .filter(e => eventLive(e, today) && hasPicture(e.cover_photo))
     .sort((a, b) => eventStartKey(a, today).localeCompare(eventStartKey(b, today)))

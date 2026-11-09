@@ -19,11 +19,13 @@ import RefPicker, { OTHER } from '@/components/RefPicker'
 import PhoneInput from '@/components/PhoneInput'
 import type { Restaurant } from '@/types'
 import { parsePin } from '@/lib/restaurantDetailFields'
+import { FOCUS_OF, focusStyle } from '@/lib/photoFocus'
+import FocusPicker from '@/components/FocusPicker'
 
 const INPUT = 'w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white'
 const BTN = 'text-xs font-semibold px-3 py-1.5 rounded-full border'
 
-type R = Restaurant & { address?: string | null; phone?: string | null; lat?: number | null; lng?: number | null; logo_url?: string | null; photo_credit?: string | null }
+type R = Restaurant & { address?: string | null; phone?: string | null; lat?: number | null; lng?: number | null; logo_url?: string | null; photo_credit?: string | null; image_focus?: string | null; logo_focus?: string | null }
 
 function formOf(r: R, cuisineCode: string) {
   return {
@@ -53,6 +55,7 @@ export default function RestaurantInfoPanel({ restaurant, onChange, admin = fals
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [pinText, setPinText] = useState('')
+  const [framing, setFraming] = useState<'image_url' | 'logo_url' | null>(null)
   const [credit, setCredit] = useState(restaurant.photo_credit ?? '')
   const detailsUrl = admin ? `/api/admin/restaurants/${restaurant.id}/info` : `/api/restaurants/${restaurant.id}/details`
   const photoUrl = admin ? `/api/admin/restaurants/${restaurant.id}/photo` : `/api/restaurants/${restaurant.id}/image`
@@ -116,8 +119,26 @@ export default function RestaurantInfoPanel({ restaurant, onChange, admin = fals
       const d = await post(photoUrl, body)
       if (d) {
         const row = (d.restaurant ?? d) as Record<string, unknown>
-        onChange({ ...restaurant, image_url: (row.image_url as string | null) ?? null, logo_url: (row.logo_url as string | null) ?? null, ...('photo_credit' in row ? { photo_credit: row.photo_credit as string | null } : admin ? {} : { photo_credit: null }) } as R)
+        onChange({
+          ...restaurant, image_url: (row.image_url as string | null) ?? null, logo_url: (row.logo_url as string | null) ?? null,
+          ...('photo_credit' in row ? { photo_credit: row.photo_credit as string | null } : admin ? {} : { photo_credit: null }),
+          // A new photo starts centred.
+          [FOCUS_OF[field]]: 'image_focus' in row || 'logo_focus' in row ? (row[FOCUS_OF[field]] as string | null) ?? null : null,
+        } as R)
+        setFraming(null)
         setMsg({ ok: true, text: file ? bi('✅ Photo mise à jour', '✅ Photo updated') : bi('Photo retirée', 'Photo removed') })
+      }
+    } catch { setMsg({ ok: false, text: bi('Réseau', 'Network') }) }
+    finally { setBusy(null) }
+  }
+
+  async function saveFocus(field: 'image_url' | 'logo_url', v: string | null) {
+    setMsg(null); setBusy(`focus-${field}`)
+    try {
+      const d = await post(photoUrl, { [FOCUS_OF[field]]: v })
+      if (d) {
+        onChange({ ...restaurant, [FOCUS_OF[field]]: v } as R)
+        setMsg({ ok: true, text: bi('✅ Cadrage enregistré', '✅ Framing saved') })
       }
     } catch { setMsg({ ok: false, text: bi('Réseau', 'Network') }) }
     finally { setBusy(null) }
@@ -140,7 +161,7 @@ export default function RestaurantInfoPanel({ restaurant, onChange, admin = fals
     <div className="rounded-xl border border-divider p-3">
       <p className="text-xs font-semibold text-ink-secondary mb-2">{label}</p>
       <div className={`relative ${box} rounded-lg overflow-hidden bg-brand-light`}>
-        {url ? <Image src={url} alt={label} fill className="object-cover" sizes="240px" />
+        {url ? <Image src={url} alt={label} fill className="object-cover" style={focusStyle(restaurant[FOCUS_OF[field]])} sizes="240px" />
           : <span className="absolute inset-0 flex items-center justify-center text-xs text-ink-tertiary">{bi('Aucune', 'None')}</span>}
       </div>
       <div className="flex flex-wrap gap-2 mt-2">
@@ -155,7 +176,20 @@ export default function RestaurantInfoPanel({ restaurant, onChange, admin = fals
             🗑️ {bi('Retirer', 'Remove')}
           </button>
         )}
+        {url && (
+          <button type="button" disabled={!!busy} aria-expanded={framing === field} onClick={() => setFraming(framing === field ? null : field)}
+            className={`${BTN} border-divider text-ink-secondary bg-white disabled:opacity-50`}>
+            🎯 {bi('Cadrage', 'Framing')}
+          </button>
+        )}
       </div>
+      {url && framing === field && (
+        <div className="mt-3">
+          <p className="text-xs text-ink-tertiary mb-2">{bi('Touchez la partie à montrer sur les cartes (aperçu à la taille réelle).', 'Tap the part to show on the cards (real-size preview).')}</p>
+          <FocusPicker key={url} src={url} shape="cover" value={restaurant[FOCUS_OF[field]] ?? null}
+            busy={busy === `focus-${field}`} onSave={v => void saveFocus(field, v)} />
+        </div>
+      )}
     </div>
   )
 

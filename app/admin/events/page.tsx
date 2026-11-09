@@ -587,7 +587,7 @@ function EventRow({
               <div className="mt-2">
                 <AdminPhotoPanel target="events" id={event.id} credit={event.photo_credit ?? null}
                   onSaved={() => onOrganizerChanged()}
-                  slots={[{ field: 'cover_photo', label: bi('Affiche', 'Poster'), url: event.cover_photo || null, kind: 'event_poster' }]} />
+                  slots={[{ field: 'cover_photo', label: bi('Affiche', 'Poster'), url: event.cover_photo || null, kind: 'event_poster', focus: event.cover_focus ?? null }]} />
               </div>
             </details>
           )}

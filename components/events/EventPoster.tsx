@@ -1,5 +1,6 @@
 'use client'
 
+import { focusStyle } from '@/lib/photoFocus'
 import CardTag from '@/components/CardTag'
 import Image from 'next/image'
 import { useEffect, useState } from 'react'
@@ -14,9 +15,11 @@ import { eventCategoryIcon } from '@/lib/categoryLabels'
 
 
 export default function EventPoster({
-  src, title, category, sizes = '(max-width: 768px) 50vw, 300px', className = '', rounded = 'rounded-2xl', priority = false, tag,
+  src, title, category, sizes = '(max-width: 768px) 50vw, 300px', className = '', rounded = 'rounded-2xl', priority = false, tag, focus,
 }: {
   src: string | null | undefined
+  /** The poster's focus point (lib/photoFocus.ts). */
+  focus?: string | null
   title: string
   category?: string | null
   sizes?: string
@@ -36,8 +39,8 @@ export default function EventPoster({
     <div className={`relative overflow-hidden ${rounded} bg-gradient-to-br from-brand to-brand-darker ${className}`}>
       {show ? (
         <>
-          <Image src={src!} alt="" fill sizes={sizes} className="object-cover scale-110 blur-xl opacity-60" aria-hidden="true" onError={() => setFailed(true)} />
-          <Image src={src!} alt={title} fill sizes={sizes} className="object-contain" priority={priority} onError={() => setFailed(true)} />
+          <Image src={src!} alt="" fill sizes={sizes} className="object-cover scale-110 blur-xl opacity-60" style={focusStyle(focus)} aria-hidden="true" onError={() => setFailed(true)} />
+          <Image src={src!} alt={title} fill sizes={sizes} className="object-contain" style={focusStyle(focus)} priority={priority} onError={() => setFailed(true)} />
         </>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center text-white">

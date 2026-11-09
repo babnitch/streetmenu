@@ -1,5 +1,6 @@
 'use client'
 
+import { focusStyle } from '@/lib/photoFocus'
 import { track } from '@/lib/track'
 import { Restaurant } from '@/types'
 import Link from 'next/link'
@@ -28,6 +29,7 @@ export default function RestaurantSidebar({ restaurant, onClose, openOverride }:
             src={restaurant.logo_url}
             alt={restaurant.name}
             fill
+            style={focusStyle(restaurant.logo_focus)}
             className="object-cover"
             fallback={<GeneratedCover kind="restaurant" title={restaurant.name} />}
           />

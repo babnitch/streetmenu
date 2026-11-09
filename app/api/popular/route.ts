@@ -8,6 +8,7 @@ import { getPlatformStatus } from '@/lib/platformSwitch'
 import { deliversNow, hasModule } from '@/lib/modules'
 import { todayInDouala } from '@/lib/weekend'
 import { rankWithFill, eventStartKey, hasPicture } from '@/lib/popularRanking'
+import { selectWithFocus } from '@/lib/focusSelect'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,14 +40,13 @@ export async function GET(req: NextRequest) {
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
   const [restRes, evRes] = await Promise.all([
-    supabaseAdmin.from('restaurants')
-      .select('id, name, cuisine_type, neighborhood, image_url, logo_url, prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, modules, created_at')
-      .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null),
-    supabaseAdmin.from('events')
-      .select(`id, title, category, venue, cover_photo, ticket_price, booking_mode, price_is_from, ${EVENT_DATE_COLUMNS}`)
-      .eq('city', city).eq('is_active', true),
+    selectWithFocus('restaurants', 'id, name, cuisine_type, neighborhood, image_url, logo_url, prep_time_min, prep_time_max, delivery_enabled, delivery_fee, delivery_extra_min, modules, created_at',
+      cols => supabaseAdmin.from('restaurants').select(cols)
+        .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null)),
+    selectWithFocus('events', `id, title, category, venue, cover_photo, ticket_price, booking_mode, price_is_from, ${EVENT_DATE_COLUMNS}`,
+      cols => supabaseAdmin.from('events').select(cols).eq('city', city).eq('is_active', true)),
   ])
-  const restaurants = restRes.data ?? []
+  const restaurants = (restRes.data ?? []) as unknown as Array<{ id: string; image_url: string | null; logo_url: string | null; delivery_fee: number | null; created_at: string | null; modules: string[] | null; [k: string]: unknown }>
   const events = ((evRes.data ?? []) as unknown as Array<{ id: string; [k: string]: unknown }>)
     .filter(e => !isPastEvent(e as never))
 

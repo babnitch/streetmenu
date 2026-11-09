@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { selectWithFocus } from '@/lib/focusSelect'
 import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getEventAvailability } from '@/lib/eventSeats'
@@ -28,11 +29,9 @@ export async function GET(req: NextRequest) {
   const today = todayISO()
   const nowIso = new Date().toISOString()
 
-  const { data: rows, error } = await supabaseAdmin
-    .from('events')
-    .select(`id, title, category, venue, neighborhood, city, cover_photo, organizer_name, description, is_featured, ticket_price, price, booking_mode, event_status, reservations_open, ${EVENT_DATE_COLUMNS}`)
-    .eq('city', city).eq('is_active', true)
-    .order('date', { ascending: true })
+  const { data: rows, error } = await selectWithFocus('events',
+    `id, title, category, venue, neighborhood, city, cover_photo, organizer_name, description, is_featured, ticket_price, price, booking_mode, event_status, reservations_open, ${EVENT_DATE_COLUMNS}`,
+    cols => supabaseAdmin.from('events').select(cols).eq('city', city).eq('is_active', true).order('date', { ascending: true }))
   if (error) {
     console.error('[events/listing] events read failed:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -87,7 +86,7 @@ export async function GET(req: NextRequest) {
     })
     return {
       id: e.id, title: e.title, category: e.category, venue: e.venue, neighborhood: e.neighborhood,
-      cover_photo: e.cover_photo, organizer_name: e.organizer_name,
+      cover_photo: e.cover_photo, cover_focus: (e.cover_focus as string | null | undefined) ?? null, organizer_name: e.organizer_name,
       // For the Loisirs search (artists are usually named here); trimmed.
       description: typeof e.description === 'string' ? e.description.slice(0, 400) : null,
       date: e.date, time: e.time, end_date: e.end_date, end_time: e.end_time,

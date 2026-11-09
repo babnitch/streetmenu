@@ -1,4 +1,5 @@
 'use client'
+import { selectWithFocus } from '@/lib/focusSelect'
 import { track } from '@/lib/track'
 
 export const dynamic = 'force-dynamic'
@@ -133,7 +134,7 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     async function fetchEvent() {
-      const { data } = await supabase.from('events').select(PUBLIC_EVENT_SELECT).eq('id', id).single().overrideTypes<Event, { merge: false }>()
+      const { data } = await selectWithFocus('events', PUBLIC_EVENT_SELECT, cols => supabase.from('events').select(cols).eq('id', id).single().overrideTypes<Event, { merge: false }>())
       setEvent(data)
       if (data) track('view', 'event', id, data.city)
       setLoading(false)
@@ -426,7 +427,7 @@ export default function EventDetailPage() {
         if (d.phase === 'paid') {
           stopPolling()
           setPayPhase('paid')
-          const { data: refreshed } = await supabase.from('events').select(PUBLIC_EVENT_SELECT).eq('id', event!.id).single().overrideTypes<Event, { merge: false }>()
+          const { data: refreshed } = await selectWithFocus('events', PUBLIC_EVENT_SELECT, cols => supabase.from('events').select(cols).eq('id', event!.id).single().overrideTypes<Event, { merge: false }>())
           if (refreshed) setEvent(refreshed)
           loadAvailability()
         } else if (d.phase === 'failed') {
@@ -523,7 +524,7 @@ export default function EventDetailPage() {
       setReservationId(data.reservation_id)
       setReservationCode(data.reservation_code ?? null)
       // Re-fetch event so the remaining counter reflects the new sale.
-      const { data: refreshed } = await supabase.from('events').select(PUBLIC_EVENT_SELECT).eq('id', event!.id).single().overrideTypes<Event, { merge: false }>()
+      const { data: refreshed } = await selectWithFocus('events', PUBLIC_EVENT_SELECT, cols => supabase.from('events').select(cols).eq('id', event!.id).single().overrideTypes<Event, { merge: false }>())
       if (refreshed) setEvent(refreshed)
       loadAvailability()
     } finally {
@@ -542,7 +543,7 @@ export default function EventDetailPage() {
         </Link>
         <div className="mt-3 flex gap-4 items-start">
           <div className="w-32 sm:w-40 flex-shrink-0">
-            <EventPoster src={event.cover_photo} title={event.title} category={event.category}
+            <EventPoster src={event.cover_photo} focus={event.cover_focus} title={event.title} category={event.category}
               className="w-full aspect-[4/5] shadow-card" sizes="160px" priority />
             {event.cover_photo && event.photo_credit && (
               <p className="mt-1 text-[10px] leading-tight text-ink-tertiary">{bi('Photo', 'Photo')} : {event.photo_credit}</p>

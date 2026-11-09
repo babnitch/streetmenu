@@ -12,6 +12,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { sendWhatsApp as sendWhatsAppBase, pickLang, normalizeLang, getLangByPhone, guessLang, type Lang, type SendOptions, type SendResult } from '@/lib/whatsapp'
 import { writeAudit } from '@/lib/audit'
 import { isRestaurantOwner } from '@/lib/vendorAccess'
+import { focusColumnsReady } from '@/lib/focusSelect'
 import { testGuardPrefix } from '@/lib/testGuard'
 import { validatePrepTime, formatPrepTime, PREP_TIME_DEFAULT_MIN, PREP_TIME_DEFAULT_MAX } from '@/lib/prepTime'
 import { sendRestaurantMessage } from '@/lib/directMessaging'
@@ -1122,7 +1123,11 @@ async function handleSession(
     }
 
     // A new photo: no blur placeholder of the old one, no admin credit.
-    await supabaseAdmin.from('restaurants').update({ image_url: imageUrl, blur_hash: null, photo_credit: null }).eq('id', restaurant.id)
+    await supabaseAdmin.from('restaurants').update({
+      image_url: imageUrl, blur_hash: null, photo_credit: null,
+      // …and starts centred (once the focus column exists).
+      ...(await focusColumnsReady(supabaseAdmin as never) ? { image_focus: null } : {}),
+    }).eq('id', restaurant.id)
     await writeAudit({
       action: 'restaurant_photo_changed', targetType: 'restaurant', targetId: restaurant.id,
       performedBy: cid, performedByType: 'owner',

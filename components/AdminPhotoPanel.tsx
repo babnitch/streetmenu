@@ -6,6 +6,8 @@
 // /api/upload/image (same resize + blur placeholder as the owner flow), then
 // /api/admin/{restaurants|events}/[id]/photo saves and audits.
 
+import { FOCUS_OF, focusStyle } from '@/lib/photoFocus'
+import FocusPicker from '@/components/FocusPicker'
 import { useState } from 'react'
 import Image from 'next/image'
 import { useBi } from '@/lib/languageContext'
@@ -16,6 +18,8 @@ export interface PhotoSlot {
   label: string
   url: string | null
   kind: 'restaurant_hero' | 'restaurant_logo' | 'event_poster'
+  /** Its focus point ("x y" %, lib/photoFocus.ts). */
+  focus?: string | null
 }
 
 const BTN = 'text-xs font-semibold px-3 py-1.5 rounded-full border'
@@ -31,6 +35,7 @@ export default function AdminPhotoPanel({ target, id, slots, credit, onSaved }: 
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [creditText, setCreditText] = useState(credit ?? '')
+  const [framing, setFraming] = useState<string | null>(null)
 
   async function save(body: Record<string, unknown>, key: string, okText: string) {
     setBusy(key); setMsg(null)
@@ -73,7 +78,7 @@ export default function AdminPhotoPanel({ target, id, slots, credit, onSaved }: 
             <p className="text-xs font-semibold text-ink-secondary mb-2">{slot.label}</p>
             <div className={`relative ${slot.kind === 'restaurant_logo' ? 'w-20 h-20' : slot.kind === 'event_poster' ? 'w-24 aspect-[4/5]' : 'w-full aspect-[2/1]'} rounded-lg overflow-hidden bg-brand-light`}>
               {slot.url
-                ? <Image src={slot.url} alt={slot.label} fill className="object-cover" sizes="240px" />
+                ? <Image src={slot.url} alt={slot.label} fill className="object-cover" style={focusStyle(slot.focus)} sizes="240px" />
                 : <span className="absolute inset-0 flex items-center justify-center text-xs text-ink-tertiary text-center px-1">{bi('Aucune (couverture générée)', 'None (generated cover)')}</span>}
             </div>
             <div className="flex flex-wrap gap-2 mt-2">
@@ -88,7 +93,20 @@ export default function AdminPhotoPanel({ target, id, slots, credit, onSaved }: 
                   🗑️ {bi('Retirer', 'Remove')}
                 </button>
               )}
+              {slot.url && (
+                <button type="button" disabled={!!busy} aria-expanded={framing === slot.field} onClick={() => setFraming(framing === slot.field ? null : slot.field)}
+                  className={`${BTN} border-divider text-ink-secondary bg-white disabled:opacity-50`}>
+                  🎯 {bi('Cadrage', 'Framing')}
+                </button>
+              )}
             </div>
+            {slot.url && framing === slot.field && (
+              <div className="mt-3">
+                <FocusPicker key={slot.url} src={slot.url} shape={slot.kind === 'event_poster' ? 'poster' : 'cover'} value={slot.focus ?? null}
+                  busy={busy === `focus-${slot.field}`}
+                  onSave={v => void save({ [FOCUS_OF[slot.field]]: v }, `focus-${slot.field}`, bi('✅ Cadrage enregistré', '✅ Framing saved'))} />
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -51,6 +51,14 @@ export const PRIVATE_EVENT_COLUMNS = [
 export const ORDERS_PAUSE_COLUMNS = ['orders_paused_at', 'orders_paused_until'] as const
 
 /**
+ * Photo focus points (lib/photoFocus.ts): public too, granted by
+ * supabase-photo-focus.sql. Kept out of the main selects so the pages work
+ * before that SQL has run: reads add them through selectWithFocus
+ * (lib/focusSelect.ts), which falls back when they are missing.
+ */
+export const PHOTO_FOCUS_COLUMNS = { restaurants: ['image_focus', 'logo_focus'], events: ['cover_focus'] } as const
+
+/**
  * "À la une" picks (home_featured, supabase-home-featured.sql): public
  * columns. created_by / deleted_by stay server-only; removed picks are hidden
  * by the policy. The home page reads the card through GET /api/home/featured.

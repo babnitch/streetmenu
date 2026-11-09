@@ -1,4 +1,5 @@
 'use client'
+import { selectWithFocus } from '@/lib/focusSelect'
 import { cuisineText } from '@/lib/cuisineCategories'
 
 import { track } from '@/lib/track'
@@ -41,7 +42,7 @@ export default function RestaurantInfoPage() {
     let cancelled = false
     ;(async () => {
       const [{ data }, ratingRes, offersRes] = await Promise.all([
-        supabase.from('restaurants').select(PUBLIC_RESTAURANT_SELECT).eq('id', id).maybeSingle().overrideTypes<Restaurant, { merge: false }>(),
+        selectWithFocus('restaurants', PUBLIC_RESTAURANT_SELECT, cols => supabase.from('restaurants').select(cols).eq('id', id).maybeSingle().overrideTypes<Restaurant, { merge: false }>()),
         fetch(`/api/restaurants/${id}/rating`, { cache: 'no-store' }).then(x => x.ok ? x.json() : null).catch(() => null),
         fetch(`/api/offers/today?restaurant_id=${id}`, { cache: 'no-store' }).then(x => x.ok ? x.json() : null).catch(() => null),
       ])

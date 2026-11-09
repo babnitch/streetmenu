@@ -12,6 +12,9 @@ import { eventAllows, moduleOffResponse } from '@/lib/modulesServer'
 import { getRefData } from '@/lib/refDataServer'
 import { chooseCity } from '@/lib/refChoice'
 import { sanitizeText } from '@/lib/sanitize'
+import { focusColumnsReady, selectWithFocus } from '@/lib/focusSelect'
+import { parseFocus } from '@/lib/photoFocus'
+import { writeAudit } from '@/lib/audit'
 import { samePhone } from '@/lib/phone'
 import { normalizeTypedPhone, detectCountry, getCountryFromCity } from '@/lib/phoneValidation'
 
@@ -31,11 +34,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!session) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
 
-  const { data: event } = await supabaseAdmin
-    .from('events')
-    .select(`id, organizer_id, submitted_by, organizer_name, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active, city, price_is_from, whatsapp, managed_by_platform, booking_mode, event_status`)
-    .eq('id', params.id)
-    .maybeSingle()
+  const { data: eventRow } = await selectWithFocus('events',
+    `id, organizer_id, submitted_by, organizer_name, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, ticket_price, max_tickets, cover_photo, payment_mode, whatsapp_payment_enabled, is_active, city, price_is_from, whatsapp, managed_by_platform, booking_mode, event_status`,
+    cols => supabaseAdmin.from('events').select(cols).eq('id', params.id).maybeSingle())
+  type EventRow = {
+    id: string; organizer_id: string | null; submitted_by: string | null; organizer_name: string | null; title: string; description: string | null
+    date: string; time: string | null; end_date: string | null; end_time: string | null; venue: string | null; neighborhood: string | null
+    category: string | null; ticket_price: number | null; max_tickets: number | null; cover_photo: string | null; payment_mode: string | null
+    whatsapp_payment_enabled: boolean | null; is_active: boolean; city: string | null; price_is_from: boolean | null; whatsapp: string | null
+    managed_by_platform: boolean | null; booking_mode: string | null; event_status: string | null; cover_focus?: string | null
+  }
+  const event = eventRow as unknown as EventRow | null
   if (!event) return NextResponse.json({ error: 'Événement introuvable / Event not found' }, { status: 404 })
   if (!isAdmin && !isEventOrganizer(event, session.id)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 403 })
@@ -54,10 +63,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ('neighborhood' in body) updates.neighborhood = body.neighborhood || null
   if (typeof body.category === 'string' && body.category)    updates.category = body.category
   if ('cover_photo' in body)  updates.cover_photo  = body.cover_photo || null
-  // A new poster: the old one's blur placeholder and admin photo credit go.
-  if ('cover_photo' in body && (updates.cover_photo ?? null) !== (event.cover_photo ?? null)) {
+  // A new poster: the old one's blur placeholder and admin photo credit go,
+  // and it starts centred unless a focus point comes with it.
+  const posterChanged = 'cover_photo' in body && (updates.cover_photo ?? null) !== (event.cover_photo ?? null)
+  if (posterChanged) {
     updates.blur_hash = typeof body.blur_hash === 'string' && body.blur_hash && updates.cover_photo ? body.blur_hash : null
     updates.photo_credit = null
+  }
+  // Focus point of the poster ("x y" %, null = centre) — once the column exists.
+  if (('cover_focus' in body || posterChanged) && await focusColumnsReady(supabaseAdmin as never)) {
+    if ('cover_focus' in body) {
+      const v = body.cover_focus
+      if (v === null || v === '' || v === '50 50') updates.cover_focus = null
+      else if (parseFocus(v)) updates.cover_focus = String(v).trim()
+      else return NextResponse.json({ error: 'Cadrage invalide / Invalid focus point', field: 'cover_focus' }, { status: 400 })
+    } else updates.cover_focus = null
   }
 
   // What customers see about who runs it and where (the organiser edits them
@@ -228,6 +248,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // notifyEventUpdate writes the event_updated audit row and, when a
   // significant field changed, pings attendees. Pending events have no
   // audience (you can't reserve a draft), so this safely returns 0 for them.
+  // The poster and its focus point: one audit row per field changed.
+  for (const field of ['cover_photo', 'cover_focus'] as const) {
+    if (!(field in updates)) continue
+    const old = (event[field] ?? null) as string | null
+    if ((updates[field] ?? null) === old) continue
+    await writeAudit({
+      action: 'event_photo_changed', targetType: 'event', targetId: event.id,
+      performedBy: session.id, performedByType: isAdmin ? session.role : 'organiser',
+      previousData: { [field]: old }, metadata: { field, old, new: updates[field] ?? null, title: event.title },
+    })
+  }
+
   const notified = await notifyEventUpdate(
     {
       id: updated.id, title: updated.title, date: updated.date, time: updated.time,

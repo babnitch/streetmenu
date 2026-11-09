@@ -1,4 +1,6 @@
 'use client'
+import { focusStyle, heroFocus } from '@/lib/photoFocus'
+import { selectWithFocus } from '@/lib/focusSelect'
 import { cuisineText } from '@/lib/cuisineCategories'
 
 import { track } from '@/lib/track'
@@ -73,7 +75,7 @@ export default function MenuPage() {
   useEffect(() => {
     async function fetchData() {
       const [{ data: rest }, { data: menu }, statusRes, offersRes, filesRes, pauseRes] = await Promise.all([
-        supabase.from('restaurants').select(PUBLIC_RESTAURANT_SELECT).eq('id', id).maybeSingle().overrideTypes<Restaurant, { merge: false }>(),
+        selectWithFocus('restaurants', PUBLIC_RESTAURANT_SELECT, cols => supabase.from('restaurants').select(cols).eq('id', id).maybeSingle().overrideTypes<Restaurant, { merge: false }>()),
         supabase.from('menu_items').select('*').eq('restaurant_id', id).eq('is_available', true).is('deleted_at', null).order('is_daily_special', { ascending: false }),
         fetch(`/api/restaurants/open-status?ids=${id}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         // Today's offers (V2): the dish costs its offer price, the menu
@@ -214,7 +216,7 @@ export default function MenuPage() {
         <div className="absolute inset-0 md:rounded-2xl overflow-hidden">
           {(restaurant.image_url || restaurant.logo_url) ? (
             <>
-              <SafeImage src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" sizes="(min-width: 768px) 672px, 100vw" priority
+              <SafeImage src={(restaurant.image_url || restaurant.logo_url)!} alt={restaurant.name} fill className="object-cover" style={focusStyle(heroFocus(restaurant))} sizes="(min-width: 768px) 672px, 100vw" priority
                 fallback={<GeneratedCover kind="restaurant" size="hero" title={restaurant.name} area={restaurant.neighborhood} />} />
               <PhotoCredit credit={restaurant.photo_credit} url={null} />
             </>

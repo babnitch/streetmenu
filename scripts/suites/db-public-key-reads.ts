@@ -23,7 +23,7 @@ import { sb, getAnon } from '../testkit/env'
 import { assert, assertEq, warn, step, finish } from '../testkit/assert'
 import {
   PUBLIC_RESTAURANT_COLUMNS, PRIVATE_RESTAURANT_COLUMNS, PUBLIC_RESTAURANT_SELECT,
-  PUBLIC_EVENT_COLUMNS, PRIVATE_EVENT_COLUMNS, PUBLIC_EVENT_SELECT, ORDERS_PAUSE_COLUMNS,
+  PUBLIC_EVENT_COLUMNS, PRIVATE_EVENT_COLUMNS, PUBLIC_EVENT_SELECT, ORDERS_PAUSE_COLUMNS, PHOTO_FOCUS_COLUMNS,
   HOME_FEATURED_COLUMNS, PRIVATE_HOME_FEATURED_COLUMNS,
 } from '@/lib/publicColumns'
 
@@ -80,6 +80,16 @@ async function main(): Promise<void> {
       if (missing) { warn('orders pause columns missing', 'run supabase-orders-pause.sql'); return }
       const a = await anon.from('restaurants').select(`id, ${cols}`).limit(1)
       assert(!a.error, `${cols} readable (${a.error?.message ?? 'ok'})`)
+    })
+
+    await step('the photo focus columns are public', async () => {
+      for (const [table, list] of Object.entries(PHOTO_FOCUS_COLUMNS)) {
+        const cols = list.join(', ')
+        const { error: missing } = await sb.from(table).select(cols).limit(1)
+        if (missing) { warn(`${table} focus columns missing`, 'run supabase-photo-focus.sql'); continue }
+        const a = await anon.from(table).select(`id, ${cols}`).limit(1)
+        assert(!a.error, `${table}: ${cols} readable (${a.error?.message ?? 'ok'})`)
+      }
     })
 
     await step('home_featured: pick columns only, removed picks hidden', async () => {

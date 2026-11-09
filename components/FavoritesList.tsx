@@ -3,6 +3,7 @@
 // "Mes favoris" in Mon compte (M7): the restaurants saved from the ⋯ menu of
 // a restaurant page — photo, name, area; tap to open, ♥ to remove.
 
+import { focusStyle, heroFocus } from '@/lib/photoFocus'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import SafeImage from '@/components/SafeImage'
@@ -10,7 +11,7 @@ import { useBi } from '@/lib/languageContext'
 
 interface Fav {
   restaurant_id: string
-  restaurant: { id: string; name: string; city: string; neighborhood: string | null; cuisine_type: string | null; image_url: string | null; logo_url: string | null } | null
+  restaurant: { id: string; name: string; city: string; neighborhood: string | null; cuisine_type: string | null; image_url: string | null; logo_url: string | null; image_focus?: string | null; logo_focus?: string | null } | null
 }
 
 export default function FavoritesList() {
@@ -53,7 +54,7 @@ export default function FavoritesList() {
             <Link href={`/restaurant/${r.id}`} className="flex items-center gap-3 flex-1 min-w-0">
               <span className="relative w-14 h-14 rounded-xl overflow-hidden bg-brand-light flex-shrink-0">
                 {img
-                  ? <SafeImage src={img} alt="" fill sizes="56px" className="object-cover"
+                  ? <SafeImage src={img} alt="" fill sizes="56px" className="object-cover" style={focusStyle(heroFocus(r))}
                       fallback={<span className="absolute inset-0 flex items-center justify-center text-2xl" aria-hidden="true">🍽️</span>} />
                   : <span className="absolute inset-0 flex items-center justify-center text-2xl" aria-hidden="true">🍽️</span>}
               </span>

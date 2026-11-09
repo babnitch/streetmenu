@@ -27,6 +27,8 @@ export interface FeaturedCard {
   title_en: string | null
   /** A real photo URL, or null (the card then shows no image). */
   image: string | null
+  /** Photo focus point ("x y" %, lib/photoFocus.ts); null = centre. */
+  focus?: string | null
   /** Photo credit (places from Wikimedia Commons). */
   credit: string | null
   href: string

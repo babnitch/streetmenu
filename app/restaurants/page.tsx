@@ -2,6 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
+import { focusStyle, heroFocus } from '@/lib/photoFocus'
+import { selectWithFocus } from '@/lib/focusSelect'
 import { useMode } from '@/lib/modeContext'
 import { showProAlerts } from '@/lib/modeSurfaces'
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -234,14 +236,14 @@ export default function HomePage() {
       // had already failed.
       let data: Restaurant[] = []
       try {
-        const res = await supabase
+        const res = await selectWithFocus('restaurants', PUBLIC_RESTAURANT_SELECT, cols => supabase
           .from('restaurants')
-          .select(PUBLIC_RESTAURANT_SELECT)
+          .select(cols)
           .eq('is_active', true)
           .in('status', ['active', 'approved'])
           .is('deleted_at', null)
           .order('created_at', { ascending: false })
-          .overrideTypes<Restaurant[], { merge: false }>()
+          .overrideTypes<Restaurant[], { merge: false }>())
         if (res.error) throw new Error(res.error.message)
         data = res.data ?? []
         setRestaurants(data)
@@ -788,6 +790,7 @@ function ReorderCard({ restaurant }: { restaurant: Restaurant }) {
             alt={restaurant.name}
             fill
             sizes="128px"
+            style={focusStyle(heroFocus(restaurant))}
             onError={() => setImgError(true)}
             className="object-cover"
           />

@@ -6,6 +6,7 @@
 // Removing is allowed (lib/pictureRequired.ts: only creation needs a picture).
 
 import { hasPictureUrl } from '@/lib/pictureRequired'
+import { FOCUS_OF, parseFocus, type PhotoField } from '@/lib/photoFocus'
 
 export const PHOTO_CREDIT_MAX = 120
 
@@ -21,6 +22,15 @@ export function checkPhotoBody(body: Record<string, unknown>, fields: readonly s
     if (v === null || v === '') { patch[f] = null; continue }
     if (!hasPictureUrl(v)) return { ok: false, error: 'Photo invalide (https://…) / Invalid photo (https://…)', field: f }
     patch[f] = (v as string).trim()
+  }
+  // Focus point of a photo ("x y" percent, null = centre).
+  for (const f of fields) {
+    const ff = FOCUS_OF[f as PhotoField]
+    if (!ff || !(ff in body)) continue
+    const v = body[ff]
+    if (v === null || v === '' || v === '50 50') { patch[ff] = null; continue }
+    if (!parseFocus(v)) return { ok: false, error: 'Cadrage invalide / Invalid focus point', field: ff }
+    patch[ff] = (v as string).trim()
   }
   if ('photo_credit' in body) {
     const c = body.photo_credit
@@ -38,4 +48,20 @@ export function checkPhotoBody(body: Record<string, unknown>, fields: readonly s
 export function blurFor(oldHero: string | null, newHero: string | null, blurHash: unknown): { blur_hash: string | null } | Record<string, never> {
   if (oldHero === newHero) return {}
   return { blur_hash: newHero && typeof blurHash === 'string' && blurHash ? blurHash : null }
+}
+
+/** A new (or removed) photo starts centred: its focus resets unless the same
+ *  request sets one. `before` = the row now. */
+export function focusResets(patch: PhotoPatch, before: Record<string, string | null | undefined>): PhotoPatch {
+  const out: PhotoPatch = {}
+  for (const [photo, ff] of Object.entries(FOCUS_OF)) {
+    if (photo in patch && (patch[photo] ?? null) !== (before[photo] ?? null) && !(ff in patch) && before[ff]) out[ff] = null
+  }
+  return out
+}
+
+/** Drop the focus keys (before supabase-photo-focus.sql has run). */
+export function withoutFocus(patch: PhotoPatch): PhotoPatch {
+  const focus = new Set<string>(Object.values(FOCUS_OF))
+  return Object.fromEntries(Object.entries(patch).filter(([k]) => !focus.has(k)))
 }

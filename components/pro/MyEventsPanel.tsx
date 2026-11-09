@@ -1,5 +1,7 @@
 'use client'
 import { visibleCities } from '@/lib/cities'
+import { FocusPickerField } from '@/components/FocusPicker'
+import { focusStyle } from '@/lib/photoFocus'
 import { useRefData } from '@/lib/useRefData'
 import { eventCategories } from '@/lib/categoryLabels'
 import { todayInDouala } from '@/lib/weekend'
@@ -29,7 +31,7 @@ export interface MyEventsPanelEvent {
   id: string; title: string; date: string; time: string | null
   end_date: string | null; end_time: string | null
   description?: string | null; neighborhood?: string | null; category?: string | null
-  venue: string | null; city: string | null; cover_photo: string | null
+  venue: string | null; city: string | null; cover_photo: string | null; cover_focus?: string | null
   notify_phone?: string | null
   ticket_price: number | null; max_tickets: number | null; tickets_sold: number | null
   payment_enabled: boolean; payment_mode?: string | null; whatsapp_payment_enabled?: boolean
@@ -65,6 +67,7 @@ interface EventEditForm {
   payment_mode: PaymentMode; whatsapp_payment_enabled: boolean
   cover_photo: string
   blur_hash: string
+  cover_focus: string | null
   notify_phone: string
   city: string; price_is_from: boolean; organizer_name: string; whatsapp: string
 }
@@ -286,6 +289,7 @@ export default function MyEventsPanel({
       cover_photo:  selected.cover_photo ?? '',
       notify_phone: selected.notify_phone ? formatPhoneDisplay(selected.notify_phone) : '',
       blur_hash:    '',
+      cover_focus:  selected.cover_focus ?? null,
       city:         selected.city ?? '',
       price_is_from: !!selected.price_is_from,
       organizer_name: selected.organizer_name ?? '',
@@ -309,7 +313,8 @@ export default function MyEventsPanel({
       const r = await fetch('/api/upload/image', { method: 'POST', body: fd })
       if (r.ok) {
         const j = await r.json()
-        if (typeof j?.url === 'string') { setEdit('cover_photo', j.url); setEdit('blur_hash', typeof j.blur_hash === 'string' ? j.blur_hash : '') }
+        // A new poster starts centred.
+        if (typeof j?.url === 'string') { setEdit('cover_photo', j.url); setEdit('blur_hash', typeof j.blur_hash === 'string' ? j.blur_hash : ''); setEdit('cover_focus', null) }
       }
     } finally { setEditPhotoUploading(false) }
   }
@@ -348,6 +353,7 @@ export default function MyEventsPanel({
           payment_mode: editForm.payment_mode,
           whatsapp_payment_enabled: editForm.whatsapp_payment_enabled,
           cover_photo:  editForm.cover_photo || null,
+          ...(editForm.cover_photo ? { cover_focus: editForm.cover_focus } : {}),
           ...(editForm.blur_hash ? { blur_hash: editForm.blur_hash } : {}),
           notify_phone: editForm.notify_phone.trim(),
           ...(editForm.city ? { city: editForm.city } : {}),
@@ -894,12 +900,20 @@ export default function MyEventsPanel({
                   <span className="block text-[11px] text-ink-tertiary">{bi('Format conseillé : 1080 × 1350 px (portrait 4:5).', 'Recommended: 1080 × 1350 px (portrait 4:5).')}</span>
                   <div className="mt-1 flex items-center gap-3">
                     {editForm.cover_photo && (
-                      <Image src={editForm.cover_photo} alt="" width={56} height={70} className="w-14 h-[70px] rounded-xl object-cover" />
+                      <Image src={editForm.cover_photo} alt="" width={56} height={70} className="w-14 h-[70px] rounded-xl object-cover" style={focusStyle(editForm.cover_focus)} />
                     )}
                     <input type="file" accept="image/*" onChange={handleEditPhoto} className="text-xs flex-1" />
                     {editPhotoUploading && <span className="text-xs text-ink-tertiary">…</span>}
                   </div>
                 </label>
+                {editForm.cover_photo && (
+                  <details className="rounded-xl border border-divider px-3 py-2">
+                    <summary className="text-xs font-semibold text-ink-secondary cursor-pointer">🎯 {bi('Cadrage sur les cartes', 'Framing on the cards')}</summary>
+                    <p className="text-[11px] text-ink-tertiary mt-1 mb-2">{bi('Touchez la partie de l\'affiche à montrer (enregistré avec l\'événement).', 'Tap the part of the poster to show (saved with the event).')}</p>
+                    <FocusPickerField key={editForm.cover_photo} src={editForm.cover_photo} shape="poster" value={editForm.cover_focus}
+                      onChange={v => setEdit('cover_focus', v)} />
+                  </details>
+                )}
 
                 <label className="flex items-center gap-2 text-sm text-ink-primary">
                   <input type="checkbox" checked={editForm.price_is_from} onChange={e => setEdit('price_is_from', e.target.checked)} className="w-4 h-4 accent-brand" />

@@ -1,5 +1,6 @@
 'use client'
 
+import { focusStyle, heroFocus } from '@/lib/photoFocus'
 import GeneratedCover from '@/components/GeneratedCover'
 import { cuisineText } from '@/lib/cuisineCategories'
 import { CompactRow, dot } from '@/components/CompactRow'
@@ -109,6 +110,7 @@ export default function RestaurantCard({
             alt={restaurant.name}
             fill
             onError={() => setImgError(true)}
+            style={focusStyle(heroFocus(restaurant))}
             className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
             sizes="(max-width: 767px) 50vw, (max-width: 1024px) 50vw, 33vw"
           />

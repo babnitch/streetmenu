@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { selectWithFocus } from '@/lib/focusSelect'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { EVENT_DATE_COLUMNS } from '@/lib/eventDate'
@@ -18,23 +19,27 @@ export async function GET(req: NextRequest) {
 
   const isAdmin = ['super_admin', 'admin', 'moderator'].includes(session.role)
 
-  // Base query: own events for customers, all events for admins. Limit to
-  // 50 most-recent — organizers rarely run more, admins paginate later.
-  let query = supabaseAdmin
-    .from('events')
-    .select(`id, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, city, cover_photo, notify_phone, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, organizer_id, organizer_name, price_is_from, whatsapp, event_status, is_active, requires_confirmation, reservations_open, created_at`)
-    .neq('event_status', 'rejected')
-    .order('date', { ascending: false })
-    .limit(50)
-  if (!isAdmin) {
-    if (session.role !== 'customer') return NextResponse.json({ events: [] })
+  if (!isAdmin && session.role !== 'customer') return NextResponse.json({ events: [] })
+  const run = (cols: string) => {
+    let query = supabaseAdmin
+      .from('events')
+      .select(cols)
+      .neq('event_status', 'rejected')
+      .order('date', { ascending: false })
+      .limit(50)
     // Events are linked to their submitter via organizer_id (the current
     // submit flow). Legacy rows created before that column existed used
     // submitted_by, so match either — an organizer must never lose sight
     // of an event just because of which column carried the link.
-    query = query.or(`organizer_id.eq.${session.id},submitted_by.eq.${session.id}`)
+    if (!isAdmin) query = query.or(`organizer_id.eq.${session.id},submitted_by.eq.${session.id}`)
+    return query
   }
-  const { data: events, error } = await query
+  // Base query: own events for customers, all events for admins. Limit to
+  // 50 most-recent — organizers rarely run more, admins paginate later.
+  const { data: eventRows, error } = await selectWithFocus('events',
+    `id, title, description, ${EVENT_DATE_COLUMNS}, venue, neighborhood, category, city, cover_photo, notify_phone, ticket_price, max_tickets, tickets_sold, payment_enabled, payment_mode, whatsapp_payment_enabled, organizer_id, organizer_name, price_is_from, whatsapp, event_status, is_active, requires_confirmation, reservations_open, created_at`,
+    run)
+  const events = eventRows as unknown as Array<Record<string, unknown> & { id: string }> | null
   console.log('[events/my] customer_id=%s isAdmin=%s → %d event(s)%s',
     session.id, isAdmin, events?.length ?? 0, error ? ` ERROR: ${error.message}` : '')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

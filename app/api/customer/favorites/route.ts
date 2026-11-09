@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { selectWithFocusFlag, focusCols } from '@/lib/focusSelect'
 import { requireSideOn } from '@/lib/platformSwitch'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -32,9 +33,9 @@ export async function GET(req: NextRequest) {
       .select('restaurant_id').eq('customer_id', me).eq('restaurant_id', rid).maybeSingle()
     return NextResponse.json({ favorite: !!data }, { headers: { 'Cache-Control': 'no-store' } })
   }
-  const { data, error } = await supabaseAdmin.from('customer_favorites')
-    .select('restaurant_id, created_at, restaurant:restaurants!customer_favorites_restaurant_id_fkey(id, name, city, neighborhood, cuisine_type, image_url, logo_url)')
-    .eq('customer_id', me).order('created_at', { ascending: false })
+  const { data, error } = await selectWithFocusFlag('restaurants', on => supabaseAdmin.from('customer_favorites')
+    .select(`restaurant_id, created_at, restaurant:restaurants!customer_favorites_restaurant_id_fkey(id, name, city, neighborhood, cuisine_type, image_url, logo_url${focusCols('restaurants', on)})`)
+    .eq('customer_id', me).order('created_at', { ascending: false }))
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ favorites: data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
 }

@@ -28,6 +28,9 @@ export interface Restaurant {
   image_url?: string | null
   /** Admin-only credit shown on the photo (supabase-photo-credit.sql). */
   photo_credit?: string | null
+  /** Focus points ("x y" %, lib/photoFocus.ts). */
+  image_focus?: string | null
+  logo_focus?: string | null
   // Payments (added via supabase-payments.sql)
   payment_enabled?: boolean
   pawapay_merchant_id?: string | null
@@ -170,6 +173,8 @@ export interface Event {
   cover_photo: string
   /** Admin-only credit shown on the poster (supabase-photo-credit.sql). */
   photo_credit?: string | null
+  /** Poster focus point ("x y" %, lib/photoFocus.ts). */
+  cover_focus?: string | null
   whatsapp: string
   organizer_name: string
   is_active: boolean

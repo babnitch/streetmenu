@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { selectWithFocus } from '@/lib/focusSelect'
+import { heroFocus } from '@/lib/photoFocus'
 import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { loadRestaurantOffersToday, loadTodayOffers } from '@/lib/offersServer'
@@ -42,7 +44,7 @@ export async function GET(req: NextRequest) {
 
 interface CityOffer {
   kind: 'price' | 'free_delivery'
-  restaurant: { id: string; name: string; image: string | null }
+  restaurant: { id: string; name: string; image: string | null; focus: string | null }
   dish?: { id: string; name: string; photo_url: string | null; regular_price: number; offer_price: number }
   ends_on: string
 }
@@ -51,9 +53,10 @@ async function cityOffers(city: string) {
   if (!isServedCity(city)) {
     return NextResponse.json({ error: 'city' }, { status: 400 })
   }
-  const { data: rests } = await supabaseAdmin.from('restaurants')
-    .select('id, name, image_url, logo_url, delivery_enabled, modules, menu_type, timezone, city')
-    .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null)
+  const { data: restRows } = await selectWithFocus('restaurants', 'id, name, image_url, logo_url, delivery_enabled, modules, menu_type, timezone, city',
+    cols => supabaseAdmin.from('restaurants').select(cols)
+      .eq('city', city).eq('is_active', true).in('status', ['active', 'approved']).is('deleted_at', null))
+  const rests = (restRows ?? []) as unknown as Array<{ id: string; name: string; image_url: string | null; logo_url: string | null; image_focus?: string | null; logo_focus?: string | null; delivery_enabled: boolean | null; modules: string[] | null; menu_type: string | null; timezone: string | null; city: string | null }>
   const byId = new Map((rests ?? []).map(r => [r.id as string, r]))
   const today = await loadTodayOffers(Array.from(byId.keys()))
 
@@ -67,7 +70,7 @@ async function cityOffers(city: string) {
   for (const [rid, t] of Object.entries(today)) {
     const r = byId.get(rid)
     if (!r) continue
-    const restaurant = { id: rid, name: r.name as string, image: (r.image_url || r.logo_url || null) as string | null }
+    const restaurant = { id: rid, name: r.name as string, image: (r.image_url || r.logo_url || null) as string | null, focus: heroFocus(r as never) }
     for (const o of t.offers) {
       if (o.kind === 'free_delivery') {
         if (deliversNow(r)) offers.push({ kind: 'free_delivery', restaurant, ends_on: o.ends_on })
