@@ -1,10 +1,13 @@
 'use client'
 
-// Dashboard → Réglages → « 🏪 Infos du restaurant » (OWNER only): everything
-// customers see about the restaurant — photos (cover + logo), name,
-// description, cuisine, city, area, address, map pin, phone, WhatsApp.
-// Saved through /api/restaurants/[id]/details and /api/restaurants/[id]/image.
-// Live at once; Tchop & Ndjoka is told about name / address / phone changes.
+// « 🏪 Infos du restaurant »: everything customers see about the restaurant —
+// photos (cover + logo), name, description, cuisine, city, area, address,
+// map pin, phone, WhatsApp. Live at once.
+//   Owner (Dashboard → Réglages): /api/restaurants/[id]/details + /image;
+//     Tchop & Ndjoka is told about name / address / phone changes.
+//   Admin (`admin`, Admin → Restaurants, any restaurant — managed ones too):
+//     /api/admin/restaurants/[id]/info + /photo, plus the photo credit and a
+//     typed map pin ("4.0525, 9.7001", e.g. copied from Google Maps).
 
 import { useState } from 'react'
 import Image from 'next/image'
@@ -15,11 +18,12 @@ import { visibleCities } from '@/lib/cities'
 import RefPicker, { OTHER } from '@/components/RefPicker'
 import PhoneInput from '@/components/PhoneInput'
 import type { Restaurant } from '@/types'
+import { parsePin } from '@/lib/restaurantDetailFields'
 
 const INPUT = 'w-full border border-divider rounded-xl px-3 py-2 text-sm outline-none focus:border-brand bg-white'
 const BTN = 'text-xs font-semibold px-3 py-1.5 rounded-full border'
 
-type R = Restaurant & { address?: string | null; phone?: string | null; lat?: number | null; lng?: number | null; logo_url?: string | null }
+type R = Restaurant & { address?: string | null; phone?: string | null; lat?: number | null; lng?: number | null; logo_url?: string | null; photo_credit?: string | null }
 
 function formOf(r: R, cuisineCode: string) {
   return {
@@ -40,7 +44,7 @@ function L({ label, children, wide }: { label: string; children: React.ReactNode
   )
 }
 
-export default function RestaurantInfoPanel({ restaurant, onChange }: { restaurant: R; onChange: (r: R) => void }) {
+export default function RestaurantInfoPanel({ restaurant, onChange, admin = false }: { restaurant: R; onChange: (r: R) => void; admin?: boolean }) {
   const bi = useBi()
   useRefData()
   const cuisineCode = refList('cuisine').find(v => v.label_fr === restaurant.cuisine_type || v.code === restaurant.cuisine_type)?.code ?? ''
@@ -48,6 +52,10 @@ export default function RestaurantInfoPanel({ restaurant, onChange }: { restaura
   const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [pinText, setPinText] = useState('')
+  const [credit, setCredit] = useState(restaurant.photo_credit ?? '')
+  const detailsUrl = admin ? `/api/admin/restaurants/${restaurant.id}/info` : `/api/restaurants/${restaurant.id}/details`
+  const photoUrl = admin ? `/api/admin/restaurants/${restaurant.id}/photo` : `/api/restaurants/${restaurant.id}/image`
   const set = (k: keyof typeof f, v: string) => setF(p => ({ ...p, [k]: v }))
   const start = formOf(restaurant, cuisineCode)
 
@@ -69,10 +77,10 @@ export default function RestaurantInfoPanel({ restaurant, onChange }: { restaura
     if (!Object.keys(body).length) { setMsg({ ok: true, text: bi('Rien à changer', 'Nothing to change') }); return }
     setBusy('save')
     try {
-      const d = await post(`/api/restaurants/${restaurant.id}/details`, body)
+      const d = await post(detailsUrl, body)
       if (d?.restaurant) {
         const r = d.restaurant as R
-        onChange(r); setPin(null)
+        onChange(r); setPin(null); setPinText('')
         setF(formOf(r, refList('cuisine').find(v => v.label_fr === r.cuisine_type)?.code ?? ''))
         setMsg({ ok: true, text: bi('✅ Enregistré, visible tout de suite', '✅ Saved, visible right away') })
       }
@@ -105,10 +113,24 @@ export default function RestaurantInfoPanel({ restaurant, onChange }: { restaura
         if (!up.ok || typeof j?.url !== 'string') { setMsg({ ok: false, text: bi('L\'envoi a échoué, réessayez.', 'Upload failed, please try again.') }); return }
         body = { [field]: j.url, blur_hash: j.blur_hash ?? '' }
       }
-      const d = await post(`/api/restaurants/${restaurant.id}/image`, body)
+      const d = await post(photoUrl, body)
       if (d) {
-        onChange({ ...restaurant, image_url: (d.image_url as string | null) ?? null, logo_url: (d.logo_url as string | null) ?? null } as R)
+        const row = (d.restaurant ?? d) as Record<string, unknown>
+        onChange({ ...restaurant, image_url: (row.image_url as string | null) ?? null, logo_url: (row.logo_url as string | null) ?? null, ...('photo_credit' in row ? { photo_credit: row.photo_credit as string | null } : admin ? {} : { photo_credit: null }) } as R)
         setMsg({ ok: true, text: file ? bi('✅ Photo mise à jour', '✅ Photo updated') : bi('Photo retirée', 'Photo removed') })
+      }
+    } catch { setMsg({ ok: false, text: bi('Réseau', 'Network') }) }
+    finally { setBusy(null) }
+  }
+
+  async function saveCredit() {
+    setMsg(null); setBusy('credit')
+    try {
+      const d = await post(photoUrl, { photo_credit: credit.trim() || null })
+      if (d) {
+        const row = (d.restaurant ?? {}) as Record<string, unknown>
+        onChange({ ...restaurant, photo_credit: (row.photo_credit as string | null) ?? (credit.trim() || null) } as R)
+        setMsg({ ok: true, text: bi('✅ Crédit enregistré', '✅ Credit saved') })
       }
     } catch { setMsg({ ok: false, text: bi('Réseau', 'Network') }) }
     finally { setBusy(null) }
@@ -141,13 +163,28 @@ export default function RestaurantInfoPanel({ restaurant, onChange }: { restaura
     <section className="bg-white rounded-2xl shadow-sm p-4 mb-4">
       <h3 className="font-bold text-ink-primary mb-1">🏪 {bi('Infos du restaurant', 'Restaurant details')}</h3>
       <p className="text-xs text-ink-tertiary mb-3">
-        {bi('Ce que vos clients voient. Visible tout de suite ; l\'équipe Tchop & Ndjoka est prévenue si vous changez le nom, l\'adresse ou les numéros.',
-          'What your customers see. Visible right away; the Tchop & Ndjoka team is told if you change the name, address or numbers.')}
+        {admin
+          ? bi('Ce que les clients voient. Visible tout de suite ; chaque changement est enregistré dans le journal.', 'What customers see. Visible right away; every change is logged.')
+          : bi('Ce que vos clients voient. Visible tout de suite ; l\'équipe Tchop & Ndjoka est prévenue si vous changez le nom, l\'adresse ou les numéros.',
+            'What your customers see. Visible right away; the Tchop & Ndjoka team is told if you change the name, address or numbers.')}
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         {slot('image_url', bi('Photo de couverture', 'Cover photo'), restaurant.image_url, 'w-full aspect-[2/1]')}
         {slot('logo_url', bi('Logo', 'Logo'), restaurant.logo_url, 'w-20 h-20')}
       </div>
+      {admin && (
+        <div className="flex gap-2 items-end mb-3">
+          <label className="block flex-1">
+            <span className="block text-xs font-semibold text-ink-secondary mb-1">{bi('Crédit photo (facultatif, affiché en petit sur la photo)', 'Photo credit (optional, shown small on the photo)')}</span>
+            <input value={credit} onChange={e => setCredit(e.target.value)} maxLength={120} className={INPUT}
+              placeholder={bi('Ex. : page Facebook du restaurant, avec accord', 'E.g. the restaurant\'s Facebook page, with permission')} />
+          </label>
+          <button type="button" onClick={saveCredit} disabled={!!busy || credit.trim() === (restaurant.photo_credit ?? '')}
+            className={`${BTN} border-brand text-brand-darker bg-white disabled:opacity-40 mb-1`}>
+            {busy === 'credit' ? '…' : bi('Enregistrer', 'Save')}
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
         <L label={bi('Nom', 'Name')} wide><input value={f.name} onChange={e => set('name', e.target.value)} maxLength={120} className={INPUT} /></L>
         <L label={bi('Description', 'Description')} wide><textarea value={f.description} onChange={e => set('description', e.target.value)} maxLength={1000} rows={3} className={INPUT} /></L>
@@ -166,12 +203,19 @@ export default function RestaurantInfoPanel({ restaurant, onChange }: { restaura
           <p className="text-xs font-semibold text-ink-secondary mb-1">📍 {bi('Position sur la carte', 'Map pin')}</p>
           <p className="text-xs text-ink-tertiary mb-2">
             {pin ? bi('Nouvelle position prise (pas encore enregistrée).', 'New position taken (not saved yet).')
+              : admin ? bi('Collez les coordonnées (Google Maps : clic droit sur le lieu) ou utilisez votre position.', 'Paste the coordinates (Google Maps: right-click the place) or use your position.')
               : bi('Au restaurant, appuyez pour placer le point à l\'endroit exact.', 'At the restaurant, tap to put the pin at the exact spot.')}
             {(pin ?? (restaurant.lat && restaurant.lng ? { lat: restaurant.lat, lng: restaurant.lng } : null)) && (
               <> · <a className="underline" target="_blank" rel="noopener noreferrer"
                 href={`https://www.google.com/maps?q=${(pin ?? restaurant).lat},${(pin ?? restaurant).lng}`}>{bi('Voir', 'View')} ↗</a></>
             )}
           </p>
+          {admin && (
+            <input value={pinText} inputMode="decimal" placeholder="4.0525, 9.7001" className={`${INPUT} mb-2`}
+              aria-label={bi('Coordonnées', 'Coordinates')}
+              onChange={e => { setPinText(e.target.value); setPin(parsePin(e.target.value)) }} />
+          )}
+          {admin && pinText && !pin && <p className="text-xs text-danger mb-2">{bi('Format : 4.0525, 9.7001', 'Format: 4.0525, 9.7001')}</p>}
           <button type="button" onClick={locate} disabled={!!busy} className={`${BTN} border-divider bg-white disabled:opacity-50`}>
             {busy === 'pin' ? '…' : bi('📍 Utiliser ma position actuelle', '📍 Use my current position')}
           </button>

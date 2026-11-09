@@ -18,10 +18,11 @@
 
 import { sb, testName } from '../testkit/env'
 import { assert, assertEq, step, finish, warn } from '../testkit/assert'
-import { api, adminCookie, customerCookie } from '../testkit/session'
+import { api, adminCookie, customerCookie, staffCookie } from '../testkit/session'
 import { makeCustomer, makeRestaurant, makeEvent, addTeamMember, futureDateISO } from '../testkit/fixtures'
 import { teardown, track } from '../testkit/ledger'
 import { checkRestaurantDetails, type DetailRow } from '@/lib/restaurantDetails'
+import { parsePin } from '@/lib/restaurantDetailFields'
 
 const SUITE = 'api-owner-edits'
 const CITY = testName('city')
@@ -49,6 +50,10 @@ async function main(): Promise<void> {
       assertEq(checkRestaurantDetails({ lat: 48.85, lng: 2.35 }, cur).ok, false, 'pin outside the city')
       const moved = checkRestaurantDetails({ city: 'Yaoundé' }, cur)
       assert(moved.ok && moved.patch.city === 'Yaoundé' && Math.abs(Number(moved.patch.lat) - 3.848) < 0.01, 'new city, old pin elsewhere → city centre')
+      assertEq(parsePin('4.0525, 9.7001'), { lat: 4.0525, lng: 9.7001 }, 'pasted pin')
+      assertEq(parsePin('4.0525 9.7001'), { lat: 4.0525, lng: 9.7001 }, 'pin with a space')
+      assertEq(parsePin('Douala'), null, 'not a pin')
+      assertEq(parsePin('95, 9'), null, 'latitude out of range')
       const noPhone = checkRestaurantDetails({ phone: '' }, { ...cur, phone: '+237600000002' })
       assert(noPhone.ok && noPhone.patch.phone === null, 'phone can be cleared')
     })
@@ -185,6 +190,32 @@ async function main(): Promise<void> {
       } finally {
         await sb.from('signup_sessions').delete().in('phone', [bo.phone, bm.phone, holder.phone])
       }
+    })
+
+    await step('admin « Infos du restaurant »: any restaurant, same checks, audited, no owner notice', async () => {
+      const managed = await makeRestaurant({ label: 'edit_managed', city: CITY, isActive: false, status: 'pending', extra: { managed_by_platform: true } })
+      const A = `/api/admin/restaurants/${managed.id}/info`
+      assertEq((await api(A, { body: { name: 'X Y' } })).status, 401, 'no session')
+      assertEq((await api(A, { cookie: customerCookie(owner), body: { name: 'X Y' } })).status, 401, 'a customer (even an owner) → 401')
+      const mod = await makeCustomer({ suiteNo: 64, name: 'Edit Mod' })
+      assertEq((await api(A, { cookie: staffCookie({ id: mod.id, email: 'm@test.invalid', name: 'Mod', role: 'moderator' }), body: { name: 'X Y' } })).status, 401, 'moderator → 401')
+      assertEq((await api<Body>(A, { cookie: admin, body: { city: 'Atlantis' } })).body.field, 'city', 'city we serve only')
+      assertEq((await api<Body>(A, { cookie: admin, body: { city: 'Douala', lat: 3.85, lng: 11.5 } })).body.field, 'lat', 'pin inside the city')
+      const { data: restNow } = await sb.from('restaurants').select('whatsapp').eq('id', rest.id).single()
+      const taken = await api<Body>(A, { cookie: admin, body: { whatsapp: restNow?.whatsapp } })
+      assertEq([taken.status, taken.body.field], [409, 'whatsapp'], 'WhatsApp of another restaurant → 409')
+      const newName = testName('edit_managed_renamed')
+      const r = await api<Body>(A, { cookie: admin, body: { name: newName, address: 'Carrefour Ndokoti', city: 'Douala', lat: 4.06, lng: 9.73, phone: '+237699000222', whatsapp: '+237699000333', description: 'Géré par nous', status: 'active' } })
+      assertEq(r.status, 200, `saved (${r.raw.slice(0, 100)})`)
+      const { data } = await sb.from('restaurants').select('name, address, city, lat, lng, phone, whatsapp, status').eq('id', managed.id).single()
+      assertEq(data, { name: newName, address: 'Carrefour Ndokoti', city: 'Douala', lat: 4.06, lng: 9.73, phone: '+237699000222', whatsapp: '+237699000333', status: 'pending' }, 'saved; status untouched')
+      const { data: au } = await sb.from('audit_log').select('metadata, performed_by_type').eq('action', 'restaurant_details_changed').eq('target_id', managed.id).single()
+      const ch = (au?.metadata as { changes: Record<string, { old: unknown; new: unknown }> }).changes
+      assert(['admin', 'super_admin'].includes(String(au?.performed_by_type)) && ch.name.old === managed.name && ch.name.new === newName && ch.whatsapp.new === '+237699000333', 'audited as admin, old → new')
+      const { count } = await sb.from('restaurant_change_notices').select('id', { count: 'exact', head: true }).eq('restaurant_id', managed.id)
+      assertEq(count, 0, 'an admin change is not listed as an owner change')
+      const gone = await makeRestaurant({ label: 'edit_admin_gone', city: CITY, extra: { deleted_at: new Date().toISOString() } })
+      assertEq((await api(`/api/admin/restaurants/${gone.id}/info`, { cookie: admin, body: { name: 'Revenu' } })).status, 404, 'deleted → 404')
     })
 
     await step('deleted restaurant: locked', async () => {

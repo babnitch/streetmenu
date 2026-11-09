@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 import RestaurantLinksForm from '@/components/RestaurantLinksForm'
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
-import AdminPhotoPanel from '@/components/AdminPhotoPanel'
+import RestaurantInfoPanel from '@/components/pro/RestaurantInfoPanel'
 import AdminRestaurantNotices from '@/components/AdminRestaurantNotices'
 import { useLanguage, useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
@@ -781,22 +781,19 @@ function RestaurantCard({
         </div>
       )}
 
-      {/* Photos of an existing restaurant: cover, logo, credit. */}
+      {/* Infos du restaurant (any restaurant, managed ones too): photos, logo,
+          credit, name, description, cuisine, city, area, address, pin, numbers. */}
       {canTogglePayment && !r.deleted_at && (
         <div className="border-t border-divider bg-surface">
           <button type="button" onClick={() => setPhotoOpen(o => !o)} aria-expanded={photoOpen}
             className="w-full px-5 py-3 flex items-center justify-between text-xs font-semibold text-ink-secondary hover:bg-surface-muted">
-            <span>📷 {bi('Photo', 'Photo')}</span>
+            <span>🏪 {bi('Infos du restaurant & photos', 'Restaurant details & photos')}</span>
             <span aria-hidden="true">{photoOpen ? '▲' : '▼'}</span>
           </button>
           {photoOpen && (
             <div className="px-5 pb-4">
-              <AdminPhotoPanel target="restaurants" id={r.id} credit={r.photo_credit ?? null}
-                onSaved={row => onPhotoSaved(r.id, row)}
-                slots={[
-                  { field: 'image_url', label: bi('Photo de couverture', 'Cover photo'), url: r.image_url || null, kind: 'restaurant_hero' },
-                  { field: 'logo_url', label: bi('Logo', 'Logo'), url: r.logo_url || null, kind: 'restaurant_logo' },
-                ]} />
+              <RestaurantInfoPanel admin restaurant={r as never}
+                onChange={row => onPhotoSaved(r.id, row as unknown as Record<string, unknown>)} />
             </div>
           )}
         </div>
