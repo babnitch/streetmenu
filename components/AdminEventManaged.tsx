@@ -35,10 +35,17 @@ const EMPTY = {
   booking_mode: 'info' as 'info' | 'platform', info_link: '', price_is_from: false,
 }
 
-export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event) => void; onClose: () => void }) {
+// `initial` pre-fills the form (a found event, a pasted post); `extraBody`
+// rides along to the API (candidate_id / origin); `noPoster` hides the
+// poster — added later, once the organiser said yes.
+export function AdminEventCreate({ onCreated, onClose, initial, extraBody, noPoster, heading, notice }: {
+  onCreated: (e: Event) => void; onClose: () => void
+  initial?: Partial<typeof EMPTY>; extraBody?: Record<string, unknown>; noPoster?: boolean
+  heading?: string; notice?: React.ReactNode
+}) {
   const bi = useBi()
   useRefData()
-  const [f, setF] = useState(EMPTY)
+  const [f, setF] = useState({ ...EMPTY, ...(initial ?? {}) })
   const [photo, setPhoto] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -60,7 +67,7 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
       if (r.ok && typeof j?.url === 'string') cover = j.url
     } catch { /* handled below */ }
     if (photo && !cover) { setBusy(false); setError(bi('L\'envoi de l\'affiche a échoué, réessayez.', 'The poster upload failed, please try again.')); return }
-    const r = await postJSON('/api/admin/events', { ...f, ...pickerBody('city', f.city, f.city_other), ...pickerBody('category', f.category, f.category_other), cover_photo: cover, ...(f.booking_mode === 'info' ? { max_tickets: '', notify_phone: '' } : { info_link: '', price_is_from: false }) })
+    const r = await postJSON('/api/admin/events', { ...f, ...pickerBody('city', f.city, f.city_other), ...pickerBody('category', f.category, f.category_other), cover_photo: cover, ...(extraBody ?? {}), ...(f.booking_mode === 'info' ? { max_tickets: '', notify_phone: '' } : { info_link: '', price_is_from: false }) })
     setBusy(false)
     if (!r.ok) { setError(r.error || bi('Erreur', 'Error')); return }
     onCreated(r.data.event as unknown as Event)
@@ -70,13 +77,14 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center p-0 md:p-4" role="dialog" aria-modal="true">
       <div className="bg-white w-full md:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl md:rounded-2xl p-5 shadow-xl">
         <div className="flex items-center justify-between mb-1">
-          <h2 className="font-bold text-ink-primary text-lg">{bi('Créer un événement', 'Create an event')}</h2>
+          <h2 className="font-bold text-ink-primary text-lg">{heading ?? bi('Créer un événement', 'Create an event')}</h2>
           <button type="button" onClick={onClose} aria-label={bi('Fermer', 'Close')} className="w-9 h-9 rounded-full hover:bg-surface-muted text-xl">✕</button>
         </div>
         <p className="text-xs text-ink-tertiary mb-4">
           {bi('Géré par Tchop & Ndjoka : aucun message envoyé. Infos seulement, ou réservations gratuites jusqu\'à l\'ajout d\'un organisateur.',
             'Managed by Tchop & Ndjoka: no message sent. Info only, or free reservations until an organiser is linked.')}
         </p>
+        {notice}
         <div className="grid grid-cols-2 gap-2 mb-4" role="radiogroup" aria-label={bi('Réservation', 'Booking')}>
           {([
             ['info', bi('ℹ️ Infos seulement', 'ℹ️ Info only'), bi('Pas de réservation : lien « Billets / Infos »', 'No booking: a "Tickets / Info" link')],
@@ -129,9 +137,16 @@ export function AdminEventCreate({ onCreated, onClose }: { onCreated: (e: Event)
             <L label={bi('Numéro qui reçoit les réservations', 'Number that gets the bookings')}><PhoneInput value={f.notify_phone} onChange={full => set('notify_phone', full)} /></L>
           )}
           <L label="Description" wide><textarea value={f.description} onChange={e => set('description', e.target.value)} rows={3} className={INPUT} /></L>
-          <L label={bi('Affiche (facultative : une couverture est générée)', 'Poster (optional: a cover is generated)')} wide>
-            <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-sm text-ink-secondary" />
-          </L>
+          {noPoster ? (
+            <p className="sm:col-span-2 text-xs text-ink-tertiary">
+              🖼️ {bi('Pas d\'affiche pour l\'instant : une couverture est générée. Ajoutez l\'affiche plus tard, une fois l\'accord de l\'organisateur reçu.',
+                'No poster for now: a cover is generated. Add the poster later, once the organiser has agreed.')}
+            </p>
+          ) : (
+            <L label={bi('Affiche (facultative : une couverture est générée)', 'Poster (optional: a cover is generated)')} wide>
+              <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-sm text-ink-secondary" />
+            </L>
+          )}
           <label className="sm:col-span-2 flex items-center gap-2 text-ink-primary">
             <input type="checkbox" checked={f.publish} onChange={e => set('publish', e.target.checked)} className="w-4 h-4 accent-brand" />
             {bi('Publier maintenant (visible par tous)', 'Publish now (visible to everyone)')}

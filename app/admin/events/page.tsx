@@ -17,6 +17,8 @@ import AdminModuleRequests from '@/components/AdminModuleRequests'
 import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 import { AdminEventCreate, AdminEventOrganizer } from '@/components/AdminEventManaged'
+import AdminEventCandidates from '@/components/AdminEventCandidates'
+import type { EventCandidate } from '@/lib/discovery/candidates'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -28,7 +30,8 @@ interface EventAggregate { reservations_count: number; tickets_count: number; re
 // cancelled one; Pending = awaiting approval and not finished; Active = live
 // and not finished; All = everything, with pending pinned to the top.
 // Rejetés = rejected events (kept, never deleted) — only in that tab.
-type EventTab = 'all' | 'pending' | 'active' | 'completed' | 'rejected'
+// Trouvés cette nuit = found by the nightly discovery, waiting for a decision.
+type EventTab = 'all' | 'pending' | 'active' | 'completed' | 'rejected' | 'found'
 interface Submitter { id: string; name: string; phone: string; events_approved_count: number; event_auto_approve: boolean; organizer_modules: string[] | null }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -53,6 +56,7 @@ export default function AdminEventsPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [currentRole, setCurrentRole] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [candidates, setCandidates] = useState<EventCandidate[]>([])
 
   // Only super_admin and admin may flip payment configuration (not moderator).
   const canTogglePayment = currentRole === 'super_admin' || currentRole === 'admin'
@@ -73,10 +77,19 @@ export default function AdminEventsPage() {
     setLoading(false)
   }, [])
 
+  const fetchCandidates = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/event-candidates', { cache: 'no-store' })
+      const d = await res.json().catch(() => ({}))
+      if (Array.isArray(d?.candidates)) setCandidates(d.candidates as EventCandidate[])
+    } catch { /* keep the last list */ }
+  }, [])
+
   useEffect(() => {
     fetchEvents()
+    fetchCandidates()
     fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
-  }, [fetchEvents])
+  }, [fetchEvents, fetchCandidates])
 
   // ── Payment config (super_admin / admin only) ──
   async function patchEventPayment(evt: Event, patch: { payment_mode?: PaymentMode; whatsapp_payment_enabled?: boolean }) {
@@ -304,6 +317,7 @@ export default function AdminEventsPage() {
           ['active',    bi('Actifs', 'Active'),      active.length],
           ['completed', bi('Terminés', 'Completed'), completed.length],
           ['rejected',  bi('Rejetés', 'Rejected'),   rejected.length],
+          ['found',     bi('🔭 Trouvés cette nuit', '🔭 Found overnight'), candidates.length],
         ] as [EventTab, string, number][]).map(([value, label, count]) => (
           <button
             key={value}
@@ -313,7 +327,7 @@ export default function AdminEventsPage() {
             }`}
           >
             {label}
-            {value === 'pending' && count > 0 && (
+            {(value === 'pending' || value === 'found') && count > 0 && (
               <span className="ml-1.5 bg-brand text-white text-xs px-1.5 py-0.5 rounded-full">
                 {count}
               </span>
@@ -331,7 +345,15 @@ export default function AdminEventsPage() {
       )}
 
       {/* Content */}
-      {loading ? (
+      {tab === 'found' ? (
+        <AdminEventCandidates
+          candidates={candidates}
+          canAct={canTogglePayment}
+          onChanged={fetchCandidates}
+          onPublished={evt => { setEvents(prev => [evt, ...prev]); showToast(bi('✅ Événement publié', '✅ Event published')) }}
+          toast={showToast}
+        />
+      ) : loading ? (
         <div className="text-center py-16 text-ink-tertiary">
           <div className="text-4xl mb-3 animate-bounce">🎉</div>
           <p>{t('admin.evtLoading')}</p>

@@ -118,9 +118,20 @@ export async function POST(req: NextRequest) {
   }
   const city = cityPick.city
   const category = catPick.category
+  // Event discovery: published from a found event ("Trouvés cette nuit") or
+  // a pasted post ("Coller une annonce"). Never with a poster — it's added
+  // later, once the organiser said yes.
+  const candidateId = typeof body.candidate_id === 'string' && body.candidate_id ? body.candidate_id : null
+  const origin = candidateId ? 'candidate' : body.origin === 'paste' ? 'paste' : null
+  if (candidateId) {
+    const { data: cand } = await supabaseAdmin.from('event_candidates').select('id, status')
+      .eq('id', candidateId).is('deleted_at', null).maybeSingle()
+    if (!cand) return NextResponse.json({ error: 'Événement trouvé introuvable / Found event not found' }, { status: 404 })
+    if (!['new', 'contacted'].includes(cand.status)) return NextResponse.json({ error: 'Déjà traité / Already handled' }, { status: 409 })
+  }
   // I1: a managed event may have no poster — the generated cover shows
   // until a real one is uploaded. A given poster must be a real picture URL.
-  const cover = typeof body.cover_photo === 'string' && body.cover_photo.trim() ? body.cover_photo.trim() : null
+  const cover = !origin && typeof body.cover_photo === 'string' && body.cover_photo.trim() ? body.cover_photo.trim() : null
   if (cover && !hasPictureUrl(cover)) {
     return NextResponse.json({ error: EVENT_POSTER_REQUIRED_TEXT, field: 'cover_photo' }, { status: 400 })
   }
@@ -195,7 +206,18 @@ export async function POST(req: NextRequest) {
   await writeAudit({
     action: 'event_created_by_admin', targetType: 'event', targetId: event.id,
     performedBy: session.id, performedByType: session.role,
-    metadata: { title, city, published: publish, managed: true, booking_mode: bookingMode },
+    metadata: { title, city, published: publish, managed: true, booking_mode: bookingMode, ...(origin ? { origin } : {}), ...(candidateId ? { candidate_id: candidateId } : {}) },
   })
+  if (candidateId) {
+    const { data: linked } = await supabaseAdmin.from('event_candidates')
+      .update({ status: 'published', published_event_id: event.id, published_at: new Date().toISOString(), published_by: session.id })
+      .eq('id', candidateId).in('status', ['new', 'contacted']).is('deleted_at', null).select('id')
+    if (!linked?.length) console.error(`[admin/events] candidate ${candidateId} was handled meanwhile; event ${event.id} created anyway`)
+    await writeAudit({
+      action: 'event_candidate_published', targetType: 'event_candidate', targetId: candidateId,
+      performedBy: session.id, performedByType: session.role,
+      metadata: { event_id: event.id, title, city, published: publish },
+    })
+  }
   return NextResponse.json({ ok: true, event })
 }
