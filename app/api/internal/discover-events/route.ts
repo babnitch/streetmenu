@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authorizeInternal } from '@/lib/internalAuth'
 import { startRun, runStep } from '@/lib/discovery/run'
+import { sendMorningReport } from '@/lib/discovery/report'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   try {
     if (body.step === 'start') return NextResponse.json({ ok: true, ...(await startRun()) })
     if (body.step === 'step') return NextResponse.json({ ok: true, ...(await runStep()) })
-    if (body.step === 'report') return NextResponse.json({ ok: true, report: 'not_built' })
+    if (body.step === 'report') return NextResponse.json({ ok: true, ...(await sendMorningReport()) })
     return NextResponse.json({ error: 'step: start | step | report' }, { status: 400 })
   } catch (e) {
     console.error(`[discover-events] ${body.step} failed:`, (e as Error).message)

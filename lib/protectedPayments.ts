@@ -22,6 +22,7 @@ import { pawapayEnvironmentLabel } from '@/lib/pawapay'
 import { testGuardPrefix } from '@/lib/testGuard'
 import { deliveryCode } from '@/lib/scanTokens'
 import { sendWhatsApp, getLangByPhone, pickLang } from '@/lib/whatsapp'
+import { alertAdmins } from '@/lib/adminAlerts'
 import { orderCommission } from '@/lib/commission'
 import { formatFCFA } from '@/lib/money'
 import { timingSafeEqual } from 'crypto'
@@ -192,15 +193,6 @@ async function hasOpenProblem(orderId: string): Promise<boolean> {
   const { count } = await supabaseAdmin.from('order_problems').select('id', { count: 'exact', head: true })
     .eq('order_id', orderId).eq('status', 'open')
   return (count ?? 0) > 0
-}
-
-export async function alertAdmins(fr: string, en: string, relatedId: string): Promise<void> {
-  const { data: admins } = await supabaseAdmin.from('admin_users').select('phone')
-    .in('role', ['super_admin', 'admin']).eq('status', 'active').not('phone', 'is', null)
-  await Promise.allSettled((admins ?? []).map(async a => {
-    const lang = await getLangByPhone(a.phone as string)
-    return sendWhatsApp(a.phone as string, pickLang(fr, en, lang), { context: 'account_notice', relatedId })
-  }))
 }
 
 async function tellRestaurant(restaurantId: string, orderId: string, fr: string, en: string): Promise<void> {

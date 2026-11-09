@@ -90,6 +90,8 @@ export default function AdminEventsPage() {
   useEffect(() => {
     fetchEvents()
     fetchCandidates()
+    // The morning WhatsApp links to ?tab=found.
+    if (new URLSearchParams(window.location.search).get('tab') === 'found') setTab('found')
     fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
   }, [fetchEvents, fetchCandidates])
 
