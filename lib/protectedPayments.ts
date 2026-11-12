@@ -536,10 +536,15 @@ export interface ProblemRow {
   total_price: number; held: number; funds_status: string | null; order_status: string
 }
 
-export async function listProblems(): Promise<ProblemRow[]> {
-  const { data } = await supabaseAdmin.from('order_problems')
-    .select('id, order_id, via, reason, status, created_at, resolved_at, note, refund_id, orders(customer_name, customer_phone, total_price, funds_status, status, restaurants(name))')
+/** Admin → Commandes → Problèmes; one city (of the order's restaurant) or all. */
+export async function listProblems(city: string | null = null): Promise<ProblemRow[]> {
+  let q = supabaseAdmin.from('order_problems')
+    .select(city
+      ? 'id, order_id, via, reason, status, created_at, resolved_at, note, refund_id, orders!inner(customer_name, customer_phone, total_price, funds_status, status, restaurants!inner(name, city))'
+      : 'id, order_id, via, reason, status, created_at, resolved_at, note, refund_id, orders(customer_name, customer_phone, total_price, funds_status, status, restaurants(name, city))')
     .order('created_at', { ascending: false }).limit(100)
+  if (city) q = q.eq('orders.restaurants.city', city)
+  const { data } = await q
   const rows = (data ?? []) as unknown as Array<Record<string, unknown> & { orders: Record<string, unknown> & { restaurants: { name?: string } | null } | null }>
   const out: ProblemRow[] = []
   for (const r of rows) {

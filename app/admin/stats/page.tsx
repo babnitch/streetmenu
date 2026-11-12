@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useBi } from '@/lib/languageContext'
-import { allCities } from '@/lib/cities'
+import { useAdminCity, cityQuery } from '@/lib/adminCity'
+import AdminCityFilter from '@/components/AdminCityFilter'
 
 interface Item { id: string; name: string; views: number; clicks: number; byClick: Record<string, number>; conversions: number | null }
 interface Data {
@@ -25,15 +26,16 @@ export default function AdminStatsPage() {
   const bi = useBi()
   useRefData()
   const [days, setDays] = useState(30)
-  const [city, setCity] = useState('')
+  const { city, setCity, ready, cities } = useAdminCity(bi('Statistiques', 'Statistics'))
   const [data, setData] = useState<Data | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
+    if (!ready) return
     setData(null); setError('')
-    fetch(`/api/admin/stats?days=${days}${city ? `&city=${encodeURIComponent(city)}` : ''}`, { cache: 'no-store' })
+    fetch(`/api/admin/stats?days=${days}&${cityQuery(city)}`, { cache: 'no-store' })
       .then(async r => { const d = await r.json().catch(() => ({})); if (r.ok) setData(d); else setError(d.error ?? 'Erreur') })
       .catch(() => setError('Erreur réseau / Network error'))
-  }, [days, city])
+  }, [days, city, ready])
 
   const maxV = Math.max(1, ...(data?.visits ?? []).map(v => v.count))
   return (
@@ -44,11 +46,8 @@ export default function AdminStatsPage() {
           <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)}
             className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${days === d ? 'bg-ink-primary text-white border-ink-primary' : 'bg-white border-divider text-ink-secondary'}`}>{d} {bi('j', 'd')}</button>
         ))}
-        <select value={city} onChange={e => setCity(e.target.value)} className="border border-divider rounded-full px-3 py-1.5 text-sm bg-white">
-          <option value="">{bi('Toutes les villes', 'All cities')}</option>
-          {allCities().map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
       </div>
+      <AdminCityFilter city={city} cities={cities} onChange={setCity} />
       <p className="text-xs text-ink-tertiary">{bi('Comptage anonyme par jour : aucun cookie, aucune adresse IP, aucun identifiant enregistré.', 'Anonymous daily counts: no cookie, IP address or identifier is stored.')}</p>
       {error && <p className="text-sm text-danger">{error}</p>}
       {!data && !error && <p className="text-sm text-ink-tertiary">…</p>}

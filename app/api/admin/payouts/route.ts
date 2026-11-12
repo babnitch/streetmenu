@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/auth'
 import { toPayList, payRestaurant } from '@/lib/proPayouts'
 import { isSandboxMoney } from '@/lib/protectedPayments'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,7 @@ function admin(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   if (!admin(req)) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
-  return NextResponse.json({ rows: await toPayList(), sandbox: isSandboxMoney() }, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json({ rows: await toPayList(await adminCityParam(req)), sandbox: isSandboxMoney() }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(req: NextRequest) {

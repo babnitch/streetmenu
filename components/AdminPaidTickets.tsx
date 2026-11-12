@@ -15,14 +15,14 @@ interface Ticket {
   event_date: string | null; created_at: string; events: { title: string; city: string } | null
 }
 
-export default function AdminPaidTickets() {
+export default function AdminPaidTickets({ city = '' }: { city?: string }) {
   const bi = useBi()
   const { locale } = useLanguage()
   const [tickets, setTickets] = useState<Ticket[] | null>(null)
   const [q, setQ] = useState('')
   const load = useCallback(() => {
-    fetch('/api/admin/paid-tickets', { cache: 'no-store' }).then(r => r.json()).then(d => setTickets(d.tickets ?? [])).catch(() => setTickets([]))
-  }, [])
+    fetch(`/api/admin/paid-tickets${city ? `?city=${encodeURIComponent(city)}` : ''}`, { cache: 'no-store' }).then(r => r.json()).then(d => setTickets(d.tickets ?? [])).catch(() => setTickets([]))
+  }, [city])
   useEffect(load, [load])
   const shown = (tickets ?? []).filter(t => matchesSearch(q, [t.customer_name, t.customer_phone, t.reservation_code, t.events?.title]))
   return (

@@ -53,7 +53,8 @@ export interface ToPay {
 // Test-city restaurants (automated tests) only show on the local test server.
 const isFixtureCity = (city: string | null | undefined) => (city ?? '').startsWith('__t_')
 
-export async function toPayList(): Promise<ToPay[]> {
+/** Admin → Commandes → À payer; one city or all. */
+export async function toPayList(city: string | null = null): Promise<ToPay[]> {
   const { data: lines } = await supabaseAdmin.from('money_ledger').select('party_id, bucket, delta')
     .eq('party_type', 'restaurant').in('bucket', ['available', 'in_transit']).eq('is_test', isSandboxMoney())
   const sums = new Map<string, { available: number; in_transit: number }>()
@@ -73,7 +74,7 @@ export async function toPayList(): Promise<ToPay[]> {
   const paid = new Set(((today ?? []) as Array<{ party_id: string }>).map(r => r.party_id))
   const showFixtures = !!testGuardPrefix()
   return ((rests ?? []) as Array<Record<string, string | null>>)
-    .filter(r => showFixtures || !isFixtureCity(r.city))
+    .filter(r => (showFixtures || !isFixtureCity(r.city)) && (!city || r.city === city))
     .map(r => {
       const s = sums.get(r.id as string) ?? { available: 0, in_transit: 0 }
       return {

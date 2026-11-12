@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -14,13 +15,17 @@ export async function GET(req: NextRequest) {
   }
 
   // .range() sidesteps whatever default row limit PostgREST might apply.
-  // No filter, no status check — the admin needs every row.
+  // No status check — the admin needs every row; ?city= (Admin city filter)
+  // keeps one city's accounts.
+  const city = await adminCityParam(req)
+  let customersQ = supabaseAdmin
+    .from('customers')
+    .select('id, name, phone, city, status, suspended_at, suspended_by, suspension_reason, deleted_at, created_at, events_submitted_count, event_auto_approve, broadcast_enabled')
+    .order('created_at', { ascending: false })
+    .range(0, 9999)
+  if (city) customersQ = customersQ.eq('city', city)
   const [customersRes, teamRes, restRes, countRes, auditRes] = await Promise.all([
-    supabaseAdmin
-      .from('customers')
-      .select('id, name, phone, city, status, suspended_at, suspended_by, suspension_reason, deleted_at, created_at, events_submitted_count, event_auto_approve, broadcast_enabled')
-      .order('created_at', { ascending: false })
-      .range(0, 9999),
+    customersQ,
     supabaseAdmin
       .from('restaurant_team')
       .select('customer_id, role')
@@ -31,9 +36,9 @@ export async function GET(req: NextRequest) {
       .select('id, customer_id')
       .not('customer_id', 'is', null)
       .range(0, 9999),
-    supabaseAdmin
-      .from('customers')
-      .select('id', { count: 'exact', head: true }),
+    city
+      ? supabaseAdmin.from('customers').select('id', { count: 'exact', head: true }).eq('city', city)
+      : supabaseAdmin.from('customers').select('id', { count: 'exact', head: true }),
     // History of released numbers — used to surface "Numéro réutilisé"
     // when a current customer's phone was previously released.
     supabaseAdmin

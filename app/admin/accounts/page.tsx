@@ -7,6 +7,8 @@ import { useBi } from '@/lib/languageContext'
 import MessageLogPanel from '@/components/MessageLogPanel'
 import TeamLoginsPanel from '@/components/TeamLoginsPanel'
 import { CLIENT_LABEL, roleLabel, publisherLabel, type PublisherTrust } from '@/lib/roleLabels'
+import { useAdminCity, cityQuery } from '@/lib/adminCity'
+import AdminCityFilter from '@/components/AdminCityFilter'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface ReusedFrom {
@@ -93,7 +95,8 @@ export default function AdminAccountsPage() {
 
   // UI controls
   const [search,       setSearch]       = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // Nothing to validate here: opens on the active accounts.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [sortBy,       setSortBy]       = useState<SortBy>('date')
 
   // Expandable rows
@@ -125,14 +128,19 @@ export default function AdminAccountsPage() {
   const [restActionLoading, setRestActionLoading] = useState<string | null>(null)
 
   // ── Load on mount ──
+  const { city, setCity, ready: cityReady, cities } = useAdminCity(bi('Comptes', 'Accounts'))
   useEffect(() => {
-    fetchAccounts()
+    if (cityReady) fetchAccounts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when the city changes
+  }, [cityReady, city])
+
+  useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) })
   }, [])
 
   async function fetchAccounts() {
     setLoading(true)
-    const res = await fetch('/api/admin/accounts', { cache: 'no-store' })
+    const res = await fetch(`/api/admin/accounts?${cityQuery(city)}`, { cache: 'no-store' })
     const data = await res.json()
     if (data.accounts) setAccounts(data.accounts)
     if (typeof data.totalInDb === 'number' || data.totalInDb === null) setTotalInDb(data.totalInDb)
@@ -437,7 +445,9 @@ export default function AdminAccountsPage() {
         </div>
       )}
 
-      {/* Filters */}
+      <AdminCityFilter city={city} cities={cities} onChange={setCity} />
+
+      {/* Filters (counts follow the city filter) */}
       <div className="flex flex-wrap gap-2 mb-4 items-center">
         {/* Status tabs */}
         <div className="flex gap-1 bg-surface-muted rounded-xl p-1 overflow-x-auto">

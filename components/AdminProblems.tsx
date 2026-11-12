@@ -22,7 +22,10 @@ const STATUS: Record<string, [string, string]> = {
   partly_refunded: ['↩️ Remboursé en partie', '↩️ Partly refunded'],
 }
 
-export default function AdminProblems() {
+/** Open problems: the « Problèmes » tab badge. */
+export const openProblems = (list: Array<{ status: string }>): number => list.filter(p => p.status === 'open').length
+
+export default function AdminProblems({ city = '', onCount }: { city?: string; onCount?: (n: number) => void }) {
   const bi = useBi()
   const { locale } = useLanguage()
   const [list, setList] = useState<Problem[] | null>(null)
@@ -32,9 +35,9 @@ export default function AdminProblems() {
   const [notes, setNotes] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
-    fetch('/api/admin/problems', { cache: 'no-store' }).then(r => r.ok ? r.json() : { problems: [] })
-      .then(d => setList(d.problems ?? [])).catch(() => setList([]))
-  }, [])
+    fetch(`/api/admin/problems${city ? `?city=${encodeURIComponent(city)}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : { problems: [] })
+      .then(d => { setList(d.problems ?? []); onCount?.(openProblems(d.problems ?? [])) }).catch(() => setList([]))
+  }, [city, onCount])
   useEffect(() => { load() }, [load])
 
   async function decide(p: Problem, decision: 'release' | 'refund' | 'partial') {

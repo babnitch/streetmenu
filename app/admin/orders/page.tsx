@@ -2,14 +2,16 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Order, Restaurant } from '@/types'
 import { useLanguage } from '@/lib/languageContext'
 import PaymentBadge from '@/components/PaymentBadge'
 import RefundButton, { RefundStatusPill } from '@/components/RefundButton'
 import AdminPaidTickets from '@/components/AdminPaidTickets'
-import AdminProblems from '@/components/AdminProblems'
-import AdminToPay from '@/components/AdminToPay'
+import AdminProblems, { openProblems } from '@/components/AdminProblems'
+import AdminToPay, { toPayCount } from '@/components/AdminToPay'
+import { useAdminCity, cityQuery } from '@/lib/adminCity'
+import AdminCityFilter from '@/components/AdminCityFilter'
 import { formatFCFA } from '@/lib/money'
 
 const STATUS_STYLES: Record<string, string> = {
@@ -28,6 +30,12 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<OrderWithRestaurant[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
+  const { city, setCity, ready: cityReady, cities } = useAdminCity(locale === 'en' ? 'Orders' : 'Commandes')
+  // Tab badges (things to act on), for the chosen city.
+  const [problemCount, setProblemCount] = useState(0)
+  const [payCount, setPayCount] = useState(0)
+  // First load: « Problèmes » when one is open, else Commandes.
+  const viewChosen = useRef(false)
 
   const [restaurantFilter, setRestaurantFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -43,6 +51,7 @@ export default function AdminOrdersPage() {
     if (paymentFilter !== 'all') p.set('payment', paymentFilter)
     if (dateFrom) p.set('from', dateFrom)
     if (dateTo) p.set('to', dateTo)
+    if (city) p.set('city', city)
     try {
       const r = await fetch(`/api/admin/orders?${p}`, { cache: 'no-store' })
       const d = await r.json().catch(() => ({}))
@@ -50,19 +59,41 @@ export default function AdminOrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [restaurantFilter, statusFilter, paymentFilter, dateFrom, dateTo])
+  }, [restaurantFilter, statusFilter, paymentFilter, dateFrom, dateTo, city])
 
   useEffect(() => {
-    fetch('/api/admin/orders?only=restaurants', { cache: 'no-store' })
+    if (!cityReady) return
+    fetch(`/api/admin/orders?only=restaurants&${cityQuery(city)}`, { cache: 'no-store' })
       .then(r => r.json())
-      .then(d => { if (Array.isArray(d.restaurants)) setRestaurants(d.restaurants as Restaurant[]) })
+      .then(d => {
+        if (!Array.isArray(d.restaurants)) return
+        setRestaurants(d.restaurants as Restaurant[])
+        // A restaurant of another city is no longer in the list.
+        setRestaurantFilter(f => f === 'all' || (d.restaurants as Restaurant[]).some(r => r.id === f) ? f : 'all')
+      })
       .catch(() => null)
-  }, [])
+  }, [city, cityReady])
+
+  // Badges: open problems and restaurants to pay (the lists are small).
+  useEffect(() => {
+    if (!cityReady) return
+    const q = cityQuery(city)
+    void Promise.all([
+      fetch(`/api/admin/problems?${q}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/admin/payouts?${q}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([pr, pay]) => {
+      const open = openProblems(pr?.problems ?? [])
+      setProblemCount(open)
+      setPayCount(toPayCount(pay?.rows ?? []))
+      if (!viewChosen.current) { viewChosen.current = true; if (open > 0) setView('problems') }
+    })
+  }, [city, cityReady])
 
   useEffect(() => {
+    if (!cityReady) return
     setLoading(true)
     fetchOrders()
-  }, [fetchOrders])
+  }, [fetchOrders, cityReady])
 
   const totalRevenue = orders.reduce((sum, o) => sum + Number(o.total_price), 0)
   const pendingCount = orders.filter(o => o.status === 'pending').length
@@ -75,14 +106,21 @@ export default function AdminOrdersPage() {
         <p className="text-sm text-ink-secondary mt-0.5">{t('admin.ordSub')}</p>
       </div>
 
-      {/* R2: orders · tickets paid by Mobile Money */}
+      <AdminCityFilter city={city} cities={cities} onChange={setCity} />
+
+      {/* R2: orders · tickets paid by Mobile Money. Badges: what needs action. */}
       <div className="flex max-w-full overflow-x-auto w-fit bg-surface-muted rounded-xl p-1 mb-5 text-sm font-semibold whitespace-nowrap" role="tablist">
-        {([['orders', locale === 'en' ? 'Orders' : 'Commandes'], ['tickets', locale === 'en' ? 'Paid tickets' : 'Billets payés'], ['problems', locale === 'en' ? 'Problems' : 'Problèmes'], ['topay', locale === 'en' ? 'To pay' : 'À payer']] as const).map(([k, label]) => (
+        {([['orders', locale === 'en' ? 'Orders' : 'Commandes', 0], ['tickets', locale === 'en' ? 'Paid tickets' : 'Billets payés', 0], ['problems', locale === 'en' ? 'Problems' : 'Problèmes', problemCount], ['topay', locale === 'en' ? 'To pay' : 'À payer', payCount]] as const).map(([k, label, count]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
-            className={`px-4 py-2 rounded-lg ${view === k ? 'bg-white shadow-sm text-ink-primary' : 'text-ink-secondary'}`}>{label}</button>
+            className={`px-4 py-2 rounded-lg ${view === k ? 'bg-white shadow-sm text-ink-primary' : 'text-ink-secondary'}`}>
+            {label}
+            {count > 0 && <span className="ml-1.5 bg-brand text-white text-xs px-1.5 py-0.5 rounded-full">{count}</span>}
+          </button>
         ))}
       </div>
-      {view === 'topay' ? <AdminToPay /> : view === 'problems' ? <AdminProblems /> : view === 'tickets' ? <AdminPaidTickets /> : (<>
+      {view === 'topay' ? <AdminToPay key={city} city={city} onCount={setPayCount} />
+        : view === 'problems' ? <AdminProblems key={city} city={city} onCount={setProblemCount} />
+        : view === 'tickets' ? <AdminPaidTickets key={city} city={city} /> : (<>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">

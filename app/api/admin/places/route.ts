@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { validatePlace } from '@/lib/places'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,9 +19,12 @@ function authorize(req: NextRequest) {
 export async function GET(req: NextRequest) {
   await getRefData()
   if (!authorize(req)) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
-  const { data, error } = await supabaseAdmin.from('places')
+  const city = await adminCityParam(req)
+  let q = supabaseAdmin.from('places')
     .select('*, submitter:customers!places_submitted_by_fkey(name, phone)')
     .order('created_at', { ascending: false }).range(0, 999)
+  if (city) q = q.eq('city', city)
+  const { data, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ places: data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
 }

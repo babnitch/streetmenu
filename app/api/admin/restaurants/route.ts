@@ -11,6 +11,7 @@ import { RESTAURANT_PHOTO_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequ
 import { validateModules, toggleModule } from '@/lib/modules'
 import { findOrCreateAccount, type OwnerAccount } from '@/lib/ownerAccount'
 import { setRestaurantModules } from '@/lib/modulesServer'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,10 +47,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   }
 
-  const { data, error } = await supabaseAdmin
+  // ?city= (Admin city filter): one city, else every city.
+  const city = await adminCityParam(req)
+  let q = supabaseAdmin
     .from('restaurants')
     .select('*, owner:customers!restaurants_customer_id_fkey(id, name, phone)')
     .order('created_at', { ascending: false })
+  if (city) q = q.eq('city', city)
+  const { data, error } = await q
 
   if (error) {
     console.error('[admin/restaurants] list failed:', error.message)

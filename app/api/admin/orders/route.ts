@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { adminCanFor } from '@/lib/adminNav'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,15 +23,20 @@ export async function GET(req: NextRequest) {
   const payment = p.get('payment') ?? ''
   const from = p.get('from') ?? ''
   const to = p.get('to') ?? ''
+  const city = await adminCityParam(req)
 
   // ?only=restaurants: just the restaurant list for the filter.
   if (p.get('only') === 'restaurants') {
-    const { data, error } = await supabaseAdmin.from('restaurants').select('id, name, city').order('name')
+    let rq = supabaseAdmin.from('restaurants').select('id, name, city').order('name')
+    if (city) rq = rq.eq('city', city)
+    const { data, error } = await rq
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ restaurants: data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
   }
 
-  let q = supabaseAdmin.from('orders').select('*, restaurants(name, city)').order('created_at', { ascending: false }).limit(1000)
+  // One city: only orders whose restaurant is there (inner join).
+  let q = supabaseAdmin.from('orders').select(city ? '*, restaurants!inner(name, city)' : '*, restaurants(name, city)').order('created_at', { ascending: false }).limit(1000)
+  if (city) q = q.eq('restaurants.city', city)
   if (UUID.test(restaurant)) q = q.eq('restaurant_id', restaurant)
   if (status && status !== 'all') q = q.eq('status', status)
   if (payment === 'paid' || payment === 'pending' || payment === 'failed') q = q.eq('payment_status', payment)

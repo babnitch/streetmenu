@@ -4,7 +4,7 @@ import RefPicker, { pickerBody } from '@/components/RefPicker'
 export const dynamic = 'force-dynamic'
 
 import RestaurantLinksForm from '@/components/RestaurantLinksForm'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import RestaurantInfoPanel from '@/components/pro/RestaurantInfoPanel'
 import AdminRestaurantNotices from '@/components/AdminRestaurantNotices'
@@ -21,6 +21,8 @@ import AdminRestaurantContacts from '@/components/AdminRestaurantContacts'
 import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 import { uploadPhoto } from '@/lib/uploadPhoto'
+import { useAdminCity, cityQuery } from '@/lib/adminCity'
+import AdminCityFilter from '@/components/AdminCityFilter'
 
 // ── Extended restaurant type (includes new moderation columns) ────────────────
 interface RestaurantRow {
@@ -140,7 +142,9 @@ export default function AdminRestaurantsPage() {
   const [uploading, setUploading]       = useState(false)
   const [saving, setSaving]             = useState(false)
   const [search, setSearch]             = useState('')
-  const [cityFilter, setCityFilter]     = useState('all')
+  const { city, setCity, ready: cityReady, cities } = useAdminCity(bi('Restaurants', 'Restaurants'))
+  // Opens on « En attente » when sign-ups wait, else Actifs (first load only).
+  const tabChosen = useRef(false)
   const [tab, setTab]                   = useState<Tab>('all')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [currentRole, setCurrentRole]   = useState<string | null>(null)
@@ -158,7 +162,11 @@ export default function AdminRestaurantsPage() {
   const [modulesFor, setModulesFor] = useState<{ restaurant: RestaurantRow; mode: 'edit' | 'approve' } | null>(null)
 
   useEffect(() => {
-    fetchRestaurants()
+    if (cityReady) fetchRestaurants()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when the city changes
+  }, [cityReady, city])
+
+  useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
   }, [])
 
@@ -178,10 +186,15 @@ export default function AdminRestaurantsPage() {
   async function fetchRestaurants() {
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/restaurants', { cache: 'no-store' })
+      const res = await fetch(`/api/admin/restaurants?${cityQuery(city)}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const body = await res.json()
-      setRestaurants((body?.restaurants ?? []) as RestaurantRow[])
+      const list = (body?.restaurants ?? []) as RestaurantRow[]
+      setRestaurants(list)
+      if (!tabChosen.current) {
+        tabChosen.current = true
+        if (list.some(r => !r.is_active && !r.deleted_at && !r.managed_by_platform)) setTab('pending')
+      }
     } catch (e) {
       console.error('[admin/restaurants] list failed:', (e as Error).message)
     } finally {
@@ -393,15 +406,13 @@ export default function AdminRestaurantsPage() {
   const deleted   = restaurants.filter(r => !!r.deleted_at && r.status !== 'rejected')
 
   const tabList = tab === 'pending' ? pending : tab === 'tocomplete' ? toComplete : tab === 'suspended' ? suspended : tab === 'deleted' ? deleted : tab === 'rejected' ? rejected : active
-  const cities  = ['all', ...Array.from(new Set(active.map(r => r.city).filter(Boolean)))]
 
   const filtered = tabList.filter(r => {
-    const matchCity = cityFilter === 'all' || r.city === cityFilter || tab !== 'all'
     const matchSearch = !search ||
       r.name?.toLowerCase().includes(search.toLowerCase()) ||
       r.city?.toLowerCase().includes(search.toLowerCase()) ||
       r.address?.toLowerCase().includes(search.toLowerCase())
-    return matchCity && matchSearch
+    return matchSearch
   })
 
   return (
@@ -429,7 +440,9 @@ export default function AdminRestaurantsPage() {
         </button>
       </div>
 
-      {/* Tabs */}
+      <AdminCityFilter city={city} cities={cities} onChange={setCity} />
+
+      {/* Tabs (counts follow the city filter) */}
       <div className="flex gap-1 mb-5 bg-surface-muted rounded-xl p-1 w-fit overflow-x-auto">
         {([ ['all', t('admin.allTab'), active.length],
             ['pending', t('admin.pendingTab'), pending.length],
@@ -522,15 +535,11 @@ export default function AdminRestaurantsPage() {
         </div>
       )}
 
-      {/* Search + city filter (all tab only) */}
+      {/* Search (all tab only); the city is the filter at the top. */}
       {tab === 'all' && (
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('admin.searchPh')}
             className="flex-1 border border-divider rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand" />
-          <select value={cityFilter} onChange={e => setCityFilter(e.target.value)}
-            className="border border-divider rounded-xl px-4 py-2.5 text-sm outline-none focus:border-brand bg-white">
-            {cities.map(c => <option key={c} value={c}>{c === 'all' ? t('admin.allCities') : c}</option>)}
-          </select>
         </div>
       )}
 

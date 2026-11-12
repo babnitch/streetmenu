@@ -11,7 +11,10 @@ import { formatFCFA } from '@/lib/money'
 
 interface Row { restaurant_id: string; name: string; city: string; available: number; in_transit: number; phone: string | null; phone_pending: string | null; paid_today: boolean }
 
-export default function AdminToPay() {
+/** Restaurants to pay or with a payout number to confirm: the « À payer » badge. */
+export const toPayCount = (rows: Array<{ available: number; phone_pending: string | null }>): number => rows.filter(r => r.available > 0 || !!r.phone_pending).length
+
+export default function AdminToPay({ city = '', onCount }: { city?: string; onCount?: (n: number) => void }) {
   const bi = useBi()
   const { locale } = useLanguage()
   const [rows, setRows] = useState<Row[] | null>(null)
@@ -20,9 +23,9 @@ export default function AdminToPay() {
   const [msg, setMsg] = useState<{ id: string; ok: boolean; text: string } | null>(null)
 
   const load = useCallback(() => {
-    fetch('/api/admin/payouts', { cache: 'no-store' }).then(r => r.ok ? r.json() : { rows: [] })
-      .then(d => { setRows(d.rows ?? []); setSandbox(d.sandbox === true) }).catch(() => setRows([]))
-  }, [])
+    fetch(`/api/admin/payouts${city ? `?city=${encodeURIComponent(city)}` : ''}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : { rows: [] })
+      .then(d => { setRows(d.rows ?? []); setSandbox(d.sandbox === true); onCount?.(toPayCount(d.rows ?? [])) }).catch(() => setRows([]))
+  }, [city, onCount])
   useEffect(() => { load() }, [load])
 
   async function post(id: string, url: string, body: unknown, ask: string) {

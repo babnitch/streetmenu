@@ -8,6 +8,7 @@ import { normalizePhone } from '@/lib/phone'
 import { chooseCity, chooseCategory, recordProposal } from '@/lib/refChoice'
 import { validateEventRange, eventRangeErrorText, normalizeEndDate } from '@/lib/eventDate'
 import { EVENT_POSTER_REQUIRED_TEXT, hasPictureUrl } from '@/lib/pictureRequired'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,11 +32,15 @@ export async function GET(req: NextRequest) {
   // see every event. Supabase caps unbounded selects at 1000 rows by default;
   // an explicit .range keeps that ceiling obvious and lifts it if the table
   // ever grows past it.
-  const { data: events, error } = await supabaseAdmin
+  // ?city= (Admin city filter): one city, else every city.
+  const city = await adminCityParam(req)
+  let q = supabaseAdmin
     .from('events')
     .select('*')
     .order('created_at', { ascending: false })
     .range(0, 9999)
+  if (city) q = q.eq('city', city)
+  const { data: events, error } = await q
   if (error) {
     console.error('[admin/events] query failed:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })

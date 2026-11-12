@@ -4,7 +4,7 @@ import { todayInDouala } from '@/lib/weekend'
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { Event } from '@/types'
 import { useLanguage, useBi } from '@/lib/languageContext'
@@ -21,6 +21,8 @@ import AdminEventCandidates from '@/components/AdminEventCandidates'
 import AdminEventPaste from '@/components/AdminEventPaste'
 import AdminPhotoPanel from '@/components/AdminPhotoPanel'
 import type { EventCandidate } from '@/lib/discovery/candidates'
+import { useAdminCity, cityQuery } from '@/lib/adminCity'
+import AdminCityFilter from '@/components/AdminCityFilter'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -60,41 +62,56 @@ export default function AdminEventsPage() {
   const [creating, setCreating] = useState(false)
   const [pasting, setPasting] = useState(false)
   const [candidates, setCandidates] = useState<EventCandidate[]>([])
+  const { city, setCity, ready: cityReady, cities } = useAdminCity(bi('Événements', 'Events'))
+  // First load: « En attente » if any, else « Trouvés cette nuit » if any,
+  // else Actifs (?tab=found from the morning WhatsApp wins).
+  const tabChosen = useRef(false)
 
   // Only super_admin and admin may flip payment configuration (not moderator).
   const canTogglePayment = currentRole === 'super_admin' || currentRole === 'admin'
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (): Promise<Event[] | null> => {
     // Admin console needs EVERY event, including pending (is_active=false)
     // ones awaiting approval. The browser anon client can't see those (RLS
     // public_active_read: is_active = TRUE), nor read event_reservations /
     // customers (service-role-locked), so we go through the admin API route
     // which runs as supabaseAdmin and gates on the session role.
     try {
-      const res = await fetch('/api/admin/events', { cache: 'no-store' })
+      const res = await fetch(`/api/admin/events?${cityQuery(city)}`, { cache: 'no-store' })
       const d = await res.json().catch(() => ({}))
-      if (Array.isArray(d?.events)) setEvents(d.events)
       if (d?.aggregates) setAggregates(d.aggregates as Record<string, EventAggregate>)
       if (d?.submitters) setSubmitters(d.submitters as Record<string, Submitter>)
+      if (Array.isArray(d?.events)) { setEvents(d.events); return d.events as Event[] }
     } catch { /* leave lists empty on failure */ }
-    setLoading(false)
-  }, [])
+    finally { setLoading(false) }
+    return null
+  }, [city])
 
-  const fetchCandidates = useCallback(async () => {
+  const fetchCandidates = useCallback(async (): Promise<EventCandidate[] | null> => {
     try {
-      const res = await fetch('/api/admin/event-candidates', { cache: 'no-store' })
+      const res = await fetch(`/api/admin/event-candidates?${cityQuery(city)}`, { cache: 'no-store' })
       const d = await res.json().catch(() => ({}))
-      if (Array.isArray(d?.candidates)) setCandidates(d.candidates as EventCandidate[])
+      if (Array.isArray(d?.candidates)) { setCandidates(d.candidates as EventCandidate[]); return d.candidates as EventCandidate[] }
     } catch { /* keep the last list */ }
-  }, [])
+    return null
+  }, [city])
 
   useEffect(() => {
-    fetchEvents()
-    fetchCandidates()
-    // The morning WhatsApp links to ?tab=found.
-    if (new URLSearchParams(window.location.search).get('tab') === 'found') setTab('found')
+    if (!cityReady) return
+    void Promise.all([fetchEvents(), fetchCandidates()]).then(([evs, cands]) => {
+      if (tabChosen.current) return
+      tabChosen.current = true
+      // The morning WhatsApp links to ?tab=found.
+      if (new URLSearchParams(window.location.search).get('tab') === 'found') { setTab('found'); return }
+      const today = todayInDouala()
+      const waiting = (evs ?? []).some(e => e.event_status !== 'rejected' && !e.is_active && !isFinishedEvent(e, today))
+      setTab(waiting ? 'pending' : (cands ?? []).length > 0 ? 'found' : 'active')
+    })
+  }, [cityReady, fetchEvents, fetchCandidates])
+
+  useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentRole(d.user.role) }).catch(() => {})
-  }, [fetchEvents, fetchCandidates])
+  }, [])
 
   // ── Payment config (super_admin / admin only) ──
   async function patchEventPayment(evt: Event, patch: { payment_mode?: PaymentMode; whatsapp_payment_enabled?: boolean }) {
@@ -304,6 +321,8 @@ export default function AdminEventsPage() {
         />
       )}
 
+      <AdminCityFilter city={city} cities={cities} onChange={setCity} />
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
@@ -326,7 +345,7 @@ export default function AdminEventsPage() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs (counts follow the city filter) */}
       <div className="flex gap-1 bg-surface-muted p-1 rounded-xl w-fit mb-5 flex-wrap">
         {([
           ['all',       bi('Tous', 'All'),          kept.length],

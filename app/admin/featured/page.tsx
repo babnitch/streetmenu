@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic'
 
 import { useCallback, useEffect, useState } from 'react'
 import { useBi, useLanguage } from '@/lib/languageContext'
-import { allCities, DEFAULT_CITY } from '@/lib/cities'
+import { useAdminCity } from '@/lib/adminCity'
+import AdminCityFilter from '@/components/AdminCityFilter'
 import { todayInDouala } from '@/lib/weekend'
 import { FEATURED_TYPES, featuredTitle, featuredTypeLabel, type FeaturedCard, type FeaturedType } from '@/lib/homeFeatured'
 
@@ -24,13 +25,27 @@ interface Result { type: FeaturedType; id: string; name: string; sub: string | n
 const input = 'w-full border border-divider rounded-lg px-2.5 py-2 text-sm bg-white'
 const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
 
+// The card is per city: with « Toutes » the admin picks a city first.
 export default function AdminFeaturedPage() {
+  const bi = useBi()
+  const { city, setCity, ready, cities } = useAdminCity(bi('À la une', 'Featured'))
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold text-ink-primary">⭐ {bi('À la une', 'Featured')}</h2>
+      <AdminCityFilter city={city} cities={cities} onChange={setCity} />
+      {!ready ? <p className="text-sm text-ink-tertiary">…</p>
+        : city ? <FeaturedForCity key={city} city={city} />
+        : <p className="text-sm text-ink-secondary bg-white border border-divider rounded-2xl p-4">{bi('La carte « À la une » est propre à chaque ville : choisissez une ville ci-dessus.', 'The featured card is per city: pick a city above.')}</p>}
+    </div>
+  )
+}
+
+function FeaturedForCity({ city }: { city: string }) {
   const bi = useBi()
   useRefData()
   const { locale } = useLanguage()
   const lang = locale === 'en' ? 'en' : 'fr'
   const today = todayInDouala()
-  const [city, setCity] = useState<string>(DEFAULT_CITY)
   const [data, setData] = useState<{ available: boolean; picks: Pick[]; current: FeaturedCard | null } | null>(null)
   const [type, setType] = useState<FeaturedType | ''>('')
   const [q, setQ] = useState('')
@@ -91,13 +106,6 @@ export default function AdminFeaturedPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-lg font-bold text-ink-primary">⭐ {bi('À la une', 'Featured')}</h2>
-        <select value={city} onChange={e => setCity(e.target.value)} className="border border-divider rounded-lg px-2.5 py-2 text-sm bg-white">
-          {Array.from(new Set([...allCities(), city])).map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </div>
-
       <div className="bg-white border border-divider rounded-2xl p-4">
         <p className="text-xs font-semibold text-ink-tertiary uppercase">{bi('Sur l\'accueil maintenant', 'On the home page now')}</p>
         {data === null ? <p className="text-sm text-ink-tertiary mt-1">…</p>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/auth'
 import { listProblems } from '@/lib/protectedPayments'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,5 +9,5 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const s = getSessionFromRequest(req)
   if (!s || !['super_admin', 'admin'].includes(s.role)) return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
-  return NextResponse.json({ problems: await listProblems() }, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json({ problems: await listProblems(await adminCityParam(req)) }, { headers: { 'Cache-Control': 'no-store' } })
 }

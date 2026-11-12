@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
 import { CANDIDATE_COLUMNS } from '@/lib/discovery/candidates'
+import { adminCityParam } from '@/lib/adminCityServer'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,9 +14,12 @@ export async function GET(req: NextRequest) {
   if (!session || !['super_admin', 'admin', 'moderator'].includes(session.role)) {
     return NextResponse.json({ error: 'Non autorisé / Unauthorized' }, { status: 401 })
   }
-  const { data, error } = await supabaseAdmin.from('event_candidates').select(CANDIDATE_COLUMNS)
+  const city = await adminCityParam(req)
+  let q = supabaseAdmin.from('event_candidates').select(CANDIDATE_COLUMNS)
     .in('status', ['new', 'contacted']).is('deleted_at', null)
     .order('start_date', { ascending: true }).range(0, 499)
+  if (city) q = q.eq('city', city)
+  const { data, error } = await q
   if (error) {
     // Before supabase-event-discovery.sql: an empty list, not an error page.
     console.error('[admin/event-candidates] query failed:', error.message)

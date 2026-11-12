@@ -7,10 +7,12 @@ export const dynamic = 'force-dynamic'
 // create, edit (FR + EN), publish / hide. Admin note and sources stay here —
 // never public.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useBi, useLanguage } from '@/lib/languageContext'
 import { allCities } from '@/lib/cities'
+import { useAdminCity, cityQuery } from '@/lib/adminCity'
+import AdminCityFilter from '@/components/AdminCityFilter'
 import { matchesSearch } from '@/lib/textSearch'
 import { placeCategories, placeCategoryLabel } from '@/lib/places'
 
@@ -52,23 +54,30 @@ export default function AdminPlacesPage() {
   const { locale } = useLanguage()
   const [places, setPlaces] = useState<AdminPlace[] | null>(null)
   const [filter, setFilter] = useState<Status | 'all'>('all')
-  const [city, setCity] = useState<string>('')
+  const { city, setCity, ready: cityReady, cities } = useAdminCity(bi('À visiter', 'Places'))
+  // First load: « À valider » when proposals wait, else Publiés.
+  const filterChosen = useRef(false)
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)   // id, or 'new'
 
   const load = useCallback(() => {
-    fetch('/api/admin/places', { cache: 'no-store' }).then(r => r.ok ? r.json() : { places: [] })
-      .then(d => setPlaces(d.places ?? [])).catch(() => setPlaces([]))
-  }, [])
+    if (!cityReady) return
+    fetch(`/api/admin/places?${cityQuery(city)}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : { places: [] })
+      .then(d => {
+        const list = (d.places ?? []) as AdminPlace[]
+        setPlaces(list)
+        if (!filterChosen.current) { filterChosen.current = true; setFilter(list.some(p => p.status === 'pending') ? 'pending' : 'active') }
+      }).catch(() => setPlaces([]))
+  }, [city, cityReady])
   useEffect(load, [load])
 
-  const cities = useMemo(() => Array.from(new Set([...allCities(), ...(places ?? []).map(p => p.city)])), [places])
+  // Counts follow the city filter (the list is already one city's).
   const counts = useMemo(() => {
     const c = { all: 0, pending: 0, active: 0, hidden: 0 }
-    for (const p of places ?? []) { if (city && p.city !== city) continue; c.all++; c[p.status]++ }
+    for (const p of places ?? []) { c.all++; c[p.status]++ }
     return c
-  }, [places, city])
-  const shown = (places ?? []).filter(p => (filter === 'all' || p.status === filter) && (!city || p.city === city)
+  }, [places])
+  const shown = (places ?? []).filter(p => (filter === 'all' || p.status === filter)
     && matchesSearch(q, [p.title_fr, p.title_en, p.area, p.admin_note]))
 
   return (
@@ -79,6 +88,7 @@ export default function AdminPlacesPage() {
           className="bg-brand hover:bg-brand-dark text-white text-sm font-bold px-4 py-2 rounded-full">+ {bi('Nouveau lieu', 'New place')}</button>
       </div>
       {open === 'new' && <PlaceForm onDone={() => { setOpen(null); load() }} />}
+      <AdminCityFilter city={city} cities={cities} onChange={setCity} />
       <div className="flex flex-wrap gap-2">
         {(['all', 'pending', 'active', 'hidden'] as const).map(s => (
           <button key={s} type="button" aria-pressed={filter === s} onClick={() => setFilter(s)}
@@ -86,10 +96,6 @@ export default function AdminPlacesPage() {
             {s === 'all' ? bi('Tous', 'All') : bi(STATUS_PILL[s].fr, STATUS_PILL[s].en)} ({counts[s]})
           </button>
         ))}
-        <select value={city} onChange={e => setCity(e.target.value)} className="border border-divider rounded-full px-3 py-1.5 text-sm bg-white">
-          <option value="">{bi('Toutes les villes', 'All cities')}</option>
-          {cities.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
       </div>
       <input className={input} value={q} onChange={e => setQ(e.target.value)} placeholder={bi('Rechercher', 'Search')} />
       {places === null ? <p className="text-sm text-ink-tertiary">…</p>
