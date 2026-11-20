@@ -16,7 +16,7 @@ import { formatEventWhen, isMultiDay } from '@/lib/eventDate'
 import { formatFCFA } from '@/lib/money'
 
 // Reservation rows that count as a real attendee (exclude cancelled/rejected).
-const ACTIVE_RESERVATION_STATUSES = ['confirmed', 'pending', 'attended']
+export const ACTIVE_RESERVATION_STATUSES = ['confirmed', 'pending', 'attended']
 // Order statuses that count as "active" (not yet completed or cancelled).
 const ACTIVE_ORDER_STATUSES = ['pending', 'confirmed', 'preparing', 'ready']
 
@@ -146,8 +146,10 @@ export async function notifyEventUpdate(
   changes: SignificantChanges,
   performedBy: string,
   performedByType: string,
+  /** false: the admin chose not to tell the people who booked. */
+  send = true,
 ): Promise<number> {
-  const attendees = hasSignificantChange(changes) ? await getEventAttendees(event.id) : []
+  const attendees = send && hasSignificantChange(changes) ? await getEventAttendees(event.id) : []
   let notified = 0
   if (attendees.length > 0) {
     const items = attendees.map(a => ({ phone: a.phone, message: formatUpdateMessage(event, changes, a.lang), customerId: a.customerId }))
@@ -160,7 +162,7 @@ export async function notifyEventUpdate(
     targetId:        event.id,
     performedBy,
     performedByType,
-    metadata:        { notified, changed: Object.keys(changes) },
+    metadata:        { notified, changed: Object.keys(changes), ...(send ? {} : { not_sent: true }) },
   })
   return notified
 }

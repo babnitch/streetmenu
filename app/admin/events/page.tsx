@@ -19,7 +19,7 @@ import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 import { AdminEventCreate, AdminEventOrganizer } from '@/components/AdminEventManaged'
 import AdminEventCandidates from '@/components/AdminEventCandidates'
 import AdminEventPaste from '@/components/AdminEventPaste'
-import AdminPhotoPanel from '@/components/AdminPhotoPanel'
+import AdminEventInfoPanel from '@/components/AdminEventInfoPanel'
 import type { EventCandidate } from '@/lib/discovery/candidates'
 import { useAdminCity, cityQuery } from '@/lib/adminCity'
 import AdminCityFilter from '@/components/AdminCityFilter'
@@ -602,14 +602,14 @@ function EventRow({
             {event.info_link && <ContactLink kind="ticket" value={event.info_link} label={bi('Billets / Infos', 'Tickets / Info')} />}
           </div>
 
-          {/* Poster of an existing event (managed or an organiser's) + credit. */}
+          {/* Infos de l'événement (managed or an organiser's): every detail,
+              the map pin, booking mode, poster + cadrage + credit. */}
           {canTogglePayment && event.event_status !== 'rejected' && (
             <details className="mt-2 rounded-xl border border-divider bg-surface px-3 py-2 text-xs">
-              <summary className="cursor-pointer font-semibold text-ink-secondary">📷 {bi('Affiche', 'Poster')}</summary>
-              <div className="mt-2">
-                <AdminPhotoPanel target="events" id={event.id} credit={event.photo_credit ?? null}
-                  onSaved={() => onOrganizerChanged()}
-                  slots={[{ field: 'cover_photo', label: bi('Affiche', 'Poster'), url: event.cover_photo || null, kind: 'event_poster', focus: event.cover_focus ?? null }]} />
+              <summary className="cursor-pointer font-semibold text-ink-secondary">📝 {bi('Infos de l\'événement & affiche', 'Event details & poster')}</summary>
+              <div className="mt-3">
+                <AdminEventInfoPanel eventId={event.id} onSaved={() => onOrganizerChanged()}
+                  poster={{ url: event.cover_photo || null, focus: event.cover_focus ?? null, credit: event.photo_credit ?? null }} />
               </div>
             </details>
           )}

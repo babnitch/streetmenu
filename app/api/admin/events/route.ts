@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { checkInfoLink } from '@/lib/eventEdit'
 import { getRefData } from '@/lib/refDataServer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getSessionFromRequest } from '@/lib/auth'
@@ -166,8 +167,9 @@ export async function POST(req: NextRequest) {
   // A proposed city is not live until accepted / mapped: kept unpublished.
   const publish = body.publish !== false && !cityPick.proposed
   const bookingMode = body.booking_mode === 'platform' ? 'platform' : 'info'
-  const infoLink = typeof body.info_link === 'string' ? body.info_link.trim() : ''
-  if (infoLink && (!/^https?:\/\/\S+$/.test(infoLink) || infoLink.length > 500)) {
+  const link = checkInfoLink(body.info_link)
+  const infoLink = link.ok ? link.link : null
+  if (!link.ok) {
     return NextResponse.json({ error: 'Lien invalide (https://…) / Invalid link (https://…)', field: 'info_link' }, { status: 400 })
   }
 
@@ -186,7 +188,7 @@ export async function POST(req: NextRequest) {
     ticket_price: price,
     max_tickets:  bookingMode === 'info' ? 0 : maxTickets,
     booking_mode: bookingMode,
-    info_link:    infoLink || null,
+    info_link:    infoLink,
     price_is_from: body.price_is_from === true,
     payment_enabled: false,
     payment_mode: 'reservation_only',
