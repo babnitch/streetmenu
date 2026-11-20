@@ -7,6 +7,10 @@
 import { useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import { LINK_FIELDS, LINK_LABELS, type LinkField } from '@/lib/restaurantLinks'
+import ContactLink from '@/components/ContactLink'
+import type { ContactKind } from '@/lib/contactLinks'
+
+const LINK_KIND: Record<LinkField, ContactKind> = { instagram_url: 'instagram', facebook_url: 'facebook', tiktok_url: 'tiktok', website_url: 'website' }
 
 type Values = Partial<Record<LinkField | 'phone_to_verify' | 'note', string>>
 
@@ -44,6 +48,10 @@ export default function RestaurantLinksForm({ restaurantId, admin = false, initi
       <span className="text-xs font-semibold text-ink-secondary">{label}</span>
       <input value={v?.[k] ?? ''} placeholder={ph} onChange={e => setV(x => ({ ...(x ?? {}), [k]: e.target.value }))}
         className={`mt-1 w-full border rounded-xl px-3 py-2 text-sm outline-none focus:border-brand ${msg?.field === k ? 'border-danger' : 'border-divider'}`} />
+      {admin && k in LINK_KIND && <ContactLink kind={LINK_KIND[k as LinkField]} value={v?.[k]} className="mt-1" />}
+      {admin && k === 'phone_to_verify' && (
+        <span className="flex gap-3 mt-1"><ContactLink kind="phone" value={v?.[k]} /><ContactLink kind="whatsapp" value={v?.[k]} label="WhatsApp" /></span>
+      )}
     </label>
   )
 

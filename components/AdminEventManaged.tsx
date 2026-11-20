@@ -1,5 +1,5 @@
 'use client'
-import RefPicker, { pickerBody } from '@/components/RefPicker'
+import RefPicker, { pickerBody, OTHER } from '@/components/RefPicker'
 import { useRefData } from '@/lib/useRefData'
 
 // Admin → Événements (N3): events listed by Tchop & Ndjoka, with no organiser.
@@ -12,6 +12,7 @@ import { useRefData } from '@/lib/useRefData'
 import { useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
+import ContactLink from '@/components/ContactLink'
 import DoorStaffPanel from '@/components/DoorStaffPanel'
 import type { Event } from '@/types'
 import { uploadPhoto } from '@/lib/uploadPhoto'
@@ -103,7 +104,8 @@ export function AdminEventCreate({ onCreated, onClose, initial, extraBody, noPos
             <RefPicker kind="city" className={INPUT} value={f.city} other={f.city_other}
               onChange={(v, o) => setF(p => ({ ...p, city: v, city_other: o }))} />
           </L>
-          <L label={bi('Lieu', 'Venue')}><input value={f.venue} onChange={e => set('venue', e.target.value)} className={INPUT} /></L>
+          <L label={bi('Lieu', 'Venue')}><input value={f.venue} onChange={e => set('venue', e.target.value)} className={INPUT} />
+            <ContactLink kind="map" map={{ address: [f.venue, f.neighborhood].filter(Boolean).join(', '), city: f.city === OTHER ? f.city_other : f.city }} label={bi('Voir sur Google Maps', 'View on Google Maps')} className="mt-1" /></L>
           <L label={bi('Quartier', 'Area')}><input value={f.neighborhood} onChange={e => set('neighborhood', e.target.value)} className={INPUT} /></L>
           <L label={bi('Date de début *', 'Start date *')}><input type="date" value={f.date} onChange={e => set('date', e.target.value)} className={INPUT} /></L>
           <L label={bi('Heure de début', 'Start time')}><input type="time" value={f.time} onChange={e => set('time', e.target.value)} className={INPUT} /></L>
@@ -125,12 +127,15 @@ export function AdminEventCreate({ onCreated, onClose, initial, extraBody, noPos
           {f.booking_mode === 'info' && (
             <L label={bi('Lien « Billets / Infos »', '"Tickets / Info" link')} wide>
               <input type="url" inputMode="url" value={f.info_link} onChange={e => set('info_link', e.target.value)} placeholder="https://" className={INPUT} />
+              <ContactLink kind="ticket" value={f.info_link} className="mt-1" />
             </L>
           )}
           <L label={bi('Organisateur affiché', 'Organiser shown')}><input value={f.organizer_name} onChange={e => set('organizer_name', e.target.value)} placeholder="Tchop & Ndjoka" className={INPUT} /></L>
-          <L label={bi('WhatsApp de contact (public)', 'Contact WhatsApp (public)')}><PhoneInput value={f.whatsapp} onChange={full => set('whatsapp', full)} /></L>
+          <L label={bi('WhatsApp de contact (public)', 'Contact WhatsApp (public)')}><PhoneInput value={f.whatsapp} onChange={full => set('whatsapp', full)} />
+            <ContactLink kind="whatsapp" value={f.whatsapp} className="mt-1" /></L>
           {f.booking_mode === 'platform' && (
-            <L label={bi('Numéro qui reçoit les réservations', 'Number that gets the bookings')}><PhoneInput value={f.notify_phone} onChange={full => set('notify_phone', full)} /></L>
+            <L label={bi('Numéro qui reçoit les réservations', 'Number that gets the bookings')}><PhoneInput value={f.notify_phone} onChange={full => set('notify_phone', full)} />
+            <ContactLink kind="phone" value={f.notify_phone} className="mt-1" /></L>
           )}
           <L label="Description" wide><textarea value={f.description} onChange={e => set('description', e.target.value)} rows={3} className={INPUT} /></L>
           {noPoster ? (
@@ -198,8 +203,7 @@ export function AdminEventOrganizer({ event, onChanged }: { event: Event; onChan
         🏢 {event.booking_mode === 'info'
           ? bi('Géré par Tchop & Ndjoka · ℹ️ infos seulement (pas de réservation)', 'Managed by Tchop & Ndjoka · ℹ️ info only (no booking)')
           : bi('Géré par Tchop & Ndjoka · réservations gratuites seulement', 'Managed by Tchop & Ndjoka · free reservations only')}
-        {event.booking_mode === 'info' && event.info_link && <> · <a href={event.info_link} target="_blank" rel="noopener noreferrer" className="underline">🎟️ {bi('lien', 'link')}</a></>}
-        {event.notify_phone && <> · 🔔 <span className="font-mono">{event.notify_phone}</span></>}
+        {event.notify_phone && <> · 🔔 <ContactLink kind="phone" value={event.notify_phone} className="font-mono" /></>}
       </p>
       {!mode ? (
         <div className="flex flex-wrap gap-2 mt-1.5">

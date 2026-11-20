@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useBi } from '@/lib/languageContext'
 import PhoneInput from '@/components/PhoneInput'
+import ContactLink from '@/components/ContactLink'
 import ConfirmModal from '@/components/ConfirmModal'
 
 interface Member { customer_id: string; role: string; name: string; phone: string }
@@ -106,7 +107,7 @@ export default function AdminRestaurantContacts({ restaurantId, onChanged }: { r
       <section>
         <h4 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary mb-1.5">{bi('Propriétaire', 'Owner')}</h4>
         {c.owner ? (
-          <p className="text-ink-primary">👤 <span className="font-medium">{c.owner.name}</span> <span className="font-mono text-ink-tertiary">· {c.owner.phone}</span></p>
+          <p className="text-ink-primary">👤 <span className="font-medium">{c.owner.name}</span> · <ContactLink kind="phone" value={c.owner.phone} className="font-mono" /> <ContactLink kind="whatsapp" value={c.owner.phone} label="WhatsApp" /></p>
         ) : (
           <p className="text-ink-primary">🏢 {bi('Géré par Tchop & Ndjoka', 'Managed by Tchop & Ndjoka')}</p>
         )}
@@ -138,7 +139,7 @@ export default function AdminRestaurantContacts({ restaurantId, onChanged }: { r
         <ul className="space-y-1">
           {c.order_phones.map(p => (
             <li key={p} className="flex items-center justify-between gap-2">
-              <span className="font-mono">💬 {p}</span>
+              <ContactLink kind="whatsapp" value={p} className="font-mono" />
               <button type="button" disabled={busy} onClick={() => act({ action: 'remove_order_phone', phone: p })}
                 className="text-xs text-danger hover:underline">{bi('Retirer', 'Remove')}</button>
             </li>
@@ -163,7 +164,7 @@ export default function AdminRestaurantContacts({ restaurantId, onChanged }: { r
         <ul className="space-y-1">
           {c.team.map(m => (
             <li key={m.customer_id} className="flex items-center justify-between gap-2">
-              <span>{m.name} <span className="font-mono text-ink-tertiary">· {m.phone}</span> <span className="text-xs text-ink-secondary">· {roleLabel(m.role)}</span></span>
+              <span>{m.name} · <ContactLink kind="phone" value={m.phone} className="font-mono" /> <span className="text-xs text-ink-secondary">· {roleLabel(m.role)}</span></span>
               <button type="button" disabled={busy} onClick={() => act({ action: 'remove_member', customer_id: m.customer_id })}
                 className="text-xs text-danger hover:underline">{bi('Retirer', 'Remove')}</button>
             </li>

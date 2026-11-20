@@ -23,6 +23,7 @@ import AdminPhotoPanel from '@/components/AdminPhotoPanel'
 import type { EventCandidate } from '@/lib/discovery/candidates'
 import { useAdminCity, cityQuery } from '@/lib/adminCity'
 import AdminCityFilter from '@/components/AdminCityFilter'
+import ContactLink from '@/components/ContactLink'
 
 // Aggregate counters keyed by event id. Loaded once per fetchEvents in a
 // single query so the table can render reservation + revenue per row without
@@ -594,9 +595,11 @@ function EventRow({
             {event.organizer_name && (
               <p className="text-xs text-ink-tertiary">{organizerLabel}: {event.organizer_name}</p>
             )}
-            {event.whatsapp && (
-              <p className="text-xs text-ink-tertiary font-mono">{event.whatsapp}</p>
-            )}
+          </div>
+          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+            <ContactLink kind="map" map={{ address: [event.venue, event.neighborhood].filter(Boolean).join(', '), city: event.city, lat: event.lat, lng: event.lng }} label={bi('Carte', 'Map')} />
+            <ContactLink kind="whatsapp" value={event.whatsapp} className="font-mono" />
+            {event.info_link && <ContactLink kind="ticket" value={event.info_link} label={bi('Billets / Infos', 'Tickets / Info')} />}
           </div>
 
           {/* Poster of an existing event (managed or an organiser's) + credit. */}

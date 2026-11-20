@@ -17,6 +17,7 @@ import { refList } from '@/lib/refData'
 import { visibleCities } from '@/lib/cities'
 import RefPicker, { OTHER } from '@/components/RefPicker'
 import PhoneInput from '@/components/PhoneInput'
+import ContactLink from '@/components/ContactLink'
 import type { Restaurant } from '@/types'
 import { parsePin } from '@/lib/restaurantDetailFields'
 import { FOCUS_OF, focusStyle } from '@/lib/photoFocus'
@@ -228,7 +229,8 @@ export default function RestaurantInfoPanel({ restaurant, onChange, admin = fals
           </select>
         </L>
         <L label={bi('Quartier', 'Area')}><input value={f.neighborhood} onChange={e => set('neighborhood', e.target.value)} maxLength={80} className={INPUT} /></L>
-        <L label={bi('Adresse', 'Address')}><input value={f.address} onChange={e => set('address', e.target.value)} maxLength={200} className={INPUT} placeholder={bi('Ex. : rue 1.234, face pharmacie…', 'E.g. street 1.234, opposite the pharmacy…')} /></L>
+        <L label={bi('Adresse', 'Address')}><input value={f.address} onChange={e => set('address', e.target.value)} maxLength={200} className={INPUT} placeholder={bi('Ex. : rue 1.234, face pharmacie…', 'E.g. street 1.234, opposite the pharmacy…')} />
+          {admin && <ContactLink kind="map" map={{ address: f.address, city: f.city }} label={bi('Ouvrir l\'adresse dans Google Maps', 'Open the address in Google Maps')} className="mt-1" />}</L>
         <div className="sm:col-span-2 rounded-xl border border-divider p-3">
           <p className="text-xs font-semibold text-ink-secondary mb-1">📍 {bi('Position sur la carte', 'Map pin')}</p>
           <p className="text-xs text-ink-tertiary mb-2">
@@ -250,8 +252,10 @@ export default function RestaurantInfoPanel({ restaurant, onChange, admin = fals
             {busy === 'pin' ? '…' : bi('📍 Utiliser ma position actuelle', '📍 Use my current position')}
           </button>
         </div>
-        <L label={bi('Téléphone (public, facultatif)', 'Phone (public, optional)')}><PhoneInput value={f.phone} onChange={full => set('phone', full)} /></L>
-        <L label={bi('WhatsApp (commandes et bot)', 'WhatsApp (orders and bot)')}><PhoneInput value={f.whatsapp} onChange={full => set('whatsapp', full)} /></L>
+        <L label={bi('Téléphone (public, facultatif)', 'Phone (public, optional)')}><PhoneInput value={f.phone} onChange={full => set('phone', full)} />
+          {admin && <ContactLink kind="phone" value={f.phone} className="mt-1" />}</L>
+        <L label={bi('WhatsApp (commandes et bot)', 'WhatsApp (orders and bot)')}><PhoneInput value={f.whatsapp} onChange={full => set('whatsapp', full)} />
+          {admin && <ContactLink kind="whatsapp" value={f.whatsapp} className="mt-1" />}</L>
       </div>
       {f.whatsapp.trim() !== start.whatsapp.trim() && (
         <p className="text-xs text-amber-800 mt-2">⚠️ {bi('Ce numéro reçoit les commandes et parle au bot Tchop & Ndjoka : vérifiez-le bien.', 'This number gets the orders and talks to the Tchop & Ndjoka bot: double-check it.')}</p>

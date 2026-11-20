@@ -23,6 +23,7 @@ import {
 } from '@/lib/discovery/candidates'
 import { AdminEventCreate } from '@/components/AdminEventManaged'
 import type { Event } from '@/types'
+import ContactLink from '@/components/ContactLink'
 
 const BTN = 'text-xs font-semibold px-3 py-1.5 rounded-full border'
 
@@ -133,12 +134,15 @@ function CandidateCard({ c, canAct, onChanged, onPublish, toast }: {
         )}
       </div>
 
-      <p className="text-xs text-ink-tertiary mt-2">
-        <a href={c.source_url} target="_blank" rel="noopener noreferrer" className="underline font-semibold text-ink-secondary">
-          🔗 {bi('Voir la source', 'View source')} ({c.source_domain}) ↗
-        </a>
-        {c.other_urls.length > 0 && <> · {bi(`aussi sur ${c.other_urls.length} autre(s) page(s)`, `also on ${c.other_urls.length} other page(s)`)}</>}
-      </p>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+        <ContactLink kind="source" value={c.source_url} label={`${bi('Voir la source', 'View source')} (${c.source_domain})`} className="font-semibold" />
+        {c.ticket_url && c.ticket_url !== c.source_url && <ContactLink kind="ticket" value={c.ticket_url} label={bi('Billets', 'Tickets')} />}
+        {c.other_urls.map((u, i) => <ContactLink key={u} kind="source" value={u} label={`${bi('Autre page', 'Other page')} ${i + 1}`} />)}
+        <ContactLink kind="map" map={{ address: c.venue, city: c.city }} label={bi('Carte', 'Map')} />
+        <ContactLink kind="website" value={c.organiser_url} label={bi('Page de l\'organisateur', 'Organiser page')} />
+        <ContactLink kind="whatsapp" value={c.organiser_phone} className="font-mono" />
+        <ContactLink kind="phone" value={c.organiser_phone} label={bi('Appeler', 'Call')} />
+      </div>
       {c.possible_duplicate_event_id && (
         <p className="text-xs mt-1 text-amber-800">
           ⚠️ {bi('Doublon possible de', 'Possible duplicate of')}{' '}

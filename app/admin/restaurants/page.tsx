@@ -18,6 +18,7 @@ import ModulesSheet, { ModuleSwitches, ModuleChips } from '@/components/ModulesS
 import AdminModuleRequests from '@/components/AdminModuleRequests'
 import AdminPlatformSwitch from '@/components/AdminPlatformSwitch'
 import AdminRestaurantContacts from '@/components/AdminRestaurantContacts'
+import ContactLink from '@/components/ContactLink'
 import MenuFilesPanel from '@/components/MenuFilesPanel'
 import { DEFAULT_ON_APPROVAL } from '@/lib/modules'
 import { uploadPhoto } from '@/lib/uploadPhoto'
@@ -58,6 +59,10 @@ interface RestaurantRow {
   broadcast_enabled: boolean | null
   modules: string[] | null
   managed_by_platform?: boolean | null
+  instagram_url?: string | null
+  facebook_url?: string | null
+  tiktok_url?: string | null
+  website_url?: string | null
   owner: { id: string; name: string; phone: string } | null
 }
 
@@ -706,12 +711,15 @@ function RestaurantCard({
               <p className="text-sm text-ink-secondary">
                 {r.city}{r.neighborhood ? ` · ${r.neighborhood}` : r.address ? ` · ${r.address}` : ''}
               </p>
-              {r.whatsapp && (
-                <a href={`https://wa.me/${r.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-brand-darker font-mono hover:text-brand-darker">
-                  {r.whatsapp}
-                </a>
-              )}
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                <ContactLink kind="map" map={{ address: r.address || r.neighborhood, city: r.city, lat: r.lat, lng: r.lng }} label={bi('Carte', 'Map')} />
+                <ContactLink kind="whatsapp" value={r.whatsapp} />
+                {r.phone && r.phone !== r.whatsapp && <ContactLink kind="phone" value={r.phone} />}
+                <ContactLink kind="instagram" value={r.instagram_url} label="Instagram" />
+                <ContactLink kind="facebook" value={r.facebook_url} label="Facebook" />
+                <ContactLink kind="tiktok" value={r.tiktok_url} label="TikTok" />
+                <ContactLink kind="website" value={r.website_url} label={bi('Site web', 'Website')} />
+              </div>
             </div>
             <div className="flex flex-col items-end gap-1">
               <StatusBadge r={r} />
@@ -723,7 +731,7 @@ function RestaurantCard({
           {r.owner ? (
             <p className="text-xs text-ink-secondary mt-1">
               👤 <span className="font-medium">{r.owner.name}</span>
-              <span className="font-mono text-ink-tertiary"> · {r.owner.phone}</span>
+              {' · '}<ContactLink kind="phone" value={r.owner.phone} className="font-mono" />
             </p>
           ) : r.managed_by_platform ? (
             <p className="text-xs text-ink-secondary mt-1">🏢 {bi('Géré par Tchop & Ndjoka', 'Managed by Tchop & Ndjoka')}</p>
